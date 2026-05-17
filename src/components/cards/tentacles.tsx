@@ -59,6 +59,7 @@ export const TentacleQuestionComponent = ({
             questionKey={questionKey}
             label={label}
             sub={sub}
+            category="tentacles"
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
