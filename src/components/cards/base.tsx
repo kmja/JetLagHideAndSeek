@@ -30,6 +30,7 @@ import {
     SidebarGroupLabel,
     SidebarMenu,
 } from "@/components/ui/sidebar-l";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { isLoading, questions } from "@/lib/context";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,7 @@ export const QuestionCard = ({
     className,
     label,
     sub,
+    category,
     collapsed,
     locked,
     setLocked,
@@ -49,6 +51,7 @@ export const QuestionCard = ({
     className?: string;
     label?: string;
     sub?: string;
+    category?: CategoryId;
     collapsed?: boolean;
     locked?: boolean;
     setLocked?: (locked: boolean) => void;
@@ -59,6 +62,9 @@ export const QuestionCard = ({
     const $isLoading = useStore(isLoading);
     const copyButtonRef = useRef<HTMLButtonElement>(null);
 
+    const categoryMeta = category ? CATEGORIES[category] : undefined;
+    const CategoryIcon = categoryMeta?.icon;
+
     const toggleCollapse = () => {
         if (setCollapsed) {
             setCollapsed(!isCollapsed);
@@ -68,7 +74,19 @@ export const QuestionCard = ({
 
     return (
         <>
-            <SidebarGroup className={className}>
+            <SidebarGroup
+                className={cn(
+                    category && "border-l-[3px] border-l-[var(--cat-color)]",
+                    className,
+                )}
+                style={
+                    categoryMeta
+                        ? ({
+                              "--cat-color": categoryMeta.color,
+                          } as React.CSSProperties)
+                        : undefined
+                }
+            >
                 <div className="relative">
                     <button
                         onClick={toggleCollapse}
@@ -80,10 +98,27 @@ export const QuestionCard = ({
                         <VscChevronDown />
                     </button>
                     <SidebarGroupLabel
-                        className="ml-8 mr-8 cursor-pointer"
+                        className="ml-8 mr-8 cursor-pointer flex items-center gap-2"
                         onClick={toggleCollapse}
                     >
-                        {label} {sub && `(${sub})`}
+                        {CategoryIcon && (
+                            <span
+                                className="inline-flex items-center justify-center w-5 h-5 rounded shrink-0"
+                                style={{
+                                    backgroundColor: categoryMeta!.color,
+                                }}
+                                aria-hidden="true"
+                            >
+                                <CategoryIcon
+                                    size={13}
+                                    strokeWidth={2.5}
+                                    className="text-white"
+                                />
+                            </span>
+                        )}
+                        <span>
+                            {label} {sub && `(${sub})`}
+                        </span>
                     </SidebarGroupLabel>
                     <SidebarGroupContent
                         className={cn(
