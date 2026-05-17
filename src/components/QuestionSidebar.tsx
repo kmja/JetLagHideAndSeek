@@ -39,14 +39,27 @@ export const QuestionSidebar = () => {
             <div className="flex items-center justify-between">
                 <h2 className="ml-4 mt-4 font-poppins text-2xl">Questions</h2>
                 <SidebarCloseIcon
-                    className="mr-2 visible md:hidden"
+                    className="mr-2 visible md:hidden cursor-pointer hover:text-muted-foreground transition-colors"
                     onClick={() => {
                         SidebarContext.get().setOpenMobile(false);
                     }}
                 />
             </div>
+            <SidebarGroup className="pb-0">
+                <SidebarGroupContent>
+                    <SidebarMenu data-tutorial-id="add-questions-buttons">
+                        <SidebarMenuItem>
+                            <AddQuestionDialog>
+                                <SidebarMenuButton disabled={$isLoading}>
+                                    Add Question
+                                </SidebarMenuButton>
+                            </AddQuestionDialog>
+                        </SidebarMenuItem>
+                    </SidebarMenu>
+                </SidebarGroupContent>
+            </SidebarGroup>
             <SidebarContent>
-                {$questions.map((question) => {
+                {[...$questions].reverse().map((question) => {
                     switch (question.id) {
                         case "radius":
                             return (
@@ -93,28 +106,10 @@ export const QuestionSidebar = () => {
                     }
                 })}
             </SidebarContent>
-            <SidebarGroup>
-                <SidebarGroupContent>
-                    <SidebarMenu data-tutorial-id="add-questions-buttons">
-                        <SidebarMenuItem>
-                            <AddQuestionDialog>
-                                <SidebarMenuButton disabled={$isLoading}>
-                                    Add Question
-                                </SidebarMenuButton>
-                            </AddQuestionDialog>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <a
-                                href="https://github.com/taibeled/JetLagHideAndSeek"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                <SidebarMenuButton className="bg-emerald-600 transition-colors">
-                                    Star this on GitHub! It&apos;s free :)
-                                </SidebarMenuButton>
-                            </a>
-                        </SidebarMenuItem>
-                        {!$autoSave && (
+            {!$autoSave && (
+                <SidebarGroup>
+                    <SidebarGroupContent>
+                        <SidebarMenu>
                             <SidebarMenuItem>
                                 <SidebarMenuButton
                                     className="bg-blue-600 p-2 rounded-md font-semibold font-poppins transition-shadow duration-500"
@@ -124,10 +119,10 @@ export const QuestionSidebar = () => {
                                     Save
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
-                        )}
-                    </SidebarMenu>
-                </SidebarGroupContent>
-            </SidebarGroup>
+                        </SidebarMenu>
+                    </SidebarGroupContent>
+                </SidebarGroup>
+            )}
         </Sidebar>
     );
 };
