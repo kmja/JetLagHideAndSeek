@@ -60,6 +60,7 @@ export const TentacleQuestionComponent = ({
             label={label}
             sub={sub}
             category="tentacles"
+            summary={(data.locationType.charAt(0).toUpperCase() + data.locationType.slice(1)).replace(/-/g, " ")}
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {

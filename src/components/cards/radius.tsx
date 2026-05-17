@@ -44,12 +44,17 @@ export const RadiusQuestionComponent = ({
             .indexOf(questionKey) + 1
     }`;
 
+    const unitAbbrev =
+        data.unit === "miles" ? "mi" : data.unit === "meters" ? "m" : "km";
+    const summary = `${data.radius} ${unitAbbrev} · ${data.within ? "Inside" : "Outside"}`;
+
     return (
         <QuestionCard
             questionKey={questionKey}
             label={label}
             sub={sub}
             category="radius"
+            summary={summary}
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {

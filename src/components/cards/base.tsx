@@ -41,6 +41,7 @@ export const QuestionCard = ({
     label,
     sub,
     category,
+    summary,
     collapsed,
     locked,
     setLocked,
@@ -52,12 +53,13 @@ export const QuestionCard = ({
     label?: string;
     sub?: string;
     category?: CategoryId;
+    summary?: React.ReactNode;
     collapsed?: boolean;
     locked?: boolean;
     setLocked?: (locked: boolean) => void;
     setCollapsed?: (collapsed: boolean) => void;
 }) => {
-    const [isCollapsed, setIsCollapsed] = useState(collapsed ?? false);
+    const [isCollapsed, setIsCollapsed] = useState(collapsed ?? true);
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
     const copyButtonRef = useRef<HTMLButtonElement>(null);
@@ -91,14 +93,15 @@ export const QuestionCard = ({
                     <button
                         onClick={toggleCollapse}
                         className={cn(
-                            "absolute top-2 left-2 text-white border rounded-md transition-all duration-500",
+                            "absolute top-2 left-2 text-white border rounded-md transition-all duration-500 hover:bg-white/10",
                             isCollapsed && "-rotate-90",
                         )}
+                        aria-label={isCollapsed ? "Expand" : "Collapse"}
                     >
                         <VscChevronDown />
                     </button>
                     <SidebarGroupLabel
-                        className="ml-8 mr-8 cursor-pointer flex items-center gap-2"
+                        className="ml-8 mr-8 cursor-pointer flex items-center gap-2 hover:bg-white/[0.03] rounded-sm transition-colors"
                         onClick={toggleCollapse}
                     >
                         {CategoryIcon && (
@@ -120,6 +123,14 @@ export const QuestionCard = ({
                             {label} {sub && `(${sub})`}
                         </span>
                     </SidebarGroupLabel>
+                    {summary && isCollapsed && (
+                        <div
+                            onClick={toggleCollapse}
+                            className="ml-[3.25rem] mr-8 -mt-1 pb-2 text-xs text-muted-foreground cursor-pointer truncate"
+                        >
+                            {summary}
+                        </div>
+                    )}
                     <SidebarGroupContent
                         className={cn(
                             "overflow-hidden transition-all duration-1000 max-h-[100rem]", // 100rem is arbitrary
@@ -229,6 +240,7 @@ export const QuestionCard = ({
                                         variant="outline"
                                         size="sm"
                                         disabled={$isLoading}
+                                        className="hover:bg-destructive/10 hover:text-destructive hover:border-destructive transition-colors"
                                     >
                                         <VscTrash />
                                     </Button>

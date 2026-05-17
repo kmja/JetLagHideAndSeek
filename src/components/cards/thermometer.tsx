@@ -65,12 +65,15 @@ export const ThermometerQuestionComponent = ({
               ? "KM"
               : "Miles";
 
+    const summary = `${data.warmer ? "Warmer" : "Colder"} after move`;
+
     return (
         <QuestionCard
             questionKey={questionKey}
             label={label}
             sub={sub}
             category="thermometer"
+            summary={summary}
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
