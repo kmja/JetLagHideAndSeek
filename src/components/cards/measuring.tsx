@@ -129,6 +129,7 @@ export const MeasuringQuestionComponent = ({
             questionKey={questionKey}
             label={label}
             sub={sub}
+            category="measuring"
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
