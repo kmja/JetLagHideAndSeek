@@ -49,6 +49,7 @@ export const RadiusQuestionComponent = ({
             questionKey={questionKey}
             label={label}
             sub={sub}
+            category="radius"
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
