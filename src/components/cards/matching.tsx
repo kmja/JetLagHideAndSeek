@@ -183,6 +183,7 @@ export const MatchingQuestionComponent = ({
             questionKey={questionKey}
             label={label}
             sub={sub}
+            category="matching"
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
