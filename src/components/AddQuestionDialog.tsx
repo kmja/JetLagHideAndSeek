@@ -8,6 +8,7 @@ import {
     Dialog,
     DialogContent,
     DialogDescription,
+    DialogFooter,
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
@@ -18,8 +19,18 @@ import {
     defaultUnit,
     isLoading,
     leafletMapContext,
+    questions,
 } from "@/lib/context";
 import { cn } from "@/lib/utils";
+
+import {
+    MatchingQuestionComponent,
+    MeasuringQuestionComponent,
+    RadiusQuestionComponent,
+    TentacleQuestionComponent,
+    ThermometerQuestionComponent,
+} from "./QuestionCards";
+import { Button } from "./ui/button";
 
 /**
  * A single category tile in the Add Question picker.
@@ -80,7 +91,35 @@ export const AddQuestionDialog = ({
     children: React.ReactNode;
 }) => {
     const $isLoading = useStore(isLoading);
+    const $questions = useStore(questions);
     const [open, setOpen] = React.useState(false);
+    // Key of the just-added question awaiting Confirm/Cancel.
+    const [pendingKey, setPendingKey] = React.useState<number | null>(null);
+
+    const pendingQuestion =
+        pendingKey !== null
+            ? $questions.find((q) => q.key === pendingKey)
+            : null;
+
+    // Helper: get the most recently added question's key, then promote it
+    // to the "pending confirm" state and close the category picker.
+    const promoteLastQuestion = () => {
+        const list = questions.get();
+        if (list.length === 0) return;
+        const lastKey = list[list.length - 1].key;
+        setPendingKey(lastKey);
+        setOpen(false);
+    };
+
+    const handleCancel = () => {
+        if (pendingKey === null) return;
+        questions.set(questions.get().filter((q) => q.key !== pendingKey));
+        setPendingKey(null);
+    };
+
+    const handleConfirm = () => {
+        setPendingKey(null);
+    };
 
     const runAddRadius = () => {
         const map = leafletMapContext.get();
@@ -227,9 +266,10 @@ export const AddQuestionDialog = ({
     };
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>{children}</DialogTrigger>
-            <DialogContent>
+        <>
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogTrigger asChild>{children}</DialogTrigger>
+                <DialogContent>
                 <DialogTitle>Add Question</DialogTitle>
                 <DialogDescription>Pick a category.</DialogDescription>
 
@@ -238,7 +278,7 @@ export const AddQuestionDialog = ({
                         category="matching"
                         description="Is something the same as us?"
                         onClick={() => {
-                            if (runAddMatching()) setOpen(false);
+                            if (runAddMatching()) promoteLastQuestion();
                         }}
                         disabled={$isLoading}
                     />
@@ -246,7 +286,7 @@ export const AddQuestionDialog = ({
                         category="measuring"
                         description="Closer or further than us?"
                         onClick={() => {
-                            if (runAddMeasuring()) setOpen(false);
+                            if (runAddMeasuring()) promoteLastQuestion();
                         }}
                         disabled={$isLoading}
                     />
@@ -254,7 +294,7 @@ export const AddQuestionDialog = ({
                         category="radius"
                         description="Within distance of us?"
                         onClick={() => {
-                            if (runAddRadius()) setOpen(false);
+                            if (runAddRadius()) promoteLastQuestion();
                         }}
                         disabled={$isLoading}
                     />
@@ -262,7 +302,7 @@ export const AddQuestionDialog = ({
                         category="thermometer"
                         description="Hotter or colder after move?"
                         onClick={() => {
-                            if (runAddThermometer()) setOpen(false);
+                            if (runAddThermometer()) promoteLastQuestion();
                         }}
                         disabled={$isLoading}
                     />
@@ -270,7 +310,7 @@ export const AddQuestionDialog = ({
                         category="tentacles"
                         description="Nearest place of a type within range."
                         onClick={() => {
-                            if (runAddTentacles()) setOpen(false);
+                            if (runAddTentacles()) promoteLastQuestion();
                         }}
                         disabled={$isLoading}
                         className="sm:col-span-2"
@@ -299,6 +339,80 @@ export const AddQuestionDialog = ({
                     </span>
                 </button>
             </DialogContent>
-        </Dialog>
+            </Dialog>
+
+            <Dialog
+                open={pendingKey !== null}
+                onOpenChange={(o) => {
+                    if (!o) handleCancel();
+                }}
+            >
+                <DialogContent className="!bg-[hsl(var(--sidebar-background))] !text-white">
+                    <DialogTitle>Configure question</DialogTitle>
+                    <DialogDescription>
+                        Adjust the details below, then confirm to add it to your list.
+                    </DialogDescription>
+
+                    {pendingQuestion &&
+                        (() => {
+                            const q = pendingQuestion;
+                            switch (q.id) {
+                                case "radius":
+                                    return (
+                                        <RadiusQuestionComponent
+                                            data={q.data}
+                                            questionKey={q.key}
+                                            forceExpanded
+                                        />
+                                    );
+                                case "thermometer":
+                                    return (
+                                        <ThermometerQuestionComponent
+                                            data={q.data}
+                                            questionKey={q.key}
+                                            forceExpanded
+                                        />
+                                    );
+                                case "tentacles":
+                                    return (
+                                        <TentacleQuestionComponent
+                                            data={q.data}
+                                            questionKey={q.key}
+                                            forceExpanded
+                                        />
+                                    );
+                                case "matching":
+                                    return (
+                                        <MatchingQuestionComponent
+                                            data={q.data}
+                                            questionKey={q.key}
+                                            forceExpanded
+                                        />
+                                    );
+                                case "measuring":
+                                    return (
+                                        <MeasuringQuestionComponent
+                                            data={q.data}
+                                            questionKey={q.key}
+                                            forceExpanded
+                                        />
+                                    );
+                                default:
+                                    return null;
+                            }
+                        })()}
+
+                    <DialogFooter className="gap-2 sm:gap-2 mt-2">
+                        <Button
+                            variant="outline"
+                            onClick={handleCancel}
+                        >
+                            Cancel
+                        </Button>
+                        <Button onClick={handleConfirm}>Confirm</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 };

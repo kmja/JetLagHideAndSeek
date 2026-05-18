@@ -131,6 +131,7 @@ const ColoredMarker = ({
                                         data={q.data}
                                         questionKey={q.key}
                                         sub={sub}
+                                        forceExpanded
                                     />
                                 );
                             case "tentacles":
@@ -140,6 +141,7 @@ const ColoredMarker = ({
                                         data={q.data}
                                         questionKey={q.key}
                                         sub={sub}
+                                        forceExpanded
                                     />
                                 );
                             case "thermometer":
@@ -149,6 +151,7 @@ const ColoredMarker = ({
                                         data={q.data}
                                         questionKey={q.key}
                                         sub={sub}
+                                        forceExpanded
                                     />
                                 );
                             case "matching":
@@ -158,6 +161,7 @@ const ColoredMarker = ({
                                         data={q.data}
                                         questionKey={q.key}
                                         sub={sub}
+                                        forceExpanded
                                     />
                                 );
                             case "measuring":
@@ -167,6 +171,7 @@ const ColoredMarker = ({
                                         data={q.data}
                                         questionKey={q.key}
                                         sub={sub}
+                                        forceExpanded
                                     />
                                 );
                             default:
