@@ -23,6 +23,21 @@ div.leaflet-control-attribution.leaflet-control {
     z-index: 751;
 }
 
+/* Custom category-coded question markers (see src/lib/categories.ts) */
+.jl-marker {
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer;
+    transition: transform 140ms ease;
+}
+.jl-marker:hover {
+    transform: scale(1.12);
+    z-index: 999 !important;
+}
+.jl-marker .jl-marker-wrap {
+    pointer-events: auto;
+}
+
 @layer base {
     html {
         @apply text-slate-50;
