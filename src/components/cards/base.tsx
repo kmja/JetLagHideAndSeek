@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { LockIcon, UnlockIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { VscChevronDown, VscShare, VscTrash } from "react-icons/vsc";
 
 import {
@@ -34,6 +34,23 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { isLoading, questions } from "@/lib/context";
 import { cn } from "@/lib/utils";
 
+/**
+ * Compact relative time formatter for question timestamps.
+ * Returns "just now", "5m ago", "2h ago", "3d ago".
+ */
+function formatRelativeTime(timestamp: number, now: number): string {
+    const diffMs = now - timestamp;
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 30) return "just now";
+    if (diffSec < 60) return `${diffSec}s ago`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
+}
+
 export const QuestionCard = ({
     children,
     questionKey,
@@ -42,6 +59,7 @@ export const QuestionCard = ({
     sub,
     category,
     summary,
+    createdAt,
     collapsed,
     locked,
     setLocked,
@@ -54,6 +72,7 @@ export const QuestionCard = ({
     sub?: string;
     category?: CategoryId;
     summary?: React.ReactNode;
+    createdAt?: number;
     collapsed?: boolean;
     locked?: boolean;
     setLocked?: (locked: boolean) => void;
@@ -66,6 +85,17 @@ export const QuestionCard = ({
 
     const categoryMeta = category ? CATEGORIES[category] : undefined;
     const CategoryIcon = categoryMeta?.icon;
+
+    // Tick every minute to keep relative timestamps fresh. Skip if no timestamp.
+    const [nowTick, setNowTick] = useState(Date.now());
+    useEffect(() => {
+        if (!createdAt) return;
+        const id = setInterval(() => setNowTick(Date.now()), 60000);
+        return () => clearInterval(id);
+    }, [createdAt]);
+    const relativeTime = createdAt
+        ? formatRelativeTime(createdAt, nowTick)
+        : null;
 
     const toggleCollapse = () => {
         if (setCollapsed) {
@@ -122,6 +152,14 @@ export const QuestionCard = ({
                         <span>
                             {label} {sub && `(${sub})`}
                         </span>
+                        {relativeTime && (
+                            <span
+                                className="ml-auto text-[10px] text-muted-foreground font-mono shrink-0"
+                                title={new Date(createdAt!).toLocaleString()}
+                            >
+                                {relativeTime}
+                            </span>
+                        )}
                     </SidebarGroupLabel>
                     {summary && isCollapsed && (
                         <div

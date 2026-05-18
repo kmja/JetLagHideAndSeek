@@ -74,6 +74,7 @@ export const ThermometerQuestionComponent = ({
             sub={sub}
             category="thermometer"
             summary={summary}
+            createdAt={data.createdAt}
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {

@@ -55,6 +55,7 @@ export const RadiusQuestionComponent = ({
             sub={sub}
             category="radius"
             summary={summary}
+            createdAt={data.createdAt}
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {

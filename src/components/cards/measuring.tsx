@@ -131,6 +131,7 @@ export const MeasuringQuestionComponent = ({
             sub={sub}
             category="measuring"
             summary={`${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.hiderCloser ? "Closer" : "Further"}`}
+            createdAt={data.createdAt}
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {

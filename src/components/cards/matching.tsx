@@ -185,6 +185,7 @@ export const MatchingQuestionComponent = ({
             sub={sub}
             category="matching"
             summary={`${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.same ? "Match" : "No match"}`}
+            createdAt={data.createdAt}
             className={className}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
