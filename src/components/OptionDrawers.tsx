@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import { HelpCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -279,10 +280,22 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
     return (
         <div
             className={cn(
-                "flex justify-end gap-2 max-[412px]:!mb-4 max-[340px]:flex-col",
+                "flex justify-end gap-2 max-[412px]:!mb-4 max-[340px]:flex-col items-center",
                 className,
             )}
         >
+            <Button
+                variant="outline"
+                size="icon"
+                className="shadow-md shrink-0"
+                title="Open tutorial"
+                aria-label="Open tutorial"
+                onClick={() => {
+                    showTutorial.set(true);
+                }}
+            >
+                <HelpCircle className="w-4 h-4" />
+            </Button>
             <Button
                 className="shadow-md"
                 onClick={async () => {
@@ -351,14 +364,6 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
                 data-tutorial-id="share-questions-button"
             >
                 Share
-            </Button>
-            <Button
-                className="w-24 shadow-md"
-                onClick={() => {
-                    showTutorial.set(true);
-                }}
-            >
-                Tutorial
             </Button>
             <Drawer open={isOptionsOpen} onOpenChange={setOptionsOpen}>
                 <DrawerTrigger className="w-24" asChild>

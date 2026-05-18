@@ -11,6 +11,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     autoSave,
     isLoading,
@@ -34,16 +35,52 @@ export const QuestionSidebar = () => {
     const $autoSave = useStore(autoSave);
     const $isLoading = useStore(isLoading);
 
+    const lastQuestion = $questions[$questions.length - 1];
+    const lastCategoryMeta =
+        lastQuestion && lastQuestion.id in CATEGORIES
+            ? CATEGORIES[lastQuestion.id as CategoryId]
+            : null;
+
     return (
         <Sidebar>
-            <div className="flex items-center justify-between">
-                <h2 className="ml-4 mt-4 font-poppins text-2xl">Questions</h2>
-                <SidebarCloseIcon
-                    className="mr-2 visible md:hidden cursor-pointer hover:text-muted-foreground transition-colors"
-                    onClick={() => {
-                        SidebarContext.get().setOpenMobile(false);
-                    }}
-                />
+            <div className="ml-4 mt-4 mr-2">
+                <div className="flex items-center justify-between">
+                    <h2 className="font-poppins text-xl font-semibold">
+                        Questions
+                    </h2>
+                    <div className="flex items-center gap-3">
+                        {$questions.length > 0 && (
+                            <span className="text-xs text-muted-foreground font-mono">
+                                <span className="text-foreground">
+                                    {$questions.length}
+                                </span>{" "}
+                                added
+                            </span>
+                        )}
+                        <SidebarCloseIcon
+                            className="visible md:hidden cursor-pointer hover:text-muted-foreground transition-colors"
+                            onClick={() => {
+                                SidebarContext.get().setOpenMobile(false);
+                            }}
+                        />
+                    </div>
+                </div>
+                {lastCategoryMeta && (
+                    <div className="mt-1 flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">
+                            Last asked:
+                        </span>
+                        <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-poppins font-bold uppercase tracking-wider"
+                            style={{
+                                backgroundColor: `${lastCategoryMeta.color}26`,
+                                color: lastCategoryMeta.color,
+                            }}
+                        >
+                            {lastCategoryMeta.label}
+                        </span>
+                    </div>
+                )}
             </div>
             <SidebarGroup className="pb-0">
                 <SidebarGroupContent>
