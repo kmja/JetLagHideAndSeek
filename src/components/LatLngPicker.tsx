@@ -337,11 +337,8 @@ export const LatitudeLongitude = ({
     return (
         <>
             <SidebarMenuItem
-                style={{
-                    backgroundColor: color,
-                }}
                 className={cn(
-                    "p-2 rounded-md space-y-1 mt-2",
+                    "p-2 rounded-md space-y-1 mt-2 bg-secondary/30 border border-border",
                     $isLoading && "brightness-50",
                 )}
             >
@@ -351,24 +348,22 @@ export const LatitudeLongitude = ({
                             "flex justify-between items-center",
                             $isLoading && "opacity-50",
                         )}
-                        style={{
-                            color: colorName === "gold" ? "black" : undefined,
-                        }}
                     >
-                        <div className="text-2xl font-semibold font-poppins">
+                        <div className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold">
                             {label}
                         </div>
-                        <div className="tabular-nums text-right text-sm font-oxygen">
-                            <div>
-                                {Math.abs(latitude).toFixed(5)}
-                                {"° "}
+                        <div className="tabular-nums text-right text-xs font-mono">
+                            <span>
+                                {Math.abs(latitude).toFixed(4)}
+                                {"°"}
                                 {latitude > 0 ? "N" : "S"}
-                            </div>
-                            <div>
-                                {Math.abs(longitude).toFixed(5)}
-                                {"° "}
+                            </span>
+                            {", "}
+                            <span>
+                                {Math.abs(longitude).toFixed(4)}
+                                {"°"}
                                 {longitude > 0 ? "E" : "W"}
-                            </div>
+                            </span>
                         </div>
                     </div>
                 )}
@@ -427,7 +422,6 @@ export const LatitudeLongitude = ({
                         }
                     >
                         <Button
-                            variant="outline"
                             onClick={() => {
                                 if (!navigator || !navigator.geolocation)
                                     return alert("Geolocation not supported");
