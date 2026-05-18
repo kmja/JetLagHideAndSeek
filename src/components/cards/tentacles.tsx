@@ -30,7 +30,7 @@ import {
     type TraditionalTentacleQuestion,
 } from "@/maps/schema";
 
-import { QuestionCard } from "./base";
+import { QuestionCard, ManualAnswerDisclosure } from "./base";
 
 export const TentacleQuestionComponent = ({
     data,
@@ -38,12 +38,14 @@ export const TentacleQuestionComponent = ({
     forceExpanded,
     sub,
     className,
+    compactAnswer,
 }: {
     data: TentacleQuestion;
     questionKey: number;
     sub?: string;
     forceExpanded?: boolean;
     className?: string;
+    compactAnswer?: boolean;
 }) => {
     const $questions = useStore(questions);
     const $drawingQuestionKey = useStore(drawingQuestionKey);
@@ -225,40 +227,42 @@ export const TentacleQuestionComponent = ({
                 }}
                 disabled={!data.drag || $isLoading}
             />
-            <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
-                <Suspense
-                    fallback={
-                        <div className="flex items-center justify-center w-full h-8">
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="24"
-                                height="24"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="animate-spin"
-                            >
-                                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                            </svg>
-                        </div>
-                    }
-                >
-                    <TentacleLocationSelector
-                        data={data}
-                        promise={
-                            data.locationType === "custom"
-                                ? Promise.resolve(
-                                      turf.featureCollection(data.places),
-                                  )
-                                : findTentacleLocations(data)
+            <ManualAnswerDisclosure compact={compactAnswer}>
+                <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
+                    <Suspense
+                        fallback={
+                            <div className="flex items-center justify-center w-full h-8">
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="24"
+                                    height="24"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="animate-spin"
+                                >
+                                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                </svg>
+                            </div>
                         }
-                        disabled={!data.drag || $isLoading}
-                    />
-                </Suspense>
-            </SidebarMenuItem>
+                    >
+                        <TentacleLocationSelector
+                            data={data}
+                            promise={
+                                data.locationType === "custom"
+                                    ? Promise.resolve(
+                                          turf.featureCollection(data.places),
+                                      )
+                                    : findTentacleLocations(data)
+                            }
+                            disabled={!data.drag || $isLoading}
+                        />
+                    </Suspense>
+                </SidebarMenuItem>
+            </ManualAnswerDisclosure>
         </QuestionCard>
     );
 };

@@ -31,7 +31,7 @@ import {
     NO_GROUP,
 } from "@/maps/schema";
 
-import { QuestionCard } from "./base";
+import { QuestionCard, ManualAnswerDisclosure } from "./base";
 
 export const MeasuringQuestionComponent = ({
     data,
@@ -39,12 +39,14 @@ export const MeasuringQuestionComponent = ({
     forceExpanded,
     sub,
     className,
+    compactAnswer,
 }: {
     data: MeasuringQuestion;
     questionKey: number;
     sub?: string;
     forceExpanded?: boolean;
     className?: string;
+    compactAnswer?: boolean;
 }) => {
     useStore(triggerLocalRefresh);
     const $hiderMode = useStore(hiderMode);
@@ -311,34 +313,36 @@ export const MeasuringQuestionComponent = ({
                 }}
                 disabled={!data.drag || $isLoading}
             />
-            <div className="flex gap-2 items-center p-2">
-                <Label
-                    className={cn(
-                        "font-semibold text-lg",
-                        $isLoading && "text-muted-foreground",
-                    )}
-                >
-                    Result
-                </Label>
-                <ToggleGroup
-                    className="grow"
-                    type="single"
-                    value={data.hiderCloser ? "closer" : "further"}
-                    onValueChange={(value: "closer" | "further") =>
-                        questionModified(
-                            (data.hiderCloser = value === "closer"),
-                        )
-                    }
-                    disabled={!!$hiderMode || !data.drag || $isLoading}
-                >
-                    <ToggleGroupItem value="further">
-                        Hider Further
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="closer">
-                        Hider Closer
-                    </ToggleGroupItem>
-                </ToggleGroup>
-            </div>
+            <ManualAnswerDisclosure compact={compactAnswer}>
+                <div className="flex gap-2 items-center p-2">
+                    <Label
+                        className={cn(
+                            "font-semibold text-lg",
+                            $isLoading && "text-muted-foreground",
+                        )}
+                    >
+                        Result
+                    </Label>
+                    <ToggleGroup
+                        className="grow"
+                        type="single"
+                        value={data.hiderCloser ? "closer" : "further"}
+                        onValueChange={(value: "closer" | "further") =>
+                            questionModified(
+                                (data.hiderCloser = value === "closer"),
+                            )
+                        }
+                        disabled={!!$hiderMode || !data.drag || $isLoading}
+                    >
+                        <ToggleGroupItem value="further">
+                            Hider Further
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="closer">
+                            Hider Closer
+                        </ToggleGroupItem>
+                    </ToggleGroup>
+                </div>
+            </ManualAnswerDisclosure>
         </QuestionCard>
     );
 };

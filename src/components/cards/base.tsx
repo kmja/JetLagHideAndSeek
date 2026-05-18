@@ -354,3 +354,35 @@ export const QuestionCard = ({
         </>
     );
 };
+
+/**
+ * Collapsible wrapper for the "manual answer" toggle in question cards.
+ * When `compact` is true, the children are hidden behind a small "Set
+ * answer manually" button that reveals them on click. Used in the
+ * just-added-question dialog where we expect the hider to provide the
+ * answer via share-link instead.
+ */
+export const ManualAnswerDisclosure = ({
+    compact,
+    children,
+}: {
+    compact?: boolean;
+    children: React.ReactNode;
+}) => {
+    const [open, setOpen] = useState(!compact);
+    if (!compact || open) return <>{children}</>;
+    return (
+        <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className={cn(
+                "w-full px-2 py-2 mt-1 text-left text-xs",
+                "text-muted-foreground hover:text-foreground",
+                "transition-colors",
+            )}
+        >
+            ▾ Set answer manually
+        </button>
+    );
+};
+

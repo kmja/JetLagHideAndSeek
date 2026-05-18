@@ -26,7 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { RadiusQuestion, Units } from "@/maps/schema";
 
-import { QuestionCard } from "./base";
+import { QuestionCard, ManualAnswerDisclosure } from "./base";
 
 /** Rulebook radius presets, in display order. */
 const RADIUS_PRESETS: {
@@ -57,12 +57,14 @@ export const RadiusQuestionComponent = ({
     forceExpanded,
     sub,
     className,
+    compactAnswer,
 }: {
     data: RadiusQuestion;
     questionKey: number;
     sub?: string;
     forceExpanded?: boolean;
     className?: string;
+    compactAnswer?: boolean;
 }) => {
     useStore(triggerLocalRefresh);
     const $hiderMode = useStore(hiderMode);
@@ -330,28 +332,34 @@ export const RadiusQuestionComponent = ({
                 }}
                 disabled={!data.drag || $isLoading}
             />
-            <div className="flex gap-2 items-center p-2">
-                <Label
-                    className={cn(
-                        "font-semibold text-lg",
-                        $isLoading && "text-muted-foreground",
-                    )}
-                >
-                    Result
-                </Label>
-                <ToggleGroup
-                    className="grow"
-                    type="single"
-                    value={data.within ? "inside" : "outside"}
-                    onValueChange={(value: "inside" | "outside") =>
-                        questionModified((data.within = value === "inside"))
-                    }
-                    disabled={!!$hiderMode || !data.drag || $isLoading}
-                >
-                    <ToggleGroupItem value="outside">Outside</ToggleGroupItem>
-                    <ToggleGroupItem value="inside">Inside</ToggleGroupItem>
-                </ToggleGroup>
-            </div>
+            <ManualAnswerDisclosure compact={compactAnswer}>
+                <div className="flex gap-2 items-center p-2">
+                    <Label
+                        className={cn(
+                            "font-semibold text-lg",
+                            $isLoading && "text-muted-foreground",
+                        )}
+                    >
+                        Result
+                    </Label>
+                    <ToggleGroup
+                        className="grow"
+                        type="single"
+                        value={data.within ? "inside" : "outside"}
+                        onValueChange={(value: "inside" | "outside") =>
+                            questionModified(
+                                (data.within = value === "inside"),
+                            )
+                        }
+                        disabled={!!$hiderMode || !data.drag || $isLoading}
+                    >
+                        <ToggleGroupItem value="outside">
+                            Outside
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="inside">Inside</ToggleGroupItem>
+                    </ToggleGroup>
+                </div>
+            </ManualAnswerDisclosure>
         </QuestionCard>
     );
 };

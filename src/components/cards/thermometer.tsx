@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { distance, point } from "@turf/turf";
-import { Share2 } from "lucide-react";
+import { Copy, Share2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
@@ -18,7 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { ThermometerQuestion } from "@/maps/schema";
 
-import { QuestionCard } from "./base";
+import { QuestionCard, ManualAnswerDisclosure } from "./base";
 
 export const ThermometerQuestionComponent = ({
     data,
@@ -26,12 +26,14 @@ export const ThermometerQuestionComponent = ({
     forceExpanded,
     sub,
     className,
+    compactAnswer,
 }: {
     data: ThermometerQuestion;
     questionKey: number;
     sub?: string;
     forceExpanded?: boolean;
     className?: string;
+    compactAnswer?: boolean;
 }) => {
     useStore(triggerLocalRefresh);
     const $hiderMode = useStore(hiderMode);
@@ -117,89 +119,23 @@ export const ThermometerQuestionComponent = ({
 
             {/* Rule book: seekers should notify hiders when starting (and when
                 finishing) a thermometer move, sending their current location.
-                Uses the Web Share API where available (opens the OS share
-                sheet on mobile) and falls back to clipboard on browsers that
-                don't support it (notably desktop Firefox). */}
-            <div className="flex gap-2 px-2">
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 gap-1.5"
+                Share opens the OS share sheet (link previews in chat apps);
+                Copy puts the URL on the clipboard for manual pasting. */}
+            <div className="px-2 space-y-3">
+                <ThermometerShareRow
+                    label="Starting point"
+                    text="Starting a thermometer question. From:"
+                    lat={data.latA}
+                    lng={data.lngA}
                     disabled={$isLoading}
-                    onClick={async () => {
-                        const url = `https://maps.google.com/?q=${data.latA},${data.lngA}`;
-                        const text = `Starting a thermometer question. From: ${url}`;
-                        try {
-                            if (
-                                typeof navigator !== "undefined" &&
-                                typeof navigator.share === "function"
-                            ) {
-                                await navigator.share({
-                                    title: "Thermometer start",
-                                    text,
-                                    url,
-                                });
-                            } else {
-                                await navigator.clipboard.writeText(text);
-                                toast.success(
-                                    "Start message copied (sharing not supported)",
-                                    { autoClose: 1800 },
-                                );
-                            }
-                        } catch (err) {
-                            // User cancelled share dialog → silently ignore
-                            if (
-                                err instanceof Error &&
-                                err.name === "AbortError"
-                            ) {
-                                return;
-                            }
-                            toast.error("Could not share");
-                        }
-                    }}
-                >
-                    <Share2 className="w-3 h-3" />
-                    Share start
-                </Button>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 gap-1.5"
+                />
+                <ThermometerShareRow
+                    label="Ending point"
+                    text="Now at:"
+                    lat={data.latB}
+                    lng={data.lngB}
                     disabled={$isLoading}
-                    onClick={async () => {
-                        const url = `https://maps.google.com/?q=${data.latB},${data.lngB}`;
-                        const text = `Now at: ${url}`;
-                        try {
-                            if (
-                                typeof navigator !== "undefined" &&
-                                typeof navigator.share === "function"
-                            ) {
-                                await navigator.share({
-                                    title: "Thermometer end",
-                                    text,
-                                    url,
-                                });
-                            } else {
-                                await navigator.clipboard.writeText(text);
-                                toast.success(
-                                    "End message copied (sharing not supported)",
-                                    { autoClose: 1800 },
-                                );
-                            }
-                        } catch (err) {
-                            if (
-                                err instanceof Error &&
-                                err.name === "AbortError"
-                            ) {
-                                return;
-                            }
-                            toast.error("Could not share");
-                        }
-                    }}
-                >
-                    <Share2 className="w-3 h-3" />
-                    Share end
-                </Button>
+                />
             </div>
 
             {distanceValue !== null && (
@@ -211,30 +147,111 @@ export const ThermometerQuestionComponent = ({
                 </div>
             )}
 
-            <div className="flex gap-2 items-center p-2">
-                <Label
-                    className={cn(
-                        "font-semibold text-lg",
-                        $isLoading && "text-muted-foreground",
-                    )}
-                >
-                    Result
-                </Label>
-                <ToggleGroup
-                    className="grow"
-                    type="single"
-                    value={data.warmer ? "warmer" : "colder"}
-                    onValueChange={(value: "warmer" | "colder") =>
-                        questionModified((data.warmer = value === "warmer"))
-                    }
-                    disabled={!!$hiderMode || !data.drag || $isLoading}
-                >
-                    <ToggleGroupItem color="red" value="colder">
-                        Colder
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="warmer">Warmer</ToggleGroupItem>
-                </ToggleGroup>
-            </div>
+            <ManualAnswerDisclosure compact={compactAnswer}>
+                <div className="flex gap-2 items-center p-2">
+                    <Label
+                        className={cn(
+                            "font-semibold text-lg",
+                            $isLoading && "text-muted-foreground",
+                        )}
+                    >
+                        Result
+                    </Label>
+                    <ToggleGroup
+                        className="grow"
+                        type="single"
+                        value={data.warmer ? "warmer" : "colder"}
+                        onValueChange={(value: "warmer" | "colder") =>
+                            questionModified(
+                                (data.warmer = value === "warmer"),
+                            )
+                        }
+                        disabled={!!$hiderMode || !data.drag || $isLoading}
+                    >
+                        <ToggleGroupItem color="red" value="colder">
+                            Colder
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="warmer">Warmer</ToggleGroupItem>
+                    </ToggleGroup>
+                </div>
+            </ManualAnswerDisclosure>
         </QuestionCard>
     );
 };
+
+/**
+ * Inline row of Share + Copy buttons for one location (start or end) of a
+ * thermometer question. Share opens the OS share sheet; Copy puts the URL
+ * on the clipboard.
+ */
+function ThermometerShareRow({
+    label,
+    text,
+    lat,
+    lng,
+    disabled,
+}: {
+    label: string;
+    text: string;
+    lat: number;
+    lng: number;
+    disabled?: boolean;
+}) {
+    const url = `https://maps.google.com/?q=${lat},${lng}`;
+    const fullText = `${text} ${url}`;
+
+    const handleShare = async () => {
+        try {
+            if (
+                typeof navigator !== "undefined" &&
+                typeof navigator.share === "function"
+            ) {
+                await navigator.share({ title: label, text: fullText, url });
+            } else {
+                await navigator.clipboard.writeText(fullText);
+                toast.success(`${label} copied (sharing not supported)`, {
+                    autoClose: 1800,
+                });
+            }
+        } catch (err) {
+            if (err instanceof Error && err.name === "AbortError") return;
+            toast.error("Could not share");
+        }
+    };
+
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(fullText);
+            toast.success(`${label} copied`, { autoClose: 1500 });
+        } catch {
+            toast.error("Could not copy");
+        }
+    };
+
+    return (
+        <div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold mb-1.5">
+                {label}
+            </div>
+            <div className="flex gap-2">
+                <Button
+                    onClick={handleShare}
+                    disabled={disabled}
+                    className="flex-1 gap-2"
+                >
+                    <Share2 className="w-4 h-4" />
+                    Share
+                </Button>
+                <Button
+                    onClick={handleCopy}
+                    variant="outline"
+                    disabled={disabled}
+                    className="flex-1 gap-2"
+                >
+                    <Copy className="w-4 h-4" />
+                    Copy
+                </Button>
+            </div>
+        </div>
+    );
+}
