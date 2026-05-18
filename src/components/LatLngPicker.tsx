@@ -8,9 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDebounce } from "@/hooks/useDebounce";
 import { allowGooglePlusCodes, isLoading } from "@/lib/context";
-import { reverseGeocode } from "@/lib/geocoding";
 import { cn } from "@/lib/utils";
-import { determineName, geocode, ICON_COLORS } from "@/maps/api";
+import {
+    determineName,
+    geocode,
+    ICON_COLORS,
+    reverseGeocode,
+} from "@/maps/api";
 
 import { Button } from "./ui/button";
 import {

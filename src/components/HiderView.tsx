@@ -6,13 +6,13 @@ import { HiderMap, distanceKm } from "@/components/HiderMap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { forwardGeocode } from "@/lib/geocoding";
 import {
     decodeQuestionFromUrl,
     encodeAnswerForSeeker,
     shareOrCopy,
 } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import { forwardGeocodeOne } from "@/maps/api";
 import type { Question } from "@/maps/schema";
 
 /**
@@ -585,7 +585,7 @@ function ManualLocationPanel({
     const doLookup = async () => {
         if (!query.trim()) return;
         setBusy(true);
-        const result = await forwardGeocode(query);
+        const result = await forwardGeocodeOne(query);
         setBusy(false);
         if (!result) {
             toast.error("Couldn't find that place. Try being more specific.");
