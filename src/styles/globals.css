@@ -38,6 +38,15 @@ div.leaflet-control-attribution.leaflet-control {
     pointer-events: auto;
 }
 
+/* Hider's "you are here" marker on the /h route */
+.jl-hider-marker-wrap {
+    background: transparent !important;
+    border: none !important;
+}
+.jl-hider-marker {
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+}
+
 /* Mobile: hide non-essential map controls (zoom, fullscreen, print, polygon, scale).
    Keep bottom-right attribution for licensing. */
 @media (max-width: 767px) {
