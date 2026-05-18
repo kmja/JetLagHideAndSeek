@@ -76,7 +76,7 @@ const thermometerQuestionSchema = z
         colorB: iconColorSchema.default(() => randomColorExcluding(["green"])),
         /** Note that drag is now synonymous with unlocked */
         drag: z.boolean().default(true),
-        collapsed: z.boolean().default(false),
+        collapsed: z.boolean().default(true),
         /** Unix ms timestamp of when this question was created. Optional so older saved questions still parse. */
         createdAt: z.number().optional(),
     })
@@ -100,7 +100,7 @@ const ordinaryBaseQuestionSchema = z.object({
     /** Note that drag is now synonymous with unlocked */
     drag: z.boolean().default(true),
     color: iconColorSchema.default(randomColor),
-    collapsed: z.boolean().default(false),
+    collapsed: z.boolean().default(true),
     /** Unix ms timestamp of when this question was created. Optional so older saved questions still parse. */
     createdAt: z.number().optional(),
 });
