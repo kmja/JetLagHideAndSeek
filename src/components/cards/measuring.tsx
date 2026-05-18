@@ -54,6 +54,20 @@ export const MeasuringQuestionComponent = ({
     const $isLoading = useStore(isLoading);
     const $customInitPref = useStore(customInitPreference);
     const [customDialogOpen, setCustomDialogOpen] = React.useState(false);
+
+    // Game rule: each (category, subtype) can only be asked once per game.
+    const usedMeasuringTypes = React.useMemo(
+        () =>
+            new Set(
+                $questions
+                    .filter(
+                        (q) => q.id === "measuring" && q.key !== questionKey,
+                    )
+                    .map((q) => (q.data as MeasuringQuestion).type),
+            ),
+        [$questions, questionKey],
+    );
+
     const label = `Measuring
     ${
         $questions
@@ -182,19 +196,38 @@ export const MeasuringQuestionComponent = ({
                             .flatMap((x) =>
                                 determineUnionizedStrings(x.shape.type),
                             )
-                            .map((x) => [(x._def as any).value, x.description]),
+                            .map((x) => [
+                                (x._def as any).value,
+                                (x.description ?? "").replace(
+                                    / Question$/,
+                                    "",
+                                ),
+                            ])
+                            .filter(
+                                ([value, _]) =>
+                                    !usedMeasuringTypes.has(value as string) ||
+                                    value === data.type,
+                            ),
                     )}
                     groups={measuringQuestionSchema.options
                         .filter((x) => x.description !== NO_GROUP)
                         .map((x) => [
                             x.description,
                             Object.fromEntries(
-                                determineUnionizedStrings(x.shape.type).map(
-                                    (x) => [
+                                determineUnionizedStrings(x.shape.type)
+                                    .map((x) => [
                                         (x._def as any).value,
-                                        x.description,
-                                    ],
-                                ),
+                                        (x.description ?? "").replace(
+                                            / Question$/,
+                                            "",
+                                        ),
+                                    ])
+                                    .filter(
+                                        ([value, _]) =>
+                                            !usedMeasuringTypes.has(
+                                                value as string,
+                                            ) || value === data.type,
+                                    ),
                             ),
                         ])
                         .reduce(

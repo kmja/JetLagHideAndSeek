@@ -61,6 +61,20 @@ export const MatchingQuestionComponent = ({
     const [pendingCustomType, setPendingCustomType] = React.useState<
         "custom-zone" | "custom-points" | null
     >(null);
+
+    // Game rule: each (category, subtype) can only be asked once per game.
+    // Build a set of types used by OTHER matching questions; the current
+    // question's own type is always allowed (so its Select shows its value).
+    const usedMatchingTypes = React.useMemo(
+        () =>
+            new Set(
+                $questions
+                    .filter((q) => q.id === "matching" && q.key !== questionKey)
+                    .map((q) => (q.data as MatchingQuestion).type),
+            ),
+        [$questions, questionKey],
+    );
+
     const label = `Matching
     ${
         $questions
@@ -254,19 +268,38 @@ export const MatchingQuestionComponent = ({
                             .flatMap((x) =>
                                 determineUnionizedStrings(x.shape.type),
                             )
-                            .map((x) => [(x._def as any).value, x.description]),
+                            .map((x) => [
+                                (x._def as any).value,
+                                (x.description ?? "").replace(
+                                    / Question$/,
+                                    "",
+                                ),
+                            ])
+                            .filter(
+                                ([value, _]) =>
+                                    !usedMatchingTypes.has(value as string) ||
+                                    value === data.type,
+                            ),
                     )}
                     groups={matchingQuestionSchema.options
                         .filter((x) => x.description !== NO_GROUP)
                         .map((x) => [
                             x.description,
                             Object.fromEntries(
-                                determineUnionizedStrings(x.shape.type).map(
-                                    (x) => [
+                                determineUnionizedStrings(x.shape.type)
+                                    .map((x) => [
                                         (x._def as any).value,
-                                        x.description,
-                                    ],
-                                ),
+                                        (x.description ?? "").replace(
+                                            / Question$/,
+                                            "",
+                                        ),
+                                    ])
+                                    .filter(
+                                        ([value, _]) =>
+                                            !usedMatchingTypes.has(
+                                                value as string,
+                                            ) || value === data.type,
+                                    ),
                             ),
                         ])
                         .reduce(

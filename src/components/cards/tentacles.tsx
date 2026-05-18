@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
-import { Suspense, use } from "react";
+import React, { Suspense, use } from "react";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import PresetsDialog from "@/components/PresetsDialog";
@@ -48,6 +48,20 @@ export const TentacleQuestionComponent = ({
     const $questions = useStore(questions);
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $isLoading = useStore(isLoading);
+
+    // Game rule: each (category, subtype) can only be asked once per game.
+    const usedTentacleTypes = React.useMemo(
+        () =>
+            new Set(
+                $questions
+                    .filter(
+                        (q) => q.id === "tentacles" && q.key !== questionKey,
+                    )
+                    .map((q) => (q.data as TentacleQuestion).locationType),
+            ),
+        [$questions, questionKey],
+    );
+
     const label = `Tentacles
     ${
         $questions
@@ -104,7 +118,18 @@ export const TentacleQuestionComponent = ({
                             .flatMap((x) =>
                                 determineUnionizedStrings(x.shape.locationType),
                             )
-                            .map((x) => [(x._def as any).value, x.description]),
+                            .map((x) => [
+                                (x._def as any).value,
+                                (x.description ?? "").replace(
+                                    / Question$/,
+                                    "",
+                                ),
+                            ])
+                            .filter(
+                                ([value, _]) =>
+                                    !usedTentacleTypes.has(value as string) ||
+                                    value === data.locationType,
+                            ),
                     )}
                     groups={Object.fromEntries(
                         tentacleQuestionSchema.options
@@ -114,10 +139,21 @@ export const TentacleQuestionComponent = ({
                                 Object.fromEntries(
                                     determineUnionizedStrings(
                                         x.shape.locationType,
-                                    ).map((x) => [
-                                        (x._def as any).value,
-                                        x.description,
-                                    ]),
+                                    )
+                                        .map((x) => [
+                                            (x._def as any).value,
+                                            (x.description ?? "").replace(
+                                                / Question$/,
+                                                "",
+                                            ),
+                                        ])
+                                        .filter(
+                                            ([value, _]) =>
+                                                !usedTentacleTypes.has(
+                                                    value as string,
+                                                ) ||
+                                                value === data.locationType,
+                                        ),
                                 ),
                             ]),
                     )}
