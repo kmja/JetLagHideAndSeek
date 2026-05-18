@@ -117,6 +117,8 @@ const radiusQuestionSchema = ordinaryBaseQuestionSchema.extend({
     radius: z.number().min(0, "You cannot have a negative radius").default(50),
     unit: unitsSchema.default(getDefaultUnit),
     within: z.boolean().default(true),
+    /** Whether the user picked Custom mode rather than a fixed preset. Optional for backward compat. */
+    useCustom: z.boolean().optional(),
 });
 
 const tentacleLocationsFifteen = z.union([
