@@ -23,6 +23,19 @@ div.leaflet-control-attribution.leaflet-control {
     z-index: 751;
 }
 
+/* On mobile, the bottom-nav (fixed, ~64-72px tall, z-1040) sits at the
+ * very bottom of the viewport. The Leaflet attribution control normally
+ * sits at the bottom of the map container. Even though attribution is
+ * at z-index 751 and the nav is at z-1040, on touch devices the two
+ * regions can overlap visually and intercept taps meant for the nav.
+ * Push attribution up clear of the nav so the nav owns its strip.
+ */
+@media (max-width: 767px) {
+    .leaflet-bottom {
+        bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+    }
+}
+
 /* Custom category-coded question markers (see src/lib/categories.ts) */
 .jl-marker {
     background: transparent !important;
@@ -45,6 +58,18 @@ div.leaflet-control-attribution.leaflet-control {
 }
 .jl-hider-marker {
     filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+}
+
+/* Directional arrowhead drawn between thermometer start/end markers.
+ * Rotated via inline style; this just zeroes Leaflet's marker chrome and
+ * adds a subtle shadow so the arrow reads against the dark map tiles. */
+.jl-thermometer-arrow-wrap {
+    background: transparent !important;
+    border: none !important;
+}
+.jl-thermometer-arrow {
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+    transform-origin: center;
 }
 
 /* Mobile: hide non-essential map controls (zoom, fullscreen, print, polygon, scale).
