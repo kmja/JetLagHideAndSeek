@@ -87,7 +87,7 @@ export const questionModified = (..._: any[]) => {
 
 export const leafletMapContext = atom<Map | null>(null);
 
-export const defaultUnit = persistentAtom<Units>("defaultUnit", "miles");
+export const defaultUnit = persistentAtom<Units>("defaultUnit", "kilometers");
 export const hiderMode = persistentAtom<
     | false
     | {
@@ -175,7 +175,7 @@ export const hidingRadius = persistentAtom<number>("hidingRadius", 0.5, {
 });
 export const hidingRadiusUnits = persistentAtom<Units>(
     "hidingRadiusUnits",
-    "miles",
+    "kilometers",
     {
         encode: JSON.stringify,
         decode: JSON.parse,
