@@ -6,6 +6,7 @@ import * as React from "react";
 import { TbMessage2Question } from "react-icons/tb";
 
 import { Button } from "@/components/ui/button";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -213,27 +214,21 @@ const Sidebar = React.forwardRef<
 
         if (isMobile) {
             return (
-                <Sheet
+                <Drawer
                     open={openMobile}
                     onOpenChange={setOpenMobile}
-                    {...props}
+                    shouldScaleBackground={false}
                 >
-                    <SheetContent
+                    <DrawerContent
                         data-sidebar="sidebar"
                         data-mobile="true"
-                        className="w-full bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden z-[1035]"
-                        style={
-                            {
-                                "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
-                            } as React.CSSProperties
-                        }
-                        side={side}
+                        className="bg-sidebar p-0 text-sidebar-foreground max-h-[80vh] z-[1035] flex flex-col"
                     >
-                        <div className="flex h-full w-full flex-col">
+                        <div className="flex flex-col w-full overflow-y-auto">
                             {children}
                         </div>
-                    </SheetContent>
-                </Sheet>
+                    </DrawerContent>
+                </Drawer>
             );
         }
 
