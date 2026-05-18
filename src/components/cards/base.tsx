@@ -311,13 +311,6 @@ export const QuestionCard = ({
                                         </AlertDialogCancel>
                                         <AlertDialogAction
                                             onClick={() => {
-                                                questions.set([]);
-                                            }}
-                                        >
-                                            Delete All Questions
-                                        </AlertDialogAction>
-                                        <AlertDialogAction
-                                            onClick={() => {
                                                 questions.set(
                                                     $questions.filter(
                                                         (q) =>

@@ -1,8 +1,15 @@
 import { useStore } from "@nanostores/react";
+import React from "react";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import {
     MENU_ITEM_CLASSNAME,
     SidebarMenuItem,
@@ -17,9 +24,32 @@ import {
     triggerLocalRefresh,
 } from "@/lib/context";
 import { cn } from "@/lib/utils";
-import type { RadiusQuestion } from "@/maps/schema";
+import type { RadiusQuestion, Units } from "@/maps/schema";
 
 import { QuestionCard } from "./base";
+
+/** Rulebook radius presets, in display order. */
+const RADIUS_PRESETS: {
+    label: string;
+    radius: number;
+    unit: Units;
+    /** Stable signature for uniqueness tracking */
+    sig: string;
+}[] = [
+    { label: "500 m", radius: 500, unit: "meters", sig: "500m" },
+    { label: "1 km", radius: 1, unit: "kilometers", sig: "1km" },
+    { label: "2 km", radius: 2, unit: "kilometers", sig: "2km" },
+    { label: "5 km", radius: 5, unit: "kilometers", sig: "5km" },
+    { label: "10 km", radius: 10, unit: "kilometers", sig: "10km" },
+    { label: "15 km", radius: 15, unit: "kilometers", sig: "15km" },
+    { label: "40 km", radius: 40, unit: "kilometers", sig: "40km" },
+    { label: "80 km", radius: 80, unit: "kilometers", sig: "80km" },
+    { label: "160 km", radius: 160, unit: "kilometers", sig: "160km" },
+];
+
+/** First 5 presets are shown as big buttons; the rest go in the "Other" popover. */
+const PRIMARY_PRESETS = RADIUS_PRESETS.slice(0, 5);
+const OTHER_PRESETS = RADIUS_PRESETS.slice(5);
 
 export const RadiusQuestionComponent = ({
     data,
@@ -69,13 +99,62 @@ export const RadiusQuestionComponent = ({
         >
             <SidebarMenuItem>
                 {(() => {
-                    // Range/step depends on the chosen unit.
+                    // Compute current preset signature (which preset matches data values).
+                    // Compare to RADIUS_PRESETS by radius + unit.
+                    const currentSig = data.useCustom
+                        ? "custom"
+                        : RADIUS_PRESETS.find(
+                              (p) =>
+                                  p.radius === data.radius &&
+                                  p.unit === data.unit,
+                          )?.sig ?? "custom";
+
+                    // Game rule: each preset (or Custom slot) can only be used
+                    // once. Disable presets used by OTHER radius questions.
+                    const usedSigs = new Set(
+                        $questions
+                            .filter(
+                                (q) =>
+                                    q.id === "radius" && q.key !== questionKey,
+                            )
+                            .map((q) => {
+                                const d = q.data as RadiusQuestion;
+                                if (d.useCustom) return "custom";
+                                return (
+                                    RADIUS_PRESETS.find(
+                                        (p) =>
+                                            p.radius === d.radius &&
+                                            p.unit === d.unit,
+                                    )?.sig ?? "custom"
+                                );
+                            }),
+                    );
+
+                    // Range/step for custom slider, unit-dependent.
                     const sliderConfig =
                         data.unit === "miles"
                             ? { min: 0.5, max: 30, step: 0.5 }
                             : data.unit === "meters"
                               ? { min: 50, max: 5000, step: 50 }
                               : { min: 0.5, max: 50, step: 0.5 };
+
+                    const pickPreset = (preset: typeof RADIUS_PRESETS[0]) => {
+                        data.radius = preset.radius;
+                        data.unit = preset.unit;
+                        data.useCustom = false;
+                        questionModified();
+                    };
+
+                    const presetBtnClass = (sig: string) =>
+                        cn(
+                            "flex-1 min-w-[60px] py-2 px-1 rounded-md text-sm font-poppins font-semibold",
+                            "bg-secondary text-foreground hover:bg-accent",
+                            "transition-colors",
+                            "disabled:opacity-30 disabled:cursor-not-allowed",
+                            currentSig === sig &&
+                                "ring-2 ring-primary bg-primary/20 text-primary",
+                        );
+
                     return (
                         <div
                             className={cn(
@@ -83,52 +162,155 @@ export const RadiusQuestionComponent = ({
                                 "flex flex-col gap-3",
                             )}
                         >
-                            <div className="flex items-baseline justify-between">
-                                <span className="text-3xl font-poppins font-semibold tabular-nums">
-                                    {data.radius}
-                                </span>
-                                <UnitSelect
-                                    unit={data.unit}
-                                    disabled={!data.drag || $isLoading}
-                                    onChange={(unit) =>
-                                        questionModified((data.unit = unit))
+                            {/* Primary preset row */}
+                            <div className="flex flex-wrap gap-1.5">
+                                {PRIMARY_PRESETS.map((preset) => (
+                                    <button
+                                        key={preset.sig}
+                                        type="button"
+                                        onClick={() => pickPreset(preset)}
+                                        disabled={
+                                            !data.drag ||
+                                            $isLoading ||
+                                            (usedSigs.has(preset.sig) &&
+                                                currentSig !== preset.sig)
+                                        }
+                                        className={presetBtnClass(preset.sig)}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Other + Custom row */}
+                            <div className="flex gap-1.5">
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <button
+                                            type="button"
+                                            disabled={!data.drag || $isLoading}
+                                            className={cn(
+                                                "flex-1 py-2 px-2 rounded-md text-sm font-poppins font-semibold",
+                                                "bg-secondary text-foreground hover:bg-accent",
+                                                "transition-colors",
+                                                "disabled:opacity-30 disabled:cursor-not-allowed",
+                                                OTHER_PRESETS.some(
+                                                    (p) =>
+                                                        currentSig === p.sig,
+                                                ) &&
+                                                    "ring-2 ring-primary bg-primary/20 text-primary",
+                                            )}
+                                        >
+                                            Other ▾
+                                        </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-40 p-1">
+                                        <div className="flex flex-col gap-1">
+                                            {OTHER_PRESETS.map((preset) => (
+                                                <button
+                                                    key={preset.sig}
+                                                    type="button"
+                                                    onClick={() =>
+                                                        pickPreset(preset)
+                                                    }
+                                                    disabled={
+                                                        usedSigs.has(
+                                                            preset.sig,
+                                                        ) &&
+                                                        currentSig !==
+                                                            preset.sig
+                                                    }
+                                                    className={cn(
+                                                        "text-left px-3 py-1.5 rounded-sm text-sm",
+                                                        "hover:bg-accent",
+                                                        "disabled:opacity-30 disabled:cursor-not-allowed",
+                                                        currentSig ===
+                                                            preset.sig &&
+                                                            "bg-primary/20 text-primary",
+                                                    )}
+                                                >
+                                                    {preset.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </PopoverContent>
+                                </Popover>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        data.useCustom = true;
+                                        questionModified();
+                                    }}
+                                    disabled={
+                                        !data.drag ||
+                                        $isLoading ||
+                                        (usedSigs.has("custom") &&
+                                            !data.useCustom)
                                     }
-                                />
+                                    className={cn(
+                                        "flex-1 py-2 px-2 rounded-md text-sm font-poppins font-semibold",
+                                        "bg-secondary text-foreground hover:bg-accent",
+                                        "transition-colors",
+                                        "disabled:opacity-30 disabled:cursor-not-allowed",
+                                        data.useCustom &&
+                                            "ring-2 ring-primary bg-primary/20 text-primary",
+                                    )}
+                                >
+                                    Custom
+                                </button>
                             </div>
-                            <input
-                                type="range"
-                                min={sliderConfig.min}
-                                max={sliderConfig.max}
-                                step={sliderConfig.step}
-                                value={data.radius}
-                                disabled={!data.drag || $isLoading}
-                                onChange={(e) =>
-                                    questionModified(
-                                        (data.radius = parseFloat(
-                                            e.target.value,
-                                        )),
-                                    )
-                                }
-                                className={cn(
-                                    "w-full appearance-none cursor-pointer",
-                                    "h-2 rounded-full bg-secondary",
-                                    "accent-primary",
-                                    "[&::-webkit-slider-thumb]:appearance-none",
-                                    "[&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5",
-                                    "[&::-webkit-slider-thumb]:rounded-full",
-                                    "[&::-webkit-slider-thumb]:bg-primary",
-                                    "[&::-webkit-slider-thumb]:shadow-md",
-                                    "[&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5",
-                                    "[&::-moz-range-thumb]:rounded-full",
-                                    "[&::-moz-range-thumb]:bg-primary",
-                                    "[&::-moz-range-thumb]:border-0",
-                                    "disabled:opacity-50 disabled:cursor-not-allowed",
-                                )}
-                            />
-                            <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
-                                <span>{sliderConfig.min}</span>
-                                <span>{sliderConfig.max}</span>
-                            </div>
+
+                            {/* Custom slider — only when Custom is active */}
+                            {data.useCustom && (
+                                <div className="flex flex-col gap-2 pt-1">
+                                    <div className="flex items-baseline justify-between">
+                                        <span className="text-3xl font-poppins font-semibold tabular-nums">
+                                            {data.radius}
+                                        </span>
+                                        <UnitSelect
+                                            unit={data.unit}
+                                            disabled={
+                                                !data.drag || $isLoading
+                                            }
+                                            onChange={(unit) =>
+                                                questionModified(
+                                                    (data.unit = unit),
+                                                )
+                                            }
+                                        />
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min={sliderConfig.min}
+                                        max={sliderConfig.max}
+                                        step={sliderConfig.step}
+                                        value={data.radius}
+                                        disabled={!data.drag || $isLoading}
+                                        onChange={(e) =>
+                                            questionModified(
+                                                (data.radius = parseFloat(
+                                                    e.target.value,
+                                                )),
+                                            )
+                                        }
+                                        className={cn(
+                                            "w-full appearance-none cursor-pointer",
+                                            "h-2 rounded-full bg-secondary",
+                                            "accent-primary",
+                                            "[&::-webkit-slider-thumb]:appearance-none",
+                                            "[&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5",
+                                            "[&::-webkit-slider-thumb]:rounded-full",
+                                            "[&::-webkit-slider-thumb]:bg-primary",
+                                            "[&::-webkit-slider-thumb]:shadow-md",
+                                            "[&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5",
+                                            "[&::-moz-range-thumb]:rounded-full",
+                                            "[&::-moz-range-thumb]:bg-primary",
+                                            "[&::-moz-range-thumb]:border-0",
+                                            "disabled:opacity-50 disabled:cursor-not-allowed",
+                                        )}
+                                    />
+                                </div>
+                            )}
                         </div>
                     );
                 })()}

@@ -1,7 +1,10 @@
 import { useStore } from "@nanostores/react";
 import { distance, point } from "@turf/turf";
+import { Share2 } from "lucide-react";
+import { toast } from "react-toastify";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { defaultUnit } from "@/lib/context";
@@ -111,6 +114,93 @@ export const ThermometerQuestionComponent = ({
                 }}
                 disabled={!data.drag || $isLoading}
             />
+
+            {/* Rule book: seekers should notify hiders when starting (and when
+                finishing) a thermometer move, sending their current location.
+                Uses the Web Share API where available (opens the OS share
+                sheet on mobile) and falls back to clipboard on browsers that
+                don't support it (notably desktop Firefox). */}
+            <div className="flex gap-2 px-2">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 gap-1.5"
+                    disabled={$isLoading}
+                    onClick={async () => {
+                        const url = `https://maps.google.com/?q=${data.latA},${data.lngA}`;
+                        const text = `Starting a thermometer question. From: ${url}`;
+                        try {
+                            if (
+                                typeof navigator !== "undefined" &&
+                                typeof navigator.share === "function"
+                            ) {
+                                await navigator.share({
+                                    title: "Thermometer start",
+                                    text,
+                                    url,
+                                });
+                            } else {
+                                await navigator.clipboard.writeText(text);
+                                toast.success(
+                                    "Start message copied (sharing not supported)",
+                                    { autoClose: 1800 },
+                                );
+                            }
+                        } catch (err) {
+                            // User cancelled share dialog → silently ignore
+                            if (
+                                err instanceof Error &&
+                                err.name === "AbortError"
+                            ) {
+                                return;
+                            }
+                            toast.error("Could not share");
+                        }
+                    }}
+                >
+                    <Share2 className="w-3 h-3" />
+                    Share start
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 gap-1.5"
+                    disabled={$isLoading}
+                    onClick={async () => {
+                        const url = `https://maps.google.com/?q=${data.latB},${data.lngB}`;
+                        const text = `Now at: ${url}`;
+                        try {
+                            if (
+                                typeof navigator !== "undefined" &&
+                                typeof navigator.share === "function"
+                            ) {
+                                await navigator.share({
+                                    title: "Thermometer end",
+                                    text,
+                                    url,
+                                });
+                            } else {
+                                await navigator.clipboard.writeText(text);
+                                toast.success(
+                                    "End message copied (sharing not supported)",
+                                    { autoClose: 1800 },
+                                );
+                            }
+                        } catch (err) {
+                            if (
+                                err instanceof Error &&
+                                err.name === "AbortError"
+                            ) {
+                                return;
+                            }
+                            toast.error("Could not share");
+                        }
+                    }}
+                >
+                    <Share2 className="w-3 h-3" />
+                    Share end
+                </Button>
+            </div>
 
             {distanceValue !== null && (
                 <div className="px-2 text-sm text-muted-foreground">
