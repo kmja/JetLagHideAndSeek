@@ -63,13 +63,25 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     const categoryMeta = CATEGORIES[question.id as CategoryId];
     const CategoryIcon = categoryMeta?.icon;
 
-    // Hider's live position, lifted out of HiderMap so the distance hint
-    // and answer pre-suggestion can also use it.
+    // Hider's live position, lifted out of HiderMap so the answer logic
+    // and reveal state can also reference it.
     const [hiderPos, setHiderPos] = useState<{
         lat: number;
         lng: number;
         accuracy: number;
     } | null>(null);
+
+    // Reveal state, lifted so the map can apply a blur until reveal.
+    const [revealed, setRevealed] = useState(false);
+
+    // The map shows the seeker's geometry and the hider's pin together —
+    // for radius/thermometer this directly reveals the answer (inside vs
+    // outside the circle; closer to A vs B). Blur the map until the
+    // hider explicitly taps "Reveal answer". For other question types,
+    // the map doesn't reveal the answer alone, so no blur.
+    const autoComputable =
+        question.id === "radius" || question.id === "thermometer";
+    const shouldBlurMap = autoComputable && !revealed;
 
     return (
         <div className="min-h-screen flex flex-col p-4 max-w-md mx-auto">
@@ -97,15 +109,49 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 </h1>
             </header>
 
-            <HiderMap
-                question={question}
-                onHiderLocationChange={(lat, lng, accuracy) =>
-                    setHiderPos({ lat, lng, accuracy })
-                }
-            />
+            <div className="relative">
+                <div
+                    className={cn(
+                        "transition-all duration-500",
+                        shouldBlurMap && "blur-md scale-[1.02]",
+                    )}
+                    style={{
+                        // Avoid the blur bleeding past the rounded corners
+                        // of the map by clipping the wrapper too.
+                        overflow: "hidden",
+                        borderRadius: "0.375rem",
+                    }}
+                >
+                    <HiderMap
+                        question={question}
+                        onHiderLocationChange={(lat, lng, accuracy) =>
+                            setHiderPos({ lat, lng, accuracy })
+                        }
+                    />
+                </div>
+                {shouldBlurMap && (
+                    <div
+                        className={cn(
+                            "absolute inset-0 pointer-events-none",
+                            "flex items-center justify-center",
+                            "rounded-md",
+                        )}
+                        aria-hidden="true"
+                    >
+                        <div className="bg-background/70 backdrop-blur-sm px-4 py-2 rounded-full text-xs uppercase tracking-wider font-poppins font-semibold text-muted-foreground border border-border">
+                            Tap reveal to see your position
+                        </div>
+                    </div>
+                )}
+            </div>
 
             <main className="flex-1 mt-4">
-                <AnswerControls question={question} hiderPos={hiderPos} />
+                <AnswerControls
+                    question={question}
+                    hiderPos={hiderPos}
+                    revealed={revealed}
+                    onReveal={() => setRevealed(true)}
+                />
             </main>
 
             <footer className="pt-3 pb-2 text-center">
@@ -117,12 +163,6 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     );
 }
 
-/**
- * Live distance display under the map. For radius questions also shows
- * whether the hider is inside or outside the circle — a visual hint, not
- * an auto-answer (GPS accuracy can fool us, and the hider should still
- * make the call).
- */
 /** Human-readable question prompt, varies by type. */
 function questionPrompt(question: Question): string {
     const d = question.data as any;
@@ -172,14 +212,25 @@ function unitLabel(unit: string): string {
 function AnswerControls({
     question,
     hiderPos,
+    revealed,
+    onReveal,
 }: {
     question: Question;
     hiderPos: { lat: number; lng: number; accuracy: number } | null;
+    revealed: boolean;
+    onReveal: () => void;
 }) {
     switch (question.id) {
         case "radius":
         case "thermometer":
-            return <RevealAnswer question={question} hiderPos={hiderPos} />;
+            return (
+                <RevealAnswer
+                    question={question}
+                    hiderPos={hiderPos}
+                    revealed={revealed}
+                    onReveal={onReveal}
+                />
+            );
         case "matching":
             return (
                 <ManualBinaryAnswer
@@ -218,12 +269,14 @@ function AnswerControls({
 function RevealAnswer({
     question,
     hiderPos,
+    revealed,
+    onReveal,
 }: {
     question: Question;
     hiderPos: { lat: number; lng: number; accuracy: number } | null;
+    revealed: boolean;
+    onReveal: () => void;
 }) {
-    const [revealed, setRevealed] = useState(false);
-
     // Don't allow reveal until we have a GPS fix.
     if (!hiderPos) {
         return (
@@ -243,7 +296,7 @@ function RevealAnswer({
         return (
             <div>
                 <Button
-                    onClick={() => setRevealed(true)}
+                    onClick={onReveal}
                     className="w-full gap-2 py-7 text-base font-semibold"
                     size="lg"
                 >

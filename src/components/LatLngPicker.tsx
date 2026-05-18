@@ -1,9 +1,10 @@
 import { useStore } from "@nanostores/react";
 import {
-    ClipboardCopyIcon,
     ClipboardPasteIcon,
+    Copy,
     EditIcon,
     LocateIcon,
+    Share2,
 } from "lucide-react";
 import { OpenLocationCode } from "open-location-code";
 import { useEffect, useRef, useState } from "react";
@@ -337,8 +338,11 @@ export const LatitudeLongitude = ({
     return (
         <>
             <SidebarMenuItem
+                style={{
+                    backgroundColor: color,
+                }}
                 className={cn(
-                    "p-2 rounded-md space-y-1 mt-2 bg-secondary/30 border border-border",
+                    "p-2 rounded-md space-y-1 mt-2",
                     $isLoading && "brightness-50",
                 )}
             >
@@ -348,22 +352,24 @@ export const LatitudeLongitude = ({
                             "flex justify-between items-center",
                             $isLoading && "opacity-50",
                         )}
+                        style={{
+                            color: colorName === "gold" ? "black" : undefined,
+                        }}
                     >
-                        <div className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold">
+                        <div className="text-2xl font-semibold font-poppins">
                             {label}
                         </div>
-                        <div className="tabular-nums text-right text-xs font-mono">
-                            <span>
-                                {Math.abs(latitude).toFixed(4)}
-                                {"°"}
+                        <div className="tabular-nums text-right text-sm font-oxygen">
+                            <div>
+                                {Math.abs(latitude).toFixed(5)}
+                                {"° "}
                                 {latitude > 0 ? "N" : "S"}
-                            </span>
-                            {", "}
-                            <span>
-                                {Math.abs(longitude).toFixed(4)}
-                                {"°"}
+                            </div>
+                            <div>
+                                {Math.abs(longitude).toFixed(5)}
+                                {"° "}
                                 {longitude > 0 ? "E" : "W"}
-                            </span>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -422,6 +428,7 @@ export const LatitudeLongitude = ({
                         }
                     >
                         <Button
+                            variant="outline"
                             onClick={() => {
                                 if (!navigator || !navigator.geolocation)
                                     return alert("Geolocation not supported");
@@ -538,7 +545,48 @@ export const LatitudeLongitude = ({
                             }}
                             title="Copy coordinates to clipboard"
                         >
-                            <ClipboardCopyIcon />
+                            <Copy />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={async () => {
+                                const url = `https://maps.google.com/?q=${latitude},${longitude}`;
+                                const text = `${Math.abs(latitude).toFixed(5)}°${latitude > 0 ? "N" : "S"}, ${Math.abs(longitude).toFixed(5)}°${longitude > 0 ? "E" : "W"}`;
+                                try {
+                                    if (
+                                        typeof navigator !== "undefined" &&
+                                        typeof navigator.share === "function"
+                                    ) {
+                                        await navigator.share({
+                                            title: "Coordinates",
+                                            text,
+                                            url,
+                                        });
+                                    } else if (navigator.clipboard) {
+                                        await navigator.clipboard.writeText(
+                                            `${text} ${url}`,
+                                        );
+                                        toast.success(
+                                            "Link copied (sharing not supported)",
+                                            { autoClose: 1500 },
+                                        );
+                                    } else {
+                                        toast.error(
+                                            "Sharing not supported in your browser",
+                                        );
+                                    }
+                                } catch (err) {
+                                    if (
+                                        err instanceof Error &&
+                                        err.name === "AbortError"
+                                    )
+                                        return;
+                                    toast.error("Could not share");
+                                }
+                            }}
+                            title="Share coordinates"
+                        >
+                            <Share2 />
                         </Button>
                     </div>
                 </div>

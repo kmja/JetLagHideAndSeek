@@ -170,6 +170,16 @@ function QuestionOverlay({
     }
 
     if (question.id === "thermometer") {
+        const bearing = bearingDeg(
+            question.data.latA,
+            question.data.lngA,
+            question.data.latB,
+            question.data.lngB,
+        );
+        const arrowPos: [number, number] = [
+            question.data.latA + 0.8 * (question.data.latB - question.data.latA),
+            question.data.lngA + 0.8 * (question.data.lngB - question.data.lngA),
+        ];
         return (
             <>
                 <Polyline
@@ -182,6 +192,12 @@ function QuestionOverlay({
                         weight: 3,
                         dashArray: "8 6",
                     }}
+                />
+                <Marker
+                    position={arrowPos}
+                    icon={thermometerArrowIcon(bearing)}
+                    interactive={false}
+                    keyboard={false}
                 />
                 <Marker
                     position={[question.data.latA, question.data.lngA]}
@@ -339,5 +355,38 @@ export function distanceKm(
 ): number {
     return distance(point([fromLng, fromLat]), point([toLng, toLat]), {
         units: "kilometers",
+    });
+}
+
+/** Initial bearing in degrees, 0 = north, clockwise. */
+function bearingDeg(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+): number {
+    const phi1 = (lat1 * Math.PI) / 180;
+    const phi2 = (lat2 * Math.PI) / 180;
+    const dLambda = ((lng2 - lng1) * Math.PI) / 180;
+    const y = Math.sin(dLambda) * Math.cos(phi2);
+    const x =
+        Math.cos(phi1) * Math.sin(phi2) -
+        Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+/** Directional arrowhead DivIcon for thermometer lines. */
+function thermometerArrowIcon(bearing: number): DivIcon {
+    const html = `
+<div class="jl-thermometer-arrow" style="transform: rotate(${bearing.toFixed(1)}deg);">
+  <svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="10,1 18,17 10,13 2,17" fill="#f5d268" stroke="#3a3a2a" stroke-width="1.2" stroke-linejoin="round"/>
+  </svg>
+</div>`.trim();
+    return new DivIcon({
+        html,
+        className: "jl-thermometer-arrow-wrap",
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
     });
 }

@@ -383,7 +383,6 @@ export const AddQuestionDialog = ({
                     className={cn(
                         "!bg-[hsl(var(--sidebar-background))] !text-white",
                         "flex flex-col p-0 gap-0",
-                        "max-h-[90vh] sm:max-h-[85vh]",
                     )}
                 >
                     <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
