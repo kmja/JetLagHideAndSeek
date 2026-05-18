@@ -15,6 +15,7 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     addQuestion,
     defaultCustomQuestions,
+    defaultUnit,
     isLoading,
     leafletMapContext,
 } from "@/lib/context";
@@ -87,7 +88,11 @@ export const AddQuestionDialog = ({
         const center = map.getCenter();
         addQuestion({
             id: "radius",
-            data: { lat: center.lat, lng: center.lng },
+            data: {
+                lat: center.lat,
+                lng: center.lng,
+                createdAt: Date.now(),
+            },
         });
         return true;
     };
@@ -96,9 +101,16 @@ export const AddQuestionDialog = ({
         const map = leafletMapContext.get();
         if (!map) return false;
         const center = map.getCenter();
-        const destination = turf.destination([center.lng, center.lat], 5, 90, {
-            units: "miles",
-        });
+        const unit = defaultUnit.get();
+        // Sensible default offset depending on unit: 5 mi, 8 km, or 8000 m
+        const offsetDistance =
+            unit === "miles" ? 5 : unit === "kilometers" ? 8 : 8000;
+        const destination = turf.destination(
+            [center.lng, center.lat],
+            offsetDistance,
+            90,
+            { units: unit },
+        );
 
         addQuestion({
             id: "thermometer",
@@ -107,6 +119,7 @@ export const AddQuestionDialog = ({
                 lngB: center.lng,
                 latB: destination.geometry.coordinates[1],
                 lngA: destination.geometry.coordinates[0],
+                createdAt: Date.now(),
             },
         });
 
@@ -125,8 +138,13 @@ export const AddQuestionDialog = ({
                       lng: center.lng,
                       locationType: "custom",
                       places: [],
+                      createdAt: Date.now(),
                   }
-                : { lat: center.lat, lng: center.lng },
+                : {
+                      lat: center.lat,
+                      lng: center.lng,
+                      createdAt: Date.now(),
+                  },
         });
         return true;
     };
@@ -138,8 +156,17 @@ export const AddQuestionDialog = ({
         addQuestion({
             id: "matching",
             data: defaultCustomQuestions.get()
-                ? { lat: center.lat, lng: center.lng, type: "custom-points" }
-                : { lat: center.lat, lng: center.lng },
+                ? {
+                      lat: center.lat,
+                      lng: center.lng,
+                      type: "custom-points",
+                      createdAt: Date.now(),
+                  }
+                : {
+                      lat: center.lat,
+                      lng: center.lng,
+                      createdAt: Date.now(),
+                  },
         });
         return true;
     };
@@ -151,8 +178,17 @@ export const AddQuestionDialog = ({
         addQuestion({
             id: "measuring",
             data: defaultCustomQuestions.get()
-                ? { lat: center.lat, lng: center.lng, type: "custom-measure" }
-                : { lat: center.lat, lng: center.lng },
+                ? {
+                      lat: center.lat,
+                      lng: center.lng,
+                      type: "custom-measure",
+                      createdAt: Date.now(),
+                  }
+                : {
+                      lat: center.lat,
+                      lng: center.lng,
+                      createdAt: Date.now(),
+                  },
         });
         return true;
     };

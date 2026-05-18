@@ -1,10 +1,11 @@
 import { useStore } from "@nanostores/react";
-import { type DragEndEvent, Icon } from "leaflet";
+import { type DragEndEvent, DivIcon, Icon } from "leaflet";
 import { useState } from "react";
 import { Fragment } from "react/jsx-runtime";
 import { Marker } from "react-leaflet";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { buildMarkerHtml, type CategoryId } from "@/lib/categories";
 import {
     autoSave,
     hiderMode,
@@ -32,6 +33,7 @@ const ColoredMarker = ({
     latitude,
     longitude,
     color,
+    category,
     onChange,
     questionKey,
     sub = "",
@@ -40,6 +42,7 @@ const ColoredMarker = ({
     latitude: number;
     longitude: number;
     color: keyof typeof ICON_COLORS;
+    category?: CategoryId;
     questionKey: number;
     sub?: string;
 }) => {
@@ -48,23 +51,33 @@ const ColoredMarker = ({
     const $autoSave = useStore(autoSave);
     const [open, setOpen] = useState(false);
 
+    // Category-coded SVG marker for question pins; falls back to legacy
+    // colored PNG icons for the hider pin or any caller without a category.
+    const icon = category
+        ? new DivIcon({
+              html: buildMarkerHtml(category),
+              className: "jl-marker",
+              iconSize: [34, 46],
+              iconAnchor: [17, 43],
+              popupAnchor: [0, -38],
+          })
+        : color
+          ? new Icon({
+                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+                shadowUrl:
+                    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41],
+            })
+          : undefined;
+
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <Marker
                 position={[latitude, longitude]}
-                icon={
-                    color
-                        ? new Icon({
-                              iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
-                              shadowUrl:
-                                  "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
-                              iconSize: [25, 41],
-                              iconAnchor: [12, 41],
-                              popupAnchor: [1, -34],
-                              shadowSize: [41, 41],
-                          })
-                        : undefined
-                }
+                icon={icon}
                 draggable={true}
                 eventHandlers={{
                     dragstart: () => {
@@ -232,6 +245,7 @@ export const DraggableMarkers = () => {
                         return (
                             <ColoredMarker
                                 color={question.data.color}
+                                category={question.id}
                                 key={question.key}
                                 questionKey={question.key}
                                 latitude={question.data.lat}
@@ -250,6 +264,7 @@ export const DraggableMarkers = () => {
                             <Fragment key={question.key}>
                                 <ColoredMarker
                                     color={question.data.colorA}
+                                    category="thermometer"
                                     key={"a" + question.key.toString()}
                                     questionKey={question.key}
                                     sub="Start"
@@ -265,6 +280,7 @@ export const DraggableMarkers = () => {
                                 />
                                 <ColoredMarker
                                     color={question.data.colorB}
+                                    category="thermometer"
                                     key={"b" + question.key.toString()}
                                     questionKey={question.key}
                                     sub="End"
