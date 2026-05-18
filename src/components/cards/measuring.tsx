@@ -36,12 +36,14 @@ import { QuestionCard } from "./base";
 export const MeasuringQuestionComponent = ({
     data,
     questionKey,
+    forceExpanded,
     sub,
     className,
 }: {
     data: MeasuringQuestion;
     questionKey: number;
     sub?: string;
+    forceExpanded?: boolean;
     className?: string;
 }) => {
     useStore(triggerLocalRefresh);
@@ -133,6 +135,7 @@ export const MeasuringQuestionComponent = ({
             summary={`${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.hiderCloser ? "Closer" : "Further"}`}
             createdAt={data.createdAt}
             className={className}
+            forceExpanded={forceExpanded}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
                 data.collapsed = collapsed; // Doesn't trigger a re-render so no need for questionModified

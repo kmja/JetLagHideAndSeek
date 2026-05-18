@@ -35,12 +35,14 @@ import { QuestionCard } from "./base";
 export const TentacleQuestionComponent = ({
     data,
     questionKey,
+    forceExpanded,
     sub,
     className,
 }: {
     data: TentacleQuestion;
     questionKey: number;
     sub?: string;
+    forceExpanded?: boolean;
     className?: string;
 }) => {
     const $questions = useStore(questions);
@@ -63,6 +65,7 @@ export const TentacleQuestionComponent = ({
             summary={(data.locationType.charAt(0).toUpperCase() + data.locationType.slice(1)).replace(/-/g, " ")}
             createdAt={data.createdAt}
             className={className}
+            forceExpanded={forceExpanded}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
                 data.collapsed = collapsed; // Doesn't trigger a re-render so no need for questionModified

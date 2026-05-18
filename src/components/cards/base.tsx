@@ -61,6 +61,7 @@ export const QuestionCard = ({
     summary,
     createdAt,
     collapsed,
+    forceExpanded,
     locked,
     setLocked,
     setCollapsed,
@@ -74,11 +75,14 @@ export const QuestionCard = ({
     summary?: React.ReactNode;
     createdAt?: number;
     collapsed?: boolean;
+    forceExpanded?: boolean;
     locked?: boolean;
     setLocked?: (locked: boolean) => void;
     setCollapsed?: (collapsed: boolean) => void;
 }) => {
-    const [isCollapsed, setIsCollapsed] = useState(collapsed ?? true);
+    const [isCollapsed, setIsCollapsed] = useState(
+        forceExpanded ? false : (collapsed ?? true),
+    );
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
     const copyButtonRef = useRef<HTMLButtonElement>(null);

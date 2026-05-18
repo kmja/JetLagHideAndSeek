@@ -20,12 +20,14 @@ import { QuestionCard } from "./base";
 export const ThermometerQuestionComponent = ({
     data,
     questionKey,
+    forceExpanded,
     sub,
     className,
 }: {
     data: ThermometerQuestion;
     questionKey: number;
     sub?: string;
+    forceExpanded?: boolean;
     className?: string;
 }) => {
     useStore(triggerLocalRefresh);
@@ -76,6 +78,7 @@ export const ThermometerQuestionComponent = ({
             summary={summary}
             createdAt={data.createdAt}
             className={className}
+            forceExpanded={forceExpanded}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
                 data.collapsed = collapsed;

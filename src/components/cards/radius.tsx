@@ -24,12 +24,14 @@ import { QuestionCard } from "./base";
 export const RadiusQuestionComponent = ({
     data,
     questionKey,
+    forceExpanded,
     sub,
     className,
 }: {
     data: RadiusQuestion;
     questionKey: number;
     sub?: string;
+    forceExpanded?: boolean;
     className?: string;
 }) => {
     useStore(triggerLocalRefresh);
@@ -57,6 +59,7 @@ export const RadiusQuestionComponent = ({
             summary={summary}
             createdAt={data.createdAt}
             className={className}
+            forceExpanded={forceExpanded}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
                 data.collapsed = collapsed; // Doesn't trigger a re-render so no need for questionModified

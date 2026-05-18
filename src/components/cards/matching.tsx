@@ -40,12 +40,14 @@ import { QuestionCard } from "./base";
 export const MatchingQuestionComponent = ({
     data,
     questionKey,
+    forceExpanded,
     sub,
     className,
 }: {
     data: MatchingQuestion;
     questionKey: number;
     sub?: string;
+    forceExpanded?: boolean;
     className?: string;
 }) => {
     useStore(triggerLocalRefresh);
@@ -187,6 +189,7 @@ export const MatchingQuestionComponent = ({
             summary={`${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.same ? "Match" : "No match"}`}
             createdAt={data.createdAt}
             className={className}
+            forceExpanded={forceExpanded}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
                 data.collapsed = collapsed; // Doesn't trigger a re-render so no need for questionModified
