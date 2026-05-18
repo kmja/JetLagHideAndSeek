@@ -1,11 +1,5 @@
 import { useStore } from "@nanostores/react";
-import {
-    ClipboardPasteIcon,
-    Copy,
-    EditIcon,
-    LocateIcon,
-    Share2,
-} from "lucide-react";
+import { EditIcon, LocateIcon } from "lucide-react";
 import { OpenLocationCode } from "open-location-code";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -14,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDebounce } from "@/hooks/useDebounce";
 import { allowGooglePlusCodes, isLoading } from "@/lib/context";
+import { reverseGeocode } from "@/lib/geocoding";
 import { cn } from "@/lib/utils";
 import { determineName, geocode, ICON_COLORS } from "@/maps/api";
 
@@ -333,43 +328,64 @@ export const LatitudeLongitude = ({
 }) => {
     const $isLoading = useStore(isLoading);
 
-    const color = colorName ? ICON_COLORS[colorName] : "transparent";
+    // Resolve the coordinates to a friendly "near X" label via Nominatim.
+    // Debounced + cached inside reverseGeocode itself, so dragging a marker
+    // around won't fire a request per pixel.
+    const [nearby, setNearby] = useState<string | null>(null);
+    useEffect(() => {
+        if (
+            typeof latitude !== "number" ||
+            typeof longitude !== "number" ||
+            Number.isNaN(latitude) ||
+            Number.isNaN(longitude)
+        ) {
+            setNearby(null);
+            return;
+        }
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            reverseGeocode(latitude, longitude).then((name) => {
+                if (!cancelled) setNearby(name);
+            });
+        }, 400);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [latitude, longitude]);
 
     return (
         <>
             <SidebarMenuItem
-                style={{
-                    backgroundColor: color,
-                }}
                 className={cn(
-                    "p-2 rounded-md space-y-1 mt-2",
-                    $isLoading && "brightness-50",
+                    "px-2 py-2 rounded-md space-y-1 mt-2",
+                    "bg-secondary/30 border border-border",
+                    $isLoading && "opacity-60",
                 )}
             >
                 {!inlineEdit && (
                     <div
                         className={cn(
-                            "flex justify-between items-center",
+                            "flex justify-between items-baseline gap-2",
                             $isLoading && "opacity-50",
                         )}
-                        style={{
-                            color: colorName === "gold" ? "black" : undefined,
-                        }}
                     >
-                        <div className="text-2xl font-semibold font-poppins">
+                        <div className="text-xs uppercase tracking-wider font-poppins font-semibold text-muted-foreground shrink-0">
                             {label}
                         </div>
-                        <div className="tabular-nums text-right text-sm font-oxygen">
-                            <div>
-                                {Math.abs(latitude).toFixed(5)}
-                                {"° "}
-                                {latitude > 0 ? "N" : "S"}
-                            </div>
-                            <div>
-                                {Math.abs(longitude).toFixed(5)}
-                                {"° "}
-                                {longitude > 0 ? "E" : "W"}
-                            </div>
+                        <div className="text-xs text-foreground/80 truncate min-w-0 text-right">
+                            {nearby ? (
+                                <>
+                                    near{" "}
+                                    <span className="font-medium">
+                                        {nearby}
+                                    </span>
+                                </>
+                            ) : (
+                                <span className="text-muted-foreground italic">
+                                    locating…
+                                </span>
+                            )}
                         </div>
                     </div>
                 )}
@@ -469,124 +485,6 @@ export const LatitudeLongitude = ({
                             title="Set to current location"
                         >
                             <LocateIcon />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                if (!navigator || !navigator.clipboard) {
-                                    toast.error(
-                                        "Clipboard API not supported in your browser",
-                                    );
-                                    return;
-                                }
-
-                                isLoading.set(true);
-
-                                toast.promise(
-                                    navigator.clipboard
-                                        .readText()
-                                        .then((text) => {
-                                            const coords =
-                                                parseCoordinatesFromText(text);
-                                            if (
-                                                coords.lat !== null &&
-                                                coords.lng !== null
-                                            ) {
-                                                onChange(
-                                                    coords.lat,
-                                                    coords.lng,
-                                                );
-                                                return;
-                                            }
-                                            throw new Error(
-                                                "Could not find coordinates in clipboard content",
-                                            );
-                                        })
-                                        .finally(() => {
-                                            isLoading.set(false);
-                                        }),
-                                    {
-                                        pending: "Reading from clipboard",
-                                        success:
-                                            "Coordinates set from clipboard",
-                                        error: "No valid coordinates found in clipboard",
-                                    },
-                                    { autoClose: 1000 },
-                                );
-                            }}
-                            disabled={disabled}
-                            title="Paste coordinates from clipboard"
-                        >
-                            <ClipboardPasteIcon />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                if (!navigator || !navigator.clipboard) {
-                                    toast.error(
-                                        "Clipboard API not supported in your browser",
-                                    );
-                                    return;
-                                }
-
-                                toast.promise(
-                                    navigator.clipboard.writeText(
-                                        `${Math.abs(latitude)}°${latitude > 0 ? "N" : "S"}, ${Math.abs(
-                                            longitude,
-                                        )}°${longitude > 0 ? "E" : "W"}`,
-                                    ),
-                                    {
-                                        pending: "Writing to clipboard...",
-                                        success: "Coordinates copied!",
-                                        error: "An error occurred while copying",
-                                    },
-                                    { autoClose: 1000 },
-                                );
-                            }}
-                            title="Copy coordinates to clipboard"
-                        >
-                            <Copy />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            onClick={async () => {
-                                const url = `https://maps.google.com/?q=${latitude},${longitude}`;
-                                const text = `${Math.abs(latitude).toFixed(5)}°${latitude > 0 ? "N" : "S"}, ${Math.abs(longitude).toFixed(5)}°${longitude > 0 ? "E" : "W"}`;
-                                try {
-                                    if (
-                                        typeof navigator !== "undefined" &&
-                                        typeof navigator.share === "function"
-                                    ) {
-                                        await navigator.share({
-                                            title: "Coordinates",
-                                            text,
-                                            url,
-                                        });
-                                    } else if (navigator.clipboard) {
-                                        await navigator.clipboard.writeText(
-                                            `${text} ${url}`,
-                                        );
-                                        toast.success(
-                                            "Link copied (sharing not supported)",
-                                            { autoClose: 1500 },
-                                        );
-                                    } else {
-                                        toast.error(
-                                            "Sharing not supported in your browser",
-                                        );
-                                    }
-                                } catch (err) {
-                                    if (
-                                        err instanceof Error &&
-                                        err.name === "AbortError"
-                                    )
-                                        return;
-                                    toast.error("Could not share");
-                                }
-                            }}
-                            title="Share coordinates"
-                        >
-                            <Share2 />
                         </Button>
                     </div>
                 </div>

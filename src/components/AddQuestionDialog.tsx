@@ -13,6 +13,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import {
     addQuestion,
     defaultCustomQuestions,
@@ -40,18 +41,62 @@ import { Button } from "./ui/button";
  * A single category tile in the Add Question picker.
  * Visual identity (color + icon) comes from CATEGORIES.
  */
+const SubtypeTile = ({
+    category,
+    subtype,
+    onClick,
+    disabled,
+}: {
+    category: CategoryId;
+    subtype: SubtypeMeta;
+    onClick: () => void;
+    disabled?: boolean;
+}) => {
+    const catMeta = CATEGORIES[category];
+    const Icon = subtype.icon;
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            className={cn(
+                "flex flex-col items-center text-center gap-2 p-4 rounded-md",
+                "bg-secondary border-2 border-transparent",
+                "hover:bg-accent hover:-translate-y-[1px] transition-all",
+                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+            style={{ borderColor: catMeta.color }}
+            title={subtype.description}
+        >
+            <span
+                className="inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0"
+                style={{ backgroundColor: catMeta.color }}
+                aria-hidden="true"
+            >
+                <Icon size={20} strokeWidth={2.2} className="text-white" />
+            </span>
+            <span className="font-poppins font-semibold text-sm leading-tight">
+                {subtype.label}
+            </span>
+        </button>
+    );
+};
+
 const CategoryTile = ({
     category,
     description,
     onClick,
     disabled,
     className,
+    blockedReason,
 }: {
     category: CategoryId;
     description: string;
     onClick: () => void;
     disabled?: boolean;
     className?: string;
+    blockedReason?: string;
 }) => {
     const meta = CATEGORIES[category];
     const Icon = meta.icon;
@@ -60,6 +105,7 @@ const CategoryTile = ({
             type="button"
             onClick={onClick}
             disabled={disabled}
+            title={blockedReason}
             className={cn(
                 "flex flex-col gap-2 p-3 rounded-md text-left",
                 "bg-secondary border border-border border-l-[3px]",
@@ -83,7 +129,7 @@ const CategoryTile = ({
                 </span>
             </div>
             <span className="text-xs text-muted-foreground font-normal leading-snug">
-                {description}
+                {blockedReason ?? description}
             </span>
         </button>
     );
@@ -97,6 +143,12 @@ export const AddQuestionDialog = ({
     const $isLoading = useStore(isLoading);
     const $questions = useStore(questions);
     const [open, setOpen] = React.useState(false);
+    // Step 2 of the add flow: when the user picks matching/measuring/tentacles,
+    // we show a subtype picker before opening the configure dialog. Null when
+    // we're either on step 1 (category picker) or past step 2 (configure).
+    const [subtypePickerFor, setSubtypePickerFor] = React.useState<
+        "matching" | "measuring" | "tentacles" | null
+    >(null);
     // Key of the just-added question awaiting Confirm/Cancel.
     const [pendingKey, setPendingKey] = React.useState<number | null>(null);
 
@@ -197,30 +249,35 @@ export const AddQuestionDialog = ({
         return true;
     };
 
-    const runAddTentacles = () => {
+    const runAddTentacles = (subtype?: string) => {
         const map = leafletMapContext.get();
         if (!map) return false;
         const center = map.getCenter();
+        // Tentacles uses `locationType` as the type field (unlike matching
+        // and measuring which use `type`). When the user picks a subtype in
+        // step 2 we set it here so the resulting question has the right
+        // place category baked in.
         addQuestion({
             id: "tentacles",
             data: defaultCustomQuestions.get()
                 ? {
                       lat: center.lat,
                       lng: center.lng,
-                      locationType: "custom",
+                      locationType: subtype ?? "custom",
                       places: [],
                       createdAt: Date.now(),
                   }
                 : {
                       lat: center.lat,
                       lng: center.lng,
+                      ...(subtype ? { locationType: subtype } : {}),
                       createdAt: Date.now(),
                   },
         });
         return true;
     };
 
-    const runAddMatching = () => {
+    const runAddMatching = (subtype?: string) => {
         const map = leafletMapContext.get();
         if (!map) return false;
         const center = map.getCenter();
@@ -230,19 +287,20 @@ export const AddQuestionDialog = ({
                 ? {
                       lat: center.lat,
                       lng: center.lng,
-                      type: "custom-points",
+                      type: subtype ?? "custom-points",
                       createdAt: Date.now(),
                   }
                 : {
                       lat: center.lat,
                       lng: center.lng,
+                      ...(subtype ? { type: subtype } : {}),
                       createdAt: Date.now(),
                   },
         });
         return true;
     };
 
-    const runAddMeasuring = () => {
+    const runAddMeasuring = (subtype?: string) => {
         const map = leafletMapContext.get();
         if (!map) return false;
         const center = map.getCenter();
@@ -252,12 +310,13 @@ export const AddQuestionDialog = ({
                 ? {
                       lat: center.lat,
                       lng: center.lng,
-                      type: "custom-measure",
+                      type: subtype ?? "custom-measure",
                       createdAt: Date.now(),
                   }
                 : {
                       lat: center.lat,
                       lng: center.lng,
+                      ...(subtype ? { type: subtype } : {}),
                       createdAt: Date.now(),
                   },
         });
@@ -306,47 +365,95 @@ export const AddQuestionDialog = ({
                 <DialogDescription>Pick a category.</DialogDescription>
 
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <CategoryTile
-                        category="matching"
-                        description="Is something the same as us?"
-                        onClick={() => {
-                            if (runAddMatching()) promoteLastQuestion();
-                        }}
-                        disabled={$isLoading}
-                    />
-                    <CategoryTile
-                        category="measuring"
-                        description="Closer or further than us?"
-                        onClick={() => {
-                            if (runAddMeasuring()) promoteLastQuestion();
-                        }}
-                        disabled={$isLoading}
-                    />
-                    <CategoryTile
-                        category="radius"
-                        description="Within distance of us?"
-                        onClick={() => {
-                            if (runAddRadius()) promoteLastQuestion();
-                        }}
-                        disabled={$isLoading}
-                    />
-                    <CategoryTile
-                        category="thermometer"
-                        description="Hotter or colder after move?"
-                        onClick={() => {
-                            if (runAddThermometer()) promoteLastQuestion();
-                        }}
-                        disabled={$isLoading}
-                    />
-                    <CategoryTile
-                        category="tentacles"
-                        description="Nearest place of a type within range."
-                        onClick={() => {
-                            if (runAddTentacles()) promoteLastQuestion();
-                        }}
-                        disabled={$isLoading}
-                        className="sm:col-span-2"
-                    />
+                    {/* Rule book: cannot ask two consecutive questions of the
+                        same category. Disable whichever category was last so
+                        the seeker can't accidentally violate the rule. */}
+                    {(() => {
+                        const lastCat = $questions[$questions.length - 1]?.id;
+                        const isBlocked = (c: string) => c === lastCat;
+                        return (
+                            <>
+                                <CategoryTile
+                                    category="matching"
+                                    description="Is something the same as us?"
+                                    onClick={() => {
+                                        setSubtypePickerFor("matching");
+                                    }}
+                                    disabled={
+                                        $isLoading || isBlocked("matching")
+                                    }
+                                    blockedReason={
+                                        isBlocked("matching")
+                                            ? "Last question was matching — can't ask the same category twice in a row"
+                                            : undefined
+                                    }
+                                />
+                                <CategoryTile
+                                    category="measuring"
+                                    description="Closer or further than us?"
+                                    onClick={() => {
+                                        setSubtypePickerFor("measuring");
+                                    }}
+                                    disabled={
+                                        $isLoading || isBlocked("measuring")
+                                    }
+                                    blockedReason={
+                                        isBlocked("measuring")
+                                            ? "Last question was measuring — can't ask the same category twice in a row"
+                                            : undefined
+                                    }
+                                />
+                                <CategoryTile
+                                    category="radius"
+                                    description="Within distance of us?"
+                                    onClick={() => {
+                                        if (runAddRadius())
+                                            promoteLastQuestion();
+                                    }}
+                                    disabled={
+                                        $isLoading || isBlocked("radius")
+                                    }
+                                    blockedReason={
+                                        isBlocked("radius")
+                                            ? "Last question was radius — can't ask the same category twice in a row"
+                                            : undefined
+                                    }
+                                />
+                                <CategoryTile
+                                    category="thermometer"
+                                    description="Hotter or colder after move?"
+                                    onClick={() => {
+                                        if (runAddThermometer())
+                                            promoteLastQuestion();
+                                    }}
+                                    disabled={
+                                        $isLoading || isBlocked("thermometer")
+                                    }
+                                    blockedReason={
+                                        isBlocked("thermometer")
+                                            ? "Last question was thermometer — can't ask the same category twice in a row"
+                                            : undefined
+                                    }
+                                />
+                                <CategoryTile
+                                    category="tentacles"
+                                    description="Nearest place of a type within range."
+                                    onClick={() => {
+                                        setSubtypePickerFor("tentacles");
+                                    }}
+                                    disabled={
+                                        $isLoading || isBlocked("tentacles")
+                                    }
+                                    blockedReason={
+                                        isBlocked("tentacles")
+                                            ? "Last question was tentacles — can't ask the same category twice in a row"
+                                            : undefined
+                                    }
+                                    className="sm:col-span-2"
+                                />
+                            </>
+                        );
+                    })()}
                 </div>
 
                 <button
@@ -371,6 +478,85 @@ export const AddQuestionDialog = ({
                     </span>
                 </button>
             </DialogContent>
+            </Dialog>
+
+            {/* Step 2: subtype picker for matching/measuring/tentacles. The
+                user lands here after tapping a category that has multiple
+                subtypes. Picking a tile adds the question with that subtype
+                preselected, then opens the configure dialog. */}
+            <Dialog
+                open={subtypePickerFor !== null}
+                onOpenChange={(o) => {
+                    if (!o) setSubtypePickerFor(null);
+                }}
+            >
+                <DialogContent>
+                    {subtypePickerFor &&
+                        (() => {
+                            const meta = CATEGORIES[subtypePickerFor];
+                            const subtypes = getSubtypes(subtypePickerFor);
+                            return (
+                                <>
+                                    <DialogTitle className="flex items-center gap-2">
+                                        <span
+                                            className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
+                                            style={{
+                                                backgroundColor: meta.color,
+                                            }}
+                                        >
+                                            <meta.icon
+                                                size={16}
+                                                strokeWidth={2.5}
+                                                className="text-white"
+                                            />
+                                        </span>
+                                        Pick a {meta.label.toLowerCase()} type
+                                    </DialogTitle>
+                                    <DialogDescription>
+                                        You can change this later in the
+                                        configure dialog.
+                                    </DialogDescription>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 overflow-y-auto">
+                                        {subtypes?.map((subtype) => (
+                                            <SubtypeTile
+                                                key={subtype.value}
+                                                category={subtypePickerFor}
+                                                subtype={subtype}
+                                                disabled={$isLoading}
+                                                onClick={() => {
+                                                    const cat =
+                                                        subtypePickerFor;
+                                                    let ok = false;
+                                                    if (cat === "matching")
+                                                        ok = runAddMatching(
+                                                            subtype.value,
+                                                        );
+                                                    else if (
+                                                        cat === "measuring"
+                                                    )
+                                                        ok = runAddMeasuring(
+                                                            subtype.value,
+                                                        );
+                                                    else if (
+                                                        cat === "tentacles"
+                                                    )
+                                                        ok = runAddTentacles(
+                                                            subtype.value,
+                                                        );
+                                                    if (ok) {
+                                                        setSubtypePickerFor(
+                                                            null,
+                                                        );
+                                                        promoteLastQuestion();
+                                                    }
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </>
+                            );
+                        })()}
+                </DialogContent>
             </Dialog>
 
             <Dialog

@@ -26,12 +26,17 @@ import type { Question } from "@/maps/schema";
  */
 export function HiderMap({
     question,
+    overridePos,
     onHiderLocationChange,
+    onGeoError,
 }: {
     question: Question;
+    /** When supplied, used as the hider position instead of GPS. */
+    overridePos?: { lat: number; lng: number } | null;
     onHiderLocationChange?: (lat: number, lng: number, accuracy: number) => void;
+    onGeoError?: (message: string) => void;
 }) {
-    const [hiderPos, setHiderPos] = useState<{
+    const [gpsPos, setGpsPos] = useState<{
         lat: number;
         lng: number;
         accuracy: number;
@@ -39,9 +44,14 @@ export function HiderMap({
     const [geoError, setGeoError] = useState<string | null>(null);
 
     // Watch position throughout the hider's session so the dot follows them.
+    // If `overridePos` is provided we still kick off watch in case the user
+    // later wants to switch back to GPS — but the displayed pin is whichever
+    // source has the most recent value (override takes precedence).
     useEffect(() => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
-            setGeoError("Geolocation not supported");
+            const msg = "Geolocation not supported";
+            setGeoError(msg);
+            onGeoError?.(msg);
             return;
         }
         const watchId = navigator.geolocation.watchPosition(
@@ -51,21 +61,38 @@ export function HiderMap({
                     lng: pos.coords.longitude,
                     accuracy: pos.coords.accuracy,
                 };
-                setHiderPos(next);
-                onHiderLocationChange?.(next.lat, next.lng, next.accuracy);
+                setGpsPos(next);
+                setGeoError(null);
+                if (!overridePos) {
+                    onHiderLocationChange?.(next.lat, next.lng, next.accuracy);
+                }
             },
             (err) => {
-                setGeoError(
+                const msg =
                     err.code === err.PERMISSION_DENIED
                         ? "Location permission denied"
-                        : "Could not get your location",
-                );
+                        : "Could not get your location";
+                setGeoError(msg);
+                onGeoError?.(msg);
             },
             { enableHighAccuracy: true, maximumAge: 5000 },
         );
         return () => navigator.geolocation.clearWatch(watchId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Push override into the parent stream so distance calcs use it.
+    useEffect(() => {
+        if (overridePos) {
+            onHiderLocationChange?.(overridePos.lat, overridePos.lng, 0);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [overridePos?.lat, overridePos?.lng]);
+
+    // The effective hider position: override wins over GPS.
+    const hiderPos = overridePos
+        ? { ...overridePos, accuracy: 0 }
+        : gpsPos;
 
     // Extract the seeker's primary point for centering before bounds are known.
     const initialCenter = useMemo(() => {
@@ -177,8 +204,8 @@ function QuestionOverlay({
             question.data.lngB,
         );
         const arrowPos: [number, number] = [
-            question.data.latA + 0.8 * (question.data.latB - question.data.latA),
-            question.data.lngA + 0.8 * (question.data.lngB - question.data.lngA),
+            question.data.latA + 0.5 * (question.data.latB - question.data.latA),
+            question.data.lngA + 0.5 * (question.data.lngB - question.data.lngA),
         ];
         return (
             <>

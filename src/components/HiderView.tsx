@@ -1,4 +1,4 @@
-import { Copy, Eye, Share2 } from "lucide-react";
+import { Copy, Eye, MapPin, Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -6,6 +6,7 @@ import { HiderMap, distanceKm } from "@/components/HiderMap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { forwardGeocode } from "@/lib/geocoding";
 import {
     decodeQuestionFromUrl,
     encodeAnswerForSeeker,
@@ -71,6 +72,21 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
         accuracy: number;
     } | null>(null);
 
+    // Manual fallback for when GPS is denied/unavailable. When set, this
+    // overrides the GPS-derived position inside HiderMap, and the manual
+    // location panel collapses to a small "edit" affordance.
+    const [manualPos, setManualPos] = useState<{
+        lat: number;
+        lng: number;
+        label: string;
+    } | null>(null);
+
+    // Whether GPS failed (denied/unsupported). Drives the visibility of the
+    // manual-location UI. We still let the user open it on demand via a
+    // small link even when GPS works, for cases where the device's reported
+    // position is wrong.
+    const [geoFailed, setGeoFailed] = useState(false);
+
     // Reveal state, lifted so the map can apply a blur until reveal.
     const [revealed, setRevealed] = useState(false);
 
@@ -124,9 +140,11 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 >
                     <HiderMap
                         question={question}
+                        overridePos={manualPos}
                         onHiderLocationChange={(lat, lng, accuracy) =>
                             setHiderPos({ lat, lng, accuracy })
                         }
+                        onGeoError={() => setGeoFailed(true)}
                     />
                 </div>
                 {shouldBlurMap && (
@@ -144,6 +162,13 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                     </div>
                 )}
             </div>
+
+            <ManualLocationPanel
+                geoFailed={geoFailed}
+                manualPos={manualPos}
+                onSet={(pos) => setManualPos(pos)}
+                onClear={() => setManualPos(null)}
+            />
 
             <main className="flex-1 mt-4">
                 <AnswerControls
@@ -521,6 +546,151 @@ function TentaclesAnswer({ question }: { question: Question }) {
                     shareText={`Closest match: ${trimmed}.`}
                 />
             )}
+        </div>
+    );
+}
+
+/**
+ * Manual location fallback. Appears as:
+ *   - A prominent banner when GPS has failed and no manual override is set
+ *   - A small "edit manual location" link when an override is in use, with
+ *     a separate "use GPS again" option
+ *   - Nothing when GPS works and the hider hasn't asked for manual
+ *
+ * The lookup uses Nominatim forward-geocoding (via @/lib/geocoding); first
+ * matching result wins. Free-form text — "Stockholm city center", "10115
+ * Berlin", "Eiffel Tower" all work.
+ */
+function ManualLocationPanel({
+    geoFailed,
+    manualPos,
+    onSet,
+    onClear,
+}: {
+    geoFailed: boolean;
+    manualPos: { lat: number; lng: number; label: string } | null;
+    onSet: (pos: { lat: number; lng: number; label: string }) => void;
+    onClear: () => void;
+}) {
+    const [query, setQuery] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [expanded, setExpanded] = useState(false);
+
+    // Auto-expand when geolocation fails and the user hasn't set a manual
+    // position yet — otherwise the hider would stare at a frozen map.
+    useEffect(() => {
+        if (geoFailed && !manualPos) setExpanded(true);
+    }, [geoFailed, manualPos]);
+
+    const doLookup = async () => {
+        if (!query.trim()) return;
+        setBusy(true);
+        const result = await forwardGeocode(query);
+        setBusy(false);
+        if (!result) {
+            toast.error("Couldn't find that place. Try being more specific.");
+            return;
+        }
+        onSet({
+            lat: result.lat,
+            lng: result.lng,
+            label: result.displayName,
+        });
+        setExpanded(false);
+        setQuery("");
+        toast.success("Location set", { autoClose: 1500 });
+    };
+
+    // Case A: manual position set, panel collapsed.
+    if (manualPos && !expanded) {
+        return (
+            <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                <div className="text-muted-foreground truncate min-w-0">
+                    <MapPin className="w-3 h-3 inline mr-1 -mt-0.5" />
+                    Using manual location:{" "}
+                    <span className="text-foreground">
+                        {manualPos.label.split(",")[0]}
+                    </span>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                    <button
+                        type="button"
+                        onClick={() => setExpanded(true)}
+                        className="text-primary hover:underline"
+                    >
+                        change
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onClear}
+                        className="text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                        use GPS
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Case B: manual entry UI (expanded — either because GPS failed or the
+    // hider clicked "change").
+    if (expanded || geoFailed) {
+        return (
+            <div
+                className={cn(
+                    "mt-2 p-3 rounded-md",
+                    "bg-secondary/30 border border-border",
+                )}
+            >
+                {geoFailed && !manualPos && (
+                    <p className="text-xs text-destructive-foreground mb-2">
+                        Couldn't get your GPS location. Enter your location
+                        manually instead.
+                    </p>
+                )}
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold block mb-2">
+                    Where are you?
+                </label>
+                <div className="flex gap-2">
+                    <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="City, neighborhood, or address"
+                        className="text-base"
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                doLookup();
+                            }
+                        }}
+                    />
+                    <Button onClick={doLookup} disabled={busy || !query.trim()}>
+                        {busy ? "…" : "Set"}
+                    </Button>
+                </div>
+                {expanded && manualPos && (
+                    <button
+                        type="button"
+                        onClick={() => setExpanded(false)}
+                        className="mt-2 text-xs text-muted-foreground hover:underline"
+                    >
+                        Cancel
+                    </button>
+                )}
+            </div>
+        );
+    }
+
+    // Case C: GPS working, no manual override → tiny "set manually" link.
+    return (
+        <div className="mt-2 text-right">
+            <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+                Set location manually
+            </button>
         </div>
     );
 }

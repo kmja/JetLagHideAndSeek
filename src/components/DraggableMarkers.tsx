@@ -5,6 +5,7 @@ import { Fragment } from "react/jsx-runtime";
 import { Marker, Polyline } from "react-leaflet";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { buildMarkerHtml, type CategoryId } from "@/lib/categories";
 import {
     autoSave,
     hiderMode,
@@ -48,23 +49,36 @@ const ColoredMarker = ({
     const $autoSave = useStore(autoSave);
     const [open, setOpen] = useState(false);
 
+    // Prefer category-coded SVG markers (matched to the question's id);
+    // fall back to the legacy color-coded PNG icon when there's no
+    // matching question (e.g. transient marker for the hider's location).
+    const matchedQuestion = $questions.find((q) => q.key === questionKey);
+    const category = matchedQuestion?.id as CategoryId | undefined;
+
+    const icon = category
+        ? new DivIcon({
+              html: buildMarkerHtml(category),
+              className: "jl-marker",
+              iconSize: [34, 46],
+              iconAnchor: [17, 43],
+          })
+        : color
+          ? new Icon({
+                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+                shadowUrl:
+                    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41],
+            })
+          : undefined;
+
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <Marker
                 position={[latitude, longitude]}
-                icon={
-                    color
-                        ? new Icon({
-                              iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
-                              shadowUrl:
-                                  "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
-                              iconSize: [25, 41],
-                              iconAnchor: [12, 41],
-                              popupAnchor: [1, -34],
-                              shadowSize: [41, 41],
-                          })
-                        : undefined
-                }
+                icon={icon}
                 draggable={true}
                 eventHandlers={{
                     dragstart: () => {
@@ -357,7 +371,7 @@ function thermometerArrowPos(
     latB: number,
     lngB: number,
 ): [number, number] {
-    const t = 0.8;
+    const t = 0.5;
     return [latA + t * (latB - latA), lngA + t * (lngB - lngA)];
 }
 
