@@ -4,9 +4,9 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { atom } from "nanostores";
 import * as React from "react";
 import { TbMessage2Question } from "react-icons/tb";
+import { Drawer as VaulDrawer } from "vaul";
 
 import { Button } from "@/components/ui/button";
-import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -214,21 +214,28 @@ const Sidebar = React.forwardRef<
 
         if (isMobile) {
             return (
-                <Drawer
+                <VaulDrawer.Root
                     open={openMobile}
                     onOpenChange={setOpenMobile}
                     shouldScaleBackground={false}
                 >
-                    <DrawerContent
-                        data-sidebar="sidebar"
-                        data-mobile="true"
-                        className="bg-sidebar p-0 text-sidebar-foreground max-h-[80vh] z-[1035] flex flex-col"
-                    >
-                        <div className="flex flex-col w-full overflow-y-auto">
-                            {children}
-                        </div>
-                    </DrawerContent>
-                </Drawer>
+                    <VaulDrawer.Portal>
+                        <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
+                        <VaulDrawer.Content
+                            data-sidebar="sidebar"
+                            data-mobile="true"
+                            className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex h-auto max-h-[80vh] flex-col rounded-t-[10px] border bg-sidebar text-sidebar-foreground"
+                        >
+                            <VaulDrawer.Title className="sr-only">
+                                Questions
+                            </VaulDrawer.Title>
+                            <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                            <div className="flex flex-col w-full overflow-y-auto">
+                                {children}
+                            </div>
+                        </VaulDrawer.Content>
+                    </VaulDrawer.Portal>
+                </VaulDrawer.Root>
             );
         }
 
