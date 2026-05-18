@@ -77,6 +77,8 @@ const thermometerQuestionSchema = z
         /** Note that drag is now synonymous with unlocked */
         drag: z.boolean().default(true),
         collapsed: z.boolean().default(false),
+        /** Unix ms timestamp of when this question was created. Optional so older saved questions still parse. */
+        createdAt: z.number().optional(),
     })
     .transform((question) => {
         if (question.colorA === question.colorB) {
@@ -99,6 +101,8 @@ const ordinaryBaseQuestionSchema = z.object({
     drag: z.boolean().default(true),
     color: iconColorSchema.default(randomColor),
     collapsed: z.boolean().default(false),
+    /** Unix ms timestamp of when this question was created. Optional so older saved questions still parse. */
+    createdAt: z.number().optional(),
 });
 
 const getDefaultUnit = () => {
