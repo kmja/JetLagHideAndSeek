@@ -141,7 +141,12 @@ export const QuestionCard = ({
                         <div className="flex gap-2 pt-2 px-2 justify-center">
                             <Dialog>
                                 <DialogTrigger asChild>
-                                    <Button variant="outline" size="sm">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        title="Share question as JSON"
+                                        aria-label="Share question as JSON"
+                                    >
                                         <VscShare />
                                     </Button>
                                 </DialogTrigger>
@@ -240,6 +245,8 @@ export const QuestionCard = ({
                                         variant="outline"
                                         size="sm"
                                         disabled={$isLoading}
+                                        title="Delete question"
+                                        aria-label="Delete question"
                                         className="hover:bg-destructive/10 hover:text-destructive hover:border-destructive transition-colors"
                                     >
                                         <VscTrash />
@@ -290,6 +297,16 @@ export const QuestionCard = ({
                                     size="sm"
                                     onClick={() => setLocked!(!locked)}
                                     disabled={$isLoading}
+                                    title={
+                                        locked
+                                            ? "Unlock marker position"
+                                            : "Lock marker position"
+                                    }
+                                    aria-label={
+                                        locked
+                                            ? "Unlock marker position"
+                                            : "Lock marker position"
+                                    }
                                 >
                                     {locked ? <LockIcon /> : <UnlockIcon />}
                                 </Button>
