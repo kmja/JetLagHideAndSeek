@@ -1,6 +1,20 @@
 import { useStore } from "@nanostores/react";
-import { SidebarCloseIcon } from "lucide-react";
+import { SidebarCloseIcon, Trash2 } from "lucide-react";
+import { useEffect } from "react";
+import { toast } from "react-toastify";
 
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
     Sidebar,
     SidebarContent,
@@ -12,6 +26,7 @@ import {
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { decodeAnswerFromUrl } from "@/lib/shareLinks";
 import {
     autoSave,
     isLoading,
@@ -41,6 +56,43 @@ export const QuestionSidebar = () => {
             ? CATEGORIES[lastQuestion.id as CategoryId]
             : null;
 
+    // On first mount, check whether the URL carries an answer from a hider.
+    // Match it to a question by key, merge the answer into the question's
+    // data, then clear the URL so it doesn't reapply on refresh.
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const params = new URLSearchParams(window.location.search);
+        const incoming = decodeAnswerFromUrl(params);
+        if (!incoming) return;
+
+        const list = questions.get();
+        const matchIdx = list.findIndex((q) => q.key === incoming.key);
+        if (matchIdx < 0) {
+            toast.warning(
+                "Got an answer, but no matching question in your list. " +
+                    "Maybe it was deleted?",
+                { autoClose: 4000 },
+            );
+        } else {
+            const updated = [...list];
+            updated[matchIdx] = {
+                ...updated[matchIdx],
+                data: {
+                    ...updated[matchIdx].data,
+                    ...incoming.answer,
+                },
+            } as (typeof updated)[number];
+            questions.set(updated);
+            toast.success("Hider's answer applied", { autoClose: 2000 });
+        }
+
+        // Clear the ?a= param so a refresh doesn't re-apply.
+        const url = new URL(window.location.href);
+        url.searchParams.delete("a");
+        window.history.replaceState({}, "", url.toString());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     return (
         <Sidebar>
             <div className="ml-4 mt-4 mr-2">
@@ -48,7 +100,7 @@ export const QuestionSidebar = () => {
                     <h2 className="font-poppins text-xl font-semibold">
                         Questions
                     </h2>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                         {$questions.length > 0 && (
                             <span className="text-xs text-muted-foreground font-mono">
                                 <span className="text-foreground">
@@ -56,6 +108,46 @@ export const QuestionSidebar = () => {
                                 </span>{" "}
                                 added
                             </span>
+                        )}
+                        {$questions.length > 0 && (
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                        title="Delete all questions"
+                                        aria-label="Delete all questions"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>
+                                            Delete all questions?
+                                        </AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This will permanently remove every
+                                            question in your list. This action
+                                            cannot be undone.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>
+                                            Cancel
+                                        </AlertDialogCancel>
+                                        <AlertDialogAction
+                                            onClick={() => {
+                                                questions.set([]);
+                                            }}
+                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        >
+                                            Delete All
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                         )}
                         <SidebarCloseIcon
                             className="visible md:hidden cursor-pointer hover:text-muted-foreground transition-colors"

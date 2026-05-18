@@ -21,6 +21,10 @@ import {
     leafletMapContext,
     questions,
 } from "@/lib/context";
+import {
+    encodeQuestionForHider,
+    shareOrCopy,
+} from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 
 import {
@@ -117,8 +121,36 @@ export const AddQuestionDialog = ({
         setPendingKey(null);
     };
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
+        if (!pendingQuestion) {
+            setPendingKey(null);
+            return;
+        }
+        // Snapshot the question before closing — pendingQuestion will become
+        // null once we clear the dialog state.
+        const q = pendingQuestion;
+        const meta = CATEGORIES[q.id as CategoryId];
         setPendingKey(null);
+
+        // Auto-share the question with hiders. The OS share sheet opens
+        // synchronously off the user gesture; if the user dismisses it, the
+        // question still stays added (this is correct — they may have just
+        // changed their mind about who to send to).
+        const url = encodeQuestionForHider(q);
+        const result = await shareOrCopy({
+            title: `${meta?.label ?? "Question"} for the hider`,
+            text: `${meta?.label ?? "Question"}: tap to answer`,
+            url,
+        });
+        if (result.method === "copy") {
+            toast.info(
+                "Question added. Link copied — sharing isn't supported in this browser.",
+                { autoClose: 2500 },
+            );
+        } else if (result.method === "failed") {
+            toast.error("Question added, but sharing failed");
+        }
+        // "share" and "cancelled" → silent (success / user dismiss)
     };
 
     const runAddRadius = () => {
@@ -409,7 +441,9 @@ export const AddQuestionDialog = ({
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleConfirm}>Confirm</Button>
+                        <Button onClick={handleConfirm}>
+                            Confirm &amp; share
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
