@@ -1,4 +1,4 @@
-import { Share2 } from "lucide-react";
+import { Copy, Eye, Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -104,10 +104,8 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 }
             />
 
-            <DistanceHint question={question} hiderPos={hiderPos} />
-
             <main className="flex-1 mt-4">
-                <AnswerControls question={question} />
+                <AnswerControls question={question} hiderPos={hiderPos} />
             </main>
 
             <footer className="pt-3 pb-2 text-center">
@@ -125,91 +123,6 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
  * an auto-answer (GPS accuracy can fool us, and the hider should still
  * make the call).
  */
-function DistanceHint({
-    question,
-    hiderPos,
-}: {
-    question: Question;
-    hiderPos: { lat: number; lng: number; accuracy: number } | null;
-}) {
-    if (!hiderPos) {
-        return (
-            <p className="text-xs text-center text-muted-foreground mt-2">
-                Waiting for your location…
-            </p>
-        );
-    }
-
-    const d = question.data as any;
-
-    // For thermometer, distance from each end.
-    if (question.id === "thermometer") {
-        const dA = distanceKm(hiderPos.lat, hiderPos.lng, d.latA, d.lngA);
-        const dB = distanceKm(hiderPos.lat, hiderPos.lng, d.latB, d.lngB);
-        return (
-            <div className="mt-2 text-sm text-center">
-                <div>
-                    Distance from start:{" "}
-                    <span className="font-semibold tabular-nums">
-                        {dA.toFixed(2)} km
-                    </span>
-                </div>
-                <div>
-                    Distance from end:{" "}
-                    <span className="font-semibold tabular-nums">
-                        {dB.toFixed(2)} km
-                    </span>
-                </div>
-            </div>
-        );
-    }
-
-    if (
-        question.id === "radius" ||
-        question.id === "matching" ||
-        question.id === "measuring" ||
-        question.id === "tentacles"
-    ) {
-        const km = distanceKm(hiderPos.lat, hiderPos.lng, d.lat, d.lng);
-
-        let extra: React.ReactNode = null;
-        if (question.id === "radius") {
-            const rKm =
-                d.unit === "miles"
-                    ? d.radius * 1.609344
-                    : d.unit === "meters"
-                      ? d.radius / 1000
-                      : d.radius;
-            const inside = km <= rKm;
-            extra = (
-                <span
-                    className={cn(
-                        "ml-2 px-1.5 py-0.5 rounded text-xs font-semibold",
-                        inside
-                            ? "bg-green-500/20 text-green-400"
-                            : "bg-orange-500/20 text-orange-400",
-                    )}
-                >
-                    {inside ? "Inside" : "Outside"}
-                </span>
-            );
-        }
-
-        return (
-            <p className="mt-2 text-sm text-center">
-                You are{" "}
-                <span className="font-semibold tabular-nums">
-                    {km.toFixed(2)} km
-                </span>{" "}
-                from the seeker's point
-                {extra}
-            </p>
-        );
-    }
-
-    return null;
-}
-
 /** Human-readable question prompt, varies by type. */
 function questionPrompt(question: Question): string {
     const d = question.data as any;
@@ -251,43 +164,36 @@ function unitLabel(unit: string): string {
     }
 }
 
-/** Answer toggle + share-back, varies by type. */
-function AnswerControls({ question }: { question: Question }) {
+/** Answer flow varies by type:
+ *   - radius / thermometer: auto-computable from GPS. Use the reveal pattern.
+ *   - matching / measuring: hider must judge. Manual two-button toggle.
+ *   - tentacles: hider types the closest place name.
+ */
+function AnswerControls({
+    question,
+    hiderPos,
+}: {
+    question: Question;
+    hiderPos: { lat: number; lng: number; accuracy: number } | null;
+}) {
     switch (question.id) {
         case "radius":
-            return (
-                <BinaryAnswer
-                    question={question}
-                    field="within"
-                    labels={{ true: "Inside", false: "Outside" }}
-                    primary="true"
-                />
-            );
         case "thermometer":
-            return (
-                <BinaryAnswer
-                    question={question}
-                    field="warmer"
-                    labels={{ true: "Warmer", false: "Colder" }}
-                    primary="true"
-                />
-            );
+            return <RevealAnswer question={question} hiderPos={hiderPos} />;
         case "matching":
             return (
-                <BinaryAnswer
+                <ManualBinaryAnswer
                     question={question}
                     field="same"
                     labels={{ true: "Match", false: "No match" }}
-                    primary="true"
                 />
             );
         case "measuring":
             return (
-                <BinaryAnswer
+                <ManualBinaryAnswer
                     question={question}
                     field="hiderCloser"
                     labels={{ true: "Closer", false: "Further" }}
-                    primary="true"
                 />
             );
         case "tentacles":
@@ -302,38 +208,129 @@ function AnswerControls({ question }: { question: Question }) {
     }
 }
 
-/** Reusable two-button toggle + share for binary-answer question types. */
-function BinaryAnswer({
+/**
+ * Reveal-then-share flow for auto-computable questions (radius, thermometer).
+ *
+ * Before reveal: shows a big "Reveal answer" button. Map is the spatial hint.
+ * After reveal: shows the auto-computed answer with distance numbers, then
+ * morphs into share / copy buttons for sending back to the seeker.
+ */
+function RevealAnswer({
+    question,
+    hiderPos,
+}: {
+    question: Question;
+    hiderPos: { lat: number; lng: number; accuracy: number } | null;
+}) {
+    const [revealed, setRevealed] = useState(false);
+
+    // Don't allow reveal until we have a GPS fix.
+    if (!hiderPos) {
+        return (
+            <p className="text-sm text-center text-muted-foreground py-6">
+                Waiting for your location…
+            </p>
+        );
+    }
+
+    const computed = computeAnswer(question, hiderPos);
+    if (!computed) {
+        // Shouldn't happen for radius/thermometer, but guard for safety.
+        return null;
+    }
+
+    if (!revealed) {
+        return (
+            <div>
+                <Button
+                    onClick={() => setRevealed(true)}
+                    className="w-full gap-2 py-7 text-base font-semibold"
+                    size="lg"
+                >
+                    <Eye className="w-4 h-4" />
+                    Reveal answer
+                </Button>
+                <p className="mt-2 text-xs text-muted-foreground text-center">
+                    Look at the map first. Tap reveal when you're ready.
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            <div className="rounded-lg p-5 border-2 border-primary bg-primary/10 text-center">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold mb-2">
+                    Your answer
+                </div>
+                <div className="text-3xl font-poppins font-bold text-primary mb-1">
+                    {computed.label}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                    {computed.detail}
+                </div>
+            </div>
+
+            <ShareBackRow
+                question={question}
+                answer={computed.payload}
+                shareText={`My answer: ${computed.label}.`}
+            />
+        </div>
+    );
+}
+
+/**
+ * Compute the answer for question types we can derive from GPS alone.
+ * Returns { label, detail, payload } where payload is the partial-data
+ * merge sent back to the seeker.
+ */
+function computeAnswer(
+    question: Question,
+    hiderPos: { lat: number; lng: number },
+): { label: string; detail: string; payload: Record<string, unknown> } | null {
+    const d = question.data as any;
+    if (question.id === "radius") {
+        const km = distanceKm(hiderPos.lat, hiderPos.lng, d.lat, d.lng);
+        const rKm =
+            d.unit === "miles"
+                ? d.radius * 1.609344
+                : d.unit === "meters"
+                  ? d.radius / 1000
+                  : d.radius;
+        const inside = km <= rKm;
+        return {
+            label: inside ? "Inside" : "Outside",
+            detail: `You are ${km.toFixed(2)} km from the seeker's point (radius ${d.radius} ${unitLabel(d.unit)}).`,
+            payload: { within: inside },
+        };
+    }
+    if (question.id === "thermometer") {
+        const dA = distanceKm(hiderPos.lat, hiderPos.lng, d.latA, d.lngA);
+        const dB = distanceKm(hiderPos.lat, hiderPos.lng, d.latB, d.lngB);
+        // "warmer" means the new location (B) is closer to the hider than the
+        // start (A). That means dB < dA.
+        const warmer = dB < dA;
+        return {
+            label: warmer ? "Warmer" : "Colder",
+            detail: `Start: ${dA.toFixed(2)} km away · End: ${dB.toFixed(2)} km away.`,
+            payload: { warmer },
+        };
+    }
+    return null;
+}
+
+/** Manual two-button toggle for questions the app can't auto-compute. */
+function ManualBinaryAnswer({
     question,
     field,
     labels,
-    primary,
 }: {
     question: Question;
     field: string;
     labels: { true: string; false: string };
-    primary: "true" | "false";
 }) {
     const [answer, setAnswer] = useState<boolean | null>(null);
-    const [shared, setShared] = useState(false);
-
-    const handleShare = async () => {
-        if (answer === null) return;
-        const url = encodeAnswerForSeeker(question.key, { [field]: answer });
-        const choiceLabel = answer ? labels.true : labels.false;
-        const result = await shareOrCopy({
-            title: "Answer",
-            text: `My answer: ${choiceLabel}. Tap to send back to seeker: ${url}`,
-            url,
-        });
-        if (result.method === "share") setShared(true);
-        else if (result.method === "copy") {
-            setShared(true);
-            toast.success("Answer link copied (sharing not supported)");
-        } else if (result.method === "failed") {
-            toast.error("Could not share answer");
-        }
-    };
 
     return (
         <div className="space-y-4">
@@ -359,18 +356,84 @@ function BinaryAnswer({
                 })}
             </div>
 
+            {answer !== null && (
+                <ShareBackRow
+                    question={question}
+                    answer={{ [field]: answer }}
+                    shareText={`My answer: ${answer ? labels.true : labels.false}.`}
+                />
+            )}
+        </div>
+    );
+}
+
+/**
+ * Pair of buttons for sending the answer back. Both are full-width and
+ * prominent — Share (primary) for the OS share sheet, Copy (outline) for
+ * "I'll paste this somewhere myself" fallback.
+ */
+function ShareBackRow({
+    question,
+    answer,
+    shareText,
+}: {
+    question: Question;
+    answer: Record<string, unknown>;
+    shareText: string;
+}) {
+    const [sent, setSent] = useState(false);
+    const url = useMemo(
+        () => encodeAnswerForSeeker(question.key, answer),
+        [question.key, answer],
+    );
+
+    const handleShare = async () => {
+        const result = await shareOrCopy({
+            title: "Answer",
+            text: `${shareText} Tap to send to seeker: ${url}`,
+            url,
+        });
+        if (result.method === "share" || result.method === "copy") {
+            setSent(true);
+        }
+        if (result.method === "copy") {
+            toast.success("Answer link copied (sharing not supported)");
+        }
+        if (result.method === "failed") {
+            toast.error("Could not share");
+        }
+    };
+
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(url);
+            setSent(true);
+            toast.success("Answer link copied", { autoClose: 1500 });
+        } catch {
+            toast.error("Could not copy");
+        }
+    };
+
+    return (
+        <div className="space-y-2">
             <Button
                 onClick={handleShare}
-                disabled={answer === null}
-                className="w-full gap-2 py-6 text-base"
+                className="w-full gap-2 py-7 text-base font-semibold"
                 size="lg"
             >
-                <Share2 className="w-4 h-4" />
-                {shared ? "Share answer again" : "Share answer with seeker"}
+                <Share2 className="w-5 h-5" />
+                {sent ? "Share answer again" : "Share answer"}
             </Button>
-
-            {shared && (
-                <p className="text-xs text-muted-foreground text-center">
+            <Button
+                onClick={handleCopy}
+                variant="outline"
+                className="w-full gap-2 py-5 text-sm"
+            >
+                <Copy className="w-4 h-4" />
+                Copy answer link
+            </Button>
+            {sent && (
+                <p className="text-xs text-muted-foreground text-center pt-1">
                     Sent. You can close this tab.
                 </p>
             )}
@@ -381,31 +444,8 @@ function BinaryAnswer({
 /** Tentacles is special: hider types the name of the closest place. */
 function TentaclesAnswer({ question }: { question: Question }) {
     const [placeName, setPlaceName] = useState("");
-    const [shared, setShared] = useState(false);
 
-    const handleShare = async () => {
-        const trimmed = placeName.trim();
-        if (!trimmed) return;
-        // Tentacles' real answer is a `places` array. For the share-link flow
-        // we send back a simplified `hiderPlace` field that the seeker can
-        // see in the card (won't auto-populate the place picker; seeker may
-        // need to verify against the live list).
-        const url = encodeAnswerForSeeker(question.key, {
-            hiderPlace: trimmed,
-        });
-        const result = await shareOrCopy({
-            title: "Answer",
-            text: `Closest match: ${trimmed}. Send back to seeker: ${url}`,
-            url,
-        });
-        if (result.method === "share") setShared(true);
-        else if (result.method === "copy") {
-            setShared(true);
-            toast.success("Answer link copied (sharing not supported)");
-        } else if (result.method === "failed") {
-            toast.error("Could not share answer");
-        }
-    };
+    const trimmed = placeName.trim();
 
     return (
         <div className="space-y-4">
@@ -421,20 +461,12 @@ function TentaclesAnswer({ question }: { question: Question }) {
                 />
             </div>
 
-            <Button
-                onClick={handleShare}
-                disabled={!placeName.trim()}
-                className="w-full gap-2 py-6 text-base"
-                size="lg"
-            >
-                <Share2 className="w-4 h-4" />
-                {shared ? "Share answer again" : "Share answer with seeker"}
-            </Button>
-
-            {shared && (
-                <p className="text-xs text-muted-foreground text-center">
-                    Sent. You can close this tab.
-                </p>
+            {trimmed && (
+                <ShareBackRow
+                    question={question}
+                    answer={{ hiderPlace: trimmed }}
+                    shareText={`Closest match: ${trimmed}.`}
+                />
             )}
         </div>
     );

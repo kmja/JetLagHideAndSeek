@@ -379,66 +379,75 @@ export const AddQuestionDialog = ({
                     if (!o) handleCancel();
                 }}
             >
-                <DialogContent className="!bg-[hsl(var(--sidebar-background))] !text-white">
-                    <DialogTitle>Configure question</DialogTitle>
-                    <DialogDescription>
-                        Adjust the details below, then confirm to add it to your list.
-                    </DialogDescription>
+                <DialogContent
+                    className={cn(
+                        "!bg-[hsl(var(--sidebar-background))] !text-white",
+                        "flex flex-col p-0 gap-0",
+                        "max-h-[90vh] sm:max-h-[85vh]",
+                    )}
+                >
+                    <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
+                        <DialogTitle>Configure question</DialogTitle>
+                    </div>
 
-                    {pendingQuestion &&
-                        (() => {
-                            const q = pendingQuestion;
-                            switch (q.id) {
-                                case "radius":
-                                    return (
-                                        <RadiusQuestionComponent
-                                            data={q.data}
-                                            questionKey={q.key}
-                                            forceExpanded
-                                        />
-                                    );
-                                case "thermometer":
-                                    return (
-                                        <ThermometerQuestionComponent
-                                            data={q.data}
-                                            questionKey={q.key}
-                                            forceExpanded
-                                        />
-                                    );
-                                case "tentacles":
-                                    return (
-                                        <TentacleQuestionComponent
-                                            data={q.data}
-                                            questionKey={q.key}
-                                            forceExpanded
-                                        />
-                                    );
-                                case "matching":
-                                    return (
-                                        <MatchingQuestionComponent
-                                            data={q.data}
-                                            questionKey={q.key}
-                                            forceExpanded
-                                        />
-                                    );
-                                case "measuring":
-                                    return (
-                                        <MeasuringQuestionComponent
-                                            data={q.data}
-                                            questionKey={q.key}
-                                            forceExpanded
-                                        />
-                                    );
-                                default:
-                                    return null;
-                            }
-                        })()}
+                    <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0">
+                        {pendingQuestion &&
+                            (() => {
+                                const q = pendingQuestion;
+                                switch (q.id) {
+                                    case "radius":
+                                        return (
+                                            <RadiusQuestionComponent
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                forceExpanded
+                                                compactAnswer
+                                            />
+                                        );
+                                    case "thermometer":
+                                        return (
+                                            <ThermometerQuestionComponent
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                forceExpanded
+                                                compactAnswer
+                                            />
+                                        );
+                                    case "tentacles":
+                                        return (
+                                            <TentacleQuestionComponent
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                forceExpanded
+                                                compactAnswer
+                                            />
+                                        );
+                                    case "matching":
+                                        return (
+                                            <MatchingQuestionComponent
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                forceExpanded
+                                                compactAnswer
+                                            />
+                                        );
+                                    case "measuring":
+                                        return (
+                                            <MeasuringQuestionComponent
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                forceExpanded
+                                                compactAnswer
+                                            />
+                                        );
+                                    default:
+                                        return null;
+                                }
+                            })()}
+                    </div>
 
-                    <DialogFooter className="gap-2 sm:gap-2 mt-2">
-                        <Button
-                            variant="outline"
-                            onClick={handleCancel}
-                        >
+                    <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
+                        <Button variant="outline" onClick={handleCancel}>
                             Cancel
                         </Button>
                         <Button onClick={handleConfirm}>

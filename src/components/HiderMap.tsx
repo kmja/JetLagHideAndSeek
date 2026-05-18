@@ -91,7 +91,7 @@ export function HiderMap({
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
                     url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
                 />
-                <QuestionOverlay question={question} />
+                <QuestionOverlay question={question} hiderPos={hiderPos} />
                 {hiderPos && (
                     <Marker
                         position={[hiderPos.lat, hiderPos.lng]}
@@ -110,8 +110,15 @@ export function HiderMap({
     );
 }
 
-/** Renders the question-specific geometry (circle, line, pin). */
-function QuestionOverlay({ question }: { question: Question }) {
+/** Renders the question-specific geometry (circle, line, pin) plus a dashed
+ *  line from the hider to the relevant seeker point(s). */
+function QuestionOverlay({
+    question,
+    hiderPos,
+}: {
+    question: Question;
+    hiderPos: { lat: number; lng: number } | null;
+}) {
     const seekerIcon = useMemo(
         () =>
             new DivIcon({
@@ -144,6 +151,20 @@ function QuestionOverlay({ question }: { question: Question }) {
                     position={[question.data.lat, question.data.lng]}
                     icon={seekerIcon}
                 />
+                {hiderPos && (
+                    <Polyline
+                        positions={[
+                            [hiderPos.lat, hiderPos.lng],
+                            [question.data.lat, question.data.lng],
+                        ]}
+                        pathOptions={{
+                            color: "#cbd5e1",
+                            weight: 2,
+                            dashArray: "6 6",
+                            opacity: 0.85,
+                        }}
+                    />
+                )}
             </>
         );
     }
@@ -170,6 +191,34 @@ function QuestionOverlay({ question }: { question: Question }) {
                     position={[question.data.latB, question.data.lngB]}
                     icon={seekerIcon}
                 />
+                {hiderPos && (
+                    <>
+                        <Polyline
+                            positions={[
+                                [hiderPos.lat, hiderPos.lng],
+                                [question.data.latA, question.data.lngA],
+                            ]}
+                            pathOptions={{
+                                color: "#cbd5e1",
+                                weight: 2,
+                                dashArray: "6 6",
+                                opacity: 0.75,
+                            }}
+                        />
+                        <Polyline
+                            positions={[
+                                [hiderPos.lat, hiderPos.lng],
+                                [question.data.latB, question.data.lngB],
+                            ]}
+                            pathOptions={{
+                                color: "#cbd5e1",
+                                weight: 2,
+                                dashArray: "6 6",
+                                opacity: 0.75,
+                            }}
+                        />
+                    </>
+                )}
             </>
         );
     }
@@ -180,10 +229,26 @@ function QuestionOverlay({ question }: { question: Question }) {
         question.id === "tentacles"
     ) {
         return (
-            <Marker
-                position={[question.data.lat, question.data.lng]}
-                icon={seekerIcon}
-            />
+            <>
+                <Marker
+                    position={[question.data.lat, question.data.lng]}
+                    icon={seekerIcon}
+                />
+                {hiderPos && (
+                    <Polyline
+                        positions={[
+                            [hiderPos.lat, hiderPos.lng],
+                            [question.data.lat, question.data.lng],
+                        ]}
+                        pathOptions={{
+                            color: "#cbd5e1",
+                            weight: 2,
+                            dashArray: "6 6",
+                            opacity: 0.85,
+                        }}
+                    />
+                )}
+            </>
         );
     }
 
