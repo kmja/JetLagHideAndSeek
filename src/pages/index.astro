@@ -13,9 +13,9 @@ import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { BottomNav } from "@/components/BottomNav";
-import { TutorialDialog } from "@/components/TutorialDialog";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
 import { GameSetupDialog } from "@/components/GameSetupDialog";
+import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 ---
 
 <Layout className="bg-jetlag">
@@ -57,6 +57,7 @@ import { GameSetupDialog } from "@/components/GameSetupDialog";
                         >
                             <OptionDrawers client:load />
                         </div>
+                        <ThermometerOverlay client:only />
                         <Map
                             className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full"
                             client:only
@@ -66,7 +67,6 @@ import { GameSetupDialog } from "@/components/GameSetupDialog";
             </main>
             <ZoneSidebar client:only />
             <BottomNav client:only />
-            <TutorialDialog client:only />
             <GameSetupDialog client:only />
         </SidebarProviderR>
     </SidebarProviderL>
