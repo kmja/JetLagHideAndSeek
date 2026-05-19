@@ -29,6 +29,7 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { hiderifyQuestion } from "@/maps";
@@ -120,6 +121,8 @@ export const Map = ({ className }: { className?: string }) => {
     const $mapGeoLocation = useStore(mapGeoLocation);
     const $questions = useStore(questions);
     const $baseTileLayer = useStore(baseTileLayer);
+    const $satelliteView = useStore(satelliteView);
+    const $showTransitLines = useStore(showTransitLines);
     const $thunderforestApiKey = useStore(thunderforestApiKey);
     const $hiderMode = useStore(hiderMode);
     const $isLoading = useStore(isLoading);
@@ -369,6 +372,26 @@ export const Map = ({ className }: { className?: string }) => {
                 ]}
             >
                 {getTileLayer($baseTileLayer, $thunderforestApiKey)}
+                {$satelliteView && (
+                    /* Esri World Imagery — free, no API key. Renders on top
+                       of the base layer; we set high opacity so it fully
+                       covers and reads as the active style. */
+                    <TileLayer
+                        attribution='Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+                        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                        maxZoom={19}
+                    />
+                )}
+                {$showTransitLines && (
+                    /* OpenRailwayMap — semi-transparent overlay showing
+                       train/metro/tram lines. Works on top of any base. */
+                    <TileLayer
+                        attribution='&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>'
+                        url="https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
+                        maxZoom={19}
+                        opacity={0.85}
+                    />
+                )}
                 <DraggableMarkers />
                 <div className="leaflet-top leaflet-right">
                     <div className="leaflet-control flex-col flex gap-2">
@@ -391,7 +414,7 @@ export const Map = ({ className }: { className?: string }) => {
                 />
             </MapContainer>
         ),
-        [map, $baseTileLayer, $thunderforestApiKey],
+        [map, $baseTileLayer, $thunderforestApiKey, $satelliteView, $showTransitLines],
     );
 
     useEffect(() => {

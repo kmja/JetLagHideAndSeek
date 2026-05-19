@@ -13,6 +13,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { gameSize } from "@/lib/gameSetup";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import {
     addQuestion,
@@ -142,6 +143,7 @@ export const AddQuestionDialog = ({
 }) => {
     const $isLoading = useStore(isLoading);
     const $questions = useStore(questions);
+    const $gameSize = useStore(gameSize);
     const [open, setOpen] = React.useState(false);
     // Step 2 of the add flow: when the user picks matching/measuring/tentacles,
     // we show a subtype picker before opening the configure dialog. Null when
@@ -490,68 +492,91 @@ export const AddQuestionDialog = ({
                     if (!o) setSubtypePickerFor(null);
                 }}
             >
-                <DialogContent>
+                <DialogContent
+                    className={cn(
+                        "!bg-[hsl(var(--sidebar-background))] !text-white",
+                        "flex flex-col p-0 gap-0",
+                    )}
+                >
                     {subtypePickerFor &&
                         (() => {
                             const meta = CATEGORIES[subtypePickerFor];
-                            const subtypes = getSubtypes(subtypePickerFor);
+                            const subtypes = getSubtypes(
+                                subtypePickerFor,
+                                $gameSize,
+                            );
                             return (
                                 <>
-                                    <DialogTitle className="flex items-center gap-2">
-                                        <span
-                                            className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
-                                            style={{
-                                                backgroundColor: meta.color,
-                                            }}
-                                        >
-                                            <meta.icon
-                                                size={16}
-                                                strokeWidth={2.5}
-                                                className="text-white"
-                                            />
-                                        </span>
-                                        Pick a {meta.label.toLowerCase()} type
-                                    </DialogTitle>
-                                    <DialogDescription>
-                                        You can change this later in the
-                                        configure dialog.
-                                    </DialogDescription>
-                                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 overflow-y-auto">
-                                        {subtypes?.map((subtype) => (
-                                            <SubtypeTile
-                                                key={subtype.value}
-                                                category={subtypePickerFor}
-                                                subtype={subtype}
-                                                disabled={$isLoading}
-                                                onClick={() => {
-                                                    const cat =
-                                                        subtypePickerFor;
-                                                    let ok = false;
-                                                    if (cat === "matching")
-                                                        ok = runAddMatching(
-                                                            subtype.value,
-                                                        );
-                                                    else if (
-                                                        cat === "measuring"
-                                                    )
-                                                        ok = runAddMeasuring(
-                                                            subtype.value,
-                                                        );
-                                                    else if (
-                                                        cat === "tentacles"
-                                                    )
-                                                        ok = runAddTentacles(
-                                                            subtype.value,
-                                                        );
-                                                    if (ok) {
-                                                        setSubtypePickerFor(
-                                                            null,
-                                                        );
-                                                        promoteLastQuestion();
-                                                    }
+                                    <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
+                                        <DialogTitle className="flex items-center gap-2">
+                                            <span
+                                                className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
+                                                style={{
+                                                    backgroundColor:
+                                                        meta.color,
                                                 }}
-                                            />
-                                        ))}
+                                            >
+                                                <meta.icon
+                                                    size={16}
+                                                    strokeWidth={2.5}
+                                                    className="text-white"
+                                                />
+                                            </span>
+                                            Pick a {meta.label.toLowerCase()}{" "}
+                                            type
+                                        </DialogTitle>
+                                        <DialogDescription>
+                                            You can change this later in the
+                                            configure dialog.
+                                        </DialogDescription>
+                                    </div>
+                                    <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+                                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                            {subtypes?.map((subtype) => (
+                                                <SubtypeTile
+                                                    key={subtype.value}
+                                                    category={
+                                                        subtypePickerFor
+                                                    }
+                                                    subtype={subtype}
+                                                    disabled={$isLoading}
+                                                    onClick={() => {
+                                                        const cat =
+                                                            subtypePickerFor;
+                                                        let ok = false;
+                                                        if (
+                                                            cat === "matching"
+                                                        )
+                                                            ok =
+                                                                runAddMatching(
+                                                                    subtype.value,
+                                                                );
+                                                        else if (
+                                                            cat ===
+                                                            "measuring"
+                                                        )
+                                                            ok =
+                                                                runAddMeasuring(
+                                                                    subtype.value,
+                                                                );
+                                                        else if (
+                                                            cat ===
+                                                            "tentacles"
+                                                        )
+                                                            ok =
+                                                                runAddTentacles(
+                                                                    subtype.value,
+                                                                );
+                                                        if (ok) {
+                                                            setSubtypePickerFor(
+                                                                null,
+                                                            );
+                                                            promoteLastQuestion();
+                                                        }
+                                                    }}
+                                                />
+                                            ))}
+                                        </div>
                                     </div>
                                 </>
                             );
