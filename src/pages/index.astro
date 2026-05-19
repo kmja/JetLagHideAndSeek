@@ -8,13 +8,14 @@ import {
 } from "@/components/ui/sidebar-l";
 import {
     SidebarProvider as SidebarProviderR,
-    SidebarTrigger as SidebarTriggerR,
 } from "@/components/ui/sidebar-r";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { BottomNav } from "@/components/BottomNav";
 import { TutorialDialog } from "@/components/TutorialDialog";
+import { MapDisplayControls } from "@/components/MapDisplayControls";
+import { GameSetupDialog } from "@/components/GameSetupDialog";
 ---
 
 <Layout className="bg-jetlag">
@@ -33,10 +34,15 @@ import { TutorialDialog } from "@/components/TutorialDialog";
                         >
                             <SidebarTriggerL client:load />
                         </div>
+                        {/* Top-right cluster: zones trigger + satellite +
+                            transit-lines toggles. Visible on both desktop
+                            and mobile now — the bottom-nav slot that
+                            previously held the zones trigger has been
+                            reassigned to "Game". */}
                         <div
-                            class="absolute top-[72px] md:top-2 right-2 z-[1030] group-[.fullscreen]:hidden hidden md:block"
+                            class="absolute top-[72px] md:top-2 right-2 z-[1030] group-[.fullscreen]:hidden"
                         >
-                            <SidebarTriggerR client:load />
+                            <MapDisplayControls client:only />
                         </div>
                         <div
                             class="flex flex-shrink max-w-fit z-[1030] absolute left-4 right-0 m-auto group-[.fullscreen]:hidden"
@@ -61,6 +67,7 @@ import { TutorialDialog } from "@/components/TutorialDialog";
             <ZoneSidebar client:only />
             <BottomNav client:only />
             <TutorialDialog client:only />
+            <GameSetupDialog client:only />
         </SidebarProviderR>
     </SidebarProviderL>
 </Layout>
