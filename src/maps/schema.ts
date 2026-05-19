@@ -77,8 +77,27 @@ const thermometerQuestionSchema = z
         /** Note that drag is now synonymous with unlocked */
         drag: z.boolean().default(true),
         collapsed: z.boolean().default(true),
-        /** Unix ms timestamp of when this question was created. Optional so older saved questions still parse. */
+        /** Unix ms timestamp of when this question was created. */
         createdAt: z.number().optional(),
+        /**
+         * Where the thermometer is in its lifecycle:
+         *   - "started": latA/lngA are captured but the seeker hasn't
+         *     finished moving yet. latB/lngB mirror latA/lngA until finish.
+         *   - "finished": both endpoints set, ready to share with hider.
+         *
+         * Optional so existing saved questions (created before this field
+         * existed) keep parsing as finished, which is what they actually
+         * were.
+         */
+        status: z.enum(["started", "finished"]).optional().default("finished"),
+        /**
+         * The thermometer distance preset used when finishing, e.g. "500m"
+         * or "5km". Tracked for cross-question uniqueness — you can't
+         * finish two thermometers at the same preset in one game.
+         */
+        distance: z.string().optional(),
+        /** Unix ms timestamp when the thermometer was started (latA/lngA captured). */
+        startedAt: z.number().optional(),
     })
     .transform((question) => {
         if (question.colorA === question.colorB) {
