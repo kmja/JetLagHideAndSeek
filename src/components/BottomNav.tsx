@@ -1,10 +1,10 @@
 import { useStore } from "@nanostores/react";
 import {
     Footprints,
-    Gamepad2,
     List,
     MoreHorizontal,
     Plus,
+    Settings,
     Timer,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -145,7 +145,7 @@ export const BottomNav = () => {
                     >
                         <Plus className="w-5 h-5" strokeWidth={2.5} />
                         <span className="text-[10px] font-bold uppercase tracking-wider">
-                            Ask
+                            New question
                         </span>
                     </button>
                 </AddQuestionDialog>
@@ -176,7 +176,7 @@ export const BottomNav = () => {
                                     strokeWidth={2}
                                 />
                             ) : (
-                                <Gamepad2
+                                <Settings
                                     className="w-5 h-5"
                                     strokeWidth={2}
                                 />
@@ -190,7 +190,7 @@ export const BottomNav = () => {
                                 {hiding
                                     ? formatTimeRemaining(remainingMs)
                                     : $setupCompleted
-                                      ? "Game"
+                                      ? "Settings"
                                       : "Setup"}
                             </span>
                             {!$setupCompleted && !hiding && (
@@ -207,7 +207,7 @@ export const BottomNav = () => {
                     >
                         <SheetHeader>
                             <SheetTitle>
-                                {hiding ? "Hiding period" : "Game"}
+                                {hiding ? "Hiding period" : "Game settings"}
                             </SheetTitle>
                             <SheetDescription>
                                 {hiding
@@ -288,7 +288,7 @@ export const BottomNav = () => {
                                         }}
                                     >
                                         {$setupCompleted
-                                            ? "Edit setup"
+                                            ? "Edit settings"
                                             : "Set up game"}
                                     </Button>
                                     {$setupCompleted && (

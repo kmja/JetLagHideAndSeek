@@ -1,20 +1,8 @@
 import { useStore } from "@nanostores/react";
-import { SidebarCloseIcon, Trash2 } from "lucide-react";
-import { useEffect } from "react";
-import { toast } from "react-toastify";
+import { Plus, SidebarCloseIcon } from "lucide-react";
 
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
 import {
     Sidebar,
     SidebarContent,
@@ -25,8 +13,6 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
-import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { decodeAnswerFromUrl } from "@/lib/shareLinks";
 import {
     autoSave,
     isLoading,
@@ -50,145 +36,19 @@ export const QuestionSidebar = () => {
     const $autoSave = useStore(autoSave);
     const $isLoading = useStore(isLoading);
 
-    const lastQuestion = $questions[$questions.length - 1];
-    const lastCategoryMeta =
-        lastQuestion && lastQuestion.id in CATEGORIES
-            ? CATEGORIES[lastQuestion.id as CategoryId]
-            : null;
-
-    // On first mount, check whether the URL carries an answer from a hider.
-    // Match it to a question by key, merge the answer into the question's
-    // data, then clear the URL so it doesn't reapply on refresh.
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-        const params = new URLSearchParams(window.location.search);
-        const incoming = decodeAnswerFromUrl(params);
-        if (!incoming) return;
-
-        const list = questions.get();
-        const matchIdx = list.findIndex((q) => q.key === incoming.key);
-        if (matchIdx < 0) {
-            toast.warning(
-                "Got an answer, but no matching question in your list. " +
-                    "Maybe it was deleted?",
-                { autoClose: 4000 },
-            );
-        } else {
-            const updated = [...list];
-            updated[matchIdx] = {
-                ...updated[matchIdx],
-                data: {
-                    ...updated[matchIdx].data,
-                    ...incoming.answer,
-                },
-            } as (typeof updated)[number];
-            questions.set(updated);
-            toast.success("Hider's answer applied", { autoClose: 2000 });
-        }
-
-        // Clear the ?a= param so a refresh doesn't re-apply.
-        const url = new URL(window.location.href);
-        url.searchParams.delete("a");
-        window.history.replaceState({}, "", url.toString());
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
     return (
         <Sidebar>
-            <div className="ml-4 mt-4 mr-2">
-                <div className="flex items-center justify-between">
-                    <h2 className="font-poppins text-xl font-semibold">
-                        Questions
-                    </h2>
-                    <div className="flex items-center gap-2">
-                        {$questions.length > 0 && (
-                            <span className="text-xs text-muted-foreground font-mono">
-                                <span className="text-foreground">
-                                    {$questions.length}
-                                </span>{" "}
-                                added
-                            </span>
-                        )}
-                        {$questions.length > 0 && (
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7 hover:bg-destructive/10 hover:text-destructive transition-colors"
-                                        title="Delete all questions"
-                                        aria-label="Delete all questions"
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>
-                                            Delete all questions?
-                                        </AlertDialogTitle>
-                                        <AlertDialogDescription>
-                                            This will permanently remove every
-                                            question in your list. This action
-                                            cannot be undone.
-                                        </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>
-                                            Cancel
-                                        </AlertDialogCancel>
-                                        <AlertDialogAction
-                                            onClick={() => {
-                                                questions.set([]);
-                                            }}
-                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                        >
-                                            Delete All
-                                        </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        )}
-                        <SidebarCloseIcon
-                            className="visible md:hidden cursor-pointer hover:text-muted-foreground transition-colors"
-                            onClick={() => {
-                                SidebarContext.get().setOpenMobile(false);
-                            }}
-                        />
-                    </div>
-                </div>
-                {lastCategoryMeta && (
-                    <div className="mt-1 flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground">
-                            Last asked:
-                        </span>
-                        <span
-                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-poppins font-bold uppercase tracking-wider"
-                            style={{
-                                backgroundColor: `${lastCategoryMeta.color}26`,
-                                color: lastCategoryMeta.color,
-                            }}
-                        >
-                            {lastCategoryMeta.label}
-                        </span>
-                    </div>
-                )}
+            <div className="flex items-center justify-between">
+                <h2 className="ml-4 mt-4 font-poppins text-2xl">Questions</h2>
+                <SidebarCloseIcon
+                    className="mr-2 visible md:hidden"
+                    onClick={() => {
+                        SidebarContext.get().setOpenMobile(false);
+                    }}
+                />
             </div>
-            <SidebarGroup className="pb-0">
-                <SidebarGroupContent>
-                    <SidebarMenu data-tutorial-id="add-questions-buttons">
-                        <SidebarMenuItem>
-                            <AddQuestionDialog>
-                                <SidebarMenuButton disabled={$isLoading}>
-                                    Add Question
-                                </SidebarMenuButton>
-                            </AddQuestionDialog>
-                        </SidebarMenuItem>
-                    </SidebarMenu>
-                </SidebarGroupContent>
-            </SidebarGroup>
             <SidebarContent>
-                {[...$questions].reverse().map((question) => {
+                {$questions.map((question) => {
                     switch (question.id) {
                         case "radius":
                             return (
@@ -235,10 +95,45 @@ export const QuestionSidebar = () => {
                     }
                 })}
             </SidebarContent>
-            {!$autoSave && (
-                <SidebarGroup>
-                    <SidebarGroupContent>
-                        <SidebarMenu>
+            <SidebarGroup>
+                <SidebarGroupContent>
+                    <SidebarMenu data-tutorial-id="add-questions-buttons">
+                        <SidebarMenuItem>
+                            <AddQuestionDialog>
+                                <button
+                                    type="button"
+                                    disabled={$isLoading}
+                                    className={cn(
+                                        "w-full flex items-center justify-center gap-2",
+                                        "py-3 px-4 rounded-md",
+                                        "bg-primary text-primary-foreground",
+                                        "hover:bg-primary/90 active:bg-primary/80",
+                                        "font-poppins font-bold uppercase tracking-wider text-xs",
+                                        "transition-colors",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                        "disabled:opacity-50 disabled:cursor-not-allowed",
+                                    )}
+                                >
+                                    <Plus
+                                        className="w-4 h-4"
+                                        strokeWidth={2.5}
+                                    />
+                                    New question
+                                </button>
+                            </AddQuestionDialog>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                            <a
+                                href="https://github.com/taibeled/JetLagHideAndSeek"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                <SidebarMenuButton className="bg-emerald-600 transition-colors">
+                                    Star this on GitHub! It&apos;s free :)
+                                </SidebarMenuButton>
+                            </a>
+                        </SidebarMenuItem>
+                        {!$autoSave && (
                             <SidebarMenuItem>
                                 <SidebarMenuButton
                                     className="bg-blue-600 p-2 rounded-md font-semibold font-poppins transition-shadow duration-500"
@@ -248,10 +143,10 @@ export const QuestionSidebar = () => {
                                     Save
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
-                        </SidebarMenu>
-                    </SidebarGroupContent>
-                </SidebarGroup>
-            )}
+                        )}
+                    </SidebarMenu>
+                </SidebarGroupContent>
+            </SidebarGroup>
         </Sidebar>
     );
 };

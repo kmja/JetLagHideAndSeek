@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { EditIcon, LocateIcon } from "lucide-react";
+import { EditIcon, LocateIcon, MapPin as MapPinIcon } from "lucide-react";
 import { OpenLocationCode } from "open-location-code";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -25,6 +25,7 @@ import {
     CommandItem,
     CommandList,
 } from "./ui/command";
+import { MapPickerDialog } from "./MapPickerDialog";
 import {
     Dialog,
     DialogClose,
@@ -332,6 +333,10 @@ export const LatitudeLongitude = ({
 }) => {
     const $isLoading = useStore(isLoading);
 
+    // Tap-on-map picker state. The dialog is mounted at the bottom of this
+    // component's tree so it stacks above everything else.
+    const [mapPickerOpen, setMapPickerOpen] = useState(false);
+
     // Resolve the coordinates to a friendly "near X" label via Nominatim.
     // Debounced + cached inside reverseGeocode itself, so dragging a marker
     // around won't fire a request per pixel.
@@ -392,6 +397,25 @@ export const LatitudeLongitude = ({
                             )}
                         </div>
                     </div>
+                )}
+                {!inlineEdit && (
+                    <button
+                        type="button"
+                        onClick={() => setMapPickerOpen(true)}
+                        disabled={disabled || $isLoading}
+                        className={cn(
+                            "w-full mt-1 px-2 py-1.5 rounded-md",
+                            "text-xs font-poppins font-semibold",
+                            "bg-secondary/60 hover:bg-secondary border border-border",
+                            "flex items-center justify-center gap-1.5",
+                            "transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            "disabled:opacity-50 disabled:cursor-not-allowed",
+                        )}
+                    >
+                        <MapPinIcon className="w-3.5 h-3.5" />
+                        Pick on map
+                    </button>
                 )}
 
                 <div
@@ -494,6 +518,14 @@ export const LatitudeLongitude = ({
                 </div>
             </SidebarMenuItem>
             {children}
+            <MapPickerDialog
+                open={mapPickerOpen}
+                onOpenChange={setMapPickerOpen}
+                initialLat={latitude}
+                initialLng={longitude}
+                onConfirm={(lat, lng) => onChange(lat, lng)}
+                title={`Set ${label.toLowerCase()}`}
+            />
         </>
     );
 };
