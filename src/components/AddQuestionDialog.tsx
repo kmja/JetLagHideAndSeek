@@ -226,24 +226,20 @@ export const AddQuestionDialog = ({
         const map = leafletMapContext.get();
         if (!map) return false;
         const center = map.getCenter();
-        const unit = defaultUnit.get();
-        // Sensible default offset depending on unit: 5 mi, 8 km, or 8000 m
-        const offsetDistance =
-            unit === "miles" ? 5 : unit === "kilometers" ? 8 : 8000;
-        const destination = turf.destination(
-            [center.lng, center.lat],
-            offsetDistance,
-            90,
-            { units: unit },
-        );
-
+        // Thermometer per rulebook: capture the seeker's current location
+        // as point A and enter "started" state. Point B mirrors A until the
+        // seeker has moved and hits Finish in the question card. Map center
+        // is the best proxy we have for "seeker's current location" without
+        // a GPS prompt at this step (we'd block the tap-to-add flow).
         addQuestion({
             id: "thermometer",
             data: {
                 latA: center.lat,
+                lngA: center.lng,
+                latB: center.lat,
                 lngB: center.lng,
-                latB: destination.geometry.coordinates[1],
-                lngA: destination.geometry.coordinates[0],
+                status: "started",
+                startedAt: Date.now(),
                 createdAt: Date.now(),
             },
         });
@@ -373,6 +369,15 @@ export const AddQuestionDialog = ({
                     {(() => {
                         const lastCat = $questions[$questions.length - 1]?.id;
                         const isBlocked = (c: string) => c === lastCat;
+                        // Rulebook: only one thermometer can be in progress
+                        // at a time. If any started thermometer exists, the
+                        // thermometer tile is blocked until it's finished.
+                        const thermInProgress = $questions.some(
+                            (q) =>
+                                q.id === "thermometer" &&
+                                (q.data as { status?: string }).status ===
+                                    "started",
+                        );
                         return (
                             <>
                                 <CategoryTile
@@ -423,18 +428,30 @@ export const AddQuestionDialog = ({
                                 />
                                 <CategoryTile
                                     category="thermometer"
-                                    description="Hotter or colder after move?"
+                                    description="Start now, finish after moving."
                                     onClick={() => {
-                                        if (runAddThermometer())
-                                            promoteLastQuestion();
+                                        // Thermometer goes straight into
+                                        // "started" state — no configure
+                                        // dialog. Just close the picker.
+                                        if (runAddThermometer()) {
+                                            setOpen(false);
+                                            toast.info(
+                                                "Thermometer started. Move away from here to finish.",
+                                                { autoClose: 3000 },
+                                            );
+                                        }
                                     }}
                                     disabled={
-                                        $isLoading || isBlocked("thermometer")
+                                        $isLoading ||
+                                        isBlocked("thermometer") ||
+                                        thermInProgress
                                     }
                                     blockedReason={
-                                        isBlocked("thermometer")
-                                            ? "Last question was thermometer — can't ask the same category twice in a row"
-                                            : undefined
+                                        thermInProgress
+                                            ? "A thermometer is already in progress — finish it before starting another"
+                                            : isBlocked("thermometer")
+                                              ? "Last question was thermometer — can't ask the same category twice in a row"
+                                              : undefined
                                     }
                                 />
                                 <CategoryTile
