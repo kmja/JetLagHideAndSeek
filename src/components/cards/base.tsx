@@ -127,7 +127,7 @@ export const QuestionCard = ({
                     <button
                         onClick={toggleCollapse}
                         className={cn(
-                            "absolute top-2 left-2 text-white border rounded-md transition-all duration-500 hover:bg-white/10",
+                            "absolute top-2 left-2 text-white border rounded-md transition-transform duration-200 hover:bg-white/10",
                             isCollapsed && "-rotate-90",
                         )}
                         aria-label={isCollapsed ? "Expand" : "Collapse"}
@@ -175,7 +175,7 @@ export const QuestionCard = ({
                     )}
                     <SidebarGroupContent
                         className={cn(
-                            "overflow-hidden transition-all duration-1000 max-h-[100rem]", // 100rem is arbitrary
+                            "overflow-hidden transition-all duration-200 max-h-[100rem]", // 100rem is arbitrary
                             isCollapsed && "max-h-0",
                         )}
                     >
