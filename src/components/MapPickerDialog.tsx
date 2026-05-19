@@ -1,4 +1,4 @@
-import { DivIcon, LeafletMouseEvent } from "leaflet";
+import type { DivIcon as LeafletDivIcon, LeafletMouseEvent } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { LocateFixed } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -124,6 +124,7 @@ export function MapPickerDialog({
                                 ) {
                                     return;
                                 }
+
                                 navigator.geolocation.getCurrentPosition(
                                     (pos) =>
                                         setPicked({
@@ -168,6 +169,7 @@ function ClickToPlace({
             onPlace(e.latlng.lat, e.latlng.lng);
         },
     });
+
     return null;
 }
 
@@ -184,6 +186,7 @@ function RecenterOnPicked({
 }) {
     const map = useMap();
     const [lastKey, setLastKey] = useState(recenterKey);
+
     useEffect(() => {
         if (recenterKey !== lastKey) {
             map.flyTo([lat, lng], map.getZoom(), { duration: 0.3 });
@@ -191,22 +194,46 @@ function RecenterOnPicked({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [recenterKey]);
+
     return null;
 }
 
 /** Visible pin at the currently-picked spot. */
 function PickedPin({ lat, lng }: { lat: number; lng: number }) {
-    const icon = new DivIcon({
-        html: `
+    const [icon, setIcon] = useState<LeafletDivIcon | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadIcon() {
+            const { DivIcon } = await import("leaflet");
+
+            if (cancelled) return;
+
+            setIcon(
+                new DivIcon({
+                    html: `
 <div class="jl-picker-pin">
   <svg width="28" height="38" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">
     <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24s14-13.5 14-24C28 6.27 21.73 0 14 0z" fill="hsl(var(--primary))" stroke="white" stroke-width="2"/>
     <circle cx="14" cy="14" r="5" fill="white"/>
   </svg>
 </div>`.trim(),
-        className: "jl-picker-pin-wrap",
-        iconSize: [28, 38],
-        iconAnchor: [14, 36],
-    });
+                    className: "jl-picker-pin-wrap",
+                    iconSize: [28, 38],
+                    iconAnchor: [14, 36],
+                }),
+            );
+        }
+
+        loadIcon();
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    if (!icon) return null;
+
     return <Marker position={[lat, lng]} icon={icon} />;
 }
