@@ -36,11 +36,11 @@ const RADIUS_PRESETS: {
     /** Stable signature for uniqueness tracking */
     sig: string;
 }[] = [
-    { label: "500 m", radius: 500, unit: "meters", sig: "500m" },
-    { label: "1 km", radius: 1, unit: "kilometers", sig: "1km" },
-    { label: "2 km", radius: 2, unit: "kilometers", sig: "2km" },
-    { label: "5 km", radius: 5, unit: "kilometers", sig: "5km" },
-    { label: "10 km", radius: 10, unit: "kilometers", sig: "10km" },
+    { label: "500m", radius: 500, unit: "meters", sig: "500m" },
+    { label: "1km", radius: 1, unit: "kilometers", sig: "1km" },
+    { label: "2km", radius: 2, unit: "kilometers", sig: "2km" },
+    { label: "5km", radius: 5, unit: "kilometers", sig: "5km" },
+    { label: "10km", radius: 10, unit: "kilometers", sig: "10km" },
     { label: "15 km", radius: 15, unit: "kilometers", sig: "15km" },
     { label: "40 km", radius: 40, unit: "kilometers", sig: "40km" },
     { label: "80 km", radius: 80, unit: "kilometers", sig: "80km" },
@@ -164,8 +164,10 @@ export const RadiusQuestionComponent = ({
                                 "flex flex-col gap-3",
                             )}
                         >
-                            {/* Primary preset row */}
-                            <div className="flex flex-wrap gap-1.5">
+                            {/* Primary preset row — 5 equal columns so the
+                                last preset (10 km) doesn't wrap onto its own
+                                line on narrow mobile widths. */}
+                            <div className="grid grid-cols-5 gap-1.5">
                                 {PRIMARY_PRESETS.map((preset) => (
                                     <button
                                         key={preset.sig}
