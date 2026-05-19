@@ -50,6 +50,7 @@ export const TentacleQuestionComponent = ({
     const $questions = useStore(questions);
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $isLoading = useStore(isLoading);
+    const $gameSize = useStore(gameSize);
 
     // Game rule: each (category, subtype) can only be asked once per game.
     const usedTentacleTypes = React.useMemo(
@@ -122,15 +123,14 @@ export const TentacleQuestionComponent = ({
                             )
                             .map((x) => [
                                 (x._def as any).value,
-                                (x.description ?? "").replace(
-                                    / Question$/,
-                                    "",
-                                ),
+                                cleanDescription(x.description),
                             ])
                             .filter(
                                 ([value, _]) =>
-                                    !usedTentacleTypes.has(value as string) ||
-                                    value === data.locationType,
+                                    (!usedTentacleTypes.has(value as string) ||
+                                        value === data.locationType) &&
+                                    (isSubtypeAllowed(value as string, $gameSize) ||
+                                        value === data.locationType),
                             ),
                     )}
                     groups={Object.fromEntries(
@@ -144,17 +144,21 @@ export const TentacleQuestionComponent = ({
                                     )
                                         .map((x) => [
                                             (x._def as any).value,
-                                            (x.description ?? "").replace(
-                                                / Question$/,
-                                                "",
-                                            ),
+                                            cleanDescription(x.description),
                                         ])
                                         .filter(
                                             ([value, _]) =>
-                                                !usedTentacleTypes.has(
+                                                (!usedTentacleTypes.has(
                                                     value as string,
                                                 ) ||
-                                                value === data.locationType,
+                                                    value ===
+                                                        data.locationType) &&
+                                                (isSubtypeAllowed(
+                                                    value as string,
+                                                    $gameSize,
+                                                ) ||
+                                                    value ===
+                                                        data.locationType),
                                         ),
                                 ),
                             ]),

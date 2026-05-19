@@ -23,6 +23,8 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { gameSize } from "@/lib/gameSetup";
+import { cleanDescription, isSubtypeAllowed } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import {
     determineMatchingBoundary,
@@ -59,6 +61,7 @@ export const MatchingQuestionComponent = ({
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $isLoading = useStore(isLoading);
     const $customInitPref = useStore(customInitPreference);
+    const $gameSize = useStore(gameSize);
     const [customDialogOpen, setCustomDialogOpen] = React.useState(false);
     const [pendingCustomType, setPendingCustomType] = React.useState<
         "custom-zone" | "custom-points" | null
@@ -272,15 +275,19 @@ export const MatchingQuestionComponent = ({
                             )
                             .map((x) => [
                                 (x._def as any).value,
-                                (x.description ?? "").replace(
-                                    / Question$/,
-                                    "",
-                                ),
+                                cleanDescription(x.description),
                             ])
                             .filter(
                                 ([value, _]) =>
-                                    !usedMatchingTypes.has(value as string) ||
-                                    value === data.type,
+                                    (!usedMatchingTypes.has(
+                                        value as string,
+                                    ) ||
+                                        value === data.type) &&
+                                    (isSubtypeAllowed(
+                                        value as string,
+                                        $gameSize,
+                                    ) ||
+                                        value === data.type),
                             ),
                     )}
                     groups={matchingQuestionSchema.options
@@ -291,16 +298,19 @@ export const MatchingQuestionComponent = ({
                                 determineUnionizedStrings(x.shape.type)
                                     .map((x) => [
                                         (x._def as any).value,
-                                        (x.description ?? "").replace(
-                                            / Question$/,
-                                            "",
-                                        ),
+                                        cleanDescription(x.description),
                                     ])
                                     .filter(
                                         ([value, _]) =>
-                                            !usedMatchingTypes.has(
+                                            (!usedMatchingTypes.has(
                                                 value as string,
-                                            ) || value === data.type,
+                                            ) ||
+                                                value === data.type) &&
+                                            (isSubtypeAllowed(
+                                                value as string,
+                                                $gameSize,
+                                            ) ||
+                                                value === data.type),
                                     ),
                             ),
                         ])

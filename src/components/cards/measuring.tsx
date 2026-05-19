@@ -22,6 +22,8 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { gameSize } from "@/lib/gameSetup";
+import { cleanDescription, isSubtypeAllowed } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import { determineMeasuringBoundary } from "@/maps/questions/measuring";
 import {
@@ -54,6 +56,7 @@ export const MeasuringQuestionComponent = ({
     const $displayHidingZones = useStore(displayHidingZones);
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $isLoading = useStore(isLoading);
+    const $gameSize = useStore(gameSize);
     const $customInitPref = useStore(customInitPreference);
     const [customDialogOpen, setCustomDialogOpen] = React.useState(false);
 
@@ -200,15 +203,14 @@ export const MeasuringQuestionComponent = ({
                             )
                             .map((x) => [
                                 (x._def as any).value,
-                                (x.description ?? "").replace(
-                                    / Question$/,
-                                    "",
-                                ),
+                                cleanDescription(x.description),
                             ])
                             .filter(
                                 ([value, _]) =>
-                                    !usedMeasuringTypes.has(value as string) ||
-                                    value === data.type,
+                                    (!usedMeasuringTypes.has(value as string) ||
+                                        value === data.type) &&
+                                    (isSubtypeAllowed(value as string, $gameSize) ||
+                                        value === data.type),
                             ),
                     )}
                     groups={measuringQuestionSchema.options
@@ -219,10 +221,7 @@ export const MeasuringQuestionComponent = ({
                                 determineUnionizedStrings(x.shape.type)
                                     .map((x) => [
                                         (x._def as any).value,
-                                        (x.description ?? "").replace(
-                                            / Question$/,
-                                            "",
-                                        ),
+                                        cleanDescription(x.description),
                                     ])
                                     .filter(
                                         ([value, _]) =>
