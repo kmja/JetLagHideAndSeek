@@ -231,3 +231,7 @@ function buildPinIcon(L: typeof import("leaflet")) {
         iconAnchor: [14, 36],
     });
 }
+
+// Default export so React.lazy(() => import("./MapPickerDialog")) resolves
+// directly to this component.
+export default MapPickerDialog;

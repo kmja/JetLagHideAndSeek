@@ -1,7 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { EditIcon, LocateIcon, MapPin as MapPinIcon } from "lucide-react";
 import { OpenLocationCode } from "open-location-code";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,6 @@ import {
     CommandItem,
     CommandList,
 } from "./ui/command";
-import { MapPickerDialog } from "./MapPickerDialog";
 import {
     Dialog,
     DialogClose,
@@ -37,6 +36,13 @@ import {
 } from "./ui/dialog";
 import { Separator } from "./ui/separator";
 import { SidebarMenuItem } from "./ui/sidebar-l";
+
+// Lazy-loaded so react-leaflet (which pulls in leaflet, a window-touching
+// module) stays OUT of the static import graph. LatitudeLongitude is
+// imported by OptionDrawers, which is SSR-rendered (client:load); a static
+// import here would drag leaflet into Astro's server build and crash with
+// "window is not defined". The dynamic import() defers it to client runtime.
+const MapPickerDialog = lazy(() => import("./MapPickerDialog"));
 
 const parseCoordinatesFromText = (
     text: string,
@@ -518,14 +524,18 @@ export const LatitudeLongitude = ({
                 </div>
             </SidebarMenuItem>
             {children}
-            <MapPickerDialog
-                open={mapPickerOpen}
-                onOpenChange={setMapPickerOpen}
-                initialLat={latitude}
-                initialLng={longitude}
-                onConfirm={(lat, lng) => onChange(lat, lng)}
-                title={`Set ${label.toLowerCase()}`}
-            />
+            {mapPickerOpen && (
+                <Suspense fallback={null}>
+                    <MapPickerDialog
+                        open={mapPickerOpen}
+                        onOpenChange={setMapPickerOpen}
+                        initialLat={latitude}
+                        initialLng={longitude}
+                        onConfirm={(lat, lng) => onChange(lat, lng)}
+                        title={`Set ${label.toLowerCase()}`}
+                    />
+                </Suspense>
+            )}
         </>
     );
 };
