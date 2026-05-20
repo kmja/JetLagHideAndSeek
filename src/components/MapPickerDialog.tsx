@@ -1,5 +1,3 @@
-import type { DivIcon as LeafletDivIcon, LeafletMouseEvent } from "leaflet";
-import type * as ReactLeaflet from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { LocateFixed } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -13,8 +11,13 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-
-type ReactLeafletModule = typeof ReactLeaflet;
+import {
+    MapContainer,
+    Marker,
+    TileLayer,
+    useMap,
+    useMapEvents,
+} from "react-leaflet";
 
 /**
  * Tap-on-map location picker. Opens as a modal containing a Leaflet map
@@ -82,19 +85,33 @@ export function MapPickerDialog({
 
                 <div className="flex-1 overflow-hidden min-h-0 px-4 py-3">
                     <div className="w-full h-[50vh] rounded-md overflow-hidden border border-border">
-                        <BrowserOnlyLeafletPicker
-                            picked={picked}
-                            initialLat={initialLat}
-                            initialLng={initialLng}
-                            onPickedChange={setPicked}
-                        />
+                        <MapContainer
+                            center={[picked.lat, picked.lng]}
+                            zoom={13}
+                            scrollWheelZoom={true}
+                            style={{ height: "100%", width: "100%" }}
+                        >
+                            <TileLayer
+                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                            />
+                            <ClickToPlace
+                                onPlace={(lat, lng) =>
+                                    setPicked({ lat, lng })
+                                }
+                            />
+                            <PickedPin lat={picked.lat} lng={picked.lng} />
+                            <RecenterOnPicked
+                                lat={picked.lat}
+                                lng={picked.lng}
+                                recenterKey={`${initialLat},${initialLng}`}
+                            />
+                        </MapContainer>
                     </div>
-
                     <div className="mt-3 flex items-center justify-between gap-2 text-xs">
                         <div className="text-muted-foreground tabular-nums truncate min-w-0">
                             {picked.lat.toFixed(5)}, {picked.lng.toFixed(5)}
                         </div>
-
                         <Button
                             variant="outline"
                             size="sm"
@@ -106,7 +123,6 @@ export function MapPickerDialog({
                                 ) {
                                     return;
                                 }
-
                                 navigator.geolocation.getCurrentPosition(
                                     (pos) =>
                                         setPicked({
@@ -140,111 +156,33 @@ export function MapPickerDialog({
     );
 }
 
-function BrowserOnlyLeafletPicker({
-    picked,
-    initialLat,
-    initialLng,
-    onPickedChange,
-}: {
-    picked: { lat: number; lng: number };
-    initialLat: number;
-    initialLng: number;
-    onPickedChange: (picked: { lat: number; lng: number }) => void;
-}) {
-    const [reactLeaflet, setReactLeaflet] =
-        useState<ReactLeafletModule | null>(null);
-
-    useEffect(() => {
-        let cancelled = false;
-
-        async function loadReactLeaflet() {
-            const module = await import("react-leaflet");
-
-            if (!cancelled) {
-                setReactLeaflet(module);
-            }
-        }
-
-        loadReactLeaflet();
-
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    if (!reactLeaflet) {
-        return (
-            <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground">
-                Loading map…
-            </div>
-        );
-    }
-
-    const { MapContainer, TileLayer } = reactLeaflet;
-
-    return (
-        <MapContainer
-            center={[picked.lat, picked.lng]}
-            zoom={13}
-            scrollWheelZoom={true}
-            style={{ height: "100%", width: "100%" }}
-        >
-            <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            />
-            <ClickToPlace
-                reactLeaflet={reactLeaflet}
-                onPlace={(lat, lng) => onPickedChange({ lat, lng })}
-            />
-            <PickedPin
-                reactLeaflet={reactLeaflet}
-                lat={picked.lat}
-                lng={picked.lng}
-            />
-            <RecenterOnPicked
-                reactLeaflet={reactLeaflet}
-                lat={picked.lat}
-                lng={picked.lng}
-                recenterKey={`${initialLat},${initialLng}`}
-            />
-        </MapContainer>
-    );
-}
-
 /** Captures map clicks/taps and bubbles them up as a pick event. */
 function ClickToPlace({
-    reactLeaflet,
     onPlace,
 }: {
-    reactLeaflet: ReactLeafletModule;
     onPlace: (lat: number, lng: number) => void;
 }) {
-    reactLeaflet.useMapEvents({
-        click: (e: LeafletMouseEvent) => {
+    useMapEvents({
+        click: (e) => {
             onPlace(e.latlng.lat, e.latlng.lng);
         },
     });
-
     return null;
 }
 
 /** Recenters the map when the picked point changes substantially —
  *  i.e. when the user uses the GPS button, not when they tap nearby. */
 function RecenterOnPicked({
-    reactLeaflet,
     lat,
     lng,
     recenterKey,
 }: {
-    reactLeaflet: ReactLeafletModule;
     lat: number;
     lng: number;
     recenterKey: string;
 }) {
-    const map = reactLeaflet.useMap();
+    const map = useMap();
     const [lastKey, setLastKey] = useState(recenterKey);
-
     useEffect(() => {
         if (recenterKey !== lastKey) {
             map.flyTo([lat, lng], map.getZoom(), { duration: 0.3 });
@@ -252,56 +190,44 @@ function RecenterOnPicked({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [recenterKey]);
-
     return null;
 }
 
-/** Visible pin at the currently-picked spot. */
-function PickedPin({
-    reactLeaflet,
-    lat,
-    lng,
-}: {
-    reactLeaflet: ReactLeafletModule;
-    lat: number;
-    lng: number;
-}) {
-    const [icon, setIcon] = useState<LeafletDivIcon | null>(null);
+/** Visible pin at the currently-picked spot. The leaflet `divIcon` is
+ *  constructed via a dynamic import so leaflet's module body (which touches
+ *  `window`) never runs during Astro's server-side static generation. */
+function PickedPin({ lat, lng }: { lat: number; lng: number }) {
+    const [icon, setIcon] = useState<ReturnType<
+        typeof buildPinIcon
+    > | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-
-        async function loadIcon() {
-            const { DivIcon } = await import("leaflet");
-
-            if (cancelled) return;
-
-            setIcon(
-                new DivIcon({
-                    html: `
-<div class="jl-picker-pin">
-  <svg width="28" height="38" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">
-    <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24s14-13.5 14-24C28 6.27 21.73 0 14 0z" fill="hsl(var(--primary))" stroke="white" stroke-width="2"/>
-    <circle cx="14" cy="14" r="5" fill="white"/>
-  </svg>
-</div>`.trim(),
-                    className: "jl-picker-pin-wrap",
-                    iconSize: [28, 38],
-                    iconAnchor: [14, 36],
-                }),
-            );
-        }
-
-        loadIcon();
-
+        import("leaflet").then((L) => {
+            if (!cancelled) setIcon(buildPinIcon(L));
+        });
         return () => {
             cancelled = true;
         };
     }, []);
 
     if (!icon) return null;
-
-    const { Marker } = reactLeaflet;
-
     return <Marker position={[lat, lng]} icon={icon} />;
+}
+
+/** Construct the primary-colored teardrop DivIcon from a loaded leaflet
+ *  module. Kept separate so the dynamic-import callsite stays tidy. */
+function buildPinIcon(L: typeof import("leaflet")) {
+    return new L.DivIcon({
+        html: `
+<div class="jl-picker-pin">
+  <svg width="28" height="38" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">
+    <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24s14-13.5 14-24C28 6.27 21.73 0 14 0z" fill="hsl(var(--primary))" stroke="white" stroke-width="2"/>
+    <circle cx="14" cy="14" r="5" fill="white"/>
+  </svg>
+</div>`.trim(),
+        className: "jl-picker-pin-wrap",
+        iconSize: [28, 38],
+        iconAnchor: [14, 36],
+    });
 }
