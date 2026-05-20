@@ -6,7 +6,6 @@ import {
     Hospital,
     Landmark,
     Library,
-    LucideIcon,
     Mountain,
     Plane,
     Rocket,
@@ -14,6 +13,7 @@ import {
     Trees,
     Waves,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import type { GameSize } from "./gameSetup";
 
