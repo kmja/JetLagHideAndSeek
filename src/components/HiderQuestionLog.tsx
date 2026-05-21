@@ -1,9 +1,12 @@
 import { useStore } from "@nanostores/react";
-import { Inbox } from "lucide-react";
+import { ChevronRight, Inbox } from "lucide-react";
 import { useMemo } from "react";
 
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { hiderInbox, type InboxEntry } from "@/lib/hiderRole";
+import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import type { Question } from "@/maps/schema";
 
 import { SectionPill } from "./JetLagLogo";
 import {
@@ -50,8 +53,9 @@ export function HiderQuestionLog() {
                 </div>
                 <p className="text-xs text-muted-foreground italic px-1 leading-snug">
                     Questions the seeker sends you will land here.
-                    They share links via SMS — opening one adds the
-                    question to your log and lets you reveal an answer.
+                    They arrive via shared link — opening one (or
+                    tapping a question in this log) takes you to the
+                    answer view.
                 </p>
             </section>
         );
@@ -100,30 +104,124 @@ export function HiderQuestionLog() {
 }
 
 /**
- * Compact summary row for a waiting (un-replied) inbox entry. We
- * deliberately keep this small — the hider answers via the share-link
- * URL, not by clicking around inside the log.
+ * Compact summary row for a waiting (un-replied) inbox entry. The row
+ * itself is the affordance — tapping it routes to `/h?q=…` with the
+ * same encoded payload the seeker would have shared, so the hider
+ * lands on the dedicated answer view (reveal-blur, share-back row,
+ * etc.) without having to chase down an SMS link.
+ *
+ * That matters because the inbox can be populated through several
+ * paths now: opening the seeker's share link, the debug "→ Hider"
+ * ferry, and (later) multiplayer push updates. Telling the hider
+ * "open the seeker's share link" was strictly accurate only on the
+ * first path, and even there the link had already been opened to
+ * land the entry in the inbox in the first place.
  */
 function WaitingRow({ entry }: { entry: InboxEntry }) {
+    const categoryMeta = CATEGORIES[entry.id as CategoryId];
+    const CategoryIcon = categoryMeta?.icon;
+    const prompt = waitingRowPrompt(entry);
+
+    const openAnswerView = () => {
+        // Reconstruct the share payload from the inbox entry — same
+        // shape `encodeQuestionForHider` would produce on the seeker
+        // side. The URL ends up identical to the share link.
+        const question = {
+            id: entry.id,
+            key: entry.key,
+            data: entry.data,
+        } as Question;
+        try {
+            const url = encodeQuestionForHider(question);
+            const parsed = new URL(url);
+            window.location.assign(
+                parsed.pathname + parsed.search + parsed.hash,
+            );
+        } catch {
+            // Fallback: build the relative URL inline if URL parsing
+            // fails for any reason (e.g. exotic data shapes).
+            const payload = JSON.stringify(question);
+            window.location.assign(`/h?q=${encodeURIComponent(payload)}`);
+        }
+    };
+
     return (
-        <li
-            className={cn(
-                "rounded-sm border border-border border-l-[5px] border-l-yellow-500",
-                "px-3 py-2 bg-secondary/40",
-                "flex items-center justify-between gap-2",
-            )}
-        >
-            <div className="min-w-0">
-                <div className="font-inter-tight font-bold uppercase text-xs tracking-[0.1em] truncate">
-                    {entry.id}
+        <li>
+            <button
+                type="button"
+                onClick={openAnswerView}
+                className={cn(
+                    "w-full text-left rounded-sm border border-border border-l-[5px] border-l-yellow-500",
+                    "px-3 py-2.5 bg-secondary/40",
+                    "flex items-center gap-3",
+                    "hover:bg-accent hover:border-l-yellow-400 transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+                aria-label={`Answer ${categoryMeta?.label ?? entry.id} question`}
+            >
+                {CategoryIcon && (
+                    <span
+                        className="inline-flex items-center justify-center w-8 h-8 rounded shrink-0"
+                        style={{ backgroundColor: categoryMeta.color }}
+                        aria-hidden="true"
+                    >
+                        <CategoryIcon
+                            size={16}
+                            strokeWidth={2.5}
+                            className="text-white"
+                        />
+                    </span>
+                )}
+                <div className="min-w-0 flex-1">
+                    <div className="font-inter-tight font-bold uppercase text-xs tracking-[0.1em] truncate">
+                        {categoryMeta?.label ?? entry.id}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug truncate">
+                        {prompt}
+                    </p>
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-snug">
-                    Open the seeker's share link to reveal & send your
-                    answer.
-                </p>
-            </div>
+                <ChevronRight
+                    className="w-4 h-4 text-muted-foreground shrink-0"
+                    aria-hidden="true"
+                />
+            </button>
         </li>
     );
+}
+
+/**
+ * Best-effort one-line summary of what the seeker is asking. Mirrors
+ * `questionPrompt()` in HiderView.tsx but trimmed so it fits inside a
+ * compact log row. We keep this local to avoid an awkward import
+ * cycle between HiderQuestionLog and HiderView.
+ */
+function waitingRowPrompt(entry: InboxEntry): string {
+    const d = entry.data as Record<string, unknown>;
+    const nice = (raw: unknown): string =>
+        String(raw ?? "")
+            .replace(/-/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+    switch (entry.id) {
+        case "radius": {
+            const radius = d.radius;
+            const unit = d.unit === "miles" ? "mi" : d.unit === "meters" ? "m" : "km";
+            return `Within ${radius} ${unit} of the seeker?`;
+        }
+        case "thermometer":
+            return "Did the seeker get warmer or colder?";
+        case "matching":
+            return d.type
+                ? `Same ${nice(d.type)}?`
+                : "Do we match on this attribute?";
+        case "measuring":
+            return d.type
+                ? `Closer or further from the nearest ${nice(d.type)}?`
+                : "Closer or further than the seeker?";
+        case "tentacles":
+            return `Closest ${nice(d.locationType) || "location"} to you?`;
+        default:
+            return "Tap to reveal & send your answer.";
+    }
 }
 
 function AnsweredCard({ entry }: { entry: InboxEntry }) {
