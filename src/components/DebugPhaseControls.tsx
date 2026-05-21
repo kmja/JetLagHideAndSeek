@@ -8,7 +8,8 @@ import {
     questions,
     addQuestion,
 } from "@/lib/context";
-import { hiderInbox } from "@/lib/hiderRole";
+import { hiderInbox, playerRole } from "@/lib/hiderRole";
+import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
 
@@ -171,6 +172,38 @@ export function DebugPhaseControls() {
 
     const resetQuestions = () => {
         questions.set([]);
+    };
+
+    /**
+     * Testing-only: flip the device to hider role and open the latest
+     * pending question's `?q=` URL directly. Production "Switch to
+     * hider" deliberately doesn't do this (roles lock once a game has
+     * started), but for round-tripping the answer flow on a single
+     * device this is the path the seeker would otherwise text to the
+     * hider.
+     */
+    const openLatestAsHider = () => {
+        const all = questions.get();
+        const latest = [...all].reverse().find((q) => {
+            if (q.data.drag !== true) return false;
+            if (q.id === "thermometer") {
+                const status =
+                    (q.data as { status?: string }).status ?? "finished";
+                if (status === "started") return false;
+            }
+            return true;
+        });
+        if (!latest) return;
+        playerRole.set("hider");
+        const url = encodeQuestionForHider(latest);
+        try {
+            const parsed = new URL(url);
+            window.location.assign(
+                parsed.pathname + parsed.search + parsed.hash,
+            );
+        } catch {
+            window.location.assign("/h");
+        }
     };
 
     /* ─────── hider actions ─────── */
@@ -349,6 +382,13 @@ export function DebugPhaseControls() {
                 </Section>
 
                 <Section title="Hider side">
+                    <DebugButton
+                        onClick={openLatestAsHider}
+                        disabled={!hasLatest}
+                        variant="primary"
+                    >
+                        Open latest question as hider →
+                    </DebugButton>
                     <DebugButton onClick={injectInboxQuestion}>
                         Inject test question to inbox
                     </DebugButton>

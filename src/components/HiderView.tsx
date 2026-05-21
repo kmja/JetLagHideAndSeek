@@ -1,4 +1,4 @@
-import { Copy, Eye, MapPin, Share2 } from "lucide-react";
+import { ArrowLeft, Copy, Eye, Home, MapPin, Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -179,6 +179,27 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     return (
         <div className="min-h-screen flex flex-col p-4 max-w-md mx-auto">
             <header className="mt-2 mb-3">
+                {/* Escape hatch back to HiderHome. Useful both for
+                    abandoning an answer mid-flow and for closing the
+                    loop after the seeker has already received the
+                    answer link. /h with no query param re-renders
+                    HiderHome with the live inbox + any queued deck
+                    draw. */}
+                <button
+                    type="button"
+                    onClick={() => window.location.assign("/h")}
+                    className={cn(
+                        "inline-flex items-center gap-1.5 -ml-1 px-2 py-1 rounded-md mb-2",
+                        "text-xs font-poppins font-semibold text-muted-foreground",
+                        "hover:text-foreground hover:bg-accent transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                    aria-label="Back to hider home"
+                >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Hider home
+                </button>
+
                 <div className="flex items-center gap-2 mb-2">
                     {CategoryIcon && (
                         <span
@@ -633,9 +654,24 @@ function ShareBackRow({
                 Copy answer link
             </Button>
             {sent && (
-                <p className="text-xs text-muted-foreground text-center pt-1">
-                    Sent. You can close this tab.
-                </p>
+                <div className="space-y-2 pt-2">
+                    <p className="text-xs text-emerald-500 text-center font-poppins font-semibold">
+                        Answer sent. Question moved to your inbox.
+                    </p>
+                    <Button
+                        onClick={() => window.location.assign("/h")}
+                        className="w-full gap-2 py-5 text-sm"
+                    >
+                        <Home className="w-4 h-4" />
+                        Back to hider home
+                    </Button>
+                    <p className="text-[10px] text-muted-foreground text-center leading-snug px-1">
+                        Your deck draw is waiting on the hider home —
+                        the rulebook normally has you confirm the
+                        seeker received the answer before drawing, but
+                        for testing here we draw immediately on share.
+                    </p>
+                </div>
             )}
         </div>
     );

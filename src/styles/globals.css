@@ -93,6 +93,16 @@ div.leaflet-control-attribution.leaflet-control {
     100% { transform: scale(1); }
 }
 
+/* d6 tumble — quick wobble + scale-bounce while the hider's dice
+ * cycles values, then settles. */
+@keyframes jlDiceTumble {
+    0%   { transform: rotate(0deg)    scale(1);    }
+    25%  { transform: rotate(-15deg)  scale(1.10); }
+    50%  { transform: rotate(12deg)   scale(0.95); }
+    75%  { transform: rotate(-7deg)   scale(1.05); }
+    100% { transform: rotate(0deg)    scale(1);    }
+}
+
 /* Reference-point marker + label used on the configure-dialog inline
  * map for matching/measuring questions. The marker itself is rendered
  * via Leaflet DivIcon (see `buildReferenceIcon` in InlineLocationPicker)

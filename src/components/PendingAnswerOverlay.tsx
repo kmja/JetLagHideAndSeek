@@ -1,5 +1,31 @@
 import { useStore } from "@nanostores/react";
-import { Check, Hourglass, Share2 } from "lucide-react";
+import {
+    Beef,
+    BookOpen,
+    Building2,
+    Camera,
+    Check,
+    FerrisWheel,
+    Film,
+    Fish,
+    Flag,
+    Hospital,
+    Hourglass,
+    Landmark,
+    Mountain,
+    PawPrint,
+    Plane,
+    Ruler,
+    ShoppingBag,
+    Share2,
+    Train,
+    TrainFront,
+    TrainTrack,
+    TreePine,
+    Trees,
+    Waves,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -13,6 +39,73 @@ import {
     prettyTypeNoun,
     useNearestReference,
 } from "./NearestReferencePreview";
+
+/**
+ * Icon for the question's subtype (museum → Landmark, airport → Plane,
+ * etc.). Used as the badge avatar so the seeker reads the *thing the
+ * question is about*, not just the rulebook category color. Falls back
+ * to the category's own icon when the subtype isn't iconified here.
+ */
+const SUBTYPE_ICONS: Record<string, LucideIcon> = {
+    airport: Plane,
+    city: Building2,
+    "major-city": Building2,
+    aquarium: Fish,
+    hospital: Hospital,
+    peak: Mountain,
+    museum: Landmark,
+    theme_park: FerrisWheel,
+    zoo: PawPrint,
+    cinema: Film,
+    library: BookOpen,
+    golf_course: Flag,
+    consulate: Landmark,
+    park: Trees,
+    coastline: Waves,
+    mcdonalds: Beef,
+    seven11: ShoppingBag,
+    "rail-measure": Train,
+    "same-train-line": TrainTrack,
+    "same-length-station": Ruler,
+    "highspeed-measure-shinkansen": TrainFront,
+    tree: TreePine,
+    selfie: Camera,
+};
+
+function getSubtypeIcon(type: string | undefined): LucideIcon | null {
+    if (!type) return null;
+    const stripped = type.endsWith("-full")
+        ? type.slice(0, -"-full".length)
+        : type;
+    return SUBTYPE_ICONS[stripped] ?? null;
+}
+
+/** Human-readable subtype label for the header (e.g. "Museum",
+ *  "McDonald's", "Train station"). CSS uppercases it. */
+function subtypeLabel(type: string | undefined): string | null {
+    if (!type) return null;
+    const stripped = type.endsWith("-full")
+        ? type.slice(0, -"-full".length)
+        : type;
+    switch (stripped) {
+        case "mcdonalds":
+            return "McDonald's";
+        case "seven11":
+            return "7-Eleven";
+        case "rail-measure":
+            return "Train station";
+        case "major-city":
+            return "Major city";
+        case "highspeed-measure-shinkansen":
+            return "Shinkansen";
+        case "same-train-line":
+            return "Train line";
+        case "same-length-station":
+            return "Station length";
+        default:
+            return stripped.replace(/[-_]/g, " ");
+    }
+}
 
 /**
  * Floating "waiting for answer" card pinned at the bottom of the map.
@@ -171,37 +264,56 @@ export function PendingAnswerOverlay() {
                     status.border,
                 )}
             >
-                <span
-                    className={cn(
-                        "inline-flex items-center justify-center w-9 h-9 rounded shrink-0 transition-colors duration-300",
-                        phase === "answered"
-                            ? "bg-emerald-500"
-                            : "",
-                    )}
-                    style={
-                        phase === "answered"
-                            ? undefined
-                            : { backgroundColor: meta?.color ?? "#999" }
-                    }
-                    aria-hidden="true"
-                >
-                    {phase === "answered" ? (
-                        <Check
-                            size={18}
-                            strokeWidth={3}
-                            className="text-white animate-[jlAnsweredPop_400ms_ease-out]"
-                        />
-                    ) : (
-                        <Icon size={16} strokeWidth={2.5} className="text-white" />
-                    )}
-                </span>
+                {(() => {
+                    // Avatar icon — subtype-specific where we have one
+                    // (Museum, Plane, Fish…), category fallback otherwise.
+                    // Swaps to a green checkmark once the question is
+                    // answered.
+                    const AvatarIcon = summary.icon ?? Icon;
+                    return (
+                        <span
+                            className={cn(
+                                "inline-flex items-center justify-center w-9 h-9 rounded shrink-0 transition-colors duration-300",
+                                phase === "answered" ? "bg-emerald-500" : "",
+                            )}
+                            style={
+                                phase === "answered"
+                                    ? undefined
+                                    : { backgroundColor: meta?.color ?? "#999" }
+                            }
+                            aria-hidden="true"
+                        >
+                            {phase === "answered" ? (
+                                <Check
+                                    size={18}
+                                    strokeWidth={3}
+                                    className="text-white animate-[jlAnsweredPop_400ms_ease-out]"
+                                />
+                            ) : (
+                                <AvatarIcon
+                                    size={16}
+                                    strokeWidth={2.5}
+                                    className="text-white"
+                                />
+                            )}
+                        </span>
+                    );
+                })()}
 
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 leading-none">
-                        <span className="text-[10px] uppercase tracking-[0.14em] font-poppins font-semibold text-muted-foreground">
-                            {meta?.label ?? displayed.id}
+                        <span className="text-[10px] uppercase tracking-[0.14em] font-poppins font-semibold text-muted-foreground min-w-0 truncate">
+                            {summary.headerCategoryLabel}
+                            {summary.headerSubtypeLabel && (
+                                <>
+                                    {" · "}
+                                    <span className="text-foreground/80">
+                                        {summary.headerSubtypeLabel}
+                                    </span>
+                                </>
+                            )}
                         </span>
-                        <span className={cn("ml-auto shrink-0 flex items-center gap-1.5")}>
+                        <span className="ml-auto shrink-0 flex items-center gap-1.5">
                             <span
                                 className={cn(
                                     "text-[10px] uppercase tracking-[0.14em] font-poppins font-bold",
@@ -221,7 +333,7 @@ export function PendingAnswerOverlay() {
                         </span>
                     </div>
                     <div className="mt-1 text-sm font-inter-tight font-bold text-foreground leading-tight truncate">
-                        {summary.headline}
+                        {summary.title}
                     </div>
                     {summary.detail && (
                         <div className="text-[11px] text-muted-foreground leading-snug truncate mt-0.5">
@@ -326,14 +438,31 @@ function findOldestPending(qs: Question[]): Question | null {
  *
  * Truncated by the caller so it stays one line.
  */
+interface QuestionSummary {
+    /** Top-left uppercase chip — the rulebook category (e.g. "Matching"). */
+    headerCategoryLabel: string;
+    /** Optional second uppercase chip after a separator (e.g. "Museum",
+     *  "Airport", "Coastline"). Omit when the subtype is meaningless. */
+    headerSubtypeLabel?: string;
+    /** Avatar icon for the badge. Overrides the category-level icon —
+     *  matching for a museum uses the museum icon rather than the
+     *  generic "equals" matching glyph. */
+    icon?: LucideIcon;
+    /** Bold one-line title below the chips. For matching/measuring
+     *  this is the resolved place name; for other categories the
+     *  question recap (e.g. "Within 5 km?"). Truncated by the caller. */
+    title: string;
+    /** Optional secondary line below the title. */
+    detail?: string;
+}
+
 function summarizeQuestion(
     q: Question,
     nearestState?: ReturnType<typeof useNearestReference>,
-): {
-    headline: string;
-    detail?: string;
-} {
+): QuestionSummary {
     const d = q.data as Record<string, unknown>;
+    const cat = CATEGORIES[q.id as CategoryId];
+    const categoryLabel = cat?.label ?? q.id;
     const niceType = (raw: unknown): string =>
         String(raw ?? "")
             .replace(/-/g, " ")
@@ -345,85 +474,124 @@ function summarizeQuestion(
             const unit = d.unit as string | undefined;
             const u = unit === "miles" ? "mi" : unit === "meters" ? "m" : "km";
             return {
-                headline: radius !== undefined ? `Within ${radius} ${u}?` : "Radar",
+                headerCategoryLabel: categoryLabel,
+                title:
+                    radius !== undefined ? `Within ${radius} ${u}?` : "Radar",
                 detail: "Inside or outside this radius from the seeker's point",
             };
         }
         case "thermometer": {
             const dist = d.distance as string | undefined;
             return {
-                headline: dist
+                headerCategoryLabel: categoryLabel,
+                headerSubtypeLabel: dist ?? undefined,
+                title: dist
                     ? `Warmer or colder over ${dist}?`
                     : "Warmer or colder after the move?",
                 detail: "Hider tells you which direction is closer to them",
             };
         }
         case "matching": {
-            const noun = d.type ? prettyTypeNoun(String(d.type)) : "place";
+            const subType = d.type ? String(d.type) : undefined;
+            const subLabel = subtypeLabel(subType) ?? undefined;
+            const subIcon = getSubtypeIcon(subType) ?? undefined;
+            const noun = subType ? prettyTypeNoun(subType) : "place";
             const name = nearestStateName(nearestState);
+
+            let title: string;
             if (name) {
-                return {
-                    headline: `Nearest ${noun}: ${name}?`,
-                    detail: "Hider says yes if their nearest is the same place",
-                };
+                title = name;
+            } else if (nearestState?.status === "loading") {
+                title = "Looking up nearest…";
+            } else if (subType) {
+                // Subtype isn't lookup-able (zone admin, custom,
+                // train-line, etc.) — keep a templated title.
+                title = `Same nearest ${niceType(subType)}?`;
+            } else {
+                title = "Matching question";
             }
-            if (nearestState?.status === "loading") {
-                return {
-                    headline: `Nearest ${noun}: looking up…`,
-                    detail: "Hider says yes if their nearest matches yours",
-                };
-            }
+
             return {
-                headline: d.type
-                    ? `Same nearest ${niceType(d.type)}?`
-                    : "Matching question",
-                detail: "Same vs different nearest place of the chosen type",
+                headerCategoryLabel: categoryLabel,
+                headerSubtypeLabel: subLabel,
+                icon: subIcon,
+                title,
+                detail: name
+                    ? "Hider says yes if their nearest is the same place"
+                    : `Hider says yes if their nearest ${noun} matches yours`,
             };
         }
         case "measuring": {
-            const noun = d.type ? prettyTypeNoun(String(d.type)) : "place";
+            const subType = d.type ? String(d.type) : undefined;
+            const subLabel = subtypeLabel(subType) ?? undefined;
+            const subIcon = getSubtypeIcon(subType) ?? undefined;
+            const noun = subType ? prettyTypeNoun(subType) : "place";
             const name = nearestStateName(nearestState);
             const distanceM =
                 nearestState?.status === "ok"
                     ? nearestState.ref.distanceMeters
                     : undefined;
+
+            let title: string;
+            let detail: string;
             if (name) {
-                const dist =
+                title = name;
+                detail =
                     distanceM !== undefined
-                        ? ` (${formatDistance(distanceM)})`
-                        : "";
-                return {
-                    headline: `Nearest ${noun}: ${name}${dist} — closer or further?`,
-                    detail: "Hider tells you which of you is closer to it",
-                };
+                        ? `${formatDistance(distanceM)} away · hider says if they're closer or further`
+                        : "Hider tells you which of you is closer to it";
+            } else if (nearestState?.status === "loading") {
+                title = "Looking up nearest…";
+                detail = "Hider tells you which of you is closer to it";
+            } else if (subType) {
+                title = `Closer or further from the nearest ${niceType(subType)}?`;
+                detail = "Hider tells you which of you is closer";
+            } else {
+                title = "Measuring question";
+                detail = `Hider tells you who's closer to the nearest ${noun}`;
             }
-            if (nearestState?.status === "loading") {
-                return {
-                    headline: `Nearest ${noun}: looking up…`,
-                    detail: "Hider tells you which of you is closer to it",
-                };
-            }
+
             return {
-                headline: d.type
-                    ? `Closer or further from the nearest ${niceType(d.type)}?`
-                    : "Measuring question",
-                detail: "Hider tells you which of you is closer",
+                headerCategoryLabel: categoryLabel,
+                headerSubtypeLabel: subLabel,
+                icon: subIcon,
+                title,
+                detail,
             };
         }
-        case "tentacles":
+        case "tentacles": {
+            const subType = d.locationType
+                ? String(d.locationType)
+                : undefined;
+            const subLabel = subtypeLabel(subType) ?? undefined;
+            const subIcon = getSubtypeIcon(subType) ?? undefined;
             return {
-                headline: d.locationType
-                    ? `Closest ${niceType(d.locationType)} to you?`
+                headerCategoryLabel: categoryLabel,
+                headerSubtypeLabel: subLabel,
+                icon: subIcon,
+                title: subType
+                    ? `Closest ${niceType(subType)} to you?`
                     : "Tentacles question",
                 detail: "Hider names the specific place",
             };
-        case "photo":
+        }
+        case "photo": {
+            const subType = d.type ? String(d.type) : undefined;
+            const subLabel = subtypeLabel(subType) ?? undefined;
+            const subIcon = getSubtypeIcon(subType) ?? undefined;
             return {
-                headline: `Photo of ${niceType(d.type ?? "your spot")}`,
+                headerCategoryLabel: categoryLabel,
+                headerSubtypeLabel: subLabel,
+                icon: subIcon,
+                title: `Photo of ${niceType(d.type ?? "your spot")}`,
                 detail: "Hider sends a photo back",
             };
+        }
         default:
-            return { headline: (q as Question).id as string };
+            return {
+                headerCategoryLabel: categoryLabel,
+                title: (q as Question).id as string,
+            };
     }
 }
 

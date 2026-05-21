@@ -50,12 +50,14 @@ type ResolvedFamily =
     | { kind: "city" }
     | { kind: "brand"; wikidataId: string; brandName: string }
     | { kind: "rail-station" }
+    | { kind: "highspeed-rail" }
     | null;
 
 /**
  * Map the matching/measuring `type` field to a concrete Overpass strategy.
- * Returns null for types we don't preview (zone admin levels, custom
- * geometries, train-line comparisons, highspeed-shinkansen, etc.).
+ * Returns null only for types that aren't really "nearest place"
+ * questions — admin polygons (zone, letter-zone) and user-drawn
+ * custom geometry.
  */
 function resolveFamily(typeRaw: string): ResolvedFamily {
     const stripped = typeRaw.endsWith("-full")
@@ -77,7 +79,20 @@ function resolveFamily(typeRaw: string): ResolvedFamily {
             wikidataId: "Q259340",
             brandName: "7-Eleven",
         };
-    if (stripped === "rail-measure") return { kind: "rail-station" };
+    // Rail-measure, same-train-line, and same-length-station all use
+    // the seeker's nearest train station as the reference. The hider's
+    // answer hinges on a *property* of the station (which line, what
+    // platform length), but the reference *point* is the station
+    // itself — same lookup either way.
+    if (
+        stripped === "rail-measure" ||
+        stripped === "same-train-line" ||
+        stripped === "same-length-station"
+    ) {
+        return { kind: "rail-station" };
+    }
+    if (stripped === "highspeed-measure-shinkansen")
+        return { kind: "highspeed-rail" };
     if (stripped in LOCATION_FIRST_TAG) {
         return { kind: "api", location: stripped as APILocations };
     }
@@ -254,6 +269,8 @@ async function fetchNearest(
             family.brandName,
         );
     if (family.kind === "rail-station") return fetchNearestRailStation(lat, lng);
+    if (family.kind === "highspeed-rail")
+        return fetchNearestHighspeedRail(lat, lng);
 
     // `api` case — tentacle-style fetch around the seeker's question
     // point. Radius grows in 30-mile steps until we find something or
@@ -478,6 +495,77 @@ out;
             const ref = pickNearestNamed(elements, lat, lng);
             if (ref) return ref;
         }
+    }
+    return null;
+}
+
+/**
+ * Nearest point on any `highspeed=yes` railway line. OSM uses this
+ * tag worldwide (Shinkansen, TGV, AVE, Eurostar, etc.) so the query
+ * isn't Japan-specific — wherever the seeker is, the nearest high-
+ * speed track will resolve. Returns the closest point on the line
+ * via `turf.nearestPointOnLine`, same as the coastline fetcher.
+ */
+async function fetchNearestHighspeedRail(
+    lat: number,
+    lng: number,
+): Promise<NearestRef | null> {
+    for (const km of [50, 200, 500, 1500]) {
+        const query = `
+[out:json][timeout:60];
+way["railway"="rail"]["highspeed"="yes"](around:${km * 1000},${lat},${lng});
+out geom;
+`;
+        const data = await getOverpassData(
+            query,
+            undefined,
+            CacheType.ZONE_CACHE,
+        );
+        const elements = (data as { elements?: any[] }).elements ?? [];
+        if (elements.length === 0) continue;
+
+        const target = turf.point([lng, lat]);
+        let best: {
+            name: string;
+            lat: number;
+            lng: number;
+            distanceMeters: number;
+        } | null = null;
+        for (const way of elements) {
+            const g = way.geometry as
+                | Array<{ lat: number; lon: number }>
+                | undefined;
+            if (!g || g.length < 2) continue;
+            try {
+                const line = turf.lineString(g.map((p) => [p.lon, p.lat]));
+                const nearest = turf.nearestPointOnLine(line, target);
+                const d = turf.distance(target, nearest, {
+                    units: "meters",
+                });
+                if (!best || d < best.distanceMeters) {
+                    const coords = nearest.geometry.coordinates as [
+                        number,
+                        number,
+                    ];
+                    // Prefer the line's name (e.g. "Tōkaidō
+                    // Shinkansen") when OSM provides one; otherwise
+                    // fall back to a generic "High-speed rail" label.
+                    const nm =
+                        (way.tags?.["name:en"] as string | undefined) ??
+                        (way.tags?.["name"] as string | undefined) ??
+                        "High-speed rail";
+                    best = {
+                        name: nm,
+                        lat: coords[1],
+                        lng: coords[0],
+                        distanceMeters: d,
+                    };
+                }
+            } catch {
+                /* skip malformed way */
+            }
+        }
+        if (best) return best;
     }
     return null;
 }

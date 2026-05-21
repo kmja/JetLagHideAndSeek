@@ -21,7 +21,7 @@ import {
     questionFinishedMapData,
     thunderforestApiKey,
 } from "@/lib/context";
-import { satelliteView, showTransitLines } from "@/lib/gameSetup";
+import { satelliteView } from "@/lib/gameSetup";
 import { getTileLayerConfig } from "@/lib/mapTiles";
 import { cn } from "@/lib/utils";
 import type { Units } from "@/maps/schema";
@@ -74,7 +74,6 @@ export function InlineLocationPicker({
     const $baseTileLayer = useStore(baseTileLayer);
     const $thunderforestApiKey = useStore(thunderforestApiKey);
     const $satellite = useStore(satelliteView);
-    const $transit = useStore(showTransitLines);
 
     // Match the main map view: respect the seeker's base-style choice and
     // mirror satellite + transit overlays. Keeps the configure-dialog map
@@ -153,15 +152,12 @@ export function InlineLocationPicker({
                             opacity={1}
                         />
                     )}
-                    {$transit && (
-                        <TileLayer
-                            url="https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
-                            attribution='&copy; <a href="https://www.openrailwaymap.org">OpenRailwayMap</a>'
-                            subdomains="abc"
-                            maxZoom={19}
-                            opacity={0.85}
-                        />
-                    )}
+                    {/* Intentionally no transit (OpenRailwayMap) layer
+                        here — the configure-dialog preview should stay
+                        clean. Rail lines on top of the place pin would
+                        compete with the dashed reference line we draw
+                        between the seeker pin and the nearest-place
+                        marker, so they're scoped to the main map only. */}
                     {$maskData && (
                         <GeoJSON
                             key={`mask-${

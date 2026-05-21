@@ -1,6 +1,10 @@
 # build output
 dist/
 
+# vite-plugin-pwa dev-mode service-worker artifacts — regenerated on
+# `pnpm dev`, never want them in source control
+dev-dist/
+
 # generated types
 .astro/
 
