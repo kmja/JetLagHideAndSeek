@@ -22,3 +22,9 @@ pnpm-debug.log*
 
 # jetbrains setting folder
 .idea/
+
+# Claude Code workspace state
+.claude/
+
+# pnpm workspace-local approvals — generated when running pnpm dev
+pnpm-workspace.yaml
