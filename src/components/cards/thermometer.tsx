@@ -211,7 +211,10 @@ export const ThermometerQuestionComponent = ({
             />
 
             {/* Rule book: seekers should notify hiders when starting and
-                when finishing a thermometer move, sending current location. */}
+                when finishing a thermometer move, sending current location.
+                The ending-point share is what actually puts the answer in
+                play, so that's the moment we stamp `createdAt` and start
+                the hider's 5-min answer countdown. */}
             <div className="px-2 space-y-3">
                 <ThermometerShareRow
                     label="Starting point"
@@ -226,6 +229,12 @@ export const ThermometerQuestionComponent = ({
                     lat={data.latB}
                     lng={data.lngB}
                     disabled={$isLoading}
+                    onShared={() => {
+                        if (!data.createdAt) {
+                            data.createdAt = Date.now();
+                            questionModified();
+                        }
+                    }}
                 />
             </div>
 
@@ -490,12 +499,14 @@ function ThermometerShareRow({
     lat,
     lng,
     disabled,
+    onShared,
 }: {
     label: string;
     text: string;
     lat: number;
     lng: number;
     disabled?: boolean;
+    onShared?: () => void;
 }) {
     const url = `https://maps.google.com/?q=${lat},${lng}`;
     const fullText = `${text} ${url}`;
@@ -507,8 +518,10 @@ function ThermometerShareRow({
                 typeof navigator.share === "function"
             ) {
                 await navigator.share({ title: label, text: fullText, url });
+                onShared?.();
             } else {
                 await navigator.clipboard.writeText(fullText);
+                onShared?.();
                 toast.success(`${label} copied (sharing not supported)`, {
                     autoClose: 1800,
                 });
@@ -522,6 +535,7 @@ function ThermometerShareRow({
     const handleCopy = async () => {
         try {
             await navigator.clipboard.writeText(fullText);
+            onShared?.();
             toast.success(`${label} copied`, { autoClose: 1500 });
         } catch {
             toast.error("Could not copy");

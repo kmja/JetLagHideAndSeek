@@ -5,7 +5,7 @@ import "leaflet-contextmenu";
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import * as L from "leaflet";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapContainer, ScaleControl, TileLayer } from "react-leaflet";
 import { toast } from "react-toastify";
 
@@ -29,6 +29,7 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
@@ -128,7 +129,118 @@ export const Map = ({ className }: { className?: string }) => {
     const $isLoading = useStore(isLoading);
     const $followMe = useStore(followMe);
     const $permanentOverlay = useStore(permanentOverlay);
+    const $mapGeoJSON = useStore(mapGeoJSON);
+    const $polyGeoJSON = useStore(polyGeoJSON);
     const map = useStore(leafletMapContext);
+
+    /** Bounding box of the current play area, in Leaflet's
+     *  `LatLngBoundsExpression` shape. Used to constrain the rail
+     *  TileLayer's tile requests to the play area + a small margin so
+     *  Leaflet doesn't fetch OpenRailwayMap tiles for half of Europe
+     *  every time the user pans. Falls back to `undefined` (= no
+     *  constraint) when no play area is set. */
+    const playAreaBounds = useMemo<
+        L.LatLngBoundsExpression | undefined
+    >(() => {
+        const poly = $polyGeoJSON ?? $mapGeoJSON;
+        if (!poly) return undefined;
+        try {
+            const [minLng, minLat, maxLng, maxLat] = turf.bbox(poly as any);
+            return [
+                [minLat, minLng],
+                [maxLat, maxLng],
+            ];
+        } catch {
+            return undefined;
+        }
+    }, [$polyGeoJSON, $mapGeoJSON]);
+
+    // Custom Leaflet panes:
+    //
+    //   • `eliminationMask` (z-index 230) — the dim "outside the
+    //     play area + eliminated zones" polygon. Sits between the
+    //     basemap and the transit overlays so it darkens the basemap
+    //     without dimming the transit lines on top of it.
+    //
+    //   • `transit` (z-index 250) — rail tiles + bus/ferry/subway
+    //     polylines. Above the elimination mask so transit stays
+    //     fully visible across the entire *original* play area
+    //     regardless of how many questions have narrowed the
+    //     effective playable region. Below overlayPane (400) so
+    //     planning polygons, the radar-sweep overlay, and markers
+    //     stay on top.
+    //
+    // Both panes are created once per map instance.
+    const [transitPaneReady, setTransitPaneReady] = useState(false);
+    useEffect(() => {
+        if (!map) return;
+        if (!map.getPane("eliminationMask")) {
+            const pane = map.createPane("eliminationMask");
+            pane.style.zIndex = "230";
+            pane.style.pointerEvents = "none";
+        }
+        if (!map.getPane("transit")) {
+            const pane = map.createPane("transit");
+            pane.style.zIndex = "250";
+            pane.style.pointerEvents = "none";
+        }
+        setTransitPaneReady(true);
+    }, [map]);
+
+    // Maintain a CSS `clip-path` on the transit pane that follows the
+    // play-area polygon as the map pans / zooms. Updates on every
+    // `move`/`zoom` event so the clip stays pixel-accurate.
+    useEffect(() => {
+        if (!map) return;
+        const pane = map.getPane("transit");
+        if (!pane) return;
+
+        const poly = $polyGeoJSON ?? $mapGeoJSON;
+        if (!poly) {
+            pane.style.clipPath = "";
+            return;
+        }
+
+        // Walk the polygon (or first polygon of a MultiPolygon) and
+        // project its outer ring to container pixels. We deliberately
+        // ignore holes — game play areas don't have meaningful holes
+        // for which we'd want to *show* outside content.
+        const extractOuterRing = (): Array<[number, number]> | null => {
+            const features = (poly as any).features ?? [poly];
+            for (const f of features) {
+                const g = f?.geometry ?? f;
+                if (!g) continue;
+                if (g.type === "Polygon") return g.coordinates[0];
+                if (g.type === "MultiPolygon") return g.coordinates[0]?.[0];
+            }
+            return null;
+        };
+
+        const updateClipPath = () => {
+            const ring = extractOuterRing();
+            if (!ring || ring.length < 3) {
+                pane.style.clipPath = "";
+                return;
+            }
+            // Simplify aggressively — a 100-vertex clip-path is plenty
+            // for visual accuracy, and avoids the perf hit of a
+            // 5000-vertex polygon on every map move.
+            const stride = Math.max(1, Math.floor(ring.length / 200));
+            const pts: string[] = [];
+            for (let i = 0; i < ring.length; i += stride) {
+                const [lng, lat] = ring[i];
+                const p = map.latLngToContainerPoint([lat, lng]);
+                pts.push(`${p.x.toFixed(0)}px ${p.y.toFixed(0)}px`);
+            }
+            pane.style.clipPath = `polygon(${pts.join(",")})`;
+        };
+
+        updateClipPath();
+        map.on("move zoom moveend zoomend", updateClipPath);
+        return () => {
+            map.off("move zoom moveend zoomend", updateClipPath);
+        };
+    }, [map, $polyGeoJSON, $mapGeoJSON, transitPaneReady]);
 
     const followMeMarkerRef = useMemo(
         () => ({ current: null as L.Marker | null }),
@@ -206,7 +318,31 @@ export const Map = ({ className }: { className?: string }) => {
                 mapGeoData,
                 planningModeEnabled.get(),
                 (geoJSONObj, question) => {
-                    const geoJSONPlane = L.geoJSON(geoJSONObj);
+                    // Radar gets its own visual treatment via
+                    // RadarScanOverlay (rotating sweep + perimeter trail
+                    // that traces the circle's edge). Skip drawing the
+                    // generic dashed outline here so the two don't fight.
+                    if (question.id === "radius") return;
+
+                    // Other categories: provisional "this question
+                    // hasn't been answered yet" styling — dashed line
+                    // + low fill, painted in the question's category
+                    // color (tentacles purple, matching grey, etc.).
+                    // Distinct from Leaflet's default solid blue so the
+                    // seeker reads it as "still pending, not committed."
+                    const catMeta =
+                        CATEGORIES[question.id as CategoryId] ??
+                        CATEGORIES.matching;
+                    const geoJSONPlane = L.geoJSON(geoJSONObj, {
+                        style: {
+                            color: catMeta.color,
+                            weight: 2,
+                            opacity: 0.85,
+                            dashArray: "6 5",
+                            fillColor: catMeta.color,
+                            fillOpacity: 0.08,
+                        },
+                    });
                     // @ts-expect-error This is a check such that only this type of layer is removed
                     geoJSONPlane.questionKey = question.key;
                     geoJSONPlane.addTo(map);
@@ -229,6 +365,12 @@ export const Map = ({ className }: { className?: string }) => {
             // and "eliminated by questions". Render it as a clearly dimmed
             // dark overlay so the in-play area pops on light basemaps —
             // Leaflet's default #3388ff @ 0.2 is invisible on cartodb voyager.
+            //
+            // Rendered into the `eliminationMask` pane (z-index 230) so it
+            // sits *below* the transit overlays (z-index 250). That way
+            // transit lines stay at full brightness even over
+            // question-eliminated zones — the mask only darkens the
+            // basemap underneath, not the transit content above.
             const g = L.geoJSON(mapGeoData, {
                 style: {
                     color: "#0f172a",
@@ -237,6 +379,7 @@ export const Map = ({ className }: { className?: string }) => {
                     fillColor: "#0f172a",
                     fillOpacity: 0.45,
                 },
+                pane: "eliminationMask",
             });
             // @ts-expect-error This is a check such that only this type of layer is removed
             g.eliminationGeoJSON = true;
@@ -408,14 +551,20 @@ export const Map = ({ className }: { className?: string }) => {
                         maxZoom={19}
                     />
                 )}
-                {$showTransitLines && (
+                {$showTransitLines && transitPaneReady && (
                     /* OpenRailwayMap — semi-transparent overlay showing
-                       train/metro/tram lines. Works on top of any base. */
+                       train/metro/tram lines. Rendered into the custom
+                       `transit` pane so its tiles get clipped to the
+                       play-area polygon, and constrained via `bounds`
+                       so Leaflet doesn't even request tiles outside
+                       the play area's bounding box. */
                     <TileLayer
                         attribution='&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>'
                         url="https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
                         maxZoom={19}
                         opacity={0.85}
+                        pane="transit"
+                        bounds={playAreaBounds}
                     />
                 )}
                 <DraggableMarkers />

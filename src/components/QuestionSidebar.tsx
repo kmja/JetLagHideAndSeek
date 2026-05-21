@@ -113,9 +113,16 @@ export const QuestionSidebar = () => {
                                 <AddQuestionDialog>
                                     <button
                                         type="button"
-                                        disabled={
-                                            $isLoading || hasPendingAnswer
-                                        }
+                                        // Don't block on `$isLoading`: that
+                                        // flag also goes high for ambient
+                                        // station-finder fetches (rulebook
+                                        // place data), which can take many
+                                        // seconds. The seeker should still
+                                        // be able to add a question during
+                                        // those — only the in-flight
+                                        // answer rule (`hasPendingAnswer`)
+                                        // actually warrants blocking.
+                                        disabled={hasPendingAnswer}
                                         title={
                                             hasPendingAnswer
                                                 ? "Waiting for the hider to answer your previous question"

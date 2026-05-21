@@ -29,6 +29,13 @@ export const getOverpassData = async (
     query: string,
     loadingText?: string,
     cacheType: CacheType = CacheType.CACHE,
+    /** Client-side fetch timeout in ms. Defaults to whatever
+     *  `cacheFetch` uses (25 s at time of writing). Pass a higher value
+     *  when the Overpass query itself has a long server timeout (e.g.
+     *  `[timeout:180]` on a city-wide bus-route fetch) — otherwise the
+     *  client aborts before the server replies and we silently get
+     *  `{ elements: [] }`. */
+    fetchTimeoutMs?: number,
 ) => {
     const encodedQuery = encodeURIComponent(query);
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
@@ -39,7 +46,7 @@ export const getOverpassData = async (
     // returned as-is so the caller can distinguish them.
     const tryFetch = async (url: string): Promise<Response | null> => {
         try {
-            return await cacheFetch(url, loadingText, cacheType);
+            return await cacheFetch(url, loadingText, cacheType, fetchTimeoutMs);
         } catch (e) {
             console.warn(`Overpass fetch failed for ${url}:`, e);
             return null;

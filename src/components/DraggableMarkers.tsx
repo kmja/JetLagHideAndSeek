@@ -56,9 +56,15 @@ const ColoredMarker = ({
     const category = matchedQuestion?.id as CategoryId | undefined;
 
     const pending = Boolean(matchedQuestion?.data?.drag);
+    // Radar has its own rotating-sweep + perimeter-trail animation
+    // (RadarScanOverlay), so the marker pulse on top of all that would
+    // just be visual noise. Suppress it for radar specifically; other
+    // categories still get the halo as the "this is awaiting answer"
+    // affordance.
+    const markerPending = pending && category !== "radius";
     const icon = category
         ? new DivIcon({
-              html: buildMarkerHtml(category, pending),
+              html: buildMarkerHtml(category, markerPending),
               className: "jl-marker",
               iconSize: [34, 46],
               iconAnchor: [17, 43],

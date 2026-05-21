@@ -1,7 +1,8 @@
 import { useStore } from "@nanostores/react";
-import { Trash2 } from "lucide-react";
+import { Copy, Share2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { VscChevronDown } from "react-icons/vsc";
+import { toast } from "react-toastify";
 
 import {
     AlertDialog,
@@ -22,8 +23,13 @@ import {
     SidebarMenu,
 } from "@/components/ui/sidebar-l";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { isLoading, questions } from "@/lib/context";
+import { isLoading, questionModified, questions } from "@/lib/context";
+import {
+    encodeQuestionForHider,
+    shareOrCopy,
+} from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import type { Question } from "@/maps/schema";
 
 /**
  * Compact relative time formatter for question timestamps.
@@ -79,6 +85,24 @@ export const QuestionCard = ({
 
     const categoryMeta = category ? CATEGORIES[category] : undefined;
     const CategoryIcon = categoryMeta?.icon;
+
+    // Resolve the live Question from the store so we can build a fresh
+    // share URL (config may have changed since add-time). Thermometer in
+    // its "started" phase has nothing to share yet — its share row is
+    // contributed by the card itself once finished.
+    const thisQuestion = $questions.find((q) => q.key === questionKey);
+    const thermStatus =
+        thisQuestion?.id === "thermometer"
+            ? (thisQuestion.data as { status?: string }).status ?? "finished"
+            : null;
+    const shareable =
+        thisQuestion &&
+        thisQuestion.data.drag === true &&
+        thermStatus !== "started" &&
+        // The configure dialog already has its own "Confirm & share" CTA;
+        // a second share row up top would be redundant and would let the
+        // seeker ship the question before they've committed to its config.
+        !forceExpanded;
 
     // Tick every minute to keep relative timestamps fresh.
     const [nowTick, setNowTick] = useState(Date.now());
@@ -282,7 +306,12 @@ export const QuestionCard = ({
                             isCollapsed && "max-h-0",
                         )}
                     >
-                        <SidebarMenu>{children}</SidebarMenu>
+                        <SidebarMenu>
+                            {shareable && thisQuestion && (
+                                <ShareQuestionRow question={thisQuestion} />
+                            )}
+                            {children}
+                        </SidebarMenu>
                     </SidebarGroupContent>
                 </div>
             </SidebarGroup>
@@ -290,6 +319,102 @@ export const QuestionCard = ({
         </>
     );
 };
+
+/**
+ * Inline "send this question to the hider" row, rendered at the top of every
+ * pending (drag:true) question card. Backup path for when the OS share sheet
+ * dismissed (or otherwise didn't fire) after the initial Confirm.
+ *
+ * On a successful share or copy, also stamps `data.createdAt = Date.now()`
+ * if it wasn't already set — the 5-minute answer countdown starts here
+ * rather than at confirm-time, which matches the hider's actual receipt
+ * of the link.
+ */
+function ShareQuestionRow({ question }: { question: Question }) {
+    const $isLoading = useStore(isLoading);
+    const meta = CATEGORIES[question.id as CategoryId];
+
+    const stampSent = () => {
+        const d = question.data as { createdAt?: number };
+        if (d.createdAt) return; // already sent — don't reset the countdown
+        d.createdAt = Date.now();
+        questionModified();
+    };
+
+    const handleShare = async () => {
+        const url = encodeQuestionForHider(question);
+        const result = await shareOrCopy({
+            title: `${meta?.label ?? "Question"} for the hider`,
+            text: `${meta?.label ?? "Question"}: tap to answer`,
+            url,
+        });
+        if (result.method === "share" || result.method === "copy") {
+            stampSent();
+        }
+        if (result.method === "copy") {
+            toast.success("Question link copied", { autoClose: 1500 });
+        } else if (result.method === "failed") {
+            toast.error("Could not share question link");
+        }
+    };
+
+    const handleCopy = async () => {
+        const url = encodeQuestionForHider(question);
+        try {
+            await navigator.clipboard.writeText(url);
+            stampSent();
+            toast.success("Question link copied", { autoClose: 1500 });
+        } catch {
+            toast.error("Could not copy");
+        }
+    };
+
+    const alreadySent = Boolean(
+        (question.data as { createdAt?: number }).createdAt,
+    );
+
+    return (
+        <div className="px-2 pt-2 pb-1">
+            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-semibold text-muted-foreground mb-1.5">
+                {alreadySent ? "Re-share with hider" : "Send to hider"}
+            </div>
+            <div className="flex gap-2">
+                <button
+                    type="button"
+                    onClick={handleShare}
+                    disabled={$isLoading}
+                    className={cn(
+                        "flex-1 flex items-center justify-center gap-1.5",
+                        "px-2 py-2 rounded-md text-xs font-poppins font-semibold",
+                        "bg-primary text-primary-foreground hover:bg-primary/90",
+                        "transition-colors",
+                        "disabled:opacity-50 disabled:cursor-not-allowed",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                >
+                    <Share2 className="w-3.5 h-3.5" />
+                    Share
+                </button>
+                <button
+                    type="button"
+                    onClick={handleCopy}
+                    disabled={$isLoading}
+                    className={cn(
+                        "flex-1 flex items-center justify-center gap-1.5",
+                        "px-2 py-2 rounded-md text-xs font-poppins font-semibold",
+                        "bg-secondary text-foreground hover:bg-accent border border-border",
+                        "transition-colors",
+                        "disabled:opacity-50 disabled:cursor-not-allowed",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                >
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy link
+                </button>
+            </div>
+        </div>
+    );
+}
 
 /**
  * Collapsible wrapper for the "manual answer" toggle in question cards.

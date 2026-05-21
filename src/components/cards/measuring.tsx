@@ -4,6 +4,9 @@ import * as React from "react";
 
 import CustomInitDialog from "@/components/CustomInitDialog";
 import { LatitudeLongitude } from "@/components/LatLngPicker";
+import NearestReferencePreview, {
+    useNearestReference,
+} from "@/components/NearestReferencePreview";
 import PresetsDialog from "@/components/PresetsDialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select } from "@/components/ui/select";
@@ -301,20 +304,34 @@ export const MeasuringQuestionComponent = ({
                 />
             </SidebarMenuItem>
             {questionSpecific}
-            <LatitudeLongitude
-                latitude={data.lat}
-                longitude={data.lng}
-                colorName={data.color}
+
+            {/* "Your nearest reference" preview — only in the configure
+                dialog (forceExpanded), and only while the question is
+                still a draft. Shows the name + your distance to the
+                closest place of the chosen type, so you know what the
+                hider is being compared against. */}
+            {forceExpanded && data.drag && (
+                <NearestReferencePreview
+                    lat={data.lat}
+                    lng={data.lng}
+                    type={data.type}
+                    mode="measuring"
+                />
+            )}
+
+            <MeasuringLocation
+                lat={data.lat}
+                lng={data.lng}
+                color={data.color}
+                type={data.type}
+                disabled={!data.drag || $isLoading}
+                forceExpanded={forceExpanded}
+                dragLive={data.drag}
                 onChange={(lat, lng) => {
-                    if (lat !== null) {
-                        data.lat = lat;
-                    }
-                    if (lng !== null) {
-                        data.lng = lng;
-                    }
+                    if (lat !== null) data.lat = lat;
+                    if (lng !== null) data.lng = lng;
                     questionModified();
                 }}
-                disabled={!data.drag || $isLoading}
             />
             <ManualAnswerDisclosure compact={compactAnswer}>
                 <div className="flex gap-2 items-center p-2">
@@ -356,3 +373,47 @@ export const MeasuringQuestionComponent = ({
         </QuestionCard>
     );
 };
+
+/**
+ * LatitudeLongitude + nearest-reference overlay for measuring questions.
+ * Mirror of the matching card's helper — kept here as a copy so each
+ * card stays self-contained.
+ */
+function MeasuringLocation({
+    lat,
+    lng,
+    color,
+    type,
+    disabled,
+    forceExpanded,
+    dragLive,
+    onChange,
+}: {
+    lat: number;
+    lng: number;
+    color: string;
+    type: string;
+    disabled?: boolean;
+    forceExpanded?: boolean;
+    dragLive?: boolean;
+    onChange: (lat: number | null, lng: number | null) => void;
+}) {
+    const showRef = Boolean(forceExpanded && dragLive);
+    const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
+
+    const referencePoint =
+        showRef && ref.status === "ok"
+            ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
+            : undefined;
+
+    return (
+        <LatitudeLongitude
+            latitude={lat}
+            longitude={lng}
+            colorName={color as any}
+            onChange={onChange}
+            disabled={disabled}
+            referencePoint={referencePoint}
+        />
+    );
+}

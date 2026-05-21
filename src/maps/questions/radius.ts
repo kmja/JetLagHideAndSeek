@@ -49,5 +49,9 @@ export const radiusPlanningPolygon = async (question: RadiusQuestion) => {
         question.unit,
     );
 
-    return turf.polygonToLine(circle);
+    // Return the full polygon (not `polygonToLine`) so the planning
+    // overlay in Map.tsx can fill *and* stroke it — radar's pending
+    // state is the only category whose entire area pulses, and a
+    // LineString has no fill to animate.
+    return circle;
 };

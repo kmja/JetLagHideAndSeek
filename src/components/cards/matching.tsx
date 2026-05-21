@@ -4,6 +4,9 @@ import { toast } from "react-toastify";
 
 import CustomInitDialog from "@/components/CustomInitDialog";
 import { LatitudeLongitude } from "@/components/LatLngPicker";
+import NearestReferencePreview, {
+    useNearestReference,
+} from "@/components/NearestReferencePreview";
 import PresetsDialog from "@/components/PresetsDialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -422,21 +425,33 @@ export const MatchingQuestionComponent = ({
             </SidebarMenuItem>
             {questionSpecific}
 
+            {/* "Your nearest reference" preview — only in the configure
+                dialog (forceExpanded), and only while the question is
+                still a draft. Helps the seeker confirm which specific
+                place the hider is being matched against. */}
+            {forceExpanded && data.drag && (
+                <NearestReferencePreview
+                    lat={data.lat}
+                    lng={data.lng}
+                    type={data.type}
+                    mode="matching"
+                />
+            )}
+
             {data.type !== "custom-zone" && (
-                <LatitudeLongitude
-                    latitude={data.lat}
-                    longitude={data.lng}
-                    colorName={data.color}
+                <MatchingMeasuringLocation
+                    lat={data.lat}
+                    lng={data.lng}
+                    color={data.color}
+                    type={data.type}
+                    disabled={!data.drag || $isLoading}
+                    forceExpanded={forceExpanded}
+                    dragLive={data.drag}
                     onChange={(lat, lng) => {
-                        if (lat !== null) {
-                            data.lat = lat;
-                        }
-                        if (lng !== null) {
-                            data.lng = lng;
-                        }
+                        if (lat !== null) data.lat = lat;
+                        if (lng !== null) data.lng = lng;
                         questionModified();
                     }}
-                    disabled={!data.drag || $isLoading}
                 />
             )}
             <ManualAnswerDisclosure compact={compactAnswer}>
@@ -537,3 +552,54 @@ export const MatchingQuestionComponent = ({
         </QuestionCard>
     );
 };
+
+/**
+ * Thin wrapper around LatitudeLongitude that fetches the seeker's
+ * nearest reference (when meaningful for the question type) and threads
+ * its coordinates into the picker so a dashed line is drawn on the map
+ * between the seeker pin and the resolved place. Only fires the lookup
+ * inside the configure dialog (`forceExpanded`) and while the question
+ * is still a draft — once it's answered, the map's elimination mask
+ * carries the visual.
+ */
+function MatchingMeasuringLocation({
+    lat,
+    lng,
+    color,
+    type,
+    disabled,
+    forceExpanded,
+    dragLive,
+    onChange,
+}: {
+    lat: number;
+    lng: number;
+    color: string;
+    type: string;
+    disabled?: boolean;
+    forceExpanded?: boolean;
+    dragLive?: boolean;
+    onChange: (lat: number | null, lng: number | null) => void;
+}) {
+    // Always call the hook (no conditional hooks). When the type isn't
+    // resolvable, useNearestReference returns { status: "none" } and we
+    // pass no referencePoint to the picker.
+    const showRef = Boolean(forceExpanded && dragLive);
+    const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
+
+    const referencePoint =
+        showRef && ref.status === "ok"
+            ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
+            : undefined;
+
+    return (
+        <LatitudeLongitude
+            latitude={lat}
+            longitude={lng}
+            colorName={color as any}
+            onChange={onChange}
+            disabled={disabled}
+            referencePoint={referencePoint}
+        />
+    );
+}

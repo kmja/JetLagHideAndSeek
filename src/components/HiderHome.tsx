@@ -1,10 +1,13 @@
 import { useStore } from "@nanostores/react";
 import {
     AlertTriangle,
+    Crosshair,
     Inbox,
     Lock,
+    LockOpen,
     MapPin,
     Timer,
+    Trophy,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
@@ -16,11 +19,15 @@ import {
     hidingPeriodEndsAt,
     HIDING_PERIOD_MINUTES,
 } from "@/lib/gameSetup";
+import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
+    hiderHand,
     hiderInbox,
+    hidingSpot,
     hidingZone,
     playerRole,
     radiusForGameSize,
+    roundFoundAt,
 } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
@@ -53,9 +60,12 @@ const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
 export function HiderHome() {
     const $role = useStore(playerRole);
     const $hidingZone = useStore(hidingZone);
+    const $hidingSpot = useStore(hidingSpot);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $gameSize = useStore(gameSize);
     const $inbox = useStore(hiderInbox);
+    const $hand = useStore(hiderHand);
+    const $foundAt = useStore(roundFoundAt);
 
     // 1-Hz tick — drives both the hiding-period countdown and the
     // hidden-for elapsed reading.
@@ -70,9 +80,18 @@ export function HiderHome() {
     const remainingMs = $hidingEndsAt
         ? Math.max(0, $hidingEndsAt - now)
         : 0;
+    // Once the round has ended (`roundFoundAt` set) the elapsed timer
+    // freezes at that timestamp — it's the value used to compute the
+    // seek-time numerator in the final score.
+    const elapsedAnchor = $foundAt ?? now;
     const hiddenElapsedMs = $hidingEndsAt
-        ? Math.max(0, now - $hidingEndsAt)
+        ? Math.max(0, elapsedAnchor - $hidingEndsAt)
         : 0;
+    const roundOver = $foundAt !== null;
+    const timeBonusMinutes = useMemo(
+        () => tallyTimeBonusMinutes($hand, $gameSize),
+        [$hand, $gameSize],
+    );
 
     // Sort inbox newest-first for display.
     const inboxSorted = useMemo(
@@ -91,33 +110,50 @@ export function HiderHome() {
                 </div>
             </header>
 
+            {/* ───── 2a. Final score banner (when round is over) ───── */}
+            {roundOver && $hidingEndsAt && (
+                <FinalScoreBanner
+                    foundAt={$foundAt!}
+                    hidingEndsAt={$hidingEndsAt}
+                    timeBonusMinutes={timeBonusMinutes}
+                />
+            )}
+
             {/* ───── 2. Phase badge ───── */}
             {$hidingEndsAt ? (
                 <section
                     className={cn(
                         "rounded-md border-2 px-4 py-3 mb-4 flex items-center gap-3",
-                        inHidingPeriod
-                            ? "border-primary bg-primary/5"
-                            : "border-yellow-500/60 bg-yellow-500/5",
+                        roundOver
+                            ? "border-muted/40 bg-secondary/30 opacity-70"
+                            : inHidingPeriod
+                              ? "border-primary bg-primary/5"
+                              : "border-yellow-500/60 bg-yellow-500/5",
                     )}
                 >
                     <Timer
                         className={cn(
                             "w-5 h-5 shrink-0",
-                            inHidingPeriod
-                                ? "text-primary"
-                                : "text-yellow-500",
+                            roundOver
+                                ? "text-muted-foreground"
+                                : inHidingPeriod
+                                  ? "text-primary"
+                                  : "text-yellow-500",
                         )}
                     />
                     <div className="flex flex-col leading-none gap-1">
                         <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                            {inHidingPeriod ? "Hiding period" : "Hidden for"}
+                            {roundOver
+                                ? "Hidden for (final)"
+                                : inHidingPeriod
+                                  ? "Hiding period"
+                                  : "Hidden for"}
                         </span>
                         <span className="font-inter-tight italic font-black tabular-nums text-2xl text-primary leading-none">
-                            {inHidingPeriod
+                            {inHidingPeriod && !roundOver
                                 ? formatTimeRemaining(remainingMs)
                                 : formatElapsed(hiddenElapsedMs)}
-                            {inHidingPeriod && (
+                            {inHidingPeriod && !roundOver && (
                                 <span className="ml-1.5 text-[9px] not-italic font-bold tracking-wider text-muted-foreground">
                                     / {HIDING_PERIOD_MINUTES[$gameSize]}m
                                 </span>
@@ -142,6 +178,19 @@ export function HiderHome() {
                 radiusMeters={radiusForGameSize($gameSize)}
                 disabled={false}
             />
+
+            {/* ───── 3b. Hiding spot lockdown ─────
+                Only meaningful once the hiding period has ended — that's
+                rulebook p43 timing, when the hider commits to a final spot
+                and can no longer move. Hidden during hiding period; offered
+                as a "lock down" CTA when seeking starts; shown locked
+                afterward. */}
+            {$hidingEndsAt !== null && !inHidingPeriod && (
+                <HidingSpotSection
+                    spot={$hidingSpot}
+                    roundOver={roundOver}
+                />
+            )}
 
             {/* ───── 4. Inbox ───── */}
             <section className="mt-5">
@@ -385,6 +434,249 @@ function HidingZoneSection({
                         <Button onClick={commitZone} disabled={disabled}>
                             <Lock className="w-3.5 h-3.5 mr-1" />
                             Commit zone
+                        </Button>
+                    </div>
+                </div>
+            )}
+        </section>
+    );
+}
+
+/* ────────────────── Final score banner ────────────────── */
+
+/**
+ * Big "round ended" banner pinned to the top of HiderHome once
+ * `roundFoundAt` is set. Shows seek-time (numerator) minus the hider's
+ * accumulated time-bonus minutes (denominator), and a single combined
+ * "final score" line — the value the table compares across rounds.
+ *
+ * The hider can also tap "Mark round ended manually" if the seeker
+ * forgot to share the round-end link.
+ */
+function FinalScoreBanner({
+    foundAt,
+    hidingEndsAt,
+    timeBonusMinutes,
+}: {
+    foundAt: number;
+    hidingEndsAt: number;
+    timeBonusMinutes: number;
+}) {
+    const seekMs = Math.max(0, foundAt - hidingEndsAt);
+    const finalMs = Math.max(0, seekMs - timeBonusMinutes * 60_000);
+
+    return (
+        <section className="rounded-md border-2 border-primary bg-primary/10 px-4 py-4 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+                <Trophy className="w-5 h-5 text-primary" />
+                <span className="font-inter-tight font-black uppercase text-sm tracking-[0.16em] text-primary">
+                    Round ended · final score
+                </span>
+            </div>
+            <div className="flex items-center justify-center">
+                <div className="text-center">
+                    <div className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">
+                        Final
+                    </div>
+                    <div className="font-inter-tight italic font-black tabular-nums text-4xl text-primary leading-none">
+                        {formatElapsed(finalMs)}
+                    </div>
+                </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="rounded-sm bg-background/40 border border-border py-2 px-1">
+                    <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Seek time
+                    </div>
+                    <div className="font-inter-tight font-bold tabular-nums text-base mt-0.5">
+                        {formatElapsed(seekMs)}
+                    </div>
+                </div>
+                <div className="rounded-sm bg-background/40 border border-border py-2 px-1">
+                    <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                        Bonus minutes
+                    </div>
+                    <div className="font-inter-tight font-bold tabular-nums text-base mt-0.5">
+                        −{timeBonusMinutes}m
+                    </div>
+                </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-3 text-center leading-snug">
+                Lower is better for the seeker; higher is better for the hider.
+                Carry to the next round for cumulative scoring.
+            </p>
+        </section>
+    );
+}
+
+/* ────────────────── Hiding spot lockdown section ────────────────── */
+
+/**
+ * Lockdown UI for the hider's final committed spot. Becomes available
+ * the moment the hiding period ends — the hider should pin themselves
+ * to a spot once they're done moving.
+ *
+ * Rulebook p43: must be publicly accessible during all game hours and
+ * within 3m of a marked path/road. We don't validate that geometrically
+ * yet (planned), but capture an optional freeform description so the
+ * hider can record landmarks ("bench by the library entrance") for
+ * later verification.
+ */
+function HidingSpotSection({
+    spot,
+    roundOver,
+}: {
+    spot: ReturnType<typeof hidingSpot.get>;
+    roundOver: boolean;
+}) {
+    const [editing, setEditing] = useState(spot === null);
+    const [draftDesc, setDraftDesc] = useState(spot?.description ?? "");
+    const [draftLat, setDraftLat] = useState<number>(spot?.lat ?? 0);
+    const [draftLng, setDraftLng] = useState<number>(spot?.lng ?? 0);
+    const [locating, setLocating] = useState(false);
+
+    useEffect(() => {
+        if (spot) {
+            setDraftDesc(spot.description ?? "");
+            setDraftLat(spot.lat);
+            setDraftLng(spot.lng);
+        }
+    }, [spot]);
+
+    const useMyGps = () => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            toast.error("Geolocation isn't available on this device.");
+            return;
+        }
+        setLocating(true);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setDraftLat(pos.coords.latitude);
+                setDraftLng(pos.coords.longitude);
+                setLocating(false);
+                toast.success("Pinned to your current GPS.", {
+                    autoClose: 1500,
+                });
+            },
+            (err) => {
+                setLocating(false);
+                toast.error(
+                    err.code === err.PERMISSION_DENIED
+                        ? "Location permission denied."
+                        : "Couldn't get your GPS location.",
+                );
+            },
+            { enableHighAccuracy: true, timeout: 8000 },
+        );
+    };
+
+    const commitSpot = () => {
+        if (!Number.isFinite(draftLat) || !Number.isFinite(draftLng)) {
+            toast.error("Set your spot's GPS first.");
+            return;
+        }
+        hidingSpot.set({
+            lat: draftLat,
+            lng: draftLng,
+            description: draftDesc.trim() || undefined,
+            lockedAt: Date.now(),
+        });
+        setEditing(false);
+        toast.success("Hiding spot locked.", { autoClose: 2000 });
+    };
+
+    return (
+        <section className="mt-5">
+            <div className="flex items-center gap-2 mb-2">
+                <Crosshair className="w-4 h-4 text-muted-foreground" />
+                <SectionPill>Hiding spot</SectionPill>
+                {spot && !editing && (
+                    <span className="text-[10px] text-muted-foreground tabular-nums ml-1">
+                        locked
+                    </span>
+                )}
+            </div>
+            {spot && !editing ? (
+                <div className="rounded-sm border border-border bg-secondary/40 p-3 flex items-start gap-3">
+                    <Lock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                        {spot.description && (
+                            <div className="font-inter-tight font-bold uppercase tracking-wide text-sm leading-tight">
+                                {spot.description}
+                            </div>
+                        )}
+                        <div className="text-xs text-muted-foreground tabular-nums">
+                            {spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}
+                        </div>
+                    </div>
+                    {!roundOver && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditing(true)}
+                        >
+                            <LockOpen className="w-3.5 h-3.5 mr-1" />
+                            Move
+                        </Button>
+                    )}
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground leading-snug px-1">
+                        Hiding period is over. Pin your spot and stay there
+                        — the seeker can't ask new questions if you keep
+                        moving (rulebook p43).
+                    </p>
+                    <div className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={useMyGps}
+                            disabled={locating}
+                            className="gap-1.5"
+                        >
+                            <MapPin className="w-3.5 h-3.5" />
+                            {locating ? "Locating…" : "Use my GPS"}
+                        </Button>
+                        {Number.isFinite(draftLat) &&
+                            Number.isFinite(draftLng) &&
+                            (draftLat !== 0 || draftLng !== 0) && (
+                                <span className="self-center text-[11px] text-muted-foreground tabular-nums">
+                                    {draftLat.toFixed(5)},{" "}
+                                    {draftLng.toFixed(5)}
+                                </span>
+                            )}
+                    </div>
+                    <input
+                        type="text"
+                        value={draftDesc}
+                        onChange={(e) => setDraftDesc(e.target.value)}
+                        placeholder="Optional: a short description (bench by the library)"
+                        className={cn(
+                            "w-full px-3 py-2 rounded-md border border-border",
+                            "bg-secondary/40 text-sm",
+                            "focus:outline-none focus:ring-2 focus:ring-ring",
+                        )}
+                    />
+                    <div className="flex justify-end gap-2">
+                        {spot && (
+                            <Button
+                                variant="outline"
+                                onClick={() => setEditing(false)}
+                            >
+                                Cancel
+                            </Button>
+                        )}
+                        <Button
+                            onClick={commitSpot}
+                            disabled={
+                                !Number.isFinite(draftLat) ||
+                                !Number.isFinite(draftLng) ||
+                                (draftLat === 0 && draftLng === 0)
+                            }
+                        >
+                            <Lock className="w-3.5 h-3.5 mr-1" />
+                            Lock spot
                         </Button>
                     </div>
                 </div>

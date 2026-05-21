@@ -151,6 +151,48 @@ export function decodeCurseFromUrl(
     }
 }
 
+/* ──────────────────── Found event (seeker → hider) ──────────────────── */
+
+export interface SharedFoundPayload {
+    /** Unix ms when the seeker declared the hider found. */
+    foundAt: number;
+}
+
+/**
+ * Encode a "found" event into a URL the hider can tap to lock their
+ * round. Uses `?f=` so the seeker app can dispatch alongside `?a=` and
+ * `?c=`. The hider's app sets `roundFoundAt` to the included timestamp,
+ * which freezes the elapsed timer and time-bonus tally for scoring.
+ */
+export function encodeFoundLink(foundAt: number): string {
+    const payload = JSON.stringify({ foundAt });
+    return `${getOrigin()}/h?f=${encodeURIComponent(payload)}`;
+}
+
+/** Decode a found-event payload from a URLSearchParams or URL string. */
+export function decodeFoundFromUrl(
+    source: URLSearchParams | string,
+): SharedFoundPayload | null {
+    let raw: string | null = null;
+    if (typeof source === "string") {
+        try {
+            raw = new URL(source).searchParams.get("f");
+        } catch {
+            return null;
+        }
+    } else {
+        raw = source.get("f");
+    }
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(decodeURIComponent(raw));
+        if (typeof parsed?.foundAt !== "number") return null;
+        return parsed as SharedFoundPayload;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Helper for share-with-fallback. Calls navigator.share when supported,
  * falls back to clipboard copy otherwise. Returns true if the user

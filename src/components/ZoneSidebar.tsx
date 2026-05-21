@@ -204,12 +204,16 @@ export const ZoneSidebar = () => {
                     },
                 }));
             } else {
-                // Fetch default, optionally merge custom
+                // Fetch default, optionally merge custom. We deliberately
+                // don't pass a `loadingText` here so the toast doesn't fire —
+                // a compact "Finding stations" pill in the map-display
+                // controls already covers the loading affordance (driven by
+                // `isLoading`).
                 // @ts-expect-error osmtogeojson always defines properties with an "id" string
                 places = osmtogeojson(
                     await findPlacesInZone(
                         $displayHidingZonesOptions[0],
-                        "Finding stations. This may take a while. Do not press any buttons while this is processing. Don't worry, it will be cached.",
+                        undefined,
                         "nwr",
                         "center",
                         $displayHidingZonesOptions.slice(1),

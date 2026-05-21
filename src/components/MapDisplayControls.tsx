@@ -1,28 +1,37 @@
 import { useStore } from "@nanostores/react";
 import {
+    Bus,
+    Loader2,
     Map as MapIcon,
     Satellite,
-    Settings,
+    Ship,
     Target,
-    TrainFront,
+    Train,
+    TrainTrack,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-import { displayHidingZones, zoneSidebarOpen } from "@/lib/context";
-import { satelliteView, showTransitLines } from "@/lib/gameSetup";
+import { displayHidingZones, isLoading } from "@/lib/context";
+import {
+    satelliteView,
+    showBusRoutes,
+    showFerryRoutes,
+    showSubwayRoutes,
+    showTransitLines,
+} from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 
 /**
- * Top-right cluster of map-display controls. Three pieces:
+ * Top-right cluster of map-display controls. Three pieces, ordered top to
+ * bottom:
  *
- * 1. Hiding zone trigger — opens the right sidebar (ZoneSidebar). Styled
- *    consistently with the toggles below; uses a Target icon to suggest
- *    "the hiding zone area".
- *
- * 2. Map / Satellite segmented switch — single pill with both labels
- *    visible, the active one filled in. Mutually exclusive.
- *
- * 3. Transit-lines toggle — binary on/off with clear filled vs outline
- *    states; OpenRailwayMap overlay.
+ *  1. Map / Satellite segmented switch — basemap style.
+ *  2. Hiding zones toggle — on/off overlay of station radii.
+ *  3. Per-mode transit toggles — independent icon-only buttons for
+ *     Rail (OpenRailwayMap raster — bundles train/tram/light rail),
+ *     Subway (Overpass `route=subway`), Bus (Overpass `route=bus`), and
+ *     Ferry (Overpass `route=ferry`). Each can be turned on
+ *     independently of the others.
  */
 
 /** Shared dimensions so all three controls form a clean vertical stack. */
@@ -30,61 +39,16 @@ const PANE_HEIGHT = "h-9";
 
 export function MapDisplayControls() {
     const $satellite = useStore(satelliteView);
-    const $transit = useStore(showTransitLines);
+    const $rail = useStore(showTransitLines);
+    const $subway = useStore(showSubwayRoutes);
+    const $bus = useStore(showBusRoutes);
+    const $ferry = useStore(showFerryRoutes);
     const $hidingZones = useStore(displayHidingZones);
+    const $isLoading = useStore(isLoading);
 
     return (
         <div className="flex flex-col gap-2 items-end">
-            {/* Hiding zones toggle + settings. Toggle (on/off) — solid red
-                fill when active so the on/off state reads at a glance. */}
-            <div
-                className={cn(
-                    "shadow-md rounded-md border-2 overflow-hidden flex",
-                    PANE_HEIGHT,
-                    $hidingZones
-                        ? "bg-primary border-primary text-primary-foreground"
-                        : "bg-background border-border",
-                )}
-                role="group"
-                aria-label="Hiding zones"
-            >
-                <button
-                    type="button"
-                    onClick={() => displayHidingZones.set(!$hidingZones)}
-                    aria-pressed={$hidingZones}
-                    className={cn(
-                        "px-3 gap-2 flex items-center transition-colors",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        $hidingZones
-                            ? "hover:bg-primary/90"
-                            : "text-foreground hover:bg-accent",
-                    )}
-                    title="Toggle hiding zones overlay"
-                >
-                    <Target className="w-4 h-4" />
-                    <span className="text-xs font-poppins font-semibold">
-                        Hiding zones
-                    </span>
-                </button>
-                <button
-                    type="button"
-                    onClick={() => zoneSidebarOpen.set(true)}
-                    className={cn(
-                        "px-2.5 flex items-center justify-center border-l-2 transition-colors",
-                        $hidingZones
-                            ? "border-primary-foreground/30 hover:bg-primary/80"
-                            : "border-border hover:bg-accent",
-                    )}
-                    aria-label="Hiding zone settings"
-                    title="Hiding zone settings"
-                >
-                    <Settings className="w-4 h-4" />
-                </button>
-            </div>
-
-            {/* Map / Satellite segmented switch — solid red fill on the
-                active half so it matches the Hiding-zones and Transit
-                toggles' "selected = filled" pattern. */}
+            {/* Map / Satellite segmented switch. */}
             <div
                 className={cn(
                     "shadow-md rounded-md border-2 border-border bg-background overflow-hidden",
@@ -130,28 +94,122 @@ export function MapDisplayControls() {
                 </button>
             </div>
 
-            {/* Transit lines toggle. Toggle (on/off) — solid red fill when
-                active to match the Hiding-zones toggle. */}
-            <button
-                type="button"
-                onClick={() => showTransitLines.set(!$transit)}
-                aria-pressed={$transit}
-                className={cn(
-                    "shadow-md rounded-md border-2",
-                    "px-3 gap-2 flex items-center transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    PANE_HEIGHT,
-                    $transit
-                        ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
-                        : "bg-background border-border hover:bg-accent",
+            {/* Hiding zones toggle. Loading pill sits to its left when
+                station data is being fetched. */}
+            <div className="flex items-center gap-2">
+                {$isLoading && (
+                    <div
+                        className={cn(
+                            "shadow-md rounded-md border-2 border-border bg-background",
+                            "px-2.5 gap-1.5 flex items-center",
+                            PANE_HEIGHT,
+                        )}
+                        role="status"
+                        aria-live="polite"
+                        title="Fetching station data — this may take a moment"
+                    >
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        <span className="text-xs font-poppins font-semibold whitespace-nowrap">
+                            Finding stations
+                        </span>
+                    </div>
                 )}
-                title="Toggle transit lines"
+                <button
+                    type="button"
+                    onClick={() => displayHidingZones.set(!$hidingZones)}
+                    aria-pressed={$hidingZones}
+                    className={cn(
+                        "shadow-md rounded-md border-2",
+                        "px-3 gap-2 flex items-center transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        PANE_HEIGHT,
+                        $hidingZones
+                            ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
+                            : "bg-background border-border hover:bg-accent",
+                    )}
+                    title="Toggle hiding zones overlay"
+                >
+                    <Target className="w-4 h-4" />
+                    <span className="text-xs font-poppins font-semibold">
+                        Hiding zones
+                    </span>
+                </button>
+            </div>
+
+            {/* Per-mode transit toggles — icon-only to keep the cluster
+                compact. Grouped in a segmented row that visually pairs
+                them as a related family. */}
+            <div
+                className={cn(
+                    "shadow-md rounded-md border-2 border-border bg-background overflow-hidden",
+                    "flex",
+                    PANE_HEIGHT,
+                )}
+                role="group"
+                aria-label="Transit overlays"
             >
-                <TrainFront className="w-4 h-4" />
-                <span className="text-xs font-poppins font-semibold">
-                    Transit
-                </span>
-            </button>
+                <TransitIconToggle
+                    icon={Train}
+                    label="Rail (all modes — bundled OpenRailwayMap layer)"
+                    on={$rail}
+                    onToggle={() => showTransitLines.set(!$rail)}
+                />
+                <TransitIconToggle
+                    icon={TrainTrack}
+                    label="Subway"
+                    on={$subway}
+                    onToggle={() => showSubwayRoutes.set(!$subway)}
+                    borderLeft
+                />
+                <TransitIconToggle
+                    icon={Bus}
+                    label="Bus"
+                    on={$bus}
+                    onToggle={() => showBusRoutes.set(!$bus)}
+                    borderLeft
+                />
+                <TransitIconToggle
+                    icon={Ship}
+                    label="Ferry"
+                    on={$ferry}
+                    onToggle={() => showFerryRoutes.set(!$ferry)}
+                    borderLeft
+                />
+            </div>
         </div>
+    );
+}
+
+function TransitIconToggle({
+    icon: Icon,
+    label,
+    on,
+    onToggle,
+    borderLeft,
+}: {
+    icon: LucideIcon;
+    label: string;
+    on: boolean;
+    onToggle: () => void;
+    borderLeft?: boolean;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onToggle}
+            aria-pressed={on}
+            title={label}
+            aria-label={label}
+            className={cn(
+                "w-9 flex items-center justify-center transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                borderLeft && "border-l-2 border-border",
+                on
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "hover:bg-accent",
+            )}
+        >
+            <Icon className="w-4 h-4" />
+        </button>
     );
 }

@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
-import { ClipboardPaste } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import React from "react";
 import { toast } from "react-toastify";
 
@@ -19,8 +19,8 @@ import {
     addQuestion,
     defaultCustomQuestions,
     defaultUnit,
-    isLoading,
     leafletMapContext,
+    questionModified,
     questions,
 } from "@/lib/context";
 import {
@@ -184,7 +184,6 @@ export const AddQuestionDialog = ({
 }: {
     children: React.ReactNode;
 }) => {
-    const $isLoading = useStore(isLoading);
     const $questions = useStore(questions);
     const $gameSize = useStore(gameSize);
     const [open, setOpen] = React.useState(false);
@@ -255,37 +254,42 @@ export const AddQuestionDialog = ({
         // Snapshot the question before closing — pendingQuestion will become
         // null once we clear the dialog state.
         const q = pendingQuestion;
-        // Reset createdAt to confirm-time so the answer-deadline countdown
-        // on the card header starts ticking from when the question was
-        // actually shared with the hider, not from when it was first
-        // staged in the configure dialog.
-        (q.data as { createdAt?: number }).createdAt = Date.now();
         const meta = CATEGORIES[q.id as CategoryId];
         setPendingKey(null);
         releaseBodyLock();
 
-        // Auto-share the question with hiders. The OS share sheet opens
-        // synchronously off the user gesture; if the user dismisses it, the
-        // question still stays added (this is correct — they may have just
-        // changed their mind about who to send to).
+        // Auto-share the question with the hider. We deliberately wait for
+        // `shareOrCopy` to resolve before stamping `createdAt` so that the
+        // hider's 5-min answer window starts when the share sheet actually
+        // closes (i.e. the hider has the link), not while it was open or
+        // before the seeker even chose a recipient. This also keeps the
+        // countdown off the card during the configure dialog: createdAt is
+        // undefined until a share completes.
         const url = encodeQuestionForHider(q);
         const result = await shareOrCopy({
             title: `${meta?.label ?? "Question"} for the hider`,
             text: `${meta?.label ?? "Question"}: tap to answer`,
             url,
         });
+        if (result.method === "share" || result.method === "copy") {
+            (q.data as { createdAt?: number }).createdAt = Date.now();
+            questionModified();
+        }
         if (result.method === "copy") {
             toast.info(
                 "Question added. Link copied — sharing isn't supported in this browser.",
                 { autoClose: 2500 },
             );
         }
-        // "share", "cancelled", "failed" → silent. The question is added
-        // regardless; if the OS share sheet didn't work (no Share API and no
-        // Clipboard API — e.g. dev iframes), the user can still share later
-        // via the per-question share button. Don't alarm them on add.
+        // "cancelled" / "failed" → countdown stays off until the seeker
+        // shares manually from the questions panel. That re-share path also
+        // stamps `createdAt` on success.
     };
 
+    // None of these helpers stamp `createdAt` upfront — the answer-window
+    // countdown only starts once the question is actually delivered to the
+    // hider. `handleConfirm` (configure dialog) and the per-question share
+    // button (questions panel) are the two paths that stamp it post-share.
     const runAddRadius = () => {
         const map = leafletMapContext.get();
         if (!map) return false;
@@ -301,7 +305,6 @@ export const AddQuestionDialog = ({
                 // preset from the grid before confirming.
                 radius: 10,
                 unit: "kilometers",
-                createdAt: Date.now(),
             },
         });
         return true;
@@ -316,6 +319,11 @@ export const AddQuestionDialog = ({
         // seeker has moved and hits Finish in the question card. Map center
         // is the best proxy we have for "seeker's current location" without
         // a GPS prompt at this step (we'd block the tap-to-add flow).
+        //
+        // Note: no `createdAt` — the answer countdown shouldn't run during
+        // the "started" phase (seeker is moving, not waiting for an
+        // answer). It gets stamped once the seeker finishes + shares the
+        // ending point.
         addQuestion({
             id: "thermometer",
             data: {
@@ -325,7 +333,6 @@ export const AddQuestionDialog = ({
                 lngB: center.lng,
                 status: "started",
                 startedAt: Date.now(),
-                createdAt: Date.now(),
             },
         });
 
@@ -348,13 +355,11 @@ export const AddQuestionDialog = ({
                       lng: center.lng,
                       locationType: subtype ?? "custom",
                       places: [],
-                      createdAt: Date.now(),
                   }
                 : {
                       lat: center.lat,
                       lng: center.lng,
                       ...(subtype ? { locationType: subtype } : {}),
-                      createdAt: Date.now(),
                   },
         });
         return true;
@@ -371,13 +376,11 @@ export const AddQuestionDialog = ({
                       lat: center.lat,
                       lng: center.lng,
                       type: subtype ?? "custom-points",
-                      createdAt: Date.now(),
                   }
                 : {
                       lat: center.lat,
                       lng: center.lng,
                       ...(subtype ? { type: subtype } : {}),
-                      createdAt: Date.now(),
                   },
         });
         return true;
@@ -394,13 +397,11 @@ export const AddQuestionDialog = ({
                       lat: center.lat,
                       lng: center.lng,
                       type: subtype ?? "custom-measure",
-                      createdAt: Date.now(),
                   }
                 : {
                       lat: center.lat,
                       lng: center.lng,
                       ...(subtype ? { type: subtype } : {}),
-                      createdAt: Date.now(),
                   },
         });
         return true;
@@ -417,43 +418,9 @@ export const AddQuestionDialog = ({
             id: "photo",
             data: {
                 type: subtype ?? "tree",
-                createdAt: Date.now(),
             },
         });
         return true;
-    };
-
-    const runPasteQuestion = async () => {
-        if (!navigator || !navigator.clipboard) {
-            toast.error("Clipboard API not supported in your browser");
-            return false;
-        }
-
-        try {
-            await toast.promise(
-                navigator.clipboard.readText().then((text) => {
-                    const parsed = JSON.parse(text);
-                    const question =
-                        parsed &&
-                        typeof parsed === "object" &&
-                        !Array.isArray(parsed)
-                            ? { ...parsed, key: Math.random() }
-                            : parsed;
-
-                    return addQuestion(question);
-                }),
-                {
-                    pending: "Reading from clipboard",
-                    success: "Question added from clipboard!",
-                    error: "No valid question found in clipboard",
-                },
-                { autoClose: 1000 },
-            );
-
-            return true;
-        } catch {
-            return false;
-        }
     };
 
     return (
@@ -492,7 +459,6 @@ export const AddQuestionDialog = ({
                                         );
                                         setSubtypePickerFor("matching");
                                     }}
-                                    disabled={$isLoading}
                                 />
                                 <CategoryTile
                                     category="measuring"
@@ -504,7 +470,6 @@ export const AddQuestionDialog = ({
                                         );
                                         setSubtypePickerFor("measuring");
                                     }}
-                                    disabled={$isLoading}
                                 />
                                 <CategoryTile
                                     category="radius"
@@ -513,7 +478,6 @@ export const AddQuestionDialog = ({
                                         if (runAddRadius())
                                             promoteLastQuestion();
                                     }}
-                                    disabled={$isLoading}
                                 />
                                 <CategoryTile
                                     category="thermometer"
@@ -527,7 +491,7 @@ export const AddQuestionDialog = ({
                                             );
                                         }
                                     }}
-                                    disabled={$isLoading || thermInProgress}
+                                    disabled={thermInProgress}
                                     blockedReason={
                                         thermInProgress
                                             ? "A thermometer is already in progress — finish it before starting another"
@@ -540,7 +504,6 @@ export const AddQuestionDialog = ({
                                     onClick={() => {
                                         setSubtypePickerFor("photo");
                                     }}
-                                    disabled={$isLoading}
                                 />
                                 <CategoryTile
                                     category="tentacles"
@@ -552,9 +515,7 @@ export const AddQuestionDialog = ({
                                         );
                                         setSubtypePickerFor("tentacles");
                                     }}
-                                    disabled={
-                                        $isLoading || tentacleBlockedSize
-                                    }
+                                    disabled={tentacleBlockedSize}
                                     blockedReason={
                                         tentacleBlockedSize
                                             ? "Tentacle questions aren't used in Small games (rulebook p38)."
@@ -565,28 +526,6 @@ export const AddQuestionDialog = ({
                         );
                     })()}
                 </div>
-
-                <button
-                    type="button"
-                    onClick={async () => {
-                        const ok = await runPasteQuestion();
-                        if (ok) setOpen(false);
-                    }}
-                    disabled={$isLoading}
-                    className={cn(
-                        "mt-2 flex items-center justify-center gap-2 p-3 rounded-md w-full",
-                        "border border-dashed border-border",
-                        "text-muted-foreground hover:text-foreground hover:border-foreground",
-                        "transition-colors",
-                        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-muted-foreground disabled:hover:border-border",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    )}
-                >
-                    <ClipboardPaste size={14} />
-                    <span className="text-xs font-poppins">
-                        Paste from clipboard
-                    </span>
-                </button>
 
                 {/* House rules reminders — rulebook p13. Google Street View
                     is banned (too powerful for photo matches and station
@@ -647,6 +586,26 @@ export const AddQuestionDialog = ({
                                 <>
                                     <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
                                         <DialogTitle className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSubtypePickerFor(null);
+                                                    setOpen(true);
+                                                }}
+                                                aria-label="Back to categories"
+                                                title="Back to categories"
+                                                className={cn(
+                                                    "inline-flex items-center justify-center w-7 h-7 rounded shrink-0",
+                                                    "bg-secondary text-foreground hover:bg-accent",
+                                                    "border border-border transition-colors",
+                                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                )}
+                                            >
+                                                <ArrowLeft
+                                                    size={14}
+                                                    strokeWidth={2.5}
+                                                />
+                                            </button>
                                             <span
                                                 className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
                                                 style={{
@@ -676,7 +635,6 @@ export const AddQuestionDialog = ({
                                                         subtypePickerFor
                                                     }
                                                     subtype={subtype}
-                                                    disabled={$isLoading}
                                                     onClick={() => {
                                                         const cat =
                                                             subtypePickerFor;

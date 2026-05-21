@@ -7,16 +7,22 @@ import {
     GeoJSON,
     MapContainer,
     Marker,
+    Polyline,
     TileLayer,
+    Tooltip,
     useMap,
     useMapEvents,
 } from "react-leaflet";
 
 import { Button } from "@/components/ui/button";
 import {
+    baseTileLayer,
     mapGeoLocation,
     questionFinishedMapData,
+    thunderforestApiKey,
 } from "@/lib/context";
+import { satelliteView, showTransitLines } from "@/lib/gameSetup";
+import { getTileLayerConfig } from "@/lib/mapTiles";
 import { cn } from "@/lib/utils";
 import type { Units } from "@/maps/schema";
 
@@ -42,6 +48,7 @@ export function InlineLocationPicker({
     longitude,
     onChange,
     radiusMeters,
+    referencePoint,
     height = "h-[40vh]",
 }: {
     latitude: number;
@@ -50,11 +57,30 @@ export function InlineLocationPicker({
     /** Optional radius (in meters) — when present, draws a preview circle
      *  around the pin. Used by radar questions. */
     radiusMeters?: number;
+    /** Optional named reference point — drawn as a smaller secondary
+     *  marker with a dashed line back to the primary pin. Used by
+     *  matching/measuring configure dialogs to surface the seeker's
+     *  actual nearest reference. */
+    referencePoint?: {
+        lat: number;
+        lng: number;
+        name?: string;
+    };
     /** Tailwind height class for the map canvas. */
     height?: string;
 }) {
     const $maskData = useStore(questionFinishedMapData);
     const $playArea = useStore(mapGeoLocation);
+    const $baseTileLayer = useStore(baseTileLayer);
+    const $thunderforestApiKey = useStore(thunderforestApiKey);
+    const $satellite = useStore(satelliteView);
+    const $transit = useStore(showTransitLines);
+
+    // Match the main map view: respect the seeker's base-style choice and
+    // mirror satellite + transit overlays. Keeps the configure-dialog map
+    // visually identical to the page background so the seeker doesn't have
+    // to recalibrate when they look at a question's location preview.
+    const tile = getTileLayerConfig($baseTileLayer, $thunderforestApiKey);
 
     // Track GPS permission/availability state for the helper text.
     // `unknown` → still polling on mount.
@@ -112,9 +138,30 @@ export function InlineLocationPicker({
                     style={{ height: "100%", width: "100%" }}
                 >
                     <TileLayer
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                        url={tile.url}
+                        attribution={tile.attribution}
+                        subdomains={tile.subdomains}
+                        maxZoom={tile.maxZoom}
+                        minZoom={tile.minZoom}
+                        noWrap={tile.noWrap}
                     />
+                    {$satellite && (
+                        <TileLayer
+                            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                            attribution="Esri, Maxar, Earthstar Geographics"
+                            maxZoom={19}
+                            opacity={1}
+                        />
+                    )}
+                    {$transit && (
+                        <TileLayer
+                            url="https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
+                            attribution='&copy; <a href="https://www.openrailwaymap.org">OpenRailwayMap</a>'
+                            subdomains="abc"
+                            maxZoom={19}
+                            opacity={0.85}
+                        />
+                    )}
                     {$maskData && (
                         <GeoJSON
                             key={`mask-${
@@ -145,9 +192,47 @@ export function InlineLocationPicker({
                             interactive={false}
                         />
                     )}
+                    {referencePoint &&
+                        Number.isFinite(referencePoint.lat) &&
+                        Number.isFinite(referencePoint.lng) && (
+                            <>
+                                {/* Dashed line from the seeker's pin to
+                                    the resolved nearest reference. Same
+                                    primary color but lower opacity so
+                                    it reads as auxiliary information. */}
+                                <Polyline
+                                    positions={[
+                                        [safeLat, safeLng],
+                                        [referencePoint.lat, referencePoint.lng],
+                                    ]}
+                                    pathOptions={{
+                                        color: "hsl(var(--primary))",
+                                        weight: 2,
+                                        opacity: 0.7,
+                                        dashArray: "6 5",
+                                    }}
+                                    interactive={false}
+                                />
+                                <ReferenceMarker
+                                    lat={referencePoint.lat}
+                                    lng={referencePoint.lng}
+                                    name={referencePoint.name}
+                                />
+                            </>
+                        )}
                     <ClickToPlace onPlace={onChange} />
                     <PickedPin lat={safeLat} lng={safeLng} />
                     <RecenterOnGps lat={safeLat} lng={safeLng} gps={gpsState} />
+                    {referencePoint &&
+                        Number.isFinite(referencePoint.lat) &&
+                        Number.isFinite(referencePoint.lng) && (
+                            <FitToReference
+                                seekerLat={safeLat}
+                                seekerLng={safeLng}
+                                refLat={referencePoint.lat}
+                                refLng={referencePoint.lng}
+                            />
+                        )}
                 </MapContainer>
             </div>
             <div className="flex items-center justify-between gap-2 text-xs">
@@ -304,6 +389,108 @@ function PickedPin({ lat, lng }: { lat: number; lng: number }) {
     }, []);
     if (!icon) return null;
     return <Marker position={[lat, lng]} icon={icon} />;
+}
+
+/**
+ * Smaller secondary marker for the nearest-reference point on the
+ * matching / measuring configure map. Uses a hollow ring + dot in the
+ * primary brand color, distinct from the filled teardrop pin used for
+ * the seeker's own location. A Tooltip rides the marker showing the
+ * resolved name (e.g. "Stockholm Aquarium") so the seeker doesn't have
+ * to cross-reference with the text preview above.
+ */
+function ReferenceMarker({
+    lat,
+    lng,
+    name,
+}: {
+    lat: number;
+    lng: number;
+    name?: string;
+}) {
+    const [icon, setIcon] = useState<ReturnType<
+        typeof buildReferenceIcon
+    > | null>(null);
+    useEffect(() => {
+        let cancelled = false;
+        import("leaflet").then((L) => {
+            if (!cancelled) setIcon(buildReferenceIcon(L));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+    if (!icon) return null;
+    return (
+        <Marker position={[lat, lng]} icon={icon} interactive={Boolean(name)}>
+            {name && (
+                <Tooltip
+                    direction="top"
+                    offset={[0, -12]}
+                    opacity={1}
+                    className="jl-ref-tooltip"
+                    permanent
+                >
+                    {name}
+                </Tooltip>
+            )}
+        </Marker>
+    );
+}
+
+function buildReferenceIcon(L: typeof import("leaflet")) {
+    return new L.DivIcon({
+        html: `
+<div class="jl-ref-marker">
+  <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="9" cy="9" r="7" fill="white" stroke="hsl(var(--primary))" stroke-width="2.5"/>
+    <circle cx="9" cy="9" r="3" fill="hsl(var(--primary))"/>
+  </svg>
+</div>`.trim(),
+        className: "jl-ref-marker-wrap",
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+    });
+}
+
+/**
+ * One-shot fit: when a reference point first appears (or moves to a
+ * different location), pan/zoom the map so both the seeker pin and the
+ * reference fit comfortably in view. Avoids the case where the
+ * reference is just off-screen and the seeker can't see the dashed
+ * line at all.
+ */
+function FitToReference({
+    seekerLat,
+    seekerLng,
+    refLat,
+    refLng,
+}: {
+    seekerLat: number;
+    seekerLng: number;
+    refLat: number;
+    refLng: number;
+}) {
+    const map = useMap();
+    const lastFitRef = useRef<string>("");
+    useEffect(() => {
+        const key = `${seekerLat.toFixed(4)},${seekerLng.toFixed(4)},${refLat.toFixed(4)},${refLng.toFixed(4)}`;
+        if (lastFitRef.current === key) return;
+        lastFitRef.current = key;
+        import("leaflet").then((L) => {
+            const bounds = L.latLngBounds(
+                [seekerLat, seekerLng],
+                [refLat, refLng],
+            );
+            map.fitBounds(bounds, {
+                padding: [40, 40],
+                maxZoom: 14,
+                animate: true,
+                duration: 0.4,
+            });
+        });
+    }, [seekerLat, seekerLng, refLat, refLng, map]);
+    return null;
 }
 
 function buildPinIcon(L: typeof import("leaflet")) {

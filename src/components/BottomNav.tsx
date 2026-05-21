@@ -1,16 +1,20 @@
 import { useStore } from "@nanostores/react";
 import {
     Bus,
+    Flag,
     Footprints,
     List,
     MoreHorizontal,
     Plus,
     Settings,
+    Share2,
     Ship,
+    Target,
     Timer,
     Train,
     TrainTrack,
     TramFront,
+    Trophy,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -25,7 +29,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet";
-import { questions, questionsDrawerOpen } from "@/lib/context";
+import { questions, questionsDrawerOpen, zoneSidebarOpen } from "@/lib/context";
 import {
     allowedTransit,
     formatTimeRemaining,
@@ -50,7 +54,9 @@ const TRANSIT_ICONS: Record<TransitMode, LucideIcon> = {
     ferry: Ship,
 };
 
-import { playerRole } from "@/lib/hiderRole";
+import { playerRole, roundFoundAt } from "@/lib/hiderRole";
+import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
+import { toast } from "react-toastify";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
@@ -70,6 +76,7 @@ export const BottomNav = () => {
     const $allowedTransit = useStore(allowedTransit);
     const $gameSize = useStore(gameSize);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const $foundAt = useStore(roundFoundAt);
     const [moreOpen, setMoreOpen] = useState(false);
     const [gameSheetOpen, setGameSheetOpen] = useState(false);
 
@@ -312,6 +319,41 @@ export const BottomNav = () => {
                                     </div>
                                 )}
 
+                                {/* Round-end controls. Only meaningful once
+                                    the hiding period has ended (we're in the
+                                    seeking phase). The "Mark hider found"
+                                    primary action sets `roundFoundAt` and
+                                    offers a share-link the seeker hands the
+                                    hider so both sides agree the round is
+                                    over and the final score is frozen. */}
+                                {!hiding &&
+                                    $setupCompleted &&
+                                    $hidingEndsAt !== null && (
+                                        <div className="mt-4">
+                                            {$foundAt ? (
+                                                <FoundSummary
+                                                    foundAt={$foundAt}
+                                                    hidingEndsAt={$hidingEndsAt}
+                                                    onShareAgain={() => {
+                                                        void shareFoundLink(
+                                                            $foundAt,
+                                                        );
+                                                    }}
+                                                />
+                                            ) : (
+                                                <MarkFoundCta
+                                                    onTap={() => {
+                                                        const ts = Date.now();
+                                                        roundFoundAt.set(ts);
+                                                        void shareFoundLink(
+                                                            ts,
+                                                        );
+                                                    }}
+                                                />
+                                            )}
+                                        </div>
+                                    )}
+
                                 {!hiding && (
                                     <div className="mt-4 space-y-3">
                                         {$setupCompleted && (
@@ -420,6 +462,12 @@ export const BottomNav = () => {
                                                         hidingPeriodEndsAt.set(
                                                             null,
                                                         );
+                                                        // Don't leave a stale
+                                                        // "round ended" badge
+                                                        // hanging on the seeker
+                                                        // side when starting a
+                                                        // fresh game.
+                                                        roundFoundAt.set(null);
                                                         setupDialogOpen.set(
                                                             true,
                                                         );
@@ -463,6 +511,23 @@ export const BottomNav = () => {
                         </SheetHeader>
                         <div className="mt-4 space-y-2">
                             <HowToPlaySheet />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMoreOpen(false);
+                                    zoneSidebarOpen.set(true);
+                                }}
+                                className={cn(
+                                    "w-full flex items-center justify-center gap-2",
+                                    "px-3 py-2 rounded-md",
+                                    "bg-secondary hover:bg-accent border border-border",
+                                    "text-sm font-semibold text-foreground transition-colors",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                )}
+                            >
+                                <Target className="w-4 h-4" />
+                                Hiding zone settings
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -515,3 +580,102 @@ export const BottomNav = () => {
         </div>
     );
 };
+
+/* ────────────────── Round-end helpers ────────────────── */
+
+/**
+ * Share the "round ended" link so the hider can lock their device too. The
+ * link contains the seeker-decided `foundAt` timestamp, so both sides agree
+ * on the elapsed-time numerator used for scoring.
+ */
+async function shareFoundLink(foundAt: number) {
+    const url = encodeFoundLink(foundAt);
+    const result = await shareOrCopy({
+        title: "Round ended",
+        text: `I found the hider! Tap to end your timer: ${url}`,
+        url,
+    });
+    if (result.method === "copy") {
+        toast.success("Round-ended link copied", { autoClose: 1500 });
+    } else if (result.method === "failed") {
+        toast.error("Could not share the round-end link");
+    }
+}
+
+function MarkFoundCta({ onTap }: { onTap: () => void }) {
+    return (
+        <div
+            className={cn(
+                "rounded-sm border border-dashed border-border",
+                "bg-secondary/30 px-4 py-3",
+            )}
+        >
+            <div className="flex items-start gap-3">
+                <Flag className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                    <div className="text-xs font-inter-tight font-bold uppercase tracking-[0.16em] mb-1">
+                        Round end
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-snug">
+                        Tap once you've physically spotted the hider. This
+                        freezes the time-bonus tally for scoring and shares a
+                        link so the hider can lock their device too.
+                    </p>
+                </div>
+            </div>
+            <Button onClick={onTap} className="w-full mt-3 gap-2">
+                <Flag className="w-4 h-4" />
+                Mark hider found · Share link
+            </Button>
+        </div>
+    );
+}
+
+function FoundSummary({
+    foundAt,
+    hidingEndsAt,
+    onShareAgain,
+}: {
+    foundAt: number;
+    hidingEndsAt: number;
+    onShareAgain: () => void;
+}) {
+    const elapsedMs = Math.max(0, foundAt - hidingEndsAt);
+    const totalSec = Math.floor(elapsedMs / 1000);
+    const hh = Math.floor(totalSec / 3600);
+    const mm = Math.floor((totalSec % 3600) / 60);
+    const ss = totalSec % 60;
+    const elapsed =
+        hh > 0
+            ? `${hh}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+            : `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+
+    return (
+        <div className="rounded-sm border-2 border-primary bg-primary/5 px-4 py-3">
+            <div className="flex items-start gap-3">
+                <Trophy className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                    <div className="text-xs font-inter-tight font-bold uppercase tracking-[0.16em]">
+                        Round ended
+                    </div>
+                    <div className="font-inter-tight italic font-black tabular-nums text-3xl text-primary leading-none mt-1">
+                        {elapsed}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-1">
+                        Seek time from end of hiding period. The hider's hand
+                        time-bonus minutes get subtracted from this to get the
+                        final score.
+                    </p>
+                </div>
+            </div>
+            <Button
+                variant="outline"
+                onClick={onShareAgain}
+                className="w-full mt-3 gap-2"
+            >
+                <Share2 className="w-4 h-4" />
+                Share round-end link again
+            </Button>
+        </div>
+    );
+}

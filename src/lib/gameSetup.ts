@@ -59,8 +59,52 @@ export const satelliteView = persistentAtom<boolean>("satelliteView", false, {
     encode: JSON.stringify,
     decode: JSON.parse,
 });
+/**
+ * Rail-lines overlay. Drives a single OpenRailwayMap raster tile layer
+ * which renders *all* rail modes (subway, tram, train, light rail,
+ * narrow gauge, monorail, funicular) bundled into one image — the tile
+ * server doesn't expose a per-mode filter, so all rail modes share this
+ * toggle. The original atom name is preserved for localStorage backward
+ * compatibility.
+ */
 export const showTransitLines = persistentAtom<boolean>(
     "showTransitLines",
+    false,
+    { encode: JSON.stringify, decode: JSON.parse },
+);
+
+/**
+ * Bus-routes overlay. Rendered via an Overpass GeoJSON fetch
+ * (`route=bus` relations within the play area) — OpenRailwayMap doesn't
+ * cover buses. Off by default because bus networks can be dense and the
+ * fetch is slow on first run.
+ */
+export const showBusRoutes = persistentAtom<boolean>(
+    "showBusRoutes",
+    false,
+    { encode: JSON.stringify, decode: JSON.parse },
+);
+
+/**
+ * Ferry-routes overlay. Rendered via an Overpass GeoJSON fetch
+ * (`route=ferry` relations/ways within the play area).
+ */
+export const showFerryRoutes = persistentAtom<boolean>(
+    "showFerryRoutes",
+    false,
+    { encode: JSON.stringify, decode: JSON.parse },
+);
+
+/**
+ * Subway-routes overlay. Independent of the general rail layer
+ * (OpenRailwayMap), which bundles all rail modes into one image and
+ * can't be filtered. This Overpass-fetched layer pulls
+ * `route=subway` relations so you can see subway lines on their own —
+ * useful in cities where the rail layer is dense with mainline tracks
+ * obscuring the metro.
+ */
+export const showSubwayRoutes = persistentAtom<boolean>(
+    "showSubwayRoutes",
     false,
     { encode: JSON.stringify, decode: JSON.parse },
 );

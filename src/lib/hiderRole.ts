@@ -94,6 +94,25 @@ export function radiusForGameSize(size: GameSize): number {
     return size === "large" ? 1000 : 500;
 }
 
+/* ────────────────── Round end / score ────────────────── */
+
+/**
+ * Unix ms when the seeker declared the hider found (rulebook p7). On the
+ * hider side this stops the elapsed timer and freezes the time-bonus
+ * tally for scoring. Persistent so a reload doesn't lose the round
+ * result.
+ *
+ * Set locally when either side taps "Hider found" / "We were found",
+ * and also when the hider opens a `?f=` share-link the seeker sent.
+ */
+export const roundFoundAt = __globalPersistent<number | null>(
+    "__jlhs_roundFoundAt",
+    "roundFoundAt",
+    null,
+    (v) => (v === null ? "" : String(v)),
+    (v) => (v ? Number(v) : null),
+);
+
 /* ────────────────── Hiding spot ────────────────── */
 
 /**
@@ -300,6 +319,7 @@ export function resetHiderRoundState() {
     hiderDiscard.set([]);
     hiderHandLimit.set(6);
     pendingDraw.set(null);
+    roundFoundAt.set(null);
 }
 
 /**

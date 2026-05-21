@@ -12,8 +12,10 @@ import {
     playerRole,
     presentDraw,
     QUESTION_DRAW_BUDGET,
+    roundFoundAt,
 } from "@/lib/hiderRole";
 import {
+    decodeFoundFromUrl,
     decodeQuestionFromUrl,
     encodeAnswerForSeeker,
     shareOrCopy,
@@ -63,6 +65,41 @@ export function HiderView() {
                 ]);
             }
         }
+
+        // `?f=` is the round-end ping from the seeker. Adopt their
+        // `foundAt` timestamp so the two devices agree on the elapsed
+        // numerator used in scoring. Strip the param afterwards so a
+        // reload doesn't re-toast. Idempotent: if `roundFoundAt` is
+        // already set we leave it alone — picking up a later forwarded
+        // link shouldn't move the end time.
+        try {
+            const found = decodeFoundFromUrl(params);
+            if (found) {
+                playerRole.set("hider");
+                if (roundFoundAt.get() === null) {
+                    roundFoundAt.set(found.foundAt);
+                    toast.success("Seeker says they found you. Round over!", {
+                        autoClose: 4000,
+                    });
+                }
+                try {
+                    const url = new URL(window.location.href);
+                    if (url.searchParams.has("f")) {
+                        url.searchParams.delete("f");
+                        window.history.replaceState(
+                            {},
+                            "",
+                            url.pathname + url.search + url.hash,
+                        );
+                    }
+                } catch {
+                    /* noop */
+                }
+            }
+        } catch (e) {
+            console.warn("HiderView (found path) failed:", e);
+        }
+
         setLoaded(true);
     }, []);
 

@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, Target } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -44,6 +44,7 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
     useCustomStations,
+    zoneSidebarOpen,
 } from "@/lib/context";
 import {
     cn,
@@ -295,6 +296,16 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
                 }}
             >
                 <HelpCircle className="w-4 h-4" />
+            </Button>
+            <Button
+                variant="outline"
+                className="shadow-md shrink-0 gap-2"
+                title="Open hiding zone settings"
+                aria-label="Open hiding zone settings"
+                onClick={() => zoneSidebarOpen.set(true)}
+            >
+                <Target className="w-4 h-4" />
+                Zones
             </Button>
             <Button
                 className="shadow-md"

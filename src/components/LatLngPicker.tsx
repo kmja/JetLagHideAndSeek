@@ -317,6 +317,7 @@ export const LatitudeLongitude = ({
     disabled,
     inlineEdit = false,
     radiusMeters,
+    referencePoint,
 }: {
     latitude: number;
     longitude: number;
@@ -330,6 +331,15 @@ export const LatitudeLongitude = ({
     /** Optional radius (meters) — surfaces a preview circle on the
      *  inline picker map. Used by radar questions. */
     radiusMeters?: number;
+    /** Optional second point to show on the picker map, with a dashed
+     *  line drawn from the primary pin to it. Used by matching/
+     *  measuring configure dialogs to surface the seeker's actual
+     *  nearest reference (e.g. "Stockholm Aquarium"). */
+    referencePoint?: {
+        lat: number;
+        lng: number;
+        name?: string;
+    };
 }) => {
     const $isLoading = useStore(isLoading);
 
@@ -408,6 +418,7 @@ export const LatitudeLongitude = ({
                                 longitude={longitude}
                                 onChange={(la, ln) => onChange(la, ln)}
                                 radiusMeters={radiusMeters}
+                                referencePoint={referencePoint}
                             />
                         </Suspense>
                     </div>
