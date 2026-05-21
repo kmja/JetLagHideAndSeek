@@ -1,5 +1,4 @@
 import { useStore } from "@nanostores/react";
-import { EditIcon, LocateIcon, MapPin as MapPinIcon } from "lucide-react";
 import { OpenLocationCode } from "open-location-code";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -25,15 +24,6 @@ import {
     CommandItem,
     CommandList,
 } from "./ui/command";
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "./ui/dialog";
 import { Separator } from "./ui/separator";
 import { SidebarMenuItem } from "./ui/sidebar-l";
 
@@ -42,7 +32,7 @@ import { SidebarMenuItem } from "./ui/sidebar-l";
 // imported by OptionDrawers, which is SSR-rendered (client:load); a static
 // import here would drag leaflet into Astro's server build and crash with
 // "window is not defined". The dynamic import() defers it to client runtime.
-const MapPickerDialog = lazy(() => import("./MapPickerDialog"));
+const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
 
 const parseCoordinatesFromText = (
     text: string,
@@ -326,6 +316,7 @@ export const LatitudeLongitude = ({
     children,
     disabled,
     inlineEdit = false,
+    radiusMeters,
 }: {
     latitude: number;
     longitude: number;
@@ -336,12 +327,11 @@ export const LatitudeLongitude = ({
     children?: React.ReactNode;
     disabled?: boolean;
     inlineEdit?: boolean;
+    /** Optional radius (meters) — surfaces a preview circle on the
+     *  inline picker map. Used by radar questions. */
+    radiusMeters?: number;
 }) => {
     const $isLoading = useStore(isLoading);
-
-    // Tap-on-map picker state. The dialog is mounted at the bottom of this
-    // component's tree so it stacks above everything else.
-    const [mapPickerOpen, setMapPickerOpen] = useState(false);
 
     // Resolve the coordinates to a friendly "near X" label via Nominatim.
     // Debounced + cached inside reverseGeocode itself, so dragging a marker
@@ -405,137 +395,41 @@ export const LatitudeLongitude = ({
                     </div>
                 )}
                 {!inlineEdit && (
-                    <button
-                        type="button"
-                        onClick={() => setMapPickerOpen(true)}
-                        disabled={disabled || $isLoading}
-                        className={cn(
-                            "w-full mt-1 px-2 py-1.5 rounded-md",
-                            "text-xs font-poppins font-semibold",
-                            "bg-secondary/60 hover:bg-secondary border border-border",
-                            "flex items-center justify-center gap-1.5",
-                            "transition-colors",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            "disabled:opacity-50 disabled:cursor-not-allowed",
-                        )}
-                    >
-                        <MapPinIcon className="w-3.5 h-3.5" />
-                        Pick on map
-                    </button>
-                )}
-
-                <div
-                    className={cn(
-                        !inlineEdit &&
-                            "flex justify-center gap-2 *:max-w-12 *:w-[20%]",
-                    )}
-                >
-                    {inlineEdit ? (
-                        <div className="flex flex-col gap-2 w-full mb-2">
-                            <LatLngEditForm
+                    <div className="mt-2">
+                        <Suspense
+                            fallback={
+                                <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                                    Loading map…
+                                </div>
+                            }
+                        >
+                            <InlineLocationPicker
                                 latitude={latitude}
                                 longitude={longitude}
-                                onChange={onChange}
-                                disabled={disabled}
+                                onChange={(la, ln) => onChange(la, ln)}
+                                radiusMeters={radiusMeters}
                             />
-                        </div>
-                    ) : (
-                        <Dialog>
-                            <DialogTrigger asChild>
-                                <Button
-                                    disabled={disabled}
-                                    variant="outline"
-                                    title="Edit coordinates"
-                                >
-                                    <EditIcon />
-                                </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                                <DialogHeader>
-                                    <DialogTitle className="text-2xl">
-                                        Update {label}
-                                    </DialogTitle>
-                                </DialogHeader>
-                                <LatLngEditForm
-                                    latitude={latitude}
-                                    longitude={longitude}
-                                    onChange={onChange}
-                                    disabled={disabled}
-                                />
-                                <DialogFooter>
-                                    <DialogClose asChild>
-                                        <Button>Done</Button>
-                                    </DialogClose>
-                                </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
-                    )}
-                    <div
-                        className={
-                            inlineEdit
-                                ? "flex justify-center gap-2"
-                                : "contents"
-                        }
-                    >
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                if (!navigator || !navigator.geolocation)
-                                    return alert("Geolocation not supported");
-
-                                isLoading.set(true);
-
-                                toast.promise(
-                                    new Promise<GeolocationPosition>(
-                                        (resolve, reject) => {
-                                            navigator.geolocation.getCurrentPosition(
-                                                resolve,
-                                                reject,
-                                                {
-                                                    maximumAge: 0,
-                                                    enableHighAccuracy: true,
-                                                },
-                                            );
-                                        },
-                                    )
-                                        .then((position) => {
-                                            onChange(
-                                                position.coords.latitude,
-                                                position.coords.longitude,
-                                            );
-                                        })
-                                        .finally(() => {
-                                            isLoading.set(false);
-                                        }),
-                                    {
-                                        pending: "Fetching location",
-                                        success: "Location fetched",
-                                        error: "Could not fetch location",
-                                    },
-                                    { autoClose: 500 },
-                                );
-                            }}
-                            disabled={disabled}
-                            title="Set to current location"
-                        >
-                            <LocateIcon />
-                        </Button>
+                        </Suspense>
                     </div>
-                </div>
+                )}
+
+                {/* The `inlineEdit` branch is still used by HiderView etc.
+                    — it shows the bare lat/lng form without a map. The
+                    `!inlineEdit` branch is no longer needed: the inline
+                    map picker above already handles tap-to-place AND has
+                    its own GPS button. */}
+                {inlineEdit && (
+                    <div className="flex flex-col gap-2 w-full mb-2">
+                        <LatLngEditForm
+                            latitude={latitude}
+                            longitude={longitude}
+                            onChange={onChange}
+                            disabled={disabled}
+                        />
+                    </div>
+                )}
             </SidebarMenuItem>
             {children}
-            {mapPickerOpen && (
-                <Suspense fallback={null}>
-                    <MapPickerDialog
-                        open={mapPickerOpen}
-                        onOpenChange={setMapPickerOpen}
-                        initialLat={latitude}
-                        initialLng={longitude}
-                        onConfirm={(lat, lng) => onChange(lat, lng)}
-                        title={`Set ${label.toLowerCase()}`}
-                    />
-                </Suspense>
-            )}
         </>
     );
 };

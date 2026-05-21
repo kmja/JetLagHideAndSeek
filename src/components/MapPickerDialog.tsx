@@ -1,6 +1,15 @@
+import { useStore } from "@nanostores/react";
 import "leaflet/dist/leaflet.css";
 import { LocateFixed } from "lucide-react";
 import { useEffect, useState } from "react";
+import {
+    GeoJSON,
+    MapContainer,
+    Marker,
+    TileLayer,
+    useMap,
+    useMapEvents,
+} from "react-leaflet";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,14 +19,8 @@ import {
     DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { questionFinishedMapData } from "@/lib/context";
 import { cn } from "@/lib/utils";
-import {
-    MapContainer,
-    Marker,
-    TileLayer,
-    useMap,
-    useMapEvents,
-} from "react-leaflet";
 
 /**
  * Tap-on-map location picker. Opens as a modal containing a Leaflet map
@@ -63,6 +66,12 @@ export function MapPickerDialog({
         if (open) setPicked({ lat: initialLat, lng: initialLng });
     }, [open, initialLat, initialLng]);
 
+    // The same dim-the-eliminated-area mask the main map shows. Lets the
+    // user place their pin against the current remaining play area instead
+    // of an unrelated blank tile view. Updated live as questions are
+    // added/removed.
+    const $maskData = useStore(questionFinishedMapData);
+
     const handleConfirm = () => {
         onConfirm(picked.lat, picked.lng);
         onOpenChange(false);
@@ -95,6 +104,26 @@ export function MapPickerDialog({
                                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
                                 url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
                             />
+                            {$maskData && (
+                                <GeoJSON
+                                    // Key on the data identity so leaflet
+                                    // re-renders the polygon when the
+                                    // remaining play area changes.
+                                    key={`mask-${
+                                        ($maskData as any)?.features?.[0]
+                                            ?.geometry?.coordinates?.length ?? 0
+                                    }`}
+                                    data={$maskData}
+                                    interactive={false}
+                                    style={{
+                                        color: "#0f172a",
+                                        weight: 1,
+                                        opacity: 0.55,
+                                        fillColor: "#0f172a",
+                                        fillOpacity: 0.55,
+                                    }}
+                                />
+                            )}
                             <ClickToPlace
                                 onPlace={(lat, lng) =>
                                     setPicked({ lat, lng })
