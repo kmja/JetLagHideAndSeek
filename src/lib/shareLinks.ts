@@ -105,6 +105,52 @@ export function decodeAnswerFromUrl(
     }
 }
 
+/* ──────────────────── Curse-cast payloads (hider → seeker) ──────────────────── */
+
+export interface SharedCursePayload {
+    /** Curse name as it appears on the card (e.g. "Curse of the Bridge Troll"). */
+    name: string;
+    /** Effect description. */
+    description: string;
+    /** Casting requirement, if any. */
+    castingCost: string | null;
+}
+
+/**
+ * Encode a curse the hider just cast into a URL the seeker can tap to
+ * receive. Uses the same `?c=` query param style as `?a=` for answers,
+ * so the seeker app can dispatch on which one is present.
+ */
+export function encodeCurseLink(curse: SharedCursePayload): string {
+    const payload = JSON.stringify(curse);
+    return `${getOrigin()}/?c=${encodeURIComponent(payload)}`;
+}
+
+/** Decode a curse payload from a URLSearchParams or URL string. */
+export function decodeCurseFromUrl(
+    source: URLSearchParams | string,
+): SharedCursePayload | null {
+    let raw: string | null = null;
+    if (typeof source === "string") {
+        try {
+            raw = new URL(source).searchParams.get("c");
+        } catch {
+            return null;
+        }
+    } else {
+        raw = source.get("c");
+    }
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(decodeURIComponent(raw));
+        if (typeof parsed?.name !== "string") return null;
+        if (typeof parsed?.description !== "string") return null;
+        return parsed as SharedCursePayload;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Helper for share-with-fallback. Calls navigator.share when supported,
  * falls back to clipboard copy otherwise. Returns true if the user

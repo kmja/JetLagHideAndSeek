@@ -2,6 +2,7 @@ import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
 
 import type { GameSize } from "./gameSetup";
+import { shuffledDeck, type Card } from "./hiderDeck";
 
 /**
  * Hider-side state. Lives on the hider's device, separate from the seeker's
@@ -167,40 +168,49 @@ export const hiderInbox = __globalPersistent<InboxEntry[]>(
     },
 );
 
-/* ────────────────── Hider deck (placeholder shape) ────────────────── */
+/* ────────────────── Hider deck ────────────────── */
 
 /**
- * Cards drawn from the hider deck after each answered question. Three
- * subtypes per the rulebook:
- *
- *   - `time-bonus`  → added to final hiding time if held at round end
- *   - `powerup`     → veto, randomize, discard/draw, move, duplicate
- *   - `curse`       → cast against the seeker
- *
- * The full effect engine isn't built yet — this is the data shape so
- * the deck UI and answer→draw flow can land independently.
+ * Hand and deck state. The deck initialises to a freshly shuffled 60-card
+ * deck on first round; subsequent answer draws move cards from `hiderDeck`
+ * into `hiderHand`. Cards leave the hand via `hiderDiscard` (powerup
+ * played, manual discard, hand-cap eviction).
  */
-export type CardSubtype = "time-bonus" | "powerup" | "curse";
-
-export interface HandCard {
-    /** Stable per-card id so React keys behave. */
-    id: string;
-    subtype: CardSubtype;
-    /** Human-readable name from the rulebook ("Curse of the Bridge Troll"). */
-    name: string;
-    /** Effect description (currently informational only). */
-    description: string;
-    /**
-     * Time-bonus value per game size (minutes). Only meaningful for
-     * `subtype === "time-bonus"`. Per the rulebook (p46), every time-
-     * bonus card carries S/M/L values that scale to game size.
-     */
-    minutes?: Record<GameSize, number>;
-}
-
-export const hiderHand = __globalPersistent<HandCard[]>(
+export const hiderHand = __globalPersistent<Card[]>(
     "__jlhs_hiderHand",
     "hiderHand",
+    [],
+    JSON.stringify,
+    (v) => {
+        try {
+            const parsed = JSON.parse(v);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    },
+);
+
+/** Remaining cards in the draw pile, in order (next-to-draw at the end). */
+export const hiderDeck = __globalPersistent<Card[]>(
+    "__jlhs_hiderDeck",
+    "hiderDeck",
+    [],
+    JSON.stringify,
+    (v) => {
+        try {
+            const parsed = JSON.parse(v);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    },
+);
+
+/** Cards discarded this round. Not used yet but kept around for reshuffle. */
+export const hiderDiscard = __globalPersistent<Card[]>(
+    "__jlhs_hiderDiscard",
+    "hiderDiscard",
     [],
     JSON.stringify,
     (v) => {
@@ -247,7 +257,59 @@ export function resetHiderRoundState() {
     hidingSpot.set(null);
     hiderInbox.set([]);
     hiderHand.set([]);
+    hiderDeck.set([]);
+    hiderDiscard.set([]);
     hiderHandLimit.set(6);
+}
+
+/**
+ * Ensure the draw pile has been shuffled for this round. Called lazily
+ * the first time we need to draw. Returns the deck for chaining.
+ */
+export function ensureDeckReady(): Card[] {
+    const current = hiderDeck.get();
+    if (current.length > 0) return current;
+    const fresh = shuffledDeck();
+    hiderDeck.set(fresh);
+    return fresh;
+}
+
+/**
+ * Draw `n` cards from the top of the deck into the hand. If the deck runs
+ * out, we silently keep going — game proceeds without drawing the rest.
+ * Returns the cards that were drawn (so the caller can show them).
+ *
+ * Hand-cap enforcement is the caller's responsibility (rulebook p44: if
+ * hand exceeds cap, hider must discard until at cap before drawing more).
+ */
+export function drawCards(n: number): Card[] {
+    ensureDeckReady();
+    const deck = [...hiderDeck.get()];
+    const drawn: Card[] = [];
+    for (let i = 0; i < n; i++) {
+        const card = deck.pop();
+        if (!card) break;
+        drawn.push(card);
+    }
+    if (drawn.length > 0) {
+        hiderDeck.set(deck);
+        hiderHand.set([...hiderHand.get(), ...drawn]);
+    }
+    return drawn;
+}
+
+/**
+ * Discard a card from the hand into the discard pile. Returns true if
+ * the card was found and discarded, false otherwise.
+ */
+export function discardCard(cardId: string): boolean {
+    const hand = hiderHand.get();
+    const idx = hand.findIndex((c) => c.id === cardId);
+    if (idx < 0) return false;
+    const [card] = hand.splice(idx, 1);
+    hiderHand.set([...hand]);
+    hiderDiscard.set([...hiderDiscard.get(), card]);
+    return true;
 }
 
 /**

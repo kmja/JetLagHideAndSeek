@@ -7,7 +7,12 @@ import { HiderHome } from "@/components/HiderHome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { hiderInbox, playerRole } from "@/lib/hiderRole";
+import {
+    drawCards,
+    hiderInbox,
+    playerRole,
+    QUESTION_DRAW_BUDGET,
+} from "@/lib/hiderRole";
 import {
     decodeQuestionFromUrl,
     encodeAnswerForSeeker,
@@ -501,7 +506,12 @@ function ShareBackRow({
     );
 
     const markRepliedInInbox = () => {
+        // First check whether this question has already been replied to
+        // — if so, don't double-draw cards.
         const inbox = hiderInbox.get();
+        const existing = inbox.find((e) => e.key === question.key);
+        const alreadyReplied = Boolean(existing?.repliedAt);
+
         hiderInbox.set(
             inbox.map((e) =>
                 e.key === question.key
@@ -509,6 +519,26 @@ function ShareBackRow({
                     : e,
             ),
         );
+
+        // Card-draw reward (rulebook p16-37). The draw budget is by
+        // category — matching draws 3/keeps 1, radar 2/1, photo 1/1,
+        // tentacle 4/2 etc.  For now we auto-keep all drawn cards;
+        // the proper "draw N, keep K" pick UI lands when we wire up the
+        // per-question reward dialog. Hand-cap enforcement is the
+        // hider's responsibility for now (HiderHandPanel surfaces the
+        // over-cap warning).
+        if (!alreadyReplied) {
+            const budget = QUESTION_DRAW_BUDGET[question.id];
+            if (budget) {
+                const drawn = drawCards(budget.draw);
+                if (drawn.length > 0) {
+                    toast.success(
+                        `Drew ${drawn.length} card${drawn.length === 1 ? "" : "s"} from the deck.`,
+                        { autoClose: 2000 },
+                    );
+                }
+            }
+        }
     };
 
     const handleShare = async () => {

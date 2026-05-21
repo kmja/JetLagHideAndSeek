@@ -17,8 +17,6 @@ import {
     HIDING_PERIOD_MINUTES,
 } from "@/lib/gameSetup";
 import {
-    hiderHand,
-    hiderHandLimit,
     hiderInbox,
     hidingZone,
     playerRole,
@@ -27,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 
+import { HiderHandPanel } from "./HiderHandPanel";
 import {
     HideSeekMark,
     HideSeekWordmark,
@@ -56,8 +55,6 @@ export function HiderHome() {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $gameSize = useStore(gameSize);
     const $inbox = useStore(hiderInbox);
-    const $hand = useStore(hiderHand);
-    const $handLimit = useStore(hiderHandLimit);
 
     // 1-Hz tick — drives both the hiding-period countdown and the
     // hidden-for elapsed reading.
@@ -223,54 +220,8 @@ export function HiderHome() {
                 )}
             </section>
 
-            {/* ───── 5. Hand (placeholder until deck mechanics land) ───── */}
-            <section className="mt-5">
-                <div className="flex items-center gap-2 mb-2">
-                    <SectionPill>Hand</SectionPill>
-                    <span className="text-[10px] text-muted-foreground tabular-nums ml-auto">
-                        {$hand.length} / {$handLimit}
-                    </span>
-                </div>
-                {$hand.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic px-1">
-                        You'll draw cards from the hider deck as the seeker
-                        answers questions. The deck mechanics aren't
-                        wired up in the app yet — for now, track time
-                        bonuses + powerups + curses with the physical
-                        cards from the box.
-                    </p>
-                ) : (
-                    <ul className="space-y-1.5">
-                        {$hand.map((card) => (
-                            <li
-                                key={card.id}
-                                className={cn(
-                                    "rounded-sm border border-border px-3 py-2",
-                                    "bg-secondary/40 text-sm",
-                                )}
-                            >
-                                <div className="flex items-center gap-2">
-                                    <SectionPill
-                                        tone={
-                                            card.subtype === "curse"
-                                                ? "dark"
-                                                : "light"
-                                        }
-                                    >
-                                        {card.subtype.replace("-", " ")}
-                                    </SectionPill>
-                                    <span className="font-inter-tight font-bold uppercase tracking-wide text-xs">
-                                        {card.name}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-muted-foreground mt-1 leading-snug">
-                                    {card.description}
-                                </p>
-                            </li>
-                        ))}
-                    </ul>
-                )}
-            </section>
+            {/* ───── 5. Hand (real deck engine) ───── */}
+            <HiderHandPanel />
 
             {/* ───── 6. Footer ───── */}
             <footer className="mt-auto pt-6 flex flex-col gap-2 text-center">

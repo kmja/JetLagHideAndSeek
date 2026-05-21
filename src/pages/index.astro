@@ -19,6 +19,7 @@ import { AnswerLinkReader } from "@/components/AnswerLinkReader";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
 import { RolePicker } from "@/components/RolePicker";
+import { CurseInbox } from "@/components/CurseInbox";
 ---
 
 <Layout className="bg-jetlag">
@@ -75,6 +76,7 @@ import { RolePicker } from "@/components/RolePicker";
             <GameSetupDialog client:only />
             <AnswerLinkReader client:only />
             <RolePicker client:only />
+            <CurseInbox client:only />
         </SidebarProviderR>
     </SidebarProviderL>
 </Layout>

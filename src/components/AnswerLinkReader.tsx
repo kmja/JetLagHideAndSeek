@@ -2,76 +2,109 @@ import { useEffect } from "react";
 import { toast } from "react-toastify";
 
 import { questionModified, questions } from "@/lib/context";
-import { decodeAnswerFromUrl } from "@/lib/shareLinks";
+import {
+    decodeAnswerFromUrl,
+    decodeCurseFromUrl,
+} from "@/lib/shareLinks";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { receivedCurses } from "@/lib/seekerInbound";
 
 /**
- * Receives an answer-link the hider sends back: a URL of the form
- * `/?a=<encoded JSON>` where the payload is
- * `{ key: questionKey, answer: Partial<questionData> }`.
+ * Handles inbound payloads delivered to the seeker via URL query params:
  *
- * On mount we:
- *   1. Parse `?a=` from the current URL.
- *   2. Find the matching question by `key`.
- *   3. Merge the answer fields into that question's `data`.
- *   4. Flip `drag: false` so the map immediately applies the eliminating
- *      effect — this is the "committed" state defined in the other
- *      direction (the seeker tapping Inside/Outside).
- *   5. Strip `?a=` from the URL via history.replaceState so a refresh
- *      doesn't re-apply the same answer.
- *   6. Toast confirmation so the seeker knows the link was processed.
+ *   - `?a=…`  — the hider's answer to a previously-asked question. Merges
+ *     into the matching `questions` entry, flips `drag:false` (commit),
+ *     toasts confirmation.
  *
- * Renders nothing. Drop into the layout alongside Map / BottomNav as a
- * client:only island.
+ *   - `?c=…`  — a curse the hider just cast on the seeker. Appended to
+ *     `receivedCurses` (persistent), the seeker sees a clear notification
+ *     with the curse name + rules text. Drops into discard on dismiss.
+ *
+ * Always strips the consumed param from the URL via `history.replaceState`
+ * so a refresh doesn't re-apply the same payload. Renders nothing — drop
+ * into the layout as a client:only island alongside Map / BottomNav.
  */
 export function AnswerLinkReader() {
     useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        let consumed: "a" | "c" | null = null;
+
+        // --- Curse first, since the param is more specific ---
         try {
-            const params = new URLSearchParams(window.location.search);
-            const payload = decodeAnswerFromUrl(params);
-            if (!payload) return;
-
-            const list = questions.get();
-            const target = list.find((q) => q.key === payload.key);
-
-            if (!target) {
-                toast.error(
-                    "Got an answer link, but I don't have the matching question saved. Was it asked on a different device?",
-                    { autoClose: 5000, toastId: "answer-link-no-match" },
-                );
-            } else {
-                // Merge the hider's answer fields onto the question data,
-                // then mark it committed. The card UIs read `data.drag` to
-                // decide whether to apply the elimination to the map.
-                Object.assign(target.data, payload.answer, { drag: false });
-                questionModified();
-
-                const catLabel =
-                    CATEGORIES[target.id as CategoryId]?.label ?? "Question";
-                toast.success(`Answer received for ${catLabel}.`, {
-                    autoClose: 3000,
-                    toastId: `answer-link-${payload.key}`,
+            const cursePayload = decodeCurseFromUrl(params);
+            if (cursePayload) {
+                consumed = "c";
+                receivedCurses.set([
+                    ...receivedCurses.get(),
+                    {
+                        ...cursePayload,
+                        receivedAt: Date.now(),
+                        acknowledged: false,
+                    },
+                ]);
+                toast.error(`${cursePayload.name} cast on you!`, {
+                    autoClose: 5000,
+                    toastId: `curse-${cursePayload.name}`,
                 });
             }
         } catch (e) {
-            // Best-effort — never throw out of an effect into the React tree.
-            console.warn("AnswerLinkReader failed:", e);
-        } finally {
-            // Always clean `?a=` from the URL so the next refresh doesn't
-            // re-trigger us with stale data. Keep other search params intact.
+            console.warn("AnswerLinkReader (curse path) failed:", e);
+        }
+
+        // --- Answer second ---
+        if (!consumed) {
             try {
-                const url = new URL(window.location.href);
-                if (url.searchParams.has("a")) {
-                    url.searchParams.delete("a");
-                    window.history.replaceState(
-                        {},
-                        "",
-                        url.pathname + url.search + url.hash,
-                    );
+                const payload = decodeAnswerFromUrl(params);
+                if (payload) {
+                    consumed = "a";
+                    const list = questions.get();
+                    const target = list.find((q) => q.key === payload.key);
+                    if (!target) {
+                        toast.error(
+                            "Got an answer link, but I don't have the matching question saved. Was it asked on a different device?",
+                            {
+                                autoClose: 5000,
+                                toastId: "answer-link-no-match",
+                            },
+                        );
+                    } else {
+                        Object.assign(target.data, payload.answer, {
+                            drag: false,
+                        });
+                        questionModified();
+                        const catLabel =
+                            CATEGORIES[target.id as CategoryId]?.label ??
+                            "Question";
+                        toast.success(`Answer received for ${catLabel}.`, {
+                            autoClose: 3000,
+                            toastId: `answer-link-${payload.key}`,
+                        });
+                    }
                 }
-            } catch {
-                /* noop */
+            } catch (e) {
+                console.warn("AnswerLinkReader (answer path) failed:", e);
             }
+        }
+
+        // --- URL cleanup ---
+        try {
+            const url = new URL(window.location.href);
+            let changed = false;
+            for (const key of ["a", "c"] as const) {
+                if (url.searchParams.has(key)) {
+                    url.searchParams.delete(key);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                window.history.replaceState(
+                    {},
+                    "",
+                    url.pathname + url.search + url.hash,
+                );
+            }
+        } catch {
+            /* noop */
         }
     }, []);
 
