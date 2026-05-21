@@ -32,3 +32,9 @@ pnpm-debug.log*
 
 # pnpm workspace-local approvals — generated when running pnpm dev
 pnpm-workspace.yaml
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
