@@ -40,7 +40,20 @@ import {
     radiusForGameSize,
     roundFoundAt,
 } from "@/lib/hiderRole";
+import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import type { Question } from "@/maps/schema";
+
+/**
+ * sessionStorage key for a question the hider just explicitly bailed
+ * out of from the answer view. The auto-redirect below treats this as
+ * "stay on home for this one" so we don't trap the hider in a back-
+ * button loop. Cleared automatically when the tab closes.
+ *
+ * Exported so HiderView can write to the same flag when its
+ * "Hider home" back-link is pressed.
+ */
+export const ANSWER_VIEW_DISMISSED_KEY = "jlhs:hiderAnswerDismissedKey";
 
 import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
@@ -127,6 +140,48 @@ export function HiderHome() {
         if ($hidingSpot) return "endgame";
         return "seeking";
     })();
+
+    // Auto-route to the answer view when a question is waiting. The
+    // seeker can only have one open question at a time (game rule
+    // enforced on the seeker side), so the inbox has at most one
+    // un-replied entry — and if it's there, the hider's job is to
+    // answer it. Skipping straight to /h?q=… mirrors what would have
+    // happened if they'd tapped the seeker's SMS link directly.
+    //
+    // Two guards keep this from being annoying:
+    //   - Phase must allow questions (seeking/endgame). The hiding
+    //     phase is for setting up your zone, not answering anything.
+    //   - sessionStorage tracks whether the hider explicitly bailed
+    //     out of this exact question (via "Hider home" back link).
+    //     Same key → stay on home. New key → redirect.
+    useEffect(() => {
+        if (phase !== "seeking" && phase !== "endgame") return;
+        const waiting = $inbox.filter((e) => !e.repliedAt);
+        if (waiting.length !== 1) return;
+        const entry = waiting[0];
+        try {
+            const dismissed = sessionStorage.getItem(ANSWER_VIEW_DISMISSED_KEY);
+            if (dismissed === String(entry.key)) return;
+        } catch {
+            /* sessionStorage may be unavailable (private mode, etc.) —
+               proceed with the redirect rather than getting stuck. */
+        }
+        const question = {
+            id: entry.id,
+            key: entry.key,
+            data: entry.data,
+        } as Question;
+        try {
+            const url = encodeQuestionForHider(question);
+            const parsed = new URL(url);
+            window.location.assign(
+                parsed.pathname + parsed.search + parsed.hash,
+            );
+        } catch {
+            const payload = JSON.stringify(question);
+            window.location.assign(`/h?q=${encodeURIComponent(payload)}`);
+        }
+    }, [$inbox, phase]);
 
     return (
         <div className="min-h-screen flex flex-col p-4 max-w-2xl mx-auto pb-12 bg-background text-foreground">

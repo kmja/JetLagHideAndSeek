@@ -4,7 +4,7 @@ import { toast } from "react-toastify";
 
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { HiderMap, distanceKm } from "@/components/HiderMap";
-import { HiderHome } from "@/components/HiderHome";
+import { HiderHome, ANSWER_VIEW_DISMISSED_KEY } from "@/components/HiderHome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
@@ -188,10 +188,30 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                     loop after the seeker has already received the
                     answer link. /h with no query param re-renders
                     HiderHome with the live inbox + any queued deck
-                    draw. */}
+                    draw.
+
+                    We record the dismissed question key in
+                    sessionStorage so HiderHome's auto-redirect
+                    doesn't bounce the hider right back to the same
+                    answer view (back-button loop). The flag is
+                    keyed by question.key, so a *new* question
+                    arriving still triggers the redirect. */}
                 <button
                     type="button"
-                    onClick={() => window.location.assign("/h")}
+                    onClick={() => {
+                        try {
+                            sessionStorage.setItem(
+                                ANSWER_VIEW_DISMISSED_KEY,
+                                String(question.key),
+                            );
+                        } catch {
+                            /* sessionStorage unavailable — without the
+                               flag the hider will land back on the
+                               answer view, which is annoying but
+                               recoverable. */
+                        }
+                        window.location.assign("/h");
+                    }}
                     className={cn(
                         "inline-flex items-center gap-1.5 -ml-1 px-2 py-1 rounded-md mb-2",
                         "text-xs font-poppins font-semibold text-muted-foreground",
