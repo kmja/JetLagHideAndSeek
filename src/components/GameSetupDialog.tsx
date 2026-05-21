@@ -74,6 +74,26 @@ import {
  */
 
 /**
+ * Empirical bbox→polygon fill factor.
+ *
+ * Photon only exposes a feature's lat/lng bounding box, not its actual
+ * boundary geometry, so we can't measure the real area without an
+ * extra round-trip. But the bbox systematically overshoots: real OSM
+ * admin regions fill 40–70% of their bbox on average — coastlines,
+ * fjords, mountain backdrops, and plain irregular borders eat the rest.
+ *
+ * Subjective playtest feedback was that the recommended size felt too
+ * big; this multiplier corrects the bias without a network call.
+ * 0.55 is the rough median across a sample of cities and counties
+ * (Berlin ~0.60, Greater London ~0.70, Stockholm City ~0.70, Manhattan
+ * ~0.40, Norway ~0.20, Sweden ~0.30) — higher than worst-case sprawl,
+ * lower than best-case square cities. Borderline picks now bias
+ * toward the smaller, faster size, which usually plays better than
+ * starting on more area than the players can cover.
+ */
+const BBOX_FILL_FACTOR = 0.55;
+
+/**
  * Infer a recommended GameSize from an OSM relation's bounding-box area.
  *
  * Rulebook (p9) maps area to game size:
@@ -84,7 +104,9 @@ import {
  * The extent on each OSM feature is stored as `[maxLat, minLng, minLat, maxLng]`
  * after `geocode.ts` swaps Photon's native ordering. We approximate area
  * with the flat-earth formula `Δlat * Δlng·cos(midLat) * 111²` — accurate
- * enough for bucketing across three orders of magnitude.
+ * enough for bucketing across three orders of magnitude — then scale by
+ * `BBOX_FILL_FACTOR` to convert that rectangle estimate into a polygon
+ * estimate.
  */
 function inferGameSize(feature: OpenStreetMap): GameSize | null {
     const extent = feature.properties.extent;
@@ -102,7 +124,8 @@ function inferGameSize(feature: OpenStreetMap): GameSize | null {
     const latSpanKm = Math.abs(maxLat - minLat) * 111;
     const lngSpanKm =
         Math.abs(maxLng - minLng) * 111 * Math.cos((midLat * Math.PI) / 180);
-    const areaKm2 = latSpanKm * lngSpanKm;
+    const bboxAreaKm2 = latSpanKm * lngSpanKm;
+    const areaKm2 = bboxAreaKm2 * BBOX_FILL_FACTOR;
     if (!Number.isFinite(areaKm2) || areaKm2 <= 0) return null;
     if (areaKm2 < 250) return "small";
     if (areaKm2 < 2500) return "medium";
