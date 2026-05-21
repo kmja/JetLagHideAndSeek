@@ -87,6 +87,43 @@ export const questionModified = (..._: any[]) => {
 
 export const leafletMapContext = atom<Map | null>(null);
 
+/**
+ * Open-state for the mobile question drawer (the one the bottom-nav
+ * "Questions" button opens). Lives here rather than inside `sidebar-l.tsx`'s
+ * own atom because the upstream sidebar atom doesn't reliably cross Astro
+ * island boundaries — `BottomNav` (client:only) sets it but the
+ * `QuestionSidebar` (client:only) reads a different module instance and the
+ * change never propagates. A dedicated atom in this widely-shared module
+ * sidesteps the issue.
+ *
+ * Bound to `globalThis` so that Vite HMR re-imports of context.ts return
+ * the *same* atom instance — without this, editing this file in dev (or
+ * any file in its dependency cone) would create a fresh atom instance and
+ * any component that hot-reloaded would see one atom while components that
+ * didn't see the other, silently breaking cross-island state propagation.
+ */
+const __globalAtom = <T>(key: string, initial: T) => {
+    const g = globalThis as Record<string, unknown>;
+    if (!g[key]) g[key] = atom<T>(initial);
+    return g[key] as ReturnType<typeof atom<T>>;
+};
+
+export const questionsDrawerOpen = __globalAtom<boolean>(
+    "__jlhs_questionsDrawerOpen",
+    false,
+);
+
+/**
+ * Open-state for the right-hand zone-settings drawer (the gear button next
+ * to the "Hiding zones" toggle in MapDisplayControls). Same rationale as
+ * `questionsDrawerOpen` — sidesteps the upstream sidebar-r module's atom
+ * which doesn't reliably cross Astro island boundaries.
+ */
+export const zoneSidebarOpen = __globalAtom<boolean>(
+    "__jlhs_zoneSidebarOpen",
+    false,
+);
+
 export const defaultUnit = persistentAtom<Units>("defaultUnit", "kilometers");
 export const hiderMode = persistentAtom<
     | false

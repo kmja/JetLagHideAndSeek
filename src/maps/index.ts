@@ -57,7 +57,14 @@ export const determinePlanningPolygon = async (
     question: Question,
     planningModeEnabled: boolean,
 ) => {
-    if (planningModeEnabled && question.data.drag) {
+    // Show the preview polygon whenever the question is still a draft
+    // (`drag: true`) — the seeker is configuring it and needs to see its
+    // effect on the map. This used to require planning mode to be enabled,
+    // but with the new draft/answer flow every unanswered question is
+    // effectively in planning mode. `planningModeEnabled` is accepted but
+    // intentionally unused.
+    void planningModeEnabled;
+    if (question.data.drag) {
         switch (question.id) {
             case "radius":
                 return radiusPlanningPolygon(question.data);
@@ -122,7 +129,14 @@ export async function applyQuestionsToMapGeoData(
                 planningModeCallback(planningPolygon, question);
             }
         }
-        if (planningModeEnabled && question.data.drag) {
+        // A question with `drag: true` is "draft / awaiting answer" — the
+        // seeker has asked it but the hider hasn't replied yet, so we must
+        // NOT bake the schema-default answer (e.g. `within: true`) into the
+        // map mask. The user commits the question by tapping the lock icon
+        // on the card or by interacting with the answer toggle, both of
+        // which flip `drag: false`. (Upstream only honored this in planning
+        // mode; we honor it always — see #5 in the recent feedback.)
+        if (question.data.drag) {
             continue;
         }
 

@@ -7,11 +7,11 @@ import { SidebarCloseIcon } from "lucide-react";
 import osmtogeojson from "osmtogeojson";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { Drawer as VaulDrawer } from "vaul";
 
 import {
     Sidebar,
     SidebarContent,
-    SidebarContext,
     SidebarGroup,
     SidebarGroupContent,
     SidebarMenu,
@@ -36,6 +36,7 @@ import {
     questions,
     trainStations,
     useCustomStations as useCustomStationsAtom,
+    zoneSidebarOpen,
 } from "@/lib/context";
 import { cn } from "@/lib/utils";
 import {
@@ -60,6 +61,8 @@ import {
     mergeDuplicateStation,
     safeUnion,
 } from "@/maps/geo-utils";
+
+import { useIsMobile } from "@/hooks/use-mobile";
 
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
@@ -272,7 +275,11 @@ export const ZoneSidebar = () => {
                     const radius = $hidingRadius;
                     const center = turf.getCoord(place);
                     const circle = turf.circle(center, radius, {
-                        steps: 32,
+                        // 96 steps gives visually smooth circles at any
+                        // realistic zoom; default is 64, was explicitly
+                        // lowered to 32 here which produced visible
+                        // facets at the 500m/1km hiding-zone scale.
+                        steps: 96,
                         units: $hidingRadiusUnits,
                         properties: place,
                     });
@@ -501,15 +508,19 @@ export const ZoneSidebar = () => {
         stations,
     ]);
 
-    return (
-        <Sidebar side="right">
+    const $mobileOpen = useStore(zoneSidebarOpen);
+
+    // Shared body for both desktop sidebar and mobile drawer — keeps the
+    // huge configuration UI defined in one place.
+    const body = (
+        <>
             <div className="flex items-center justify-between">
-                <h2 className="ml-4 mt-4 font-poppins text-2xl">Hiding Zone</h2>
+                <h2 className="ml-4 mt-4 font-poppins text-2xl">
+                    Hiding Zone
+                </h2>
                 <SidebarCloseIcon
-                    className="mr-2 visible md:hidden scale-x-[-1]"
-                    onClick={() => {
-                        SidebarContext.get().setOpenMobile(false);
-                    }}
+                    className="mr-2 visible md:hidden scale-x-[-1] cursor-pointer"
+                    onClick={() => zoneSidebarOpen.set(false)}
                 />
             </div>
             <SidebarContent ref={sidebarRef}>
@@ -1100,8 +1111,40 @@ export const ZoneSidebar = () => {
                     </SidebarGroupContent>
                 </SidebarGroup>
             </SidebarContent>
-        </Sidebar>
+        </>
     );
+
+    const isMobile = useIsMobile();
+
+    // Mobile: render the body inside our own VaulDrawer, controlled by the
+    // shared `zoneSidebarOpen` atom. The upstream Sidebar's mobile branch
+    // uses an internal atom that doesn't cross Astro island boundaries —
+    // see questionsDrawerOpen in src/lib/context.ts — so we own this drawer.
+    if (isMobile) {
+        return (
+            <VaulDrawer.Root
+                open={$mobileOpen}
+                onOpenChange={(o) => zoneSidebarOpen.set(o)}
+                shouldScaleBackground={false}
+                direction="right"
+            >
+                <VaulDrawer.Portal>
+                    <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
+                    <VaulDrawer.Content className="fixed inset-y-0 right-0 z-[1045] flex w-[88vw] max-w-md flex-col border-l bg-sidebar text-sidebar-foreground">
+                        <VaulDrawer.Title className="sr-only">
+                            Hiding zone settings
+                        </VaulDrawer.Title>
+                        <div className="flex flex-col w-full overflow-y-auto h-full">
+                            {body}
+                        </div>
+                    </VaulDrawer.Content>
+                </VaulDrawer.Portal>
+            </VaulDrawer.Root>
+        );
+    }
+
+    // Desktop: existing right Sidebar (collapsible offcanvas).
+    return <Sidebar side="right">{body}</Sidebar>;
 };
 
 function styleStations(
@@ -1267,6 +1310,7 @@ async function selectionProcess(
                     turf.circle(
                         turf.getCoord(x),
                         nearestQuestion.properties.distanceToPoint,
+                        { steps: 96 },
                     ),
                 );
 
@@ -1311,7 +1355,11 @@ async function selectionProcess(
                         ) <
                         distance + 1.61 * $hidingRadius,
                 )
-                .map((x) => turf.circle(x.properties.geometry, distance));
+                .map((x) =>
+                    turf.circle(x.properties.geometry, distance, {
+                        steps: 96,
+                    }),
+                );
 
             if (question.data.hiderCloser) {
                 mapData = safeUnion(
@@ -1355,6 +1403,7 @@ async function selectionProcess(
             const circles = filtered.map((x) =>
                 turf.circle(x as any, distance, {
                     units: "miles",
+                    steps: 96,
                 }),
             );
 

@@ -32,33 +32,49 @@ export const getOverpassData = async (
 ) => {
     const encodedQuery = encodeURIComponent(query);
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
-    let response = await cacheFetch(primaryUrl, loadingText, cacheType);
+    const fallbackUrl = `${OVERPASS_API_FALLBACK}?data=${encodedQuery}`;
 
-    if (!response.ok) {
-        // Try the fallback, but store the result under the primary URL key so future requests are served from cache without needing to fail-over again.
+    // Try a mirror. Returns Response on success, null if the request
+    // threw (timeout, network error, CORS). Non-ok responses are
+    // returned as-is so the caller can distinguish them.
+    const tryFetch = async (url: string): Promise<Response | null> => {
         try {
-            const fallbackResponse = await cacheFetch(
-                `${OVERPASS_API_FALLBACK}?data=${encodedQuery}`,
-                loadingText,
-                cacheType,
-            );
-            if (fallbackResponse.ok) {
+            return await cacheFetch(url, loadingText, cacheType);
+        } catch (e) {
+            console.warn(`Overpass fetch failed for ${url}:`, e);
+            return null;
+        }
+    };
+
+    let response = await tryFetch(primaryUrl);
+
+    // Failover to the fallback mirror on timeout, network error, or 5xx.
+    // We keep the toast pending so the user sees one continuous "Loading
+    // map data..." rather than a stop-and-start.
+    if (!response || !response.ok) {
+        const fallbackResponse = await tryFetch(fallbackUrl);
+        if (fallbackResponse && fallbackResponse.ok) {
+            // Cache the successful fallback body under the primary URL
+            // so subsequent identical requests don't repeat the failover.
+            try {
                 const cache = await determineCache(cacheType);
                 await cache.put(primaryUrl, fallbackResponse.clone());
+            } catch {
+                /* Cache API not available — non-fatal. */
             }
             response = fallbackResponse;
-        } catch {
-            toast.error(
-                `Could not load data from Overpass: ${response.status} ${response.statusText}`,
-                { toastId: "overpass-error" },
-            );
-            return { elements: [] };
+        } else if (fallbackResponse) {
+            // Fallback responded but with a non-ok status — surface it.
+            response = fallbackResponse;
         }
     }
 
-    if (!response.ok) {
+    if (!response || !response.ok) {
+        const statusInfo = response
+            ? `${response.status} ${response.statusText}`
+            : "network timeout or error";
         toast.error(
-            `Could not load data from Overpass: ${response.status} ${response.statusText}`,
+            `Could not load data from Overpass (${statusInfo}). Try again in a minute — the public mirrors are sometimes overloaded.`,
             { toastId: "overpass-error" },
         );
         return { elements: [] };

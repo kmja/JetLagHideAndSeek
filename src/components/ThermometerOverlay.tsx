@@ -18,9 +18,9 @@ import type { ThermometerQuestion, Question } from "@/maps/schema";
  * thermometers aren't a thing per rules, but if it ever happens we just
  * pick the most recent.
  *
- * Layout: top-center, below the place picker, above any map controls.
- * Designed to be unobtrusive when nothing's happening and prominent the
- * moment a thermometer starts.
+ * Layout: bottom-center, just above the bottom nav on mobile. Top-right
+ * map controls own that corner; putting the pill at the bottom keeps it
+ * out of the way of the map-display controls and the wizard.
  */
 export function ThermometerOverlay() {
     useStore(triggerLocalRefresh);
@@ -70,9 +70,12 @@ export function ThermometerOverlay() {
     return (
         <div
             className={cn(
-                // Positioned just below the PlacePicker so it doesn't
-                // overlap, and centered to read like a status banner.
-                "pointer-events-none absolute top-[88px] md:top-20 left-1/2 -translate-x-1/2 z-[1030]",
+                // Bottom-center, lifted above the mobile bottom nav (and
+                // Leaflet's attribution that we already push up above the
+                // nav in globals.css). On desktop, sits above the bottom-
+                // right OptionDrawers cluster.
+                "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1030]",
+                "bottom-[calc(96px+env(safe-area-inset-bottom))] md:bottom-20",
                 "max-w-[90vw]",
             )}
         >

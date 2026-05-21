@@ -142,7 +142,9 @@ export const Map = ({ className }: { className?: string }) => {
     const refreshQuestions = async (focus: boolean = false) => {
         if (!map) return;
 
-        if ($isLoading) return;
+        // Read fresh — closure-captured $isLoading can be stale if state
+        // changed between renders and effects.
+        if (isLoading.get()) return;
 
         isLoading.set(true);
 
@@ -152,7 +154,19 @@ export const Map = ({ className }: { className?: string }) => {
 
         let mapGeoData = mapGeoJSON.get();
 
+        // If we're about to fetch a new boundary, drop any previously-drawn
+        // elimination layer first. Otherwise a failed fetch (e.g. Overpass
+        // 504/timeout) leaves the old play area's `world − previousArea`
+        // mask on the map — and from a new viewport (Tokyo vs. Copenhagen)
+        // every pixel falls inside that polygon, so the whole world looks
+        // darkened with no play area visible.
         if (!mapGeoData) {
+            map.eachLayer((layer: any) => {
+                if (layer.eliminationGeoJSON) {
+                    map.removeLayer(layer);
+                }
+            });
+
             const polyGeoData = polyGeoJSON.get();
             if (polyGeoData) {
                 mapGeoData = polyGeoData;
@@ -211,7 +225,19 @@ export const Map = ({ className }: { className?: string }) => {
                 }
             });
 
-            const g = L.geoJSON(mapGeoData);
+            // The elimination layer is the union of "outside the play area"
+            // and "eliminated by questions". Render it as a clearly dimmed
+            // dark overlay so the in-play area pops on light basemaps —
+            // Leaflet's default #3388ff @ 0.2 is invisible on cartodb voyager.
+            const g = L.geoJSON(mapGeoData, {
+                style: {
+                    color: "#0f172a",
+                    weight: 1,
+                    opacity: 0.55,
+                    fillColor: "#0f172a",
+                    fillOpacity: 0.45,
+                },
+            });
             // @ts-expect-error This is a check such that only this type of layer is removed
             g.eliminationGeoJSON = true;
             g.addTo(map);
@@ -421,7 +447,7 @@ export const Map = ({ className }: { className?: string }) => {
         if (!map) return;
 
         refreshQuestions(true);
-    }, [$questions, map, $hiderMode]);
+    }, [$questions, $mapGeoLocation, map, $hiderMode]);
 
     useEffect(() => {
         const intervalId = setInterval(async () => {
