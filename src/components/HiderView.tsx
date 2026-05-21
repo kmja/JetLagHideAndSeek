@@ -2,6 +2,7 @@ import { ArrowLeft, Copy, Eye, Home, MapPin, Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
+import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { HiderMap, distanceKm } from "@/components/HiderMap";
 import { HiderHome } from "@/components/HiderHome";
 import { Button } from "@/components/ui/button";
@@ -108,32 +109,35 @@ export function HiderView() {
         return null;
     }
 
-    // No `?q=` → render the persistent hider home (zone, inbox, hand).
-    if (!hasQueryParam) {
-        return <HiderHome />;
-    }
-
-    if (!question) {
-        return (
-            <div className="min-h-screen flex items-center justify-center p-6">
-                <div className="max-w-sm text-center">
-                    <h1 className="text-2xl font-poppins font-semibold mb-2">
-                        No question
-                    </h1>
-                    <p className="text-muted-foreground text-sm">
-                        This link doesn't contain a valid question. Ask the
-                        seeker to share again, or{" "}
-                        <a href="/h" className="underline">
-                            go to your hider home
-                        </a>
-                        .
-                    </p>
+    // The DrawPickerDialog has to live above both branches so the
+    // post-share "draw N keep K" modal also fires from `/h?q=…` (not
+    // just from `/h`). It self-suppresses when `pendingDraw` is null.
+    return (
+        <>
+            {!hasQueryParam ? (
+                <HiderHome />
+            ) : !question ? (
+                <div className="min-h-screen flex items-center justify-center p-6">
+                    <div className="max-w-sm text-center">
+                        <h1 className="text-2xl font-poppins font-semibold mb-2">
+                            No question
+                        </h1>
+                        <p className="text-muted-foreground text-sm">
+                            This link doesn't contain a valid question. Ask the
+                            seeker to share again, or{" "}
+                            <a href="/h" className="underline">
+                                go to your hider home
+                            </a>
+                            .
+                        </p>
+                    </div>
                 </div>
-            </div>
-        );
-    }
-
-    return <HiderQuestionAnswer question={question} />;
+            ) : (
+                <HiderQuestionAnswer question={question} />
+            )}
+            <DrawPickerDialog />
+        </>
+    );
 }
 
 /** Inner component once we know we have a valid question. */

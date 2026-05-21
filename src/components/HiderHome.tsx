@@ -43,7 +43,6 @@ import {
 import { cn } from "@/lib/utils";
 
 import { DiceRoller } from "./DiceRoller";
-import { DrawPickerDialog } from "./DrawPickerDialog";
 import { HiderHandPanel } from "./HiderHandPanel";
 import { HiderQuestionLog } from "./HiderQuestionLog";
 import {
@@ -198,9 +197,10 @@ export function HiderHome() {
                 />
             )}
 
-            {/* "Draw N keep K" modal fires whenever an answer triggers
-                a reward draw with K < N. Photo (1/1) auto-resolves. */}
-            <DrawPickerDialog />
+            {/* The "Draw N keep K" modal lives at the HiderView level
+                so it also fires after sharing an answer from `/h?q=…`
+                (not just from `/h`). It self-suppresses when
+                `pendingDraw` is null. */}
 
             <footer className="mt-auto pt-6 flex flex-col gap-2 text-center">
                 {(() => {
