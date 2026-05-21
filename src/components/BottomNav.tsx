@@ -54,7 +54,11 @@ const TRANSIT_ICONS: Record<TransitMode, LucideIcon> = {
     ferry: Ship,
 };
 
-import { playerRole, roundFoundAt } from "@/lib/hiderRole";
+import {
+    playerRole,
+    resetHiderRoundState,
+    roundFoundAt,
+} from "@/lib/hiderRole";
 import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
 import { toast } from "react-toastify";
 
@@ -470,6 +474,15 @@ export const BottomNav = () => {
                                                         // side when starting a
                                                         // fresh game.
                                                         roundFoundAt.set(null);
+                                                        // Clear hider-side
+                                                        // state on this device
+                                                        // too — same device
+                                                        // testing means the
+                                                        // hider inbox, hand,
+                                                        // and zone would
+                                                        // otherwise survive
+                                                        // into the next game.
+                                                        resetHiderRoundState();
                                                         setupDialogOpen.set(
                                                             true,
                                                         );

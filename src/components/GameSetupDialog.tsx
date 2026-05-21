@@ -48,6 +48,7 @@ import {
     type GameSize,
     type TransitMode,
 } from "@/lib/gameSetup";
+import { resetHiderRoundState } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 import { determineName, geocode, type OpenStreetMap } from "@/maps/api";
 
@@ -253,6 +254,12 @@ export function GameSetupDialog() {
             disabledStations.set([]);
             permanentOverlay.set(null);
             hiderMode.set(false);
+            // Clear hider-side state too — inbox, hand, zone, spot,
+            // round-found timestamp. Important on single-device test
+            // flows where the seeker and hider share a browser; in a
+            // multi-device game the hider device runs its own reset
+            // via the stale-session prompt or a manual "New game".
+            resetHiderRoundState();
             // Default: hide the hiding-zones overlay on a fresh game. The
             // zones themselves still pre-load in the background (see
             // ZoneSidebar's initializeHidingZones), so toggling the overlay

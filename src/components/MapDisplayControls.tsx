@@ -13,6 +13,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { displayHidingZones, isLoading } from "@/lib/context";
 import {
+    allowedTransit,
     satelliteView,
     showBusRoutes,
     showFerryRoutes,
@@ -45,6 +46,18 @@ export function MapDisplayControls() {
     const $ferry = useStore(showFerryRoutes);
     const $hidingZones = useStore(displayHidingZones);
     const $isLoading = useStore(isLoading);
+    const $allowedTransit = useStore(allowedTransit);
+
+    // The "Rail" overlay is the OpenRailwayMap raster bundle: it
+    // includes train, tram, and light-rail in a single layer. So
+    // showing it is helpful if EITHER train or tram is allowed.
+    const showRailBtn =
+        $allowedTransit.includes("train") || $allowedTransit.includes("tram");
+    const showSubwayBtn = $allowedTransit.includes("subway");
+    const showBusBtn = $allowedTransit.includes("bus");
+    const showFerryBtn = $allowedTransit.includes("ferry");
+    const hasAnyTransitBtn =
+        showRailBtn || showSubwayBtn || showBusBtn || showFerryBtn;
 
     return (
         <div className="flex flex-col gap-2 items-end">
@@ -138,44 +151,80 @@ export function MapDisplayControls() {
 
             {/* Per-mode transit toggles — icon-only to keep the cluster
                 compact. Grouped in a segmented row that visually pairs
-                them as a related family. */}
-            <div
-                className={cn(
-                    "shadow-md rounded-md border-2 border-border bg-background overflow-hidden",
-                    "flex",
-                    PANE_HEIGHT,
-                )}
-                role="group"
-                aria-label="Transit overlays"
-            >
-                <TransitIconToggle
-                    icon={Train}
-                    label="Rail (all modes — bundled OpenRailwayMap layer)"
-                    on={$rail}
-                    onToggle={() => showTransitLines.set(!$rail)}
-                />
-                <TransitIconToggle
-                    icon={TrainTrack}
-                    label="Subway"
-                    on={$subway}
-                    onToggle={() => showSubwayRoutes.set(!$subway)}
-                    borderLeft
-                />
-                <TransitIconToggle
-                    icon={Bus}
-                    label="Bus"
-                    on={$bus}
-                    onToggle={() => showBusRoutes.set(!$bus)}
-                    borderLeft
-                />
-                <TransitIconToggle
-                    icon={Ship}
-                    label="Ferry"
-                    on={$ferry}
-                    onToggle={() => showFerryRoutes.set(!$ferry)}
-                    borderLeft
-                />
-            </div>
+                them as a related family. Only the modes that are
+                actually allowed in this game's settings show up here —
+                no point cluttering the map with a Ferry toggle for a
+                landlocked play area. */}
+            {hasAnyTransitBtn && (
+                <div
+                    className={cn(
+                        "shadow-md rounded-md border-2 border-border bg-background overflow-hidden",
+                        "flex",
+                        PANE_HEIGHT,
+                    )}
+                    role="group"
+                    aria-label="Transit overlays"
+                >
+                    {(() => {
+                        const buttons: React.ReactNode[] = [];
+                        if (showRailBtn) {
+                            buttons.push(
+                                <TransitIconToggle
+                                    key="rail"
+                                    icon={Train}
+                                    label="Rail (train/tram — bundled OpenRailwayMap layer)"
+                                    on={$rail}
+                                    onToggle={() =>
+                                        showTransitLines.set(!$rail)
+                                    }
+                                    borderLeft={buttons.length > 0}
+                                />,
+                            );
+                        }
+                        if (showSubwayBtn) {
+                            buttons.push(
+                                <TransitIconToggle
+                                    key="subway"
+                                    icon={TrainTrack}
+                                    label="Subway"
+                                    on={$subway}
+                                    onToggle={() =>
+                                        showSubwayRoutes.set(!$subway)
+                                    }
+                                    borderLeft={buttons.length > 0}
+                                />,
+                            );
+                        }
+                        if (showBusBtn) {
+                            buttons.push(
+                                <TransitIconToggle
+                                    key="bus"
+                                    icon={Bus}
+                                    label="Bus"
+                                    on={$bus}
+                                    onToggle={() => showBusRoutes.set(!$bus)}
+                                    borderLeft={buttons.length > 0}
+                                />,
+                            );
+                        }
+                        if (showFerryBtn) {
+                            buttons.push(
+                                <TransitIconToggle
+                                    key="ferry"
+                                    icon={Ship}
+                                    label="Ferry"
+                                    on={$ferry}
+                                    onToggle={() =>
+                                        showFerryRoutes.set(!$ferry)
+                                    }
+                                    borderLeft={buttons.length > 0}
+                                />,
+                            );
+                        }
+                        return buttons;
+                    })()}
+                </div>
+            )}
         </div>
     );
 }

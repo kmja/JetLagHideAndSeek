@@ -215,10 +215,44 @@ export function DebugPhaseControls() {
      * affordances are currently locked (they hide once the game has
      * a question history to prevent mid-game role flips).
      *
+     * When flipping to the hider side, also ferry every pending
+     * seeker-side question (`drag === true`, except for started-but-
+     * not-finished thermometer questions) into the hider's inbox.
+     * Otherwise the hider lands on `/h` with an empty question log
+     * and the round-trip can't be tested on a single device.
+     * Deduped by question key so repeat presses don't pile up.
+     *
      * Debug-only — production code paths should keep using their
-     * gated switchers.
+     * gated switchers, and in a real game the question would arrive
+     * via share link.
      */
     const forceRole = (target: "seeker" | "hider") => {
+        if (target === "hider") {
+            const pending = questions.get().filter((q) => {
+                if (q.data.drag !== true) return false;
+                if (q.id === "thermometer") {
+                    const status =
+                        (q.data as { status?: string }).status ?? "finished";
+                    if (status === "started") return false;
+                }
+                return true;
+            });
+            if (pending.length > 0) {
+                const inbox = hiderInbox.get();
+                const existingKeys = new Set(inbox.map((e) => e.key));
+                const additions = pending
+                    .filter((q) => !existingKeys.has(q.key))
+                    .map((q) => ({
+                        key: q.key,
+                        id: q.id,
+                        data: q.data as Record<string, unknown>,
+                        arrivedAt: Date.now(),
+                    }));
+                if (additions.length > 0) {
+                    hiderInbox.set([...inbox, ...additions]);
+                }
+            }
+        }
         playerRole.set(target);
         const path = target === "hider" ? "/h" : "/";
         if (window.location.pathname === path) {
