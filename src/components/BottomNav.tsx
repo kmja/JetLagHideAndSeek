@@ -50,6 +50,8 @@ const TRANSIT_ICONS: Record<TransitMode, LucideIcon> = {
     ferry: Ship,
 };
 
+import { playerRole } from "@/lib/hiderRole";
+
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
 import { OptionDrawers } from "./OptionDrawers";
@@ -430,6 +432,28 @@ export const BottomNav = () => {
                         </SheetHeader>
                         <div className="mt-4 space-y-2">
                             <HowToPlaySheet />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (
+                                        confirm(
+                                            "Switch this device to the hider side? You'll go to the hider home — seeker state stays saved.",
+                                        )
+                                    ) {
+                                        playerRole.set("hider");
+                                        window.location.assign("/h");
+                                    }
+                                }}
+                                className={cn(
+                                    "w-full flex items-center justify-center gap-2",
+                                    "px-3 py-2 rounded-md",
+                                    "bg-secondary hover:bg-accent border border-border",
+                                    "text-sm font-semibold text-foreground transition-colors",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                )}
+                            >
+                                Switch to hider
+                            </button>
                             <div className="pb-2 flex justify-center">
                                 <OptionDrawers />
                             </div>

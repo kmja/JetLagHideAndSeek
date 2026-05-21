@@ -3,9 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { HiderMap, distanceKm } from "@/components/HiderMap";
+import { HiderHome } from "@/components/HiderHome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { hiderInbox, playerRole } from "@/lib/hiderRole";
 import {
     decodeQuestionFromUrl,
     encodeAnswerForSeeker,
@@ -28,16 +30,45 @@ import type { Question } from "@/maps/schema";
 export function HiderView() {
     const [question, setQuestion] = useState<Question | null>(null);
     const [loaded, setLoaded] = useState(false);
+    const [hasQueryParam, setHasQueryParam] = useState(false);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        setQuestion(decodeQuestionFromUrl(params));
+        setHasQueryParam(params.has("q"));
+        const q = decodeQuestionFromUrl(params);
+        setQuestion(q);
+        // Auto-mark this device as the hider when they open a /h?q= link —
+        // they're clearly playing the hider side. Same trick the seeker app
+        // uses for its own role (set on the first wizard finish).
+        if (q) {
+            playerRole.set("hider");
+            // Save to inbox if not already there. Keyed by question.key
+            // for idempotency — re-opening the same link doesn't duplicate.
+            const inbox = hiderInbox.get();
+            const already = inbox.some((e) => e.key === q.key);
+            if (!already) {
+                hiderInbox.set([
+                    ...inbox,
+                    {
+                        key: q.key,
+                        id: q.id,
+                        data: q.data as Record<string, unknown>,
+                        arrivedAt: Date.now(),
+                    },
+                ]);
+            }
+        }
         setLoaded(true);
     }, []);
 
     if (!loaded) {
         // Brief loading state to avoid flashing the "no question" screen
         return null;
+    }
+
+    // No `?q=` → render the persistent hider home (zone, inbox, hand).
+    if (!hasQueryParam) {
+        return <HiderHome />;
     }
 
     if (!question) {
@@ -49,7 +80,11 @@ export function HiderView() {
                     </h1>
                     <p className="text-muted-foreground text-sm">
                         This link doesn't contain a valid question. Ask the
-                        seeker to share again.
+                        seeker to share again, or{" "}
+                        <a href="/h" className="underline">
+                            go to your hider home
+                        </a>
+                        .
                     </p>
                 </div>
             </div>
@@ -465,6 +500,17 @@ function ShareBackRow({
         [question.key, answer],
     );
 
+    const markRepliedInInbox = () => {
+        const inbox = hiderInbox.get();
+        hiderInbox.set(
+            inbox.map((e) =>
+                e.key === question.key
+                    ? { ...e, repliedAt: Date.now(), reply: answer }
+                    : e,
+            ),
+        );
+    };
+
     const handleShare = async () => {
         const result = await shareOrCopy({
             title: "Answer",
@@ -473,6 +519,7 @@ function ShareBackRow({
         });
         if (result.method === "share" || result.method === "copy") {
             setSent(true);
+            markRepliedInInbox();
         }
         if (result.method === "copy") {
             toast.success("Answer link copied (sharing not supported)");
@@ -486,6 +533,7 @@ function ShareBackRow({
         try {
             await navigator.clipboard.writeText(url);
             setSent(true);
+            markRepliedInInbox();
             toast.success("Answer link copied", { autoClose: 1500 });
         } catch {
             toast.error("Could not copy");

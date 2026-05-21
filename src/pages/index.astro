@@ -18,6 +18,7 @@ import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import { AnswerLinkReader } from "@/components/AnswerLinkReader";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
+import { RolePicker } from "@/components/RolePicker";
 ---
 
 <Layout className="bg-jetlag">
@@ -73,6 +74,7 @@ import { HiderTimer } from "@/components/HiderTimer";
             <BottomNav client:only />
             <GameSetupDialog client:only />
             <AnswerLinkReader client:only />
+            <RolePicker client:only />
         </SidebarProviderR>
     </SidebarProviderL>
 </Layout>
