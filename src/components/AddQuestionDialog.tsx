@@ -13,7 +13,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { gameSize } from "@/lib/gameSetup";
+import { gameSize, type GameSize } from "@/lib/gameSetup";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import {
     addQuestion,
@@ -28,15 +28,56 @@ import {
     shareOrCopy,
 } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import { findPlacesInZone, LOCATION_FIRST_TAG } from "@/maps/api";
 
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
+    PhotoQuestionComponent,
     RadiusQuestionComponent,
     TentacleQuestionComponent,
     ThermometerQuestionComponent,
 } from "./QuestionCards";
 import { Button } from "./ui/button";
+
+/**
+ * Fire-and-forget background prefetch of Overpass data for every -full
+ * subtype of the given category, so that committing to a specific subtype
+ * later is near-instant. Cache-only — no toast, no UI blocking, errors
+ * swallowed. Limited to the `-full` family of subtypes (museum, aquarium,
+ * zoo, etc.) because they all share the simple `[tag=value]` query shape
+ * via LOCATION_FIRST_TAG. Subtypes with bespoke queries (airport,
+ * major-city, coastline) and tentacles (radius-dependent) are skipped —
+ * adding them would require duplicating their adjustment logic and the
+ * marginal benefit is small for those one-off picks.
+ *
+ * Started already-tracked Overpass requests dedupe via the in-flight map
+ * in cacheFetch, so calling this repeatedly is safe.
+ */
+function preloadSubtypeData(
+    category: "matching" | "measuring" | "tentacles",
+    size: GameSize,
+) {
+    const subtypes = getSubtypes(category, size);
+    if (!subtypes) return;
+    for (const s of subtypes) {
+        if (!s.value.endsWith("-full")) continue;
+        const location = s.value.slice(0, -"-full".length);
+        const tag = (LOCATION_FIRST_TAG as Record<string, string | undefined>)[
+            location
+        ];
+        if (!tag) continue;
+        // No loadingText → no toast.promise wrapper; this is pure pre-fetch.
+        findPlacesInZone(
+            `[${tag}=${location}]`,
+            undefined,
+            "nwr",
+            "center",
+            [],
+            60,
+        ).catch(() => {});
+    }
+}
 
 /**
  * A single category tile in the Add Question picker.
@@ -61,23 +102,24 @@ const SubtypeTile = ({
             onClick={onClick}
             disabled={disabled}
             className={cn(
-                "flex flex-col items-center text-center gap-2 p-4 rounded-md",
-                "bg-secondary border-2 border-transparent",
+                "relative flex flex-col items-center text-center gap-2 p-4 rounded-sm",
+                "bg-secondary border border-border border-t-[5px]",
+                "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                 "hover:bg-accent hover:-translate-y-[1px] transition-all",
                 "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
-            style={{ borderColor: catMeta.color }}
+            style={{ borderTopColor: catMeta.color }}
             title={subtype.description}
         >
             <span
-                className="inline-flex items-center justify-center w-10 h-10 rounded-full shrink-0"
+                className="inline-flex items-center justify-center w-10 h-10 rounded-sm shrink-0"
                 style={{ backgroundColor: catMeta.color }}
                 aria-hidden="true"
             >
-                <Icon size={20} strokeWidth={2.2} className="text-white" />
+                <Icon size={20} strokeWidth={2.4} className="text-white" />
             </span>
-            <span className="font-poppins font-semibold text-sm leading-tight">
+            <span className="font-inter-tight font-bold text-sm leading-tight uppercase tracking-wide">
                 {subtype.label}
             </span>
         </button>
@@ -108,24 +150,25 @@ const CategoryTile = ({
             disabled={disabled}
             title={blockedReason}
             className={cn(
-                "flex flex-col gap-2 p-3 rounded-md text-left",
-                "bg-secondary border border-border border-l-[3px]",
+                "relative flex flex-col gap-2 p-3 rounded-sm text-left",
+                "bg-secondary border border-border border-t-[6px]",
+                "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                 "hover:bg-accent hover:-translate-y-[1px] transition-all",
                 "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 className,
             )}
-            style={{ borderLeftColor: meta.color }}
+            style={{ borderTopColor: meta.color }}
         >
             <div className="flex items-center gap-2">
                 <span
-                    className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
+                    className="inline-flex items-center justify-center w-7 h-7 rounded-sm shrink-0"
                     style={{ backgroundColor: meta.color }}
                     aria-hidden="true"
                 >
                     <Icon size={16} strokeWidth={2.5} className="text-white" />
                 </span>
-                <span className="font-poppins font-bold uppercase text-xs tracking-wider">
+                <span className="font-inter-tight font-black uppercase text-xs tracking-[0.12em]">
                     {meta.label}
                 </span>
             </div>
@@ -145,11 +188,12 @@ export const AddQuestionDialog = ({
     const $questions = useStore(questions);
     const $gameSize = useStore(gameSize);
     const [open, setOpen] = React.useState(false);
-    // Step 2 of the add flow: when the user picks matching/measuring/tentacles,
-    // we show a subtype picker before opening the configure dialog. Null when
+    // Step 2 of the add flow: when the user picks a category that has
+    // multiple subtypes (matching / measuring / tentacles / photo), we
+    // show a subtype picker before opening the configure dialog. Null when
     // we're either on step 1 (category picker) or past step 2 (configure).
     const [subtypePickerFor, setSubtypePickerFor] = React.useState<
-        "matching" | "measuring" | "tentacles" | null
+        "matching" | "measuring" | "tentacles" | "photo" | null
     >(null);
     // Key of the just-added question awaiting Confirm/Cancel.
     const [pendingKey, setPendingKey] = React.useState<number | null>(null);
@@ -161,23 +205,51 @@ export const AddQuestionDialog = ({
 
     // Helper: get the most recently added question's key, then promote it
     // to the "pending confirm" state and close the category picker.
+    //
+    // We close the category picker first, then open the configure dialog
+    // on the next tick. Two simultaneously-mounting Radix Dialogs confuse
+    // Radix's body scroll-lock reference counting and leave
+    // `pointer-events: none` stuck on <body> after both eventually close,
+    // silently blocking every click on the rest of the UI (e.g. the
+    // bottom-nav "Questions" button). The setTimeout gives Radix a tick
+    // to finish cleanup before the second dialog mounts.
     const promoteLastQuestion = () => {
         const list = questions.get();
         if (list.length === 0) return;
         const lastKey = list[list.length - 1].key;
-        setPendingKey(lastKey);
         setOpen(false);
+        setTimeout(() => setPendingKey(lastKey), 150);
+    };
+
+    // Safety net for a Radix UI body-lock cleanup race: Radix can leave
+    // `pointer-events: none` on <body> after a Dialog closes, silently
+    // blocking every click on the rest of the UI. We sequence the picker
+    // and configure dialogs to avoid this (see `promoteLastQuestion`), but
+    // also clear the stale inline style here at a few checkpoints in case
+    // any path is missed. Multiple poll intervals because Radix re-applies
+    // the style during its close animation.
+    const releaseBodyLock = () => {
+        const clear = () => {
+            if (document.body.style.pointerEvents === "none") {
+                document.body.style.pointerEvents = "";
+            }
+        };
+        requestAnimationFrame(clear);
+        setTimeout(clear, 200);
+        setTimeout(clear, 500);
     };
 
     const handleCancel = () => {
         if (pendingKey === null) return;
         questions.set(questions.get().filter((q) => q.key !== pendingKey));
         setPendingKey(null);
+        releaseBodyLock();
     };
 
     const handleConfirm = async () => {
         if (!pendingQuestion) {
             setPendingKey(null);
+            releaseBodyLock();
             return;
         }
         // Snapshot the question before closing — pendingQuestion will become
@@ -185,6 +257,7 @@ export const AddQuestionDialog = ({
         const q = pendingQuestion;
         const meta = CATEGORIES[q.id as CategoryId];
         setPendingKey(null);
+        releaseBodyLock();
 
         // Auto-share the question with hiders. The OS share sheet opens
         // synchronously off the user gesture; if the user dismisses it, the
@@ -201,10 +274,11 @@ export const AddQuestionDialog = ({
                 "Question added. Link copied — sharing isn't supported in this browser.",
                 { autoClose: 2500 },
             );
-        } else if (result.method === "failed") {
-            toast.error("Question added, but sharing failed");
         }
-        // "share" and "cancelled" → silent (success / user dismiss)
+        // "share", "cancelled", "failed" → silent. The question is added
+        // regardless; if the OS share sheet didn't work (no Share API and no
+        // Clipboard API — e.g. dev iframes), the user can still share later
+        // via the per-question share button. Don't alarm them on add.
     };
 
     const runAddRadius = () => {
@@ -321,6 +395,23 @@ export const AddQuestionDialog = ({
         return true;
     };
 
+    /**
+     * Photo questions don't need a map location — the photo IS the answer.
+     * We just create the question with the chosen subtype and drag:true
+     * (awaiting answer). The hider will eventually attach a photo (or the
+     * seeker will mark answered manually if the photo came via SMS).
+     */
+    const runAddPhoto = (subtype?: string) => {
+        addQuestion({
+            id: "photo",
+            data: {
+                type: subtype ?? "tree",
+                createdAt: Date.now(),
+            },
+        });
+        return true;
+    };
+
     const runPasteQuestion = async () => {
         if (!navigator || !navigator.clipboard) {
             toast.error("Clipboard API not supported in your browser");
@@ -363,15 +454,15 @@ export const AddQuestionDialog = ({
                 <DialogDescription>Pick a category.</DialogDescription>
 
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {/* Rule book: cannot ask two consecutive questions of the
-                        same category. Disable whichever category was last so
-                        the seeker can't accidentally violate the rule. */}
                     {(() => {
-                        const lastCat = $questions[$questions.length - 1]?.id;
-                        const isBlocked = (c: string) => c === lastCat;
-                        // Rulebook: only one thermometer can be in progress
-                        // at a time. If any started thermometer exists, the
-                        // thermometer tile is blocked until it's finished.
+                        // Rulebook (p38): "Tentacle questions cannot be used
+                        // in SMALL games." This is the only category-level
+                        // size restriction in the book.
+                        const tentacleBlockedSize = $gameSize === "small";
+                        // Rulebook implicitly: only one thermometer can be in
+                        // progress at a time, since a thermometer is one
+                        // start point + one end point per question. If a
+                        // started thermometer exists, block adding another.
                         const thermInProgress = $questions.some(
                             (q) =>
                                 q.id === "thermometer" &&
@@ -382,57 +473,41 @@ export const AddQuestionDialog = ({
                             <>
                                 <CategoryTile
                                     category="matching"
-                                    description="Is something the same as us?"
+                                    description="Is your nearest ___ the same as mine?"
                                     onClick={() => {
+                                        preloadSubtypeData(
+                                            "matching",
+                                            $gameSize,
+                                        );
                                         setSubtypePickerFor("matching");
                                     }}
-                                    disabled={
-                                        $isLoading || isBlocked("matching")
-                                    }
-                                    blockedReason={
-                                        isBlocked("matching")
-                                            ? "Last question was matching — can't ask the same category twice in a row"
-                                            : undefined
-                                    }
+                                    disabled={$isLoading}
                                 />
                                 <CategoryTile
                                     category="measuring"
-                                    description="Closer or further than us?"
+                                    description="Are you closer or further to ___ than me?"
                                     onClick={() => {
+                                        preloadSubtypeData(
+                                            "measuring",
+                                            $gameSize,
+                                        );
                                         setSubtypePickerFor("measuring");
                                     }}
-                                    disabled={
-                                        $isLoading || isBlocked("measuring")
-                                    }
-                                    blockedReason={
-                                        isBlocked("measuring")
-                                            ? "Last question was measuring — can't ask the same category twice in a row"
-                                            : undefined
-                                    }
+                                    disabled={$isLoading}
                                 />
                                 <CategoryTile
                                     category="radius"
-                                    description="Within distance of us?"
+                                    description="Are you within ___ of me?"
                                     onClick={() => {
                                         if (runAddRadius())
                                             promoteLastQuestion();
                                     }}
-                                    disabled={
-                                        $isLoading || isBlocked("radius")
-                                    }
-                                    blockedReason={
-                                        isBlocked("radius")
-                                            ? "Last question was radius — can't ask the same category twice in a row"
-                                            : undefined
-                                    }
+                                    disabled={$isLoading}
                                 />
                                 <CategoryTile
                                     category="thermometer"
-                                    description="Start now, finish after moving."
+                                    description="After traveling ___, am I hotter or colder?"
                                     onClick={() => {
-                                        // Thermometer goes straight into
-                                        // "started" state — no configure
-                                        // dialog. Just close the picker.
                                         if (runAddThermometer()) {
                                             setOpen(false);
                                             toast.info(
@@ -441,34 +516,39 @@ export const AddQuestionDialog = ({
                                             );
                                         }
                                     }}
-                                    disabled={
-                                        $isLoading ||
-                                        isBlocked("thermometer") ||
-                                        thermInProgress
-                                    }
+                                    disabled={$isLoading || thermInProgress}
                                     blockedReason={
                                         thermInProgress
                                             ? "A thermometer is already in progress — finish it before starting another"
-                                            : isBlocked("thermometer")
-                                              ? "Last question was thermometer — can't ask the same category twice in a row"
-                                              : undefined
+                                            : undefined
                                     }
                                 />
                                 <CategoryTile
-                                    category="tentacles"
-                                    description="Nearest place of a type within range."
+                                    category="photo"
+                                    description="Send me a photo of ___."
                                     onClick={() => {
+                                        setSubtypePickerFor("photo");
+                                    }}
+                                    disabled={$isLoading}
+                                />
+                                <CategoryTile
+                                    category="tentacles"
+                                    description="Within ___ km of me, which ___ are you nearest to?"
+                                    onClick={() => {
+                                        preloadSubtypeData(
+                                            "tentacles",
+                                            $gameSize,
+                                        );
                                         setSubtypePickerFor("tentacles");
                                     }}
                                     disabled={
-                                        $isLoading || isBlocked("tentacles")
+                                        $isLoading || tentacleBlockedSize
                                     }
                                     blockedReason={
-                                        isBlocked("tentacles")
-                                            ? "Last question was tentacles — can't ask the same category twice in a row"
+                                        tentacleBlockedSize
+                                            ? "Tentacle questions aren't used in Small games (rulebook p38)."
                                             : undefined
                                     }
-                                    className="sm:col-span-2"
                                 />
                             </>
                         );
@@ -496,6 +576,22 @@ export const AddQuestionDialog = ({
                         Paste from clipboard
                     </span>
                 </button>
+
+                {/* House rules reminders — rulebook p13. Google Street View
+                    is banned (too powerful for photo matches and station
+                    verification); questions must be asked one at a time. */}
+                <div className="mt-3 pt-3 border-t border-border text-[11px] leading-snug text-muted-foreground space-y-0.5">
+                    <div>
+                        <span className="font-semibold text-foreground">
+                            No Google Street View
+                        </span>{" "}
+                        — the only banned research tool.
+                    </div>
+                    <div>
+                        One question at a time — wait for the hider's
+                        answer before asking the next.
+                    </div>
+                </div>
             </DialogContent>
             </Dialog>
 
@@ -522,6 +618,20 @@ export const AddQuestionDialog = ({
                                 subtypePickerFor,
                                 $gameSize,
                             );
+                            // Rulebook-template description for this category.
+                            // Lives here (subdialog header) rather than on the
+                            // small category tiles so the grid stays clean.
+                            const templateByCategory: Record<string, string> = {
+                                matching:
+                                    "Is your nearest ___ the same as mine?",
+                                measuring:
+                                    "Are you closer or further to ___ than me?",
+                                tentacles:
+                                    "Within ___ km of me, which ___ are you nearest to?",
+                                photo: "Send me a photo of ___.",
+                            };
+                            const template =
+                                templateByCategory[subtypePickerFor];
                             return (
                                 <>
                                     <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
@@ -539,12 +649,11 @@ export const AddQuestionDialog = ({
                                                     className="text-white"
                                                 />
                                             </span>
-                                            Pick a {meta.label.toLowerCase()}{" "}
-                                            type
+                                            {meta.label}
                                         </DialogTitle>
                                         <DialogDescription>
-                                            You can change this later in the
-                                            configure dialog.
+                                            {template ??
+                                                `Pick a ${meta.label.toLowerCase()} type.`}
                                         </DialogDescription>
                                     </div>
                                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
@@ -584,6 +693,12 @@ export const AddQuestionDialog = ({
                                                                 runAddTentacles(
                                                                     subtype.value,
                                                                 );
+                                                        else if (
+                                                            cat === "photo"
+                                                        )
+                                                            ok = runAddPhoto(
+                                                                subtype.value,
+                                                            );
                                                         if (ok) {
                                                             setSubtypePickerFor(
                                                                 null,
@@ -661,6 +776,15 @@ export const AddQuestionDialog = ({
                                     case "measuring":
                                         return (
                                             <MeasuringQuestionComponent
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                forceExpanded
+                                                compactAnswer
+                                            />
+                                        );
+                                    case "photo":
+                                        return (
+                                            <PhotoQuestionComponent
                                                 data={q.data}
                                                 questionKey={q.key}
                                                 forceExpanded

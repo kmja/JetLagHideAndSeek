@@ -1,16 +1,29 @@
 import {
+    Building,
     Building2,
+    Camera,
+    ChevronsLeftRightEllipsis,
+    Church,
+    Cloud,
     Film,
     Fish,
     Flag,
+    Footprints,
     Hospital,
     Landmark,
     Library,
+    Map as MapLucide,
     Mountain,
     Plane,
     Rocket,
+    Route,
+    ShoppingBasket,
     TentTree,
+    TrainTrack,
+    TreePine,
     Trees,
+    User,
+    Utensils,
     Waves,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -34,8 +47,11 @@ export interface SubtypeMeta {
 const ALL: GameSize[] = ["small", "medium", "large"];
 const SM: GameSize[] = ["small", "medium"];
 
+const ML: GameSize[] = ["medium", "large"];
+const L: GameSize[] = ["large"];
+
 export const SUBTYPES: Record<
-    "matching" | "measuring" | "tentacles",
+    "matching" | "measuring" | "tentacles" | "photo",
     SubtypeMeta[]
 > = {
     matching: [
@@ -71,6 +87,30 @@ export const SUBTYPES: Record<
         { value: "park", label: "Park", icon: Trees, description: "Closest park within range.", validSizes: ALL },
         { value: "peak", label: "Mountain", icon: Mountain, description: "Closest peak within range.", validSizes: ALL },
     ],
+    /* Photo subtypes — rulebook pp32–35. Validity scales with game size:
+     *   S/M/L  — base set (building visible, widest street, tree, sky, you, tallest in sightline)
+     *   M/L    — adds tallest building from station, traced street, 2 buildings, restaurant interior, etc.
+     *   L only — adds 1km traced streets, tallest mountain, biggest body of water, 5 buildings */
+    photo: [
+        { value: "any-building-from-station", label: "Any building from station", icon: Building2, description: "A building visible from a transit station entrance.", validSizes: ALL },
+        { value: "widest-street", label: "Widest street", icon: ChevronsLeftRightEllipsis, description: "Both sides of the street; background can be anything.", validSizes: ALL },
+        { value: "tree", label: "Tree", icon: TreePine, description: "Must include the entire tree.", validSizes: ALL },
+        { value: "tallest-in-sightline", label: "Tallest in sightline", icon: Building, description: "Tallest building from your current perspective.", validSizes: ALL },
+        { value: "selfie", label: "You", icon: User, description: "Selfie mode, default lens, arm fully extended.", validSizes: ALL },
+        { value: "sky", label: "The sky", icon: Cloud, description: "Phone on ground, shoot directly up.", validSizes: ALL },
+        { value: "tallest-building-from-station", label: "Tallest building from station", icon: Building, description: "Tallest building from your transit station's perspective.", validSizes: ML },
+        { value: "trace-nearest-street", label: "Trace nearest street", icon: Route, description: "Sketch the nearest intersection on the map app.", validSizes: ML },
+        { value: "two-buildings", label: "2 buildings", icon: Building2, description: "Both buildings bottom-to-roof, up to four stories.", validSizes: ML },
+        { value: "restaurant-interior", label: "Restaurant interior", icon: Utensils, description: "Shot from outside through the window.", validSizes: ML },
+        { value: "park", label: "Park", icon: Trees, description: "Phone perpendicular to ground, 2m from any obstruction.", validSizes: ML },
+        { value: "grocery-aisle", label: "Grocery store aisle", icon: ShoppingBasket, description: "Stand at the end of the aisle, shoot down.", validSizes: ML },
+        { value: "place-of-worship", label: "Place of worship", icon: Church, description: "2m × 2m section with three distinct elements.", validSizes: ML },
+        { value: "train-platform", label: "Train platform", icon: TrainTrack, description: "2m × 2m section with three distinct elements.", validSizes: ML },
+        { value: "1km-streets-traced", label: "1 km of streets traced", icon: MapLucide, description: "Continuous trace, 5 turns, no doubling back.", validSizes: L },
+        { value: "tallest-mountain-from-station", label: "Tallest mountain from station", icon: Mountain, description: "Tallest mountain from your station's sightline.", validSizes: L },
+        { value: "biggest-water-in-zone", label: "Biggest body of water in your zone", icon: Waves, description: "Both sides of the water or the horizon must be visible.", validSizes: L },
+        { value: "five-buildings", label: "5 buildings", icon: Building2, description: "All five buildings bottom-to-roof, up to four stories.", validSizes: L },
+    ],
 };
 
 /**
@@ -84,7 +124,8 @@ export function getSubtypes(
     if (
         categoryId === "matching" ||
         categoryId === "measuring" ||
-        categoryId === "tentacles"
+        categoryId === "tentacles" ||
+        categoryId === "photo"
     ) {
         return SUBTYPES[categoryId].filter((s) => s.validSizes.includes(size));
     }

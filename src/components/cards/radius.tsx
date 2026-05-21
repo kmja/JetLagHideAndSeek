@@ -70,7 +70,7 @@ export const RadiusQuestionComponent = ({
     const $hiderMode = useStore(hiderMode);
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
-    const label = `Radius
+    const label = `Radar
     ${
         $questions
             .filter((q) => q.id === "radius")
@@ -80,7 +80,9 @@ export const RadiusQuestionComponent = ({
 
     const unitAbbrev =
         data.unit === "miles" ? "mi" : data.unit === "meters" ? "m" : "km";
-    const summary = `${data.radius} ${unitAbbrev} · ${data.within ? "Inside" : "Outside"}`;
+    const summary = data.drag
+        ? `${data.radius} ${unitAbbrev} · awaiting answer`
+        : `${data.radius} ${unitAbbrev} · ${data.within ? "Inside" : "Outside"}`;
 
     return (
         <QuestionCard
@@ -333,6 +335,16 @@ export const RadiusQuestionComponent = ({
                     questionModified();
                 }}
                 disabled={!data.drag || $isLoading}
+                // Pass the current radius (converted to meters) so the
+                // inline picker draws a preview circle while the user
+                // positions the pin.
+                radiusMeters={
+                    data.unit === "meters"
+                        ? data.radius
+                        : data.unit === "miles"
+                          ? data.radius * 1609.344
+                          : data.radius * 1000
+                }
             />
             <ManualAnswerDisclosure compact={compactAnswer}>
                 <div className="flex gap-2 items-center p-2">
@@ -347,13 +359,25 @@ export const RadiusQuestionComponent = ({
                     <ToggleGroup
                         className="grow"
                         type="single"
-                        value={data.within ? "inside" : "outside"}
-                        onValueChange={(value: "inside" | "outside") =>
-                            questionModified(
-                                (data.within = value === "inside"),
-                            )
+                        // Show no preselected answer while the question is
+                        // still a draft (`drag: true`). Once the user picks
+                        // Inside/Outside we both record the answer AND
+                        // commit the question (drag:false) — this single
+                        // tap is the seeker's "the hider says ..." action.
+                        value={
+                            data.drag
+                                ? ""
+                                : data.within
+                                  ? "inside"
+                                  : "outside"
                         }
-                        disabled={!!$hiderMode || !data.drag || $isLoading}
+                        onValueChange={(value: "inside" | "outside") => {
+                            if (!value) return;
+                            data.within = value === "inside";
+                            data.drag = false;
+                            questionModified();
+                        }}
+                        disabled={!!$hiderMode || $isLoading}
                     >
                         <ToggleGroupItem value="outside">
                             Outside

@@ -205,7 +205,11 @@ export const MatchingQuestionComponent = ({
             label={label}
             sub={sub}
             category="matching"
-            summary={`${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.same ? "Match" : "No match"}`}
+            summary={
+                data.drag
+                    ? `${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · awaiting answer`
+                    : `${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.same ? "Match" : "No match"}`
+            }
             createdAt={data.createdAt}
             className={className}
             forceExpanded={forceExpanded}
@@ -476,21 +480,19 @@ export const MatchingQuestionComponent = ({
                                     value === "shorter" ||
                                     value === "longer"
                                 ) {
-                                    questionModified(
-                                        (data.lengthComparison = value),
-                                    );
+                                    data.lengthComparison = value;
                                 } else if (value === "same") {
-                                    questionModified(
-                                        (data.lengthComparison = "same"),
-                                    );
-                                    questionModified((data.same = true));
+                                    data.lengthComparison = "same";
+                                    data.same = true;
                                 } else if (value === "different") {
-                                    questionModified((data.same = false));
+                                    data.same = false;
+                                } else {
+                                    return;
                                 }
+                                data.drag = false;
+                                questionModified();
                             }}
-                            disabled={
-                                !!$hiderMode || !data.drag || $isLoading
-                            }
+                            disabled={!!$hiderMode || $isLoading}
                         >
                             <ToggleGroupItem value="shorter">
                                 Shorter
@@ -504,17 +506,25 @@ export const MatchingQuestionComponent = ({
                         <ToggleGroup
                             className="grow"
                             type="single"
-                            value={data.same ? "same" : "different"}
+                            value={
+                                data.drag
+                                    ? ""
+                                    : data.same
+                                      ? "same"
+                                      : "different"
+                            }
                             onValueChange={(value) => {
                                 if (value === "same") {
-                                    questionModified((data.same = true));
+                                    data.same = true;
                                 } else if (value === "different") {
-                                    questionModified((data.same = false));
+                                    data.same = false;
+                                } else {
+                                    return;
                                 }
+                                data.drag = false;
+                                questionModified();
                             }}
-                            disabled={
-                                !!$hiderMode || !data.drag || $isLoading
-                            }
+                            disabled={!!$hiderMode || $isLoading}
                         >
                             <ToggleGroupItem value="different">
                                 Different

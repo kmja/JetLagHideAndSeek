@@ -55,9 +55,10 @@ const ColoredMarker = ({
     const matchedQuestion = $questions.find((q) => q.key === questionKey);
     const category = matchedQuestion?.id as CategoryId | undefined;
 
+    const pending = Boolean(matchedQuestion?.data?.drag);
     const icon = category
         ? new DivIcon({
-              html: buildMarkerHtml(category),
+              html: buildMarkerHtml(category, pending),
               className: "jl-marker",
               iconSize: [34, 46],
               iconAnchor: [17, 43],

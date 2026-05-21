@@ -151,7 +151,11 @@ export const MeasuringQuestionComponent = ({
             label={label}
             sub={sub}
             category="measuring"
-            summary={`${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.hiderCloser ? "Closer" : "Further"}`}
+            summary={
+                data.drag
+                    ? `${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · awaiting answer`
+                    : `${(data.type.charAt(0).toUpperCase() + data.type.slice(1)).replace(/-/g, " ")} · ${data.hiderCloser ? "Closer" : "Further"}`
+            }
             createdAt={data.createdAt}
             className={className}
             forceExpanded={forceExpanded}
@@ -325,13 +329,20 @@ export const MeasuringQuestionComponent = ({
                     <ToggleGroup
                         className="grow"
                         type="single"
-                        value={data.hiderCloser ? "closer" : "further"}
-                        onValueChange={(value: "closer" | "further") =>
-                            questionModified(
-                                (data.hiderCloser = value === "closer"),
-                            )
+                        value={
+                            data.drag
+                                ? ""
+                                : data.hiderCloser
+                                  ? "closer"
+                                  : "further"
                         }
-                        disabled={!!$hiderMode || !data.drag || $isLoading}
+                        onValueChange={(value: "closer" | "further") => {
+                            if (!value) return;
+                            data.hiderCloser = value === "closer";
+                            data.drag = false;
+                            questionModified();
+                        }}
+                        disabled={!!$hiderMode || $isLoading}
                     >
                         <ToggleGroupItem value="further">
                             Hider Further

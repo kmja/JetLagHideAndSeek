@@ -22,13 +22,16 @@ import type { ThermometerQuestion } from "@/maps/schema";
 import { ManualAnswerDisclosure, QuestionCard } from "./base";
 
 /**
- * Thermometer presets. Per the rulebook, a thermometer is committed at one
- * of a fixed set of distances. We track which presets have been used
- * across all *finished* thermometer questions in this game so each
- * preset can only be picked once.
+ * Thermometer presets. Per the rulebook (p30):
+ *   - Small games: 1 km, 5 km
+ *   - Medium + Large: +15 km
+ *   - Large only: +75 km
  *
- * `sig` is the signature stored in the question's `distance` field — used
- * to test uniqueness without ambiguity from unit conversion.
+ * We retain 500m / 2km / 10km as house presets for backward compatibility
+ * with previously saved games, but they aren't in the official deck.
+ *
+ * Each preset is committed at most once per game; `sig` is the signature
+ * stored on the question's `distance` field for uniqueness checks.
  */
 const THERMOMETER_PRESETS: { km: number; label: string; sig: string }[] = [
     { km: 0.5, label: "500m", sig: "500m" },
@@ -36,6 +39,8 @@ const THERMOMETER_PRESETS: { km: number; label: string; sig: string }[] = [
     { km: 2, label: "2km", sig: "2km" },
     { km: 5, label: "5km", sig: "5km" },
     { km: 10, label: "10km", sig: "10km" },
+    { km: 15, label: "15km", sig: "15km" },
+    { km: 75, label: "75km", sig: "75km" },
 ];
 
 export const ThermometerQuestionComponent = ({
@@ -155,8 +160,12 @@ export const ThermometerQuestionComponent = ({
               : "Miles";
 
     const summary = data.distance
-        ? `${data.distance} · ${data.warmer ? "Warmer" : "Colder"}`
-        : `${data.warmer ? "Warmer" : "Colder"} after move`;
+        ? data.drag
+            ? `${data.distance} · awaiting answer`
+            : `${data.distance} · ${data.warmer ? "Warmer" : "Colder"}`
+        : data.drag
+          ? "awaiting answer after move"
+          : `${data.warmer ? "Warmer" : "Colder"} after move`;
 
     return (
         <QuestionCard
@@ -242,13 +251,20 @@ export const ThermometerQuestionComponent = ({
                     <ToggleGroup
                         className="grow"
                         type="single"
-                        value={data.warmer ? "warmer" : "colder"}
-                        onValueChange={(value: "warmer" | "colder") =>
-                            questionModified(
-                                (data.warmer = value === "warmer"),
-                            )
+                        value={
+                            data.drag
+                                ? ""
+                                : data.warmer
+                                  ? "warmer"
+                                  : "colder"
                         }
-                        disabled={!!$hiderMode || !data.drag || $isLoading}
+                        onValueChange={(value: "warmer" | "colder") => {
+                            if (!value) return;
+                            data.warmer = value === "warmer";
+                            data.drag = false;
+                            questionModified();
+                        }}
+                        disabled={!!$hiderMode || $isLoading}
                     >
                         <ToggleGroupItem color="red" value="colder">
                             Colder

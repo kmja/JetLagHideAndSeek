@@ -79,7 +79,12 @@ export const TentacleQuestionComponent = ({
             label={label}
             sub={sub}
             category="tentacles"
-            summary={(data.locationType.charAt(0).toUpperCase() + data.locationType.slice(1)).replace(/-/g, " ")}
+            summary={
+                data.drag
+                    ? `${(data.locationType.charAt(0).toUpperCase() + data.locationType.slice(1)).replace(/-/g, " ")} · awaiting answer`
+                    : (data.locationType.charAt(0).toUpperCase() +
+                          data.locationType.slice(1)).replace(/-/g, " ")
+            }
             createdAt={data.createdAt}
             className={className}
             forceExpanded={forceExpanded}
@@ -346,7 +351,9 @@ const TentacleLocationSelector = ({
                         (feature: any) => feature.properties.name === value,
                     );
                 }
-
+                // Picking a location is the hider's answer — commit so the
+                // map applies the resulting elimination.
+                data.drag = false;
                 questionModified();
             }}
             disabled={!!$hiderMode || disabled}

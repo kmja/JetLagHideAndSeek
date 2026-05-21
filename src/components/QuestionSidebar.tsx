@@ -1,12 +1,13 @@
 import { useStore } from "@nanostores/react";
-import { Plus, SidebarCloseIcon } from "lucide-react";
+import { Plus } from "lucide-react";
+import { Drawer as VaulDrawer } from "vaul";
 
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 import {
     Sidebar,
     SidebarContent,
-    SidebarContext,
     SidebarGroup,
     SidebarGroupContent,
     SidebarMenu,
@@ -17,6 +18,7 @@ import {
     autoSave,
     isLoading,
     questions,
+    questionsDrawerOpen,
     save,
     triggerLocalRefresh,
 } from "@/lib/context";
@@ -25,6 +27,7 @@ import { AddQuestionDialog } from "./AddQuestionDialog";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
+    PhotoQuestionComponent,
     RadiusQuestionComponent,
     TentacleQuestionComponent,
     ThermometerQuestionComponent,
@@ -35,105 +38,117 @@ export const QuestionSidebar = () => {
     const $questions = useStore(questions);
     const $autoSave = useStore(autoSave);
     const $isLoading = useStore(isLoading);
+    const $mobileOpen = useStore(questionsDrawerOpen);
 
-    return (
-        <Sidebar>
-            <div className="flex items-center justify-between">
-                <h2 className="ml-4 mt-4 font-poppins text-2xl">Questions</h2>
-                <SidebarCloseIcon
-                    className="mr-2 visible md:hidden"
-                    onClick={() => {
-                        SidebarContext.get().setOpenMobile(false);
-                    }}
-                />
-            </div>
+    // Newest-first display order. The store keeps questions in insertion
+    // order so we don't mutate it — just iterate in reverse for the UI.
+    const questionsNewestFirst = [...$questions].reverse();
+    // Rulebook p13: one question at a time. Block the in-drawer NEW
+    // QUESTION button as well while any draft (drag:true) is outstanding.
+    const hasPendingAnswer = $questions.some((q) => q.data.drag === true);
+
+    const renderQuestion = (question: (typeof $questions)[number]) => {
+        switch (question.id) {
+            case "radius":
+                return (
+                    <RadiusQuestionComponent
+                        data={question.data}
+                        key={question.key}
+                        questionKey={question.key}
+                    />
+                );
+            case "thermometer":
+                return (
+                    <ThermometerQuestionComponent
+                        data={question.data}
+                        key={question.key}
+                        questionKey={question.key}
+                    />
+                );
+            case "tentacles":
+                return (
+                    <TentacleQuestionComponent
+                        data={question.data}
+                        key={question.key}
+                        questionKey={question.key}
+                    />
+                );
+            case "matching":
+                return (
+                    <MatchingQuestionComponent
+                        data={question.data}
+                        key={question.key}
+                        questionKey={question.key}
+                    />
+                );
+            case "measuring":
+                return (
+                    <MeasuringQuestionComponent
+                        data={question.data}
+                        key={question.key}
+                        questionKey={question.key}
+                    />
+                );
+            case "photo":
+                return (
+                    <PhotoQuestionComponent
+                        data={question.data}
+                        key={question.key}
+                        questionKey={question.key}
+                    />
+                );
+            default:
+                return null;
+        }
+    };
+
+    const innerContent = (
+        <>
+            <h2 className="ml-4 mt-4 font-poppins text-2xl">Questions</h2>
             <SidebarContent>
-                {$questions.map((question) => {
-                    switch (question.id) {
-                        case "radius":
-                            return (
-                                <RadiusQuestionComponent
-                                    data={question.data}
-                                    key={question.key}
-                                    questionKey={question.key}
-                                />
-                            );
-                        case "thermometer":
-                            return (
-                                <ThermometerQuestionComponent
-                                    data={question.data}
-                                    key={question.key}
-                                    questionKey={question.key}
-                                />
-                            );
-                        case "tentacles":
-                            return (
-                                <TentacleQuestionComponent
-                                    data={question.data}
-                                    key={question.key}
-                                    questionKey={question.key}
-                                />
-                            );
-                        case "matching":
-                            return (
-                                <MatchingQuestionComponent
-                                    data={question.data}
-                                    key={question.key}
-                                    questionKey={question.key}
-                                />
-                            );
-                        case "measuring":
-                            return (
-                                <MeasuringQuestionComponent
-                                    data={question.data}
-                                    key={question.key}
-                                    questionKey={question.key}
-                                />
-                            );
-                        default:
-                            return null;
-                    }
-                })}
+                <SidebarGroup>
+                    <SidebarGroupContent>
+                        <SidebarMenu data-tutorial-id="add-questions-buttons">
+                            <SidebarMenuItem>
+                                <AddQuestionDialog>
+                                    <button
+                                        type="button"
+                                        disabled={
+                                            $isLoading || hasPendingAnswer
+                                        }
+                                        title={
+                                            hasPendingAnswer
+                                                ? "Waiting for the hider to answer your previous question"
+                                                : undefined
+                                        }
+                                        className={cn(
+                                            "w-full flex items-center justify-center gap-2",
+                                            "py-3 px-4 rounded-md",
+                                            "bg-primary text-primary-foreground",
+                                            "hover:bg-primary/90 active:bg-primary/80",
+                                            "font-poppins font-bold uppercase tracking-wider text-xs",
+                                            "transition-colors",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                            "disabled:opacity-50 disabled:cursor-not-allowed",
+                                        )}
+                                    >
+                                        <Plus
+                                            className="w-4 h-4"
+                                            strokeWidth={2.5}
+                                        />
+                                        New question
+                                    </button>
+                                </AddQuestionDialog>
+                            </SidebarMenuItem>
+                        </SidebarMenu>
+                    </SidebarGroupContent>
+                </SidebarGroup>
+                {questionsNewestFirst.map(renderQuestion)}
             </SidebarContent>
-            <SidebarGroup>
-                <SidebarGroupContent>
-                    <SidebarMenu data-tutorial-id="add-questions-buttons">
-                        <SidebarMenuItem>
-                            <AddQuestionDialog>
-                                <button
-                                    type="button"
-                                    disabled={$isLoading}
-                                    className={cn(
-                                        "w-full flex items-center justify-center gap-2",
-                                        "py-3 px-4 rounded-md",
-                                        "bg-primary text-primary-foreground",
-                                        "hover:bg-primary/90 active:bg-primary/80",
-                                        "font-poppins font-bold uppercase tracking-wider text-xs",
-                                        "transition-colors",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                        "disabled:opacity-50 disabled:cursor-not-allowed",
-                                    )}
-                                >
-                                    <Plus
-                                        className="w-4 h-4"
-                                        strokeWidth={2.5}
-                                    />
-                                    New question
-                                </button>
-                            </AddQuestionDialog>
-                        </SidebarMenuItem>
-                        <SidebarMenuItem>
-                            <a
-                                href="https://github.com/taibeled/JetLagHideAndSeek"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                <SidebarMenuButton className="bg-emerald-600 transition-colors">
-                                    Star this on GitHub! It&apos;s free :)
-                                </SidebarMenuButton>
-                            </a>
-                        </SidebarMenuItem>
-                        {!$autoSave && (
+            {!$autoSave && (
+                <SidebarGroup>
+                    <SidebarGroupContent>
+                        <SidebarMenu>
                             <SidebarMenuItem>
                                 <SidebarMenuButton
                                     className="bg-blue-600 p-2 rounded-md font-semibold font-poppins transition-shadow duration-500"
@@ -143,10 +158,42 @@ export const QuestionSidebar = () => {
                                     Save
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
-                        )}
-                    </SidebarMenu>
-                </SidebarGroupContent>
-            </SidebarGroup>
-        </Sidebar>
+                        </SidebarMenu>
+                    </SidebarGroupContent>
+                </SidebarGroup>
+            )}
+        </>
     );
+
+    const isMobile = useIsMobile();
+
+    // Mobile: dedicated drawer controlled by our own atom. The upstream
+    // Sidebar's own mobile branch uses an internal atom that doesn't cross
+    // Astro island boundaries — see questionsDrawerOpen in src/lib/context.ts.
+    if (isMobile) {
+        return (
+            <VaulDrawer.Root
+                open={$mobileOpen}
+                onOpenChange={(o) => questionsDrawerOpen.set(o)}
+                shouldScaleBackground={false}
+            >
+                <VaulDrawer.Portal>
+                    <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
+                    <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex h-auto max-h-[80vh] flex-col rounded-t-[10px] border bg-sidebar text-sidebar-foreground">
+                        <VaulDrawer.Title className="sr-only">
+                            Questions
+                        </VaulDrawer.Title>
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                        <div className="flex flex-col w-full overflow-y-auto">
+                            {innerContent}
+                        </div>
+                    </VaulDrawer.Content>
+                </VaulDrawer.Portal>
+            </VaulDrawer.Root>
+        );
+    }
+
+    // Desktop: existing collapsible sidebar (toggled by SidebarTriggerL in
+    // the top-left).
+    return <Sidebar>{innerContent}</Sidebar>;
 };

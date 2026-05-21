@@ -430,6 +430,35 @@ export const measuringQuestionSchema = z.union([
     homeGameMeasuringQuestionsSchema.describe("Hiding Zone Mode"),
 ]);
 
+/**
+ * Photo questions (rulebook p32–35) — "Send me a photo of ___".
+ *
+ * Photo subtype values match the rulebook's prompts. Validity per game
+ * size is enforced via `src/lib/subtypes.ts`, not here, so older saved
+ * questions of any subtype keep parsing.
+ *
+ * Photos are informational only — they don't trigger any map elimination
+ * (see `adjustMapGeoDataForQuestion`, where unknown ids fall through to
+ * a no-op `return mapGeoData`). The photo itself rides as an optional
+ * base64 data URI on the question record; sharing the photo out-of-band
+ * is also supported (the seeker can flip the question to "answered"
+ * without attaching, e.g. when they receive the photo via SMS).
+ */
+const photoQuestionSchema = z.object({
+    /** Photo subtype — what the seeker asked for ("tree", "selfie", etc.). */
+    type: z.string().default("tree"),
+    /** Base64 data URI of the hider's reply photo. Empty when unanswered. */
+    photoUri: z.string().optional(),
+    /** Optional note the hider left alongside the photo. */
+    note: z.string().optional(),
+    /** Question lifecycle — same semantics as the other categories. */
+    drag: z.boolean().default(true),
+    collapsed: z.boolean().default(true),
+    color: iconColorSchema.default(randomColor),
+    /** Unix ms timestamp of when this question was created. */
+    createdAt: z.number().optional(),
+});
+
 export const questionSchema = z.union([
     z.object({
         id: z.literal("radius"),
@@ -456,6 +485,11 @@ export const questionSchema = z.union([
         key: z.number().default(Math.random),
         data: matchingQuestionSchema,
     }),
+    z.object({
+        id: z.literal("photo"),
+        key: z.number().default(Math.random),
+        data: photoQuestionSchema,
+    }),
 ]);
 
 export const questionsSchema = z.array(questionSchema);
@@ -480,6 +514,7 @@ export type MeasuringQuestion = z.infer<typeof measuringQuestionSchema>;
 export type HomeGameMeasuringQuestions = z.infer<
     typeof homeGameMeasuringQuestionsSchema
 >;
+export type PhotoQuestion = z.infer<typeof photoQuestionSchema>;
 export type Question = z.infer<typeof questionSchema>;
 export type Questions = z.infer<typeof questionsSchema>;
 export type DeepPartial<T> = {
