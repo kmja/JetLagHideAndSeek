@@ -87,7 +87,11 @@ const innateArcBuffer = async (
         {
             union: true,
             unit: unit,
-            maxDeviation: turf.convertLength(3, "feet", unit),
+            // Tight tolerance keeps small radii (e.g. a 500m radar circle)
+            // visibly smooth at high zoom. The math: segments ≈ π / √(2·d/r);
+            // at r=500m, d=0.15m → ~180 segments — looks like a true circle.
+            // At r=160km, ~3300 segments — still trivial for the renderer.
+            maxDeviation: turf.convertLength(0.5, "feet", unit),
         },
     );
 

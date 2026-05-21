@@ -279,7 +279,9 @@ export const ZoneSidebar = () => {
                         // realistic zoom; default is 64, was explicitly
                         // lowered to 32 here which produced visible
                         // facets at the 500m/1km hiding-zone scale.
-                        steps: 96,
+                        // 256 segments → at any practical zoom each segment is well under a
+// pixel for a 500m–1km radius, indistinguishable from a true circle.
+steps: 256,
                         units: $hidingRadiusUnits,
                         properties: place,
                     });
@@ -1310,7 +1312,7 @@ async function selectionProcess(
                     turf.circle(
                         turf.getCoord(x),
                         nearestQuestion.properties.distanceToPoint,
-                        { steps: 96 },
+                        { steps: 256 },
                     ),
                 );
 
@@ -1357,7 +1359,9 @@ async function selectionProcess(
                 )
                 .map((x) =>
                     turf.circle(x.properties.geometry, distance, {
-                        steps: 96,
+                        // 256 segments → at any practical zoom each segment is well under a
+// pixel for a 500m–1km radius, indistinguishable from a true circle.
+steps: 256,
                     }),
                 );
 
@@ -1403,7 +1407,9 @@ async function selectionProcess(
             const circles = filtered.map((x) =>
                 turf.circle(x as any, distance, {
                     units: "miles",
-                    steps: 96,
+                    // 256 segments → at any practical zoom each segment is well under a
+// pixel for a 500m–1km radius, indistinguishable from a true circle.
+steps: 256,
                 }),
             );
 
