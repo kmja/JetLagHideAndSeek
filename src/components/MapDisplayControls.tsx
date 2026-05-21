@@ -1,7 +1,13 @@
 import { useStore } from "@nanostores/react";
-import { Map as MapIcon, Satellite, Target, TrainFront } from "lucide-react";
+import {
+    Map as MapIcon,
+    Satellite,
+    Settings,
+    Target,
+    TrainFront,
+} from "lucide-react";
 
-import { SidebarContext as SidebarContextR } from "@/components/ui/sidebar-r";
+import { displayHidingZones, zoneSidebarOpen } from "@/lib/context";
 import { satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 
@@ -25,36 +31,63 @@ const PANE_HEIGHT = "h-9";
 export function MapDisplayControls() {
     const $satellite = useStore(satelliteView);
     const $transit = useStore(showTransitLines);
+    const $hidingZones = useStore(displayHidingZones);
 
     return (
         <div className="flex flex-col gap-2 items-end">
-            {/* Hiding zone trigger */}
-            <button
-                type="button"
-                onClick={() => {
-                    SidebarContextR.get().setOpenMobile(true);
-                    SidebarContextR.get().setOpen(true);
-                }}
-                className={cn(
-                    "shadow-md rounded-md border bg-background",
-                    "px-3 gap-2 flex items-center",
-                    "hover:bg-accent transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    PANE_HEIGHT,
-                )}
-                aria-label="Open hiding zone settings"
-                title="Hiding zone"
-            >
-                <Target className="w-4 h-4" />
-                <span className="text-xs font-poppins font-semibold">
-                    Zone
-                </span>
-            </button>
-
-            {/* Map / Satellite segmented switch */}
+            {/* Hiding zones toggle + settings. Toggle (on/off) — solid red
+                fill when active so the on/off state reads at a glance. */}
             <div
                 className={cn(
-                    "shadow-md rounded-md border bg-background overflow-hidden",
+                    "shadow-md rounded-md border-2 overflow-hidden flex",
+                    PANE_HEIGHT,
+                    $hidingZones
+                        ? "bg-primary border-primary text-primary-foreground"
+                        : "bg-background border-border",
+                )}
+                role="group"
+                aria-label="Hiding zones"
+            >
+                <button
+                    type="button"
+                    onClick={() => displayHidingZones.set(!$hidingZones)}
+                    aria-pressed={$hidingZones}
+                    className={cn(
+                        "px-3 gap-2 flex items-center transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        $hidingZones
+                            ? "hover:bg-primary/90"
+                            : "text-foreground hover:bg-accent",
+                    )}
+                    title="Toggle hiding zones overlay"
+                >
+                    <Target className="w-4 h-4" />
+                    <span className="text-xs font-poppins font-semibold">
+                        Hiding zones
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    onClick={() => zoneSidebarOpen.set(true)}
+                    className={cn(
+                        "px-2.5 flex items-center justify-center border-l-2 transition-colors",
+                        $hidingZones
+                            ? "border-primary-foreground/30 hover:bg-primary/80"
+                            : "border-border hover:bg-accent",
+                    )}
+                    aria-label="Hiding zone settings"
+                    title="Hiding zone settings"
+                >
+                    <Settings className="w-4 h-4" />
+                </button>
+            </div>
+
+            {/* Map / Satellite segmented switch — solid red fill on the
+                active half so it matches the Hiding-zones and Transit
+                toggles' "selected = filled" pattern. */}
+            <div
+                className={cn(
+                    "shadow-md rounded-md border-2 border-border bg-background overflow-hidden",
                     "flex",
                     PANE_HEIGHT,
                 )}
@@ -69,7 +102,7 @@ export function MapDisplayControls() {
                         "px-3 gap-1.5 flex items-center transition-colors",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         !$satellite
-                            ? "bg-primary text-primary-foreground"
+                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
                             : "hover:bg-accent",
                     )}
                 >
@@ -83,10 +116,10 @@ export function MapDisplayControls() {
                     onClick={() => satelliteView.set(true)}
                     aria-pressed={$satellite}
                     className={cn(
-                        "px-3 gap-1.5 flex items-center border-l border-border transition-colors",
+                        "px-3 gap-1.5 flex items-center border-l-2 border-border transition-colors",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         $satellite
-                            ? "bg-primary text-primary-foreground"
+                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
                             : "hover:bg-accent",
                     )}
                 >
@@ -97,19 +130,20 @@ export function MapDisplayControls() {
                 </button>
             </div>
 
-            {/* Transit lines toggle */}
+            {/* Transit lines toggle. Toggle (on/off) — solid red fill when
+                active to match the Hiding-zones toggle. */}
             <button
                 type="button"
                 onClick={() => showTransitLines.set(!$transit)}
                 aria-pressed={$transit}
                 className={cn(
-                    "shadow-md rounded-md border",
+                    "shadow-md rounded-md border-2",
                     "px-3 gap-2 flex items-center transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     PANE_HEIGHT,
                     $transit
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background hover:bg-accent",
+                        ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
+                        : "bg-background border-border hover:bg-accent",
                 )}
                 title="Toggle transit lines"
             >

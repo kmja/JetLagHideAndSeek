@@ -58,12 +58,14 @@ export default {
     			}
     		},
     		fontFamily: {
-    			poppins: [
-    				"'Poppins'"
-    			],
-				oxygen: [
-					"'Oxygen'"
-				]
+    			// Headings — Inter Tight (condensed, sharp terminals). We
+    			// keep the legacy `font-poppins` class name as an alias so
+    			// existing call-sites don't all need rewriting in one batch.
+    			poppins: ["'Inter Tight'", "system-ui", "sans-serif"],
+    			"inter-tight": ["'Inter Tight'", "system-ui", "sans-serif"],
+    			// Body — Inter. Same alias trick for the old `font-oxygen`.
+    			oxygen: ["'Inter'", "system-ui", "sans-serif"],
+    			inter: ["'Inter'", "system-ui", "sans-serif"],
     		},
     		borderRadius: {
     			lg: 'var(--radius)',
