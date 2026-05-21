@@ -43,6 +43,7 @@ export function DebugPhaseControls() {
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(leafletMapContext);
+    const $role = useStore(playerRole);
 
     /* ─────── seeker actions ─────── */
 
@@ -206,6 +207,28 @@ export function DebugPhaseControls() {
         }
     };
 
+    /* ─────── role switching (bypasses production lock) ─────── */
+
+    /**
+     * Force-switch the device's role and route to the matching page,
+     * regardless of whether the production "Switch to seeker / hider"
+     * affordances are currently locked (they hide once the game has
+     * a question history to prevent mid-game role flips).
+     *
+     * Debug-only — production code paths should keep using their
+     * gated switchers.
+     */
+    const forceRole = (target: "seeker" | "hider") => {
+        playerRole.set(target);
+        const path = target === "hider" ? "/h" : "/";
+        if (window.location.pathname === path) {
+            // Refresh so the page re-mounts under the new role.
+            window.location.reload();
+        } else {
+            window.location.assign(path);
+        }
+    };
+
     /* ─────── hider actions ─────── */
 
     const injectInboxQuestion = () => {
@@ -334,6 +357,31 @@ export function DebugPhaseControls() {
                         )}
                     </div>
                 </div>
+
+                <Section title={`Role · current: ${$role}`}>
+                    <div className="grid grid-cols-2 gap-1.5">
+                        <DebugButton
+                            onClick={() => forceRole("seeker")}
+                            variant={
+                                $role === "seeker" ? "primary" : "default"
+                            }
+                        >
+                            → Seeker
+                        </DebugButton>
+                        <DebugButton
+                            onClick={() => forceRole("hider")}
+                            variant={
+                                $role === "hider" ? "primary" : "default"
+                            }
+                        >
+                            → Hider
+                        </DebugButton>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground italic px-1">
+                        Bypasses the production role lock. Resets the
+                        route to `/` or `/h` to match.
+                    </p>
+                </Section>
 
                 <Section title="Add">
                     <DebugButton onClick={addRadarQuestion}>
