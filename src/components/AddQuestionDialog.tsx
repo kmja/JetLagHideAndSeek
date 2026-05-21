@@ -255,6 +255,11 @@ export const AddQuestionDialog = ({
         // Snapshot the question before closing — pendingQuestion will become
         // null once we clear the dialog state.
         const q = pendingQuestion;
+        // Reset createdAt to confirm-time so the answer-deadline countdown
+        // on the card header starts ticking from when the question was
+        // actually shared with the hider, not from when it was first
+        // staged in the configure dialog.
+        (q.data as { createdAt?: number }).createdAt = Date.now();
         const meta = CATEGORIES[q.id as CategoryId];
         setPendingKey(null);
         releaseBodyLock();
@@ -290,6 +295,12 @@ export const AddQuestionDialog = ({
             data: {
                 lat: center.lat,
                 lng: center.lng,
+                // Default to the rulebook's 10 km preset so the inline-map
+                // preview already shows a meaningful radius the moment the
+                // configure dialog opens. The seeker can pick a different
+                // preset from the grid before confirming.
+                radius: 10,
+                unit: "kilometers",
                 createdAt: Date.now(),
             },
         });

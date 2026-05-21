@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
-    drawCards,
     hiderInbox,
     playerRole,
+    presentDraw,
     QUESTION_DRAW_BUDGET,
 } from "@/lib/hiderRole";
 import {
@@ -522,19 +522,26 @@ function ShareBackRow({
 
         // Card-draw reward (rulebook p16-37). The draw budget is by
         // category — matching draws 3/keeps 1, radar 2/1, photo 1/1,
-        // tentacle 4/2 etc.  For now we auto-keep all drawn cards;
-        // the proper "draw N, keep K" pick UI lands when we wire up the
-        // per-question reward dialog. Hand-cap enforcement is the
-        // hider's responsibility for now (HiderHandPanel surfaces the
-        // over-cap warning).
+        // tentacle 4/2 etc.  When `keep === draw` (photo) the draw
+        // auto-resolves into the hand; otherwise the DrawPickerDialog
+        // modal opens and the hider picks K of N.
         if (!alreadyReplied) {
             const budget = QUESTION_DRAW_BUDGET[question.id];
             if (budget) {
-                const drawn = drawCards(budget.draw);
-                if (drawn.length > 0) {
-                    toast.success(
-                        `Drew ${drawn.length} card${drawn.length === 1 ? "" : "s"} from the deck.`,
-                        { autoClose: 2000 },
+                const autoResolved = presentDraw(
+                    budget.draw,
+                    budget.keep,
+                    question.id,
+                    question.key,
+                );
+                if (autoResolved) {
+                    toast.success(`Drew ${budget.draw} from the deck.`, {
+                        autoClose: 2000,
+                    });
+                } else {
+                    toast.info(
+                        `Pick ${budget.keep} of ${budget.draw} cards from the deck.`,
+                        { autoClose: 3000 },
                     );
                 }
             }

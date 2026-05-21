@@ -244,6 +244,45 @@ export const rolePickerOpen = __globalAtom<boolean>(
     false,
 );
 
+/* ────────────────── Pending-draw choice ────────────────── */
+
+/**
+ * Holds the result of a "draw N, keep K" reward in flight. When the
+ * seeker answers a question, the hider draws N cards. If K < N, the
+ * hider must pick K to keep — the rest go to discard. While the choice
+ * is open, this atom is non-null and a modal blocks until the hider
+ * picks. If K == N (photo: draw 1 keep 1) the draw is auto-resolved
+ * straight into the hand and this atom stays null.
+ */
+export interface PendingDraw {
+    /** The N drawn cards still up for selection. */
+    cards: Card[];
+    /** How many of `cards` the hider keeps; the rest are discarded. */
+    keep: number;
+    /** Which category triggered the draw (display only). */
+    sourceCategory: string;
+    /** Question key (for idempotency hint in the toast). */
+    sourceQuestionKey: number;
+}
+
+/**
+ * Persistent so a page reload mid-pick doesn't drop the cards on the
+ * floor. The seeker won't notice; the hider just gets to resume picking.
+ */
+export const pendingDraw = __globalPersistent<PendingDraw | null>(
+    "__jlhs_pendingDraw",
+    "pendingDraw",
+    null,
+    JSON.stringify,
+    (v) => {
+        try {
+            return JSON.parse(v) as PendingDraw | null;
+        } catch {
+            return null;
+        }
+    },
+);
+
 /* ────────────────── Helpers ────────────────── */
 
 /**
@@ -260,6 +299,7 @@ export function resetHiderRoundState() {
     hiderDeck.set([]);
     hiderDiscard.set([]);
     hiderHandLimit.set(6);
+    pendingDraw.set(null);
 }
 
 /**
@@ -275,24 +315,87 @@ export function ensureDeckReady(): Card[] {
 }
 
 /**
- * Draw `n` cards from the top of the deck into the hand. If the deck runs
- * out, we silently keep going — game proceeds without drawing the rest.
- * Returns the cards that were drawn (so the caller can show them).
- *
- * Hand-cap enforcement is the caller's responsibility (rulebook p44: if
- * hand exceeds cap, hider must discard until at cap before drawing more).
+ * Internal: lift `n` cards from the top of the deck and return them. The
+ * cards leave the deck but aren't yet attached to hand/discard — the
+ * caller decides what to do with them.
  */
-export function drawCards(n: number): Card[] {
+function liftFromDeck(n: number): Card[] {
     ensureDeckReady();
     const deck = [...hiderDeck.get()];
-    const drawn: Card[] = [];
+    const lifted: Card[] = [];
     for (let i = 0; i < n; i++) {
         const card = deck.pop();
         if (!card) break;
-        drawn.push(card);
+        lifted.push(card);
     }
+    if (lifted.length > 0) hiderDeck.set(deck);
+    return lifted;
+}
+
+/**
+ * Reward draw from answering a question: draw `n`, keep `k`. Per the
+ * rulebook (p16–37) each category has a different budget — matching/
+ * measuring are 3/1, radar/thermometer 2/1, photo 1/1, tentacle 4/2.
+ *
+ *   - When `k === n` (photo, or when there aren't enough cards left to
+ *     even reach `k`), this auto-resolves straight into the hand.
+ *   - When `k < n`, this stashes the cards on `pendingDraw` and the
+ *     DrawPickerDialog modal blocks until the hider picks K of N.
+ *
+ * Returns true if the draw was auto-resolved, false if it's waiting on
+ * the picker.
+ */
+export function presentDraw(
+    n: number,
+    k: number,
+    sourceCategory: string,
+    sourceQuestionKey: number,
+): boolean {
+    const drawn = liftFromDeck(n);
+    if (drawn.length === 0) return true;
+    const keep = Math.min(k, drawn.length);
+    if (keep >= drawn.length) {
+        // Auto-keep — no choice to make
+        hiderHand.set([...hiderHand.get(), ...drawn]);
+        return true;
+    }
+    pendingDraw.set({
+        cards: drawn,
+        keep,
+        sourceCategory,
+        sourceQuestionKey,
+    });
+    return false;
+}
+
+/**
+ * Resolve the pending draw: move the `keepIds` cards into the hand and
+ * the rest into discard. Clears `pendingDraw` on success.
+ */
+export function resolvePendingDraw(keepIds: string[]): void {
+    const current = pendingDraw.get();
+    if (!current) return;
+    if (keepIds.length !== current.keep) return;
+    const kept: Card[] = [];
+    const discarded: Card[] = [];
+    for (const c of current.cards) {
+        if (keepIds.includes(c.id)) kept.push(c);
+        else discarded.push(c);
+    }
+    if (kept.length > 0) hiderHand.set([...hiderHand.get(), ...kept]);
+    if (discarded.length > 0)
+        hiderDiscard.set([...hiderDiscard.get(), ...discarded]);
+    pendingDraw.set(null);
+}
+
+/**
+ * Direct hand-pile draw (used by powerups like Discard 1 Draw 2 / Draw 1
+ * Expand Hand — those don't go through the keep-K picker, they always
+ * add to the hand). Returns the drawn cards for callers to display.
+ */
+export function drawCards(n: number): Card[] {
+    const drawn = liftFromDeck(n);
     if (drawn.length > 0) {
-        hiderDeck.set(deck);
         hiderHand.set([...hiderHand.get(), ...drawn]);
     }
     return drawn;

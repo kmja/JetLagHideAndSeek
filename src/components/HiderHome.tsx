@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 
+import { DrawPickerDialog } from "./DrawPickerDialog";
 import { HiderHandPanel } from "./HiderHandPanel";
 import {
     HideSeekMark,
@@ -222,6 +223,13 @@ export function HiderHome() {
 
             {/* ───── 5. Hand (real deck engine) ───── */}
             <HiderHandPanel />
+
+            {/* "Draw N keep K" modal — fires whenever an answer triggers
+                a reward draw that has more cards than the keep budget
+                (matching/measuring 3→1, radar/thermometer 2→1, tentacle
+                4→2). Photo's 1→1 auto-resolves and never opens the
+                modal. */}
+            <DrawPickerDialog />
 
             {/* ───── 6. Footer ───── */}
             <footer className="mt-auto pt-6 flex flex-col gap-2 text-center">
