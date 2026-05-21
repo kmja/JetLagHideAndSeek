@@ -79,12 +79,22 @@ export const BottomNav = () => {
     const [now, setNow] = useState(Date.now());
     useEffect(() => {
         if (!$hidingEndsAt) return;
-        // Don't clear the timestamp when the hiding period expires — the
-        // HiderTimer uses it as the *anchor* for the "Hidden for" elapsed
-        // counter once we transition into the seeking phase. We just stop
-        // the per-second tick once the countdown reaches zero.
-        if ($hidingEndsAt <= Date.now()) return;
+        // Always refresh `now` whenever the end-timestamp changes —
+        // otherwise after "End hiding period · Start seeking" snaps
+        // hidingPeriodEndsAt to Date.now(), the early-exit path below
+        // would leave `now` stuck at its last interval value, which
+        // could be up to a second stale. That left `remainingMs > 0`
+        // for that interval and kept `hiding === true`, blocking the
+        // NEW QUESTION button and re-showing the End-hiding UI.
         setNow(Date.now());
+        // Don't clear the timestamp when the hiding period expires —
+        // HiderTimer uses it as the *anchor* for the "Hidden for"
+        // elapsed counter once we transition into the seeking phase.
+        // We just stop the per-second tick once the countdown reaches
+        // zero, since after that `now` doesn't need to keep changing
+        // for the hiding-period UI (the elapsed timer in HiderTimer
+        // has its own interval).
+        if ($hidingEndsAt <= Date.now()) return;
         const id = window.setInterval(() => {
             const t = Date.now();
             setNow(t);
@@ -95,7 +105,13 @@ export const BottomNav = () => {
         return () => window.clearInterval(id);
     }, [$hidingEndsAt]);
 
-    const remainingMs = $hidingEndsAt ? Math.max(0, $hidingEndsAt - now) : 0;
+    // Derive `hiding` from the live timestamp where possible — falling
+    // back to `now` only between interval ticks. This guarantees the
+    // post-end transition is immediate even if a re-render fires before
+    // the next setNow.
+    const remainingMs = $hidingEndsAt
+        ? Math.max(0, $hidingEndsAt - Math.max(now, Date.now()))
+        : 0;
     const hiding = Boolean($hidingEndsAt && remainingMs > 0);
     // Rulebook p13: "you cannot ask multiple questions at once; if you are
     // waiting on an answer from a previous question, you cannot ask your
@@ -265,10 +281,25 @@ export const BottomNav = () => {
                                         <Button
                                             onClick={() => {
                                                 // Snap the countdown to now
-                                                // (instead of clearing) so the
-                                                // HiderTimer flips to the
-                                                // "Hidden for" elapsed counter
-                                                // immediately.
+                                                // (instead of clearing) so
+                                                // HiderTimer flips into the
+                                                // "Hidden for" elapsed mode
+                                                // immediately. Guarded: if
+                                                // somehow this fires when
+                                                // we're already past the
+                                                // hiding period, do nothing
+                                                // (preserves the existing
+                                                // elapsed anchor instead of
+                                                // resetting it to zero).
+                                                const existing =
+                                                    hidingPeriodEndsAt.get();
+                                                if (
+                                                    existing !== null &&
+                                                    existing <= Date.now()
+                                                ) {
+                                                    setGameSheetOpen(false);
+                                                    return;
+                                                }
                                                 hidingPeriodEndsAt.set(
                                                     Date.now(),
                                                 );
