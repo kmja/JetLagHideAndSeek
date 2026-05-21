@@ -5,6 +5,8 @@ import tailwind from "@astrojs/tailwind";
 import AstroPWA from "@vite-pwa/astro";
 import { defineConfig } from "astro/config";
 
+import cloudflare from "@astrojs/cloudflare";
+
 // https://astro.build/config
 export default defineConfig({
     integrations: [
@@ -196,7 +198,10 @@ export default defineConfig({
             },
         }),
     ],
+
     devToolbar: {
         enabled: false,
     },
+
+    adapter: cloudflare()
 });
