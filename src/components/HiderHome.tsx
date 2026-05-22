@@ -258,12 +258,46 @@ export function HiderHome() {
             )}
 
             {phase === "pre-game" && (
-                <section className="rounded-md border border-dashed border-border px-4 py-3 mb-4 flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 shrink-0 text-yellow-500" />
-                    <p className="text-sm text-muted-foreground leading-snug">
-                        No hiding period set yet on this device. Once the
-                        seeker starts the game, your timer will appear here.
-                    </p>
+                <section
+                    className={cn(
+                        "rounded-md border-2 border-dashed border-border",
+                        "px-4 py-5 mb-4 space-y-3",
+                    )}
+                >
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 shrink-0 text-yellow-500 mt-0.5" />
+                        <div className="flex-1 space-y-1">
+                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-yellow-500">
+                                Waiting on the seeker
+                            </div>
+                            <p className="text-sm text-foreground leading-snug">
+                                The hiding period hasn&apos;t started on
+                                this device yet. Once the seeker finishes
+                                game setup, your timer will appear here.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="rounded-sm bg-secondary/30 px-3 py-2.5 text-xs text-muted-foreground leading-snug space-y-1.5">
+                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            What happens next
+                        </div>
+                        <ol className="list-decimal pl-4 space-y-0.5">
+                            <li>
+                                Seeker picks the play area, transit modes,
+                                and game size in their wizard.
+                            </li>
+                            <li>
+                                Tapping <em>Start</em> on their device
+                                begins the hiding period. You&apos;ll see
+                                a countdown here.
+                            </li>
+                            <li>
+                                Pick a hiding zone before the timer ends —
+                                that&apos;s the area inside which you must
+                                stay.
+                            </li>
+                        </ol>
+                    </div>
                 </section>
             )}
 
