@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
     hidingPeriodEndsAt,
+    pendingHidingDurationMin,
     setupCompleted,
     setupDialogOpen,
 } from "@/lib/gameSetup";
@@ -68,6 +69,10 @@ export function StaleSessionPrompt() {
 
     const handleNewGame = () => {
         hidingPeriodEndsAt.set(null);
+        // Also clear pending-load wait — otherwise GameStartWatcher
+        // would replay the stale hiding-period kickoff as soon as
+        // the next boundary loads.
+        pendingHidingDurationMin.set(null);
         roundFoundAt.set(null);
         if (isHider) {
             resetHiderRoundState();

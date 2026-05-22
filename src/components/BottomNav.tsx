@@ -37,6 +37,7 @@ import {
     formatTimeRemaining,
     gameSize,
     hidingPeriodEndsAt,
+    pendingHidingDurationMin,
     playArea,
     setupCompleted,
     setupDialogOpen,
@@ -468,6 +469,19 @@ export const BottomNav = () => {
                                                             false,
                                                         );
                                                         hidingPeriodEndsAt.set(
+                                                            null,
+                                                        );
+                                                        // Also clear any
+                                                        // pending boundary-load
+                                                        // wait so the next
+                                                        // game starts clean
+                                                        // (GameStartWatcher
+                                                        // otherwise picks up
+                                                        // the queued duration
+                                                        // immediately when
+                                                        // mapGeoJSON next
+                                                        // settles).
+                                                        pendingHidingDurationMin.set(
                                                             null,
                                                         );
                                                         // Don't leave a stale

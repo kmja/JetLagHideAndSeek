@@ -29,6 +29,7 @@ import {
     gameSize,
     hidingPeriodEndsAt,
     HIDING_PERIOD_MINUTES,
+    pendingHidingDurationMin,
     setupCompleted,
     setupDialogOpen,
     TRANSIT_LABELS,
@@ -207,6 +208,10 @@ export function HiderHome() {
         }
         setupCompleted.set(false);
         hidingPeriodEndsAt.set(null);
+        // Clear pending-boundary-load wait too — otherwise
+        // GameStartWatcher would replay the previous game's
+        // hiding-period kickoff once the new boundary settled.
+        pendingHidingDurationMin.set(null);
         roundFoundAt.set(null);
         // Wipes inbox + hand + zone + spot + foundAt. Same helper the
         // seeker side calls.
