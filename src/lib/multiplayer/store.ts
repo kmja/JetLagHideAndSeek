@@ -66,9 +66,10 @@ export function getMultiplayerOrigin(): string {
     if (fromEnv && typeof fromEnv === "string" && fromEnv.length > 0) {
         return fromEnv.replace(/\/+$/, "");
     }
-    // Sensible default — must be updated for prod. The deploy doc
-    // walks through how to point this at the Worker's actual URL.
-    return "https://jlhs-multiplayer.kmja.workers.dev";
+    // Production default for Kalle's deployed Worker. Overridable
+    // via PUBLIC_MULTIPLAYER_URL (e.g. for local dev against
+    // `wrangler dev`).
+    return "https://jlhs-multiplayer.karl-mj-andersson.workers.dev";
 }
 
 function wsUrlForCode(code: string): string {
