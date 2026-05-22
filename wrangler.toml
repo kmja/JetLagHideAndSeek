@@ -10,7 +10,7 @@
 # `https://jlhs-multiplayer.<your-subdomain>.workers.dev`. Bake that
 # into the client's PUBLIC_MULTIPLAYER_URL env var (see MULTIPLAYER.md).
 
-name = "jlhs-multiplayer"
+name = "jetlaghideandseek"
 main = "worker/index.ts"
 compatibility_date = "2024-11-12"
 compatibility_flags = ["nodejs_compat"]
