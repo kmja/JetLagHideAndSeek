@@ -24,7 +24,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { useDebounce } from "@/hooks/useDebounce";
 import {
-    additionalMapGeoLocations,
     disabledStations,
     displayHidingZones,
     hiderMode,
@@ -300,7 +299,12 @@ export function GameSetupDialog() {
             });
             mapGeoLocation.set(draftFeature);
             questions.set([]);
-            additionalMapGeoLocations.set([]);
+            // NOTE: don't clear `additionalMapGeoLocations` here —
+            // `PlayAreaExtensions` already manages it (it clears
+            // stale entries when the primary changes and sets the
+            // user's tick selections). Wiping it post-finish was
+            // the bug where adjacent areas (e.g. Lund alongside
+            // Malmö) silently dropped off the play-area boundary.
             mapGeoJSON.set(null);
             polyGeoJSON.set(null);
             disabledStations.set([]);
@@ -348,8 +352,14 @@ export function GameSetupDialog() {
             // Fresh game: wipe everything tied to a previous session so the
             // seeker starts from a blank slate inside the new region. Settings
             // (tile layer, units, API keys, etc.) are intentionally preserved.
+            //
+            // NOT cleared: `additionalMapGeoLocations`. That's managed by
+            // `PlayAreaExtensions` — it already resets the list when the
+            // primary play area changes during step 1, and populates it
+            // with the user's tick selections. Wiping it here was the bug
+            // where adjacent municipalities (e.g. Lund picked alongside
+            // Malmö) silently dropped off the rendered play area.
             questions.set([]);
-            additionalMapGeoLocations.set([]);
             mapGeoJSON.set(null);
             polyGeoJSON.set(null);
             disabledStations.set([]);

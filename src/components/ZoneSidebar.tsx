@@ -135,15 +135,17 @@ export const ZoneSidebar = () => {
             // provisional question circles in Map.tsx — dashed border
             // + low-opacity fill — so the hiding-zone overlay reads
             // as a "possible hiding spot" hint rather than a committed
-            // region. The hider-brand yellow (same hue used by the
-            // RolePicker hider tile and the Small size badge) ties it
-            // to the hider role visually.
+            // region. Uses the app's primary brand red (the same
+            // `hsl(2 70% 54%)` = #DC3D38 the `--primary` CSS variable
+            // resolves to) so the overlay matches the brand. Leaflet
+            // styles can't reference CSS vars directly, hence the
+            // literal HSL value.
             style: {
-                color: "hsl(44 87% 60%)",
+                color: "hsl(2, 70%, 54%)",
                 weight: 2,
                 opacity: 0.9,
                 dashArray: "6 5",
-                fillColor: "hsl(44 87% 60%)",
+                fillColor: "hsl(2, 70%, 54%)",
                 fillOpacity: 0.12,
             },
             onEachFeature: nonOverlappingStations
@@ -288,14 +290,18 @@ export const ZoneSidebar = () => {
                 .map((place) => {
                     const radius = $hidingRadius;
                     const center = turf.getCoord(place);
+                    // 512 segments → ~6 m chord on a 500 m radius
+                    // (under one CSS pixel even at zoom 18). The
+                    // previous 256-segment circles still showed
+                    // visible facets at city zoom over the dashed
+                    // primary-red border (which highlights the
+                    // polygon edges); doubling resolution removes
+                    // them without meaningful perf cost — even a
+                    // 1000-station network only adds ~250 K vertex
+                    // updates total, which Leaflet handles fine
+                    // on the canvas/SVG side.
                     const circle = turf.circle(center, radius, {
-                        // 96 steps gives visually smooth circles at any
-                        // realistic zoom; default is 64, was explicitly
-                        // lowered to 32 here which produced visible
-                        // facets at the 500m/1km hiding-zone scale.
-                        // 256 segments → at any practical zoom each segment is well under a
-// pixel for a 500m–1km radius, indistinguishable from a true circle.
-steps: 256,
+                        steps: 512,
                         units: $hidingRadiusUnits,
                         properties: place,
                     });
