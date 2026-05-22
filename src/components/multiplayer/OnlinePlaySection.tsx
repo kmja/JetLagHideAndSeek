@@ -21,9 +21,9 @@ import { cn } from "@/lib/utils";
 
 /**
  * Embedded host/join + invite UI for use INSIDE another Dialog
- * (e.g. the Game Settings panel). Unlike `JoinGameDialog`, this
- * component does not own a Dialog wrapper — it just renders the
- * controls inline and can be dropped into any container.
+ * (e.g. the Game Settings panel). This component does not own a
+ * Dialog wrapper — it just renders the controls inline and can be
+ * dropped into any container.
  *
  * Behavior:
  *  - When already in a room: shows `InvitePanel` (code + participants
