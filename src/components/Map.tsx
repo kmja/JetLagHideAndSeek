@@ -133,28 +133,6 @@ export const Map = ({ className }: { className?: string }) => {
     const $polyGeoJSON = useStore(polyGeoJSON);
     const map = useStore(leafletMapContext);
 
-    /** Bounding box of the current play area, in Leaflet's
-     *  `LatLngBoundsExpression` shape. Used to constrain the rail
-     *  TileLayer's tile requests to the play area + a small margin so
-     *  Leaflet doesn't fetch OpenRailwayMap tiles for half of Europe
-     *  every time the user pans. Falls back to `undefined` (= no
-     *  constraint) when no play area is set. */
-    const playAreaBounds = useMemo<
-        L.LatLngBoundsExpression | undefined
-    >(() => {
-        const poly = $polyGeoJSON ?? $mapGeoJSON;
-        if (!poly) return undefined;
-        try {
-            const [minLng, minLat, maxLng, maxLat] = turf.bbox(poly as any);
-            return [
-                [minLat, minLng],
-                [maxLat, maxLng],
-            ];
-        } catch {
-            return undefined;
-        }
-    }, [$polyGeoJSON, $mapGeoJSON]);
-
     // Custom Leaflet panes:
     //
     //   • `eliminationMask` (z-index 230) — the dim "outside the
@@ -555,16 +533,25 @@ export const Map = ({ className }: { className?: string }) => {
                     /* OpenRailwayMap — semi-transparent overlay showing
                        train/metro/tram lines. Rendered into the custom
                        `transit` pane so its tiles get clipped to the
-                       play-area polygon, and constrained via `bounds`
-                       so Leaflet doesn't even request tiles outside
-                       the play area's bounding box. */
+                       play-area polygon via CSS clip-path. The bare
+                       `tiles.openrailwaymap.org` host was flaky for
+                       large play areas (often 404'd or never resolved)
+                       — the subdomain-rotated `{s}.tiles…` form is
+                       what the OpenRailwayMap wiki documents as
+                       canonical, and gives us parallel HTTP/2
+                       streams. The `bounds` restriction is gone too:
+                       it was suppressing tile loads when the polygon
+                       loaded after the user toggled the layer (e.g.
+                       picking a country and immediately enabling
+                       transit while Overpass was still fetching the
+                       boundary). */
                     <TileLayer
                         attribution='&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>'
-                        url="https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
+                        url="https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
+                        subdomains={["a", "b", "c"]}
                         maxZoom={19}
                         opacity={0.85}
                         pane="transit"
-                        bounds={playAreaBounds}
                     />
                 )}
                 <DraggableMarkers />

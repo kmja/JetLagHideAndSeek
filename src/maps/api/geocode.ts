@@ -25,7 +25,11 @@ import type { OpenStreetMap } from "./types";
  * it doesn't lose to a tiny US town named "Sweden".
  */
 const PLACE_TYPE_SCORE: Record<string, number> = {
-    // Specific localities — what users typically search for.
+    // Countries beat localities: typing "Sweden" almost certainly
+    // means the country, not the small US town of the same name.
+    country: 1200,
+    // Specific localities — what users typically search for when
+    // they query a single name like "Stockholm" or "Barcelona".
     city: 1000,
     town: 900,
     municipality: 850,
@@ -37,8 +41,9 @@ const PLACE_TYPE_SCORE: Record<string, number> = {
     neighbourhood: 300,
     quarter: 300,
     locality: 200,
-    // Admin regions — surface but rank below same-named localities.
-    country: 700,
+    // Sub-country admin regions — surface but rank below same-named
+    // localities (typing "Barcelona" means the city, not the
+    // province; "Stockholm" means the capital, not Stockholms län).
     state: 500,
     region: 400,
     province: 300,

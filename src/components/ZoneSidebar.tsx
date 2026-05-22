@@ -131,10 +131,20 @@ export const ZoneSidebar = () => {
         removeHidingZones();
 
         const geoJsonLayer = L.geoJSON(geoJSONData, {
+            // Match the "unanswered radius" visual language used for
+            // provisional question circles in Map.tsx — dashed border
+            // + low-opacity fill — so the hiding-zone overlay reads
+            // as a "possible hiding spot" hint rather than a committed
+            // region. The hider-brand yellow (same hue used by the
+            // RolePicker hider tile and the Small size badge) ties it
+            // to the hider role visually.
             style: {
-                color: "green",
-                fillColor: "green",
-                fillOpacity: 0.2,
+                color: "hsl(44 87% 60%)",
+                weight: 2,
+                opacity: 0.9,
+                dashArray: "6 5",
+                fillColor: "hsl(44 87% 60%)",
+                fillOpacity: 0.12,
             },
             onEachFeature: nonOverlappingStations
                 ? (feature, layer) => {

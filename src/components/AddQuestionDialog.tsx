@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { gameSize, type GameSize } from "@/lib/gameSetup";
+import { fitMapToRadius } from "@/lib/mapFit";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import {
     defaultCustomQuestions,
@@ -313,14 +314,19 @@ export const AddQuestionDialog = ({
             data: {
                 lat: center.lat,
                 lng: center.lng,
-                // Default to the rulebook's 10 km preset so the inline-map
-                // preview already shows a meaningful radius the moment the
-                // configure dialog opens. The seeker can pick a different
-                // preset from the grid before confirming.
-                radius: 10,
+                // Default to 5 km — the previous 10 km starting point
+                // tended to swallow most cities at typical zoom levels,
+                // making the dragged-pin preview hard to read. 5 km is
+                // a more common opening radar guess in actual play.
+                radius: 5,
                 unit: "kilometers",
             },
         });
+        // Fit the map to the new radius so the entire circle is
+        // visible — otherwise opening the configure dialog can show
+        // the seeker a radius that extends off-screen, which is
+        // confusing when picking a different preset.
+        fitMapToRadius(map, center.lat, center.lng, 5, "kilometers");
         return true;
     };
 

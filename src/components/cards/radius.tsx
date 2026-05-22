@@ -19,10 +19,12 @@ import { UnitSelect } from "@/components/UnitSelect";
 import {
     hiderMode,
     isLoading,
+    leafletMapContext,
     questionModified,
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { fitMapToRadius } from "@/lib/mapFit";
 import { cn } from "@/lib/utils";
 import type { RadiusQuestion, Units } from "@/maps/schema";
 
@@ -147,6 +149,20 @@ export const RadiusQuestionComponent = ({
                         data.unit = preset.unit;
                         data.useCustom = false;
                         questionModified();
+                        // Re-fit the map to the new radius so the entire
+                        // circle stays visible — picking 10 km from a
+                        // 500 m starting view would otherwise leave most
+                        // of the question off-screen.
+                        const map = leafletMapContext.get();
+                        if (map) {
+                            fitMapToRadius(
+                                map,
+                                data.lat,
+                                data.lng,
+                                preset.radius,
+                                preset.unit,
+                            );
+                        }
                     };
 
                     const presetBtnClass = (sig: string) =>
