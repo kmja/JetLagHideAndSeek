@@ -27,7 +27,11 @@ import {
     hidingPeriodEndsAt,
     playArea,
 } from "@/lib/gameSetup";
-import { hiderInbox, roundFoundAt } from "@/lib/hiderRole";
+import {
+    hiderInbox,
+    playerRole,
+    roundFoundAt,
+} from "@/lib/hiderRole";
 import {
     questionSchema,
     type Question,
@@ -371,6 +375,17 @@ function handleServerMessage(msg: ServerMessage) {
             sessionToken.set(msg.sessionToken);
             selfParticipantId.set(msg.self.id);
             applySnapshot(msg.state);
+            // Claim our local role on the server side. The server
+            // enforces "max 1 hider" — if the hider slot is already
+            // taken our claim is rejected via `error: role_taken`
+            // (handled in this same switch below) and we drop back
+            // to seeker locally.
+            {
+                const local = playerRole.get();
+                if (local === "seeker" || local === "hider") {
+                    getTransport().send({ t: "role", role: local });
+                }
+            }
             return;
         case "snapshot":
             applySnapshot(msg.state);
@@ -399,6 +414,17 @@ function handleServerMessage(msg: ServerMessage) {
                 // Drop back to local mode rather than spam reconnects.
                 leaveGame();
             }
+            if (msg.code === "role_taken") {
+                // Server rejected our hider claim — someone else has
+                // the slot. Flip locally to seeker so the UI matches
+                // and the user isn't stuck believing they're the
+                // hider for this room. (Their local-only hider state
+                // — inbox, hand, etc. — stays around in case they
+                // leave this room and play offline as hider.)
+                if (playerRole.get() === "hider") {
+                    playerRole.set("seeker");
+                }
+            }
             return;
         case "pong":
             // No-op; latency tracking can hook in here later.
@@ -416,6 +442,11 @@ function handleServerMessage(msg: ServerMessage) {
 /**
  * Wire the transport's events to the bridge handlers. Idempotent —
  * safe to call multiple times (subsequent calls are no-ops).
+ *
+ * Also subscribes to local `playerRole` changes and forwards them
+ * to the server when we're in a room — so the "Switch to hider"
+ * button propagates to peers without any extra plumbing at the
+ * call sites.
  */
 let _installed = false;
 export function installMultiplayerBridge() {
@@ -424,4 +455,23 @@ export function installMultiplayerBridge() {
     const t = getTransport();
     t.on("message", handleServerMessage);
     t.on("status", (status) => transportStatus.set(status));
+
+    // Forward local role changes to the server while we're in a
+    // room. Skip the initial nanostores fire (which would race the
+    // connect handshake) — initial role claim is handled by the
+    // `welcome` server message above, so this subscription only
+    // matters for LIVE changes (e.g. tapping "Switch to hider").
+    let firstFire = true;
+    playerRole.subscribe((role) => {
+        if (firstFire) {
+            firstFire = false;
+            return;
+        }
+        if (!multiplayerEnabled.get()) return;
+        if (!currentGameCode.get()) return;
+        if (transportStatus.get() !== "open") return;
+        if (role === "seeker" || role === "hider") {
+            getTransport().send({ t: "role", role });
+        }
+    });
 }
