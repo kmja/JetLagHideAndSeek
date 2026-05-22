@@ -184,26 +184,25 @@ export function TransitRoutesOverlay() {
                 // overlay pane if Map.tsx hasn't created it yet
                 // (shouldn't happen in normal flow but keeps us safe).
                 const usePane = map.getPane?.("transit") ? "transit" : undefined;
-                // Canvas renderer — this is the single biggest perf
-                // win. With SVG, each LineString gets its own <path>
-                // element; a city-sized bus network would create
-                // thousands of DOM nodes that the browser re-lays-out
-                // on every pan/zoom. Canvas collapses the whole layer
-                // to a single <canvas> element that draws all lines
-                // per frame, which is ~10-50× faster for this many
-                // shapes. The pane's CSS clip-path still applies
-                // because the canvas is just one of the pane's
-                // children.
-                const transitRenderer = L.canvas({
-                    padding: 0.5,
-                    pane: usePane,
-                });
-                // `renderer` is a valid Leaflet option (it overrides
-                // the layer's drawing surface) but Leaflet's
-                // GeoJSONOptions type definition omits it. Cast around
-                // it — the runtime accepts it.
+                // SVG renderer (Leaflet's default for a polyline
+                // layer with no explicit `renderer` option). The
+                // previous canvas renderer had a `padding: 0.5`
+                // halo: lines outside the viewport+halo were clipped
+                // out of the bitmap, so zooming or panning past the
+                // halo made segments flicker in/out — the "mirror
+                // catching light" artifact you spotted.
+                //
+                // SVG paints each LineString as its own <path> so
+                // there's no fixed clip region. We already
+                // aggressively decimate (`MAX_VERTICES=50` per way)
+                // and bbox-filter ways outside the play area, which
+                // keeps the DOM-node count down to something the
+                // browser handles fine even in dense cities. If
+                // perf becomes a problem at the high end (e.g.
+                // Tokyo bus on a low-end phone), bring canvas back
+                // with a much larger padding (≥4) rather than
+                // returning to 0.5.
                 const layerOpts = {
-                    renderer: transitRenderer,
                     style: {
                         color: cfg.color,
                         weight: 2,
