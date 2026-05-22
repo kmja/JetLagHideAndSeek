@@ -200,20 +200,67 @@ export default defineConfig({
         enabled: false,
     },
     vite: {
-        // Astro 5 + React 19 + nanostores: by default Vite's optimizer
-        // pre-bundles `react` and `react-dom` but not `@nanostores/react`.
-        // The mismatch is what triggers the dev-only "Invalid hook call"
-        // cascade — `@nanostores/react` ends up holding a *different*
-        // React instance than the rest of the app and the
-        // `useSyncExternalStore` it calls trips React's "two copies"
-        // detection. Forcing `@nanostores/react` (and `@nanostores/persistent`,
-        // which the same chain pulls in) into the optimizer puts
-        // everything on one shared React module.
+        // ── React-instance hygiene ─────────────────────────────────
+        //
+        // Astro 5 + React 19 + nanostores has a recurring dev-mode
+        // failure mode: Vite's optimizer pre-bundles `react` and
+        // `react-dom` into `node_modules/.vite/deps/` by default,
+        // but it doesn't automatically include packages that
+        // *transitively* import React from their own location in
+        // pnpm's symlink tree. When that happens, the app holds two
+        // different React module instances. React 19 detects this
+        // and throws "Invalid hook call (3. more than one copy of
+        // React)" the moment any `useSyncExternalStore` /
+        // `useState` runs — every island that uses `useStore`
+        // unmounts and the page goes blank.
+        //
+        // Two layers of defence:
+        //
+        // 1. `resolve.dedupe` forces every `import 'react'` /
+        //    `import 'react-dom'` resolved by Vite to land on the
+        //    same file regardless of which package made the
+        //    request. This is the standard fix for monorepo /
+        //    pnpm-symlink React duplication and survives all of
+        //    Vite's optimizer re-runs.
+        //
+        // 2. `optimizeDeps.include` explicitly pre-bundles every
+        //    React-using runtime dependency. This means none of
+        //    them get a fresh "import React from their own
+        //    location" walk — they all come out of `.vite/deps/`
+        //    with the deduped React already wired in.
+        //
+        // Production builds use Rollup, which always dedupes
+        // through a single React copy, so this only affects dev.
+        resolve: {
+            dedupe: ["react", "react-dom"],
+        },
         optimizeDeps: {
             include: [
                 "@nanostores/react",
                 "@nanostores/persistent",
                 "nanostores",
+                // Radix UI primitives all bring their own
+                // `useRef` / `useId` calls via internal hooks.
+                // Without explicit inclusion they import React via
+                // pnpm's symlink tree, bypassing the deduped copy.
+                "@radix-ui/react-alert-dialog",
+                "@radix-ui/react-checkbox",
+                "@radix-ui/react-dialog",
+                "@radix-ui/react-label",
+                "@radix-ui/react-popover",
+                "@radix-ui/react-select",
+                "@radix-ui/react-separator",
+                "@radix-ui/react-slot",
+                "@radix-ui/react-toggle",
+                "@radix-ui/react-toggle-group",
+                "@radix-ui/react-tooltip",
+                // Same story for these — each renders its own JSX
+                // and would otherwise pull React fresh.
+                "lucide-react",
+                "react-toastify",
+                "react-icons",
+                "vaul",
+                "cmdk",
             ],
         },
     },
