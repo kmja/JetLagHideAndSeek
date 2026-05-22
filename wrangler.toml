@@ -25,9 +25,13 @@ class_name = "GameRoom"
 # Migration for the new DO class. Cloudflare requires this to be
 # explicitly declared on first deploy so future schema changes have
 # a known starting point.
+#
+# `new_sqlite_classes` (rather than `new_classes`) uses the SQLite
+# storage backend, which is required for Durable Objects on the free
+# Workers plan and is also the recommended default for new DOs.
 [[migrations]]
 tag = "v1"
-new_classes = ["GameRoom"]
+new_sqlite_classes = ["GameRoom"]
 
 # Tighten CORS to the production Pages origin in prod, but allow
 # localhost during dev. The worker reads this and echoes it back as
