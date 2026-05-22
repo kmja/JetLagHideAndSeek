@@ -40,6 +40,7 @@ import {
     gameSize,
     hidingPeriodEndsAt,
     HIDING_PERIOD_MINUTES,
+    pendingHidingDurationMin,
     playArea,
     SIZE_DESCRIPTIONS,
     setupCompleted,
@@ -321,9 +322,15 @@ export function GameSetupDialog() {
         allowedTransit.set(draftTransit);
         gameSize.set(draftSize);
 
-        // Kick off the hiding period. End time = now + duration for this size.
+        // Defer the hiding-period clock until the play-area boundary
+        // is actually rendered — otherwise a country-sized load
+        // (Sweden, France…) eats the first chunk of the hider's
+        // window while the map is still painting. `GameStartWatcher`
+        // converts pendingHidingDurationMin → hidingPeriodEndsAt
+        // once mapGeoJSON/polyGeoJSON is set.
         const minutes = HIDING_PERIOD_MINUTES[draftSize];
-        hidingPeriodEndsAt.set(Date.now() + minutes * 60_000);
+        pendingHidingDurationMin.set(minutes);
+        hidingPeriodEndsAt.set(null);
 
         if (draftFeature) {
             const coords = draftFeature.geometry.coordinates as number[];
@@ -408,10 +415,10 @@ export function GameSetupDialog() {
             hostPushSetup();
         }
 
-        toast.success(
-            `Hiding period started — ${minutes} minutes. Good luck!`,
-            { autoClose: 3000 },
-        );
+        // Hiding-period start toast moved into GameStartWatcher —
+        // it fires together with the GO GO GO banner once the map is
+        // actually loaded. Showing the toast here would lie about the
+        // clock state when the boundary takes 30+ seconds to load.
     };
 
     const canContinue =

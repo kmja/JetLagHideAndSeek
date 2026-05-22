@@ -9,6 +9,11 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import {
+    finishLoading,
+    setPhase,
+    startLoading,
+} from "@/lib/loadingProgress";
 import { safeUnion } from "@/maps/geo-utils";
 
 import { cacheFetch, determineCache } from "./cache";
@@ -36,6 +41,10 @@ export const getOverpassData = async (
      *  client aborts before the server replies and we silently get
      *  `{ elements: [] }`. */
     fetchTimeoutMs?: number,
+    /** When true, the network read streams through the global
+     *  loadingProgress atom so the LoadingOverlay can show byte
+     *  counts. The caller still owns startLoading/finishLoading. */
+    reportProgress: boolean = false,
 ) => {
     const encodedQuery = encodeURIComponent(query);
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
@@ -46,7 +55,13 @@ export const getOverpassData = async (
     // returned as-is so the caller can distinguish them.
     const tryFetch = async (url: string): Promise<Response | null> => {
         try {
-            return await cacheFetch(url, loadingText, cacheType, fetchTimeoutMs);
+            return await cacheFetch(
+                url,
+                loadingText,
+                cacheType,
+                fetchTimeoutMs,
+                reportProgress,
+            );
         } catch (e) {
             console.warn(`Overpass fetch failed for ${url}:`, e);
             return null;
@@ -99,6 +114,9 @@ export const determineGeoJSON = async (
      *  `determineMapBoundaries` below) and want a single toast for
      *  the whole batch instead of N stacking ones. */
     silent: boolean = false,
+    /** Report download progress to the global loadingProgress atom
+     *  (used by determineMapBoundaries which owns the overlay). */
+    reportProgress: boolean = false,
 ): Promise<any> => {
     const osmTypeMap: { [key: string]: string } = {
         W: "way",
@@ -106,11 +124,23 @@ export const determineGeoJSON = async (
         N: "node",
     };
     const osmType = osmTypeMap[osmTypeLetter];
-    const query = `[out:json];${osmType}(${osmId});out geom;`;
+    // `out skel geom` strips OSM tags from the response — for a
+    // boundary we only need the geometry. Saves ~20-40% on the
+    // wire for big admin relations (Sweden, France, …) where the
+    // tag dumps on member ways are substantial. `[timeout:120]`
+    // gives Overpass headroom on the server side for countries —
+    // the default 25 s would otherwise time out before the
+    // boundary geometry is assembled.
+    const query = `[out:json][timeout:120];${osmType}(${osmId});out skel geom;`;
+    // Client-side timeout matches the server's, plus a small margin.
+    // Without this bump the default 25 s in cacheFetch aborts the
+    // request well before the server returns Sweden's relation.
     const data = await getOverpassData(
         query,
         silent ? undefined : "Loading map data...",
         CacheType.PERMANENT_CACHE,
+        130_000,
+        reportProgress,
     );
     const geo = osmtogeojson(data);
     return {
@@ -414,69 +444,93 @@ export const nearestToQuestion = async (
 };
 
 export const determineMapBoundaries = async () => {
-    // Fan-out fetch all play-area component polygons in parallel.
-    // Each call below passes `silent: true` so we don't stack N
-    // toasts for an N-piece play area (Stockholm + adjacent
-    // municipalities can be 15+ pieces). The single wrapping toast
-    // around `Promise.all` below covers the whole batch with one
-    // "Loading map data..." indicator.
-    const fetchAll = Promise.all(
-        [
-            {
-                location: mapGeoLocation.get(),
-                added: true,
-                base: true,
-            },
-            ...additionalMapGeoLocations.get(),
-        ].map(async (location) => ({
+    const primary = mapGeoLocation.get();
+    const extras = additionalMapGeoLocations.get();
+    const totalPieces = 1 + extras.length;
+    const areaName = (primary?.properties as { name?: string })?.name ?? "play area";
+
+    // Open the global loading overlay. The LoadingOverlay component
+    // renders bytes-downloaded, current phase, and elapsed time.
+    // Caller of determineMapBoundaries doesn't need to manage this —
+    // we open + close around the full pipeline.
+    startLoading(
+        `Loading ${areaName}`,
+        totalPieces > 1
+            ? `Fetching boundaries (1/${totalPieces})…`
+            : "Fetching boundary…",
+    );
+
+    try {
+        // Fan-out fetch all play-area component polygons in parallel.
+        // `silent: true` suppresses toast.promise spam (we have the
+        // global overlay instead); only the FIRST piece reports byte
+        // progress to the overlay — otherwise N parallel streams
+        // would clobber each other's byte counts.
+        const piecePromises = [
+            { location: primary, added: true, base: true },
+            ...extras,
+        ].map(async (location, idx) => ({
             added: location.added,
             data: await determineGeoJSON(
                 location.location.properties.osm_id.toString(),
                 location.location.properties.osm_type,
                 /* silent */ true,
+                /* reportProgress */ idx === 0,
             ),
-        })),
-    );
+        }));
 
-    const mapGeoDatum = await toast.promise(
-        fetchAll,
-        { pending: "Loading map data..." },
-        // toastId pins this to a single notification — if multiple
-        // determineMapBoundaries calls fire (e.g. play-area swap),
-        // the toasts reuse the same slot instead of stacking.
-        { toastId: "loading-map-boundaries" },
-    );
+        const mapGeoDatum = await Promise.all(piecePromises);
 
-    let mapGeoData = turf.featureCollection([
-        safeUnion(
-            turf.featureCollection(
-                mapGeoDatum
-                    .filter((x) => x.added)
-                    .flatMap((x) => x.data.features),
-            ) as any,
-        ),
-    ]);
+        // Parse phase. osmtogeojson already ran inside
+        // determineGeoJSON; what's expensive next is the union /
+        // difference / simplify steps over the combined polygon.
+        setPhase("Combining boundary polygons…");
+        // Give the browser a frame to paint the new phase label
+        // before we hit the heavy turf work, otherwise the UI
+        // freezes mid-phase and the user thinks we've stalled.
+        await new Promise((r) => requestAnimationFrame(r));
 
-    const differences = mapGeoDatum.filter((x) => !x.added).map((x) => x.data);
-
-    if (differences.length > 0) {
-        mapGeoData = turf.featureCollection([
-            turf.difference(
-                turf.featureCollection([
-                    mapGeoData.features[0],
-                    ...differences.flatMap((x) => x.features),
-                ]),
-            )!,
+        let mapGeoData = turf.featureCollection([
+            safeUnion(
+                turf.featureCollection(
+                    mapGeoDatum
+                        .filter((x) => x.added)
+                        .flatMap((x) => x.data.features),
+                ) as any,
+            ),
         ]);
-    }
 
-    if (turf.coordAll(mapGeoData).length > 10000) {
-        turf.simplify(mapGeoData, {
-            tolerance: 0.0005,
-            highQuality: true,
-            mutate: true,
-        });
-    }
+        const differences = mapGeoDatum
+            .filter((x) => !x.added)
+            .map((x) => x.data);
 
-    return turf.combine(mapGeoData) as FeatureCollection<MultiPolygon>;
+        if (differences.length > 0) {
+            setPhase("Subtracting excluded areas…");
+            await new Promise((r) => requestAnimationFrame(r));
+            mapGeoData = turf.featureCollection([
+                turf.difference(
+                    turf.featureCollection([
+                        mapGeoData.features[0],
+                        ...differences.flatMap((x) => x.features),
+                    ]),
+                )!,
+            ]);
+        }
+
+        if (turf.coordAll(mapGeoData).length > 10000) {
+            setPhase("Simplifying geometry…");
+            await new Promise((r) => requestAnimationFrame(r));
+            turf.simplify(mapGeoData, {
+                tolerance: 0.0005,
+                highQuality: true,
+                mutate: true,
+            });
+        }
+
+        setPhase("Rendering…");
+        await new Promise((r) => requestAnimationFrame(r));
+        return turf.combine(mapGeoData) as FeatureCollection<MultiPolygon>;
+    } finally {
+        finishLoading();
+    }
 };

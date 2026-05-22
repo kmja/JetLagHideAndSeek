@@ -1,49 +1,90 @@
 import { useStore } from "@nanostores/react";
 import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import {
     mapGeoJSON,
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import {
+    estimateEtaMs,
+    formatBytes,
+    formatDurationMs,
+    loadingProgress,
+} from "@/lib/loadingProgress";
 import { cn } from "@/lib/utils";
 
 /**
- * Full-bleed loading veil over the map while we don't yet have a boundary
- * polygon to render. Triggers whenever:
+ * Full-bleed loading veil over the map while the boundary polygon
+ * (or any other tracked operation) is being fetched + processed.
+ * Shows up in two cases:
  *
- *   - `mapGeoJSON` is null (no Overpass-fetched polygon cached this load)
- *   - AND `polyGeoJSON` is null (no manually drawn polygon either)
- *   - AND `mapGeoLocation` points to a real OSM relation (osm_id > 0)
+ *   1. The `loadingProgress` atom is non-null — explicit progress
+ *      reported from a pipeline that wants to surface bytes / phase
+ *      / ETA (e.g. determineMapBoundaries).
  *
- * In practice this fires for ~the first 1–5 seconds after a wizard finish
- * or a "New game" play-area change, while determineMapBoundaries() pulls
- * the relation from Overpass. Before the fix, the seeker would see an
- * unrestricted world map for those seconds — confusing because the play
- * area is supposed to be visibly limited.
+ *   2. Implicit fallback: `mapGeoJSON` is null AND `polyGeoJSON`
+ *      is null AND `mapGeoLocation` points at a real OSM relation.
+ *      Covers the cold-start case where the boundary load hasn't
+ *      called startLoading yet.
+ *
+ * In the explicit case we render byte progress + ETA where
+ * available; in the implicit case we fall back to the old "Loading
+ * play area" card.
  */
 export function MapLoadingOverlay() {
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $mapGeoLocation = useStore(mapGeoLocation);
+    const $progress = useStore(loadingProgress);
+
+    // 1 Hz tick so the elapsed + ETA labels update while we sit on
+    // the overlay. Cheap — only runs when the overlay is mounted.
+    const [, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const id = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(id);
+    }, []);
 
     const haveBoundary = Boolean($mapGeoJSON || $polyGeoJSON);
     const haveValidLocation =
         ($mapGeoLocation?.properties?.osm_id ?? 0) > 0;
 
-    // Only veil when we're *expecting* a boundary to arrive but it hasn't
-    // landed yet. If mapGeoLocation has no real osm_id (e.g. fresh game
-    // before the wizard, or a stale state), don't get stuck behind the veil.
-    const shouldShow = !haveBoundary && haveValidLocation;
+    // Show overlay when EITHER explicit progress is reported OR
+    // we're cold-loading a boundary.
+    const shouldShow =
+        $progress !== null || (!haveBoundary && haveValidLocation);
 
     if (!shouldShow) return null;
 
-    const name = $mapGeoLocation?.properties?.name ?? "play area";
+    const name =
+        ($mapGeoLocation?.properties as { name?: string })?.name ?? "play area";
+
+    // Prefer the explicit progress's title; fall back to the
+    // location name for the implicit cold-load case.
+    const title = $progress?.title ?? `Loading ${name}`;
+    const phase = $progress?.phase ?? "Fetching boundary…";
+
+    const elapsed = $progress
+        ? Date.now() - $progress.startedAt
+        : null;
+    const eta = $progress ? estimateEtaMs($progress) : null;
+    const downloaded = $progress?.bytesDownloaded ?? 0;
+    const total = $progress?.totalBytes ?? null;
+
+    // Determinate progress bar when we have a content-length; an
+    // indeterminate animated bar otherwise (still communicates
+    // "something is moving" for streams that don't expose totals).
+    const pct =
+        total !== null && total > 0
+            ? Math.min(100, Math.round((downloaded / total) * 100))
+            : null;
 
     return (
         <div
             className={cn(
-                "absolute inset-0 z-[1020] pointer-events-none",
+                "absolute inset-0 z-[1020]",
                 "flex items-center justify-center",
                 "bg-background/80 backdrop-blur-sm",
                 "transition-opacity duration-200",
@@ -54,17 +95,59 @@ export function MapLoadingOverlay() {
             <div
                 className={cn(
                     "pointer-events-auto",
-                    "flex items-center gap-3 px-5 py-3 rounded-md",
+                    "flex flex-col gap-3 px-5 py-4 rounded-md",
                     "bg-card border-2 border-primary shadow-xl",
-                    "max-w-[90vw]",
+                    "max-w-[90vw] w-[min(360px,90vw)]",
                 )}
             >
-                <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
-                <div className="min-w-0">
-                    <div className="font-inter-tight font-black uppercase text-xs tracking-[0.12em] text-primary">
-                        Loading play area
+                <div className="flex items-center gap-3">
+                    <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
+                    <div className="min-w-0">
+                        <div className="font-inter-tight font-black uppercase text-[11px] tracking-[0.12em] text-primary">
+                            Loading play area
+                        </div>
+                        <div className="text-sm font-medium truncate">
+                            {title}
+                        </div>
                     </div>
-                    <div className="text-sm font-medium truncate">{name}</div>
+                </div>
+
+                {/* Phase label */}
+                <div className="text-xs text-muted-foreground leading-snug">
+                    {phase}
+                </div>
+
+                {/* Progress bar */}
+                <div className="h-1.5 w-full rounded-full bg-secondary overflow-hidden">
+                    {pct !== null ? (
+                        <div
+                            className="h-full bg-primary transition-[width] duration-150"
+                            style={{ width: `${pct}%` }}
+                        />
+                    ) : (
+                        <div className="h-full bg-primary/70 animate-[jlIndeterminate_1.4s_ease-in-out_infinite] origin-left" />
+                    )}
+                </div>
+
+                {/* Stats line: bytes + elapsed + ETA. Each row item
+                    is conditional so the line doesn't show empty
+                    placeholders when totals are missing. */}
+                <div className="flex items-center justify-between gap-2 text-[11px] tabular-nums text-muted-foreground">
+                    <span>
+                        {total !== null
+                            ? `${formatBytes(downloaded)} / ${formatBytes(total)}`
+                            : downloaded > 0
+                              ? formatBytes(downloaded)
+                              : ""}
+                    </span>
+                    <span className="flex gap-2">
+                        {elapsed !== null && elapsed >= 1000 && (
+                            <span>{formatDurationMs(elapsed)} elapsed</span>
+                        )}
+                        {eta !== null && eta > 0 && (
+                            <span>· ~{formatDurationMs(eta)} left</span>
+                        )}
+                    </span>
                 </div>
             </div>
         </div>

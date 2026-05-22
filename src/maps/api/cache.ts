@@ -1,6 +1,8 @@
 import _ from "lodash";
 import { toast } from "react-toastify";
 
+import { setBytes } from "@/lib/loadingProgress";
+
 import { CacheType } from "./types";
 
 const determineQuestionCache = _.memoize(() => caches.open(CacheType.CACHE));
@@ -45,11 +47,62 @@ const fetchWithTimeout = async (
     }
 };
 
+/**
+ * Tee a Response body through a progress reporter so the loading
+ * overlay can surface download progress. Returns a new Response
+ * with an identical body but with `loadingProgress` bytes ticking
+ * up as the original streams. Honours Content-Length where the
+ * server provides it; falls back to "indeterminate but counting"
+ * otherwise (most Overpass mirrors omit Content-Length on
+ * dynamically-generated responses).
+ */
+const wrapResponseWithProgress = (response: Response, reportProgress: boolean): Response => {
+    if (!reportProgress) return response;
+    if (!response.body) return response;
+    const contentLengthHeader = response.headers.get("Content-Length");
+    const total = contentLengthHeader ? parseInt(contentLengthHeader, 10) : null;
+    const totalSafe = total && Number.isFinite(total) && total > 0 ? total : null;
+
+    let downloaded = 0;
+    const reader = response.body.getReader();
+
+    const stream = new ReadableStream({
+        async pull(controller) {
+            try {
+                const { done, value } = await reader.read();
+                if (done) {
+                    controller.close();
+                    return;
+                }
+                downloaded += value.byteLength;
+                setBytes(downloaded, totalSafe);
+                controller.enqueue(value);
+            } catch (e) {
+                controller.error(e);
+            }
+        },
+        cancel(reason) {
+            reader.cancel(reason);
+        },
+    });
+
+    return new Response(stream, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+    });
+};
+
 export const cacheFetch = async (
     url: string,
     loadingText?: string,
     cacheType: CacheType = CacheType.CACHE,
     timeoutMs: number = DEFAULT_FETCH_TIMEOUT_MS,
+    /** When true, the response body is streamed through a progress
+     *  tee that updates the global loadingProgress atom. The caller
+     *  is responsible for opening (`startLoading`) and closing
+     *  (`finishLoading`) the overlay around its full operation. */
+    reportProgress: boolean = false,
 ) => {
     try {
         const cache = await determineCache(cacheType);
@@ -71,7 +124,11 @@ export const cacheFetch = async (
         }
 
         const fetchAndMaybeCache = async () => {
-            const response = await fetchWithTimeout(url, timeoutMs);
+            const rawResponse = await fetchWithTimeout(url, timeoutMs);
+            // Wrap with progress BEFORE the cache.put so the byte
+            // counter ticks during the actual network read rather
+            // than jumping to 100% after the cache write finishes.
+            const response = wrapResponseWithProgress(rawResponse, reportProgress);
             if (response.ok) {
                 await cache.put(url, response.clone());
             } else {

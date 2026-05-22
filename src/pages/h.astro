@@ -3,6 +3,8 @@ import Layout from "@/layouts/Layout.astro";
 import { HiderView } from "@/components/HiderView";
 import { DebugPhaseControls } from "@/components/DebugPhaseControls";
 import { GameSetupDialog } from "@/components/GameSetupDialog";
+import { GameStartWatcher } from "@/components/GameStartWatcher";
+import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { StaleSessionPrompt } from "@/components/StaleSessionPrompt";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 ---
@@ -16,4 +18,9 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
         so the hider has the same access the seeker does via the
         BottomNav settings sheet. Triggered from HiderHome's header. */}
     <GameSetupDialog client:only="react" />
+    {/* Hiding-period gate + GO GO GO moment. Same watchers as
+        index.astro so the hider sees the celebration too once the
+        boundary load completes. */}
+    <GameStartWatcher client:only="react" />
+    <GoGoGoOverlay client:only="react" />
 </Layout>

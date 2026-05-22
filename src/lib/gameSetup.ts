@@ -165,6 +165,34 @@ export const hidingPeriodEndsAt = persistentAtom<number | null>(
     },
 );
 
+/**
+ * Hiding-period duration (minutes) waiting for the boundary load
+ * to finish before the clock actually starts. Set by the wizard's
+ * Finish handler; cleared by GameStartWatcher once the map is
+ * actually ready, at which point hidingPeriodEndsAt gets set to
+ * `now + duration * 60_000` and the GO GO GO moment fires.
+ *
+ * Persisted so a reload mid-load doesn't drop the pending start.
+ */
+export const pendingHidingDurationMin = persistentAtom<number | null>(
+    "pendingHidingDurationMin",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
+ * Volatile celebration trigger — unix ms set the moment the hiding
+ * period actually starts (after the boundary load completes). The
+ * GoGoGoOverlay component watches this and shows the catchphrase
+ * banner for a few seconds before clearing itself.
+ *
+ * Not persisted: a reload should NOT replay the banner.
+ */
+export const gameStartCelebrationAt = atom<number | null>(null);
+
 /** Hiding period duration in minutes, per the rulebook (image 2). */
 export const HIDING_PERIOD_MINUTES: Record<GameSize, number> = {
     small: 30,

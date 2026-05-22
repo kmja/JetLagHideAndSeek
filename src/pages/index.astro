@@ -25,6 +25,8 @@ import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
 import { RolePicker } from "@/components/RolePicker";
 import { CurseInbox } from "@/components/CurseInbox";
+import { GameStartWatcher } from "@/components/GameStartWatcher";
+import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 ---
 
@@ -88,6 +90,8 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
             <CurseInbox client:only />
             <DebugPhaseControls client:only />
             <StaleSessionPrompt client:only />
+            <GameStartWatcher client:only="react" />
+            <GoGoGoOverlay client:only="react" />
             <MultiplayerBoot client:only="react" />
         </SidebarProviderR>
     </SidebarProviderL>

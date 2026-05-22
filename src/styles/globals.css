@@ -93,6 +93,16 @@ div.leaflet-control-attribution.leaflet-control {
     100% { transform: scale(1); }
 }
 
+/* Indeterminate progress bar — used by MapLoadingOverlay when the
+ * stream doesn't expose a Content-Length (most Overpass mirrors).
+ * Sweeps a short bar back and forth to communicate "still working"
+ * without lying about an actual percentage. */
+@keyframes jlIndeterminate {
+    0%   { transform: scaleX(0.2) translateX(0%);   }
+    50%  { transform: scaleX(0.5) translateX(100%); }
+    100% { transform: scaleX(0.2) translateX(400%); }
+}
+
 /* d6 tumble — quick wobble + scale-bounce while the hider's dice
  * cycles values, then settles. */
 @keyframes jlDiceTumble {
