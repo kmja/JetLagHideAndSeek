@@ -125,14 +125,20 @@ export const determineGeoJSON = async (
         N: "node",
     };
     const osmType = osmTypeMap[osmTypeLetter];
-    // `out skel geom` strips OSM tags from the response — for a
-    // boundary we only need the geometry. Saves ~20-40% on the
-    // wire for big admin relations (Sweden, France, …) where the
-    // tag dumps on member ways are substantial. `[timeout:120]`
-    // gives Overpass headroom on the server side for countries —
-    // the default 25 s would otherwise time out before the
-    // boundary geometry is assembled.
-    const query = `[out:json][timeout:120];${osmType}(${osmId});out skel geom;`;
+    // `out geom` (with tags) — `osmtogeojson` relies on the
+    // relation's `type=boundary` / `boundary=administrative`
+    // tags AND each member way's `role=outer|inner` to assemble
+    // a MultiPolygon. Stripping tags via `out skel geom` made the
+    // library fall back to raw LineString features, which then
+    // crashed `turf.union` with "Input geometry is not a valid
+    // Polygon or MultiPolygon" downstream in
+    // `determineMapBoundaries`. The bandwidth savings (~20-40 %)
+    // weren't worth the broken polygon assembly.
+    //
+    // `[timeout:120]` gives Overpass headroom server-side for
+    // countries — the default 25 s would otherwise time out
+    // before the boundary geometry is assembled.
+    const query = `[out:json][timeout:120];${osmType}(${osmId});out geom;`;
     // Client-side timeout matches the server's, plus a small margin.
     // Without this bump the default 25 s in cacheFetch aborts the
     // request well before the server returns Sweden's relation.
@@ -506,13 +512,26 @@ export const determineMapBoundaries = async () => {
         // freezes mid-phase and the user thinks we've stalled.
         await new Promise((r) => requestAnimationFrame(r));
 
+        // Skip anything that isn't a closed polygon/multipolygon
+        // before the union — a single unclosed way (rare but it
+        // happens on OSM relations with missing role tags) would
+        // otherwise crash turf.union with "Input geometry is not
+        // a valid Polygon or MultiPolygon".
+        const isPolygonal = (f: any) =>
+            f?.geometry?.type === "Polygon" ||
+            f?.geometry?.type === "MultiPolygon";
+        const addedFeatures = mapGeoDatum
+            .filter((x) => x.added)
+            .flatMap((x) => x.data.features)
+            .filter(isPolygonal);
+        if (addedFeatures.length === 0) {
+            throw new Error(
+                "Boundary fetch returned no usable polygon features.",
+            );
+        }
         let mapGeoData = turf.featureCollection([
             safeUnion(
-                turf.featureCollection(
-                    mapGeoDatum
-                        .filter((x) => x.added)
-                        .flatMap((x) => x.data.features),
-                ) as any,
+                turf.featureCollection(addedFeatures) as any,
             ),
         ]);
 
@@ -523,14 +542,24 @@ export const determineMapBoundaries = async () => {
         if (differences.length > 0) {
             setPhase("Subtracting excluded areas…");
             await new Promise((r) => requestAnimationFrame(r));
-            mapGeoData = turf.featureCollection([
-                turf.difference(
+            const subtractFeatures = differences
+                .flatMap((x) => x.features)
+                .filter(isPolygonal);
+            if (subtractFeatures.length > 0) {
+                const diff = turf.difference(
                     turf.featureCollection([
                         mapGeoData.features[0],
-                        ...differences.flatMap((x) => x.features),
+                        ...subtractFeatures,
                     ]),
-                )!,
-            ]);
+                );
+                // turf.difference returns null when the result
+                // is empty (subtractions covered the whole base).
+                // Preserve the original boundary in that case
+                // rather than throwing.
+                if (diff) {
+                    mapGeoData = turf.featureCollection([diff]);
+                }
+            }
         }
 
         if (turf.coordAll(mapGeoData).length > 10000) {

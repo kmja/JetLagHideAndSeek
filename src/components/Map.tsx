@@ -605,7 +605,9 @@ export const Map = ({ className }: { className?: string }) => {
                 if (layer.eliminationGeoJSON) layerCount++;
             });
             if (layerCount > 1) {
-                console.log("Too many layers, refreshing...");
+                console.debug(
+                    `[map] watchdog: ${layerCount} elimination layers, refreshing`,
+                );
                 refreshQuestions(false);
             }
         };
