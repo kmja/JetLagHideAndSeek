@@ -8,6 +8,7 @@ import {
     Lock,
     LockOpen,
     MapPin,
+    Settings,
     Ship,
     Sparkles,
     Timer,
@@ -27,6 +28,8 @@ import {
     gameSize,
     hidingPeriodEndsAt,
     HIDING_PERIOD_MINUTES,
+    setupCompleted,
+    setupDialogOpen,
     TRANSIT_LABELS,
     type TransitMode,
 } from "@/lib/gameSetup";
@@ -38,6 +41,7 @@ import {
     hidingZone,
     playerRole,
     radiusForGameSize,
+    resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
@@ -183,6 +187,30 @@ export function HiderHome() {
         }
     }, [$inbox, phase]);
 
+    const openSettings = () => {
+        // Edit mode — setupCompleted is true mid-game, so the dialog
+        // shows all sections in one scroll rather than the 3-step
+        // wizard. Online play section is in there too.
+        setupDialogOpen.set(true);
+    };
+
+    const startNewGame = () => {
+        if (
+            !confirm(
+                "Start a new game? This clears your hiding zone, question log, hand, and discard pile on this device.",
+            )
+        ) {
+            return;
+        }
+        setupCompleted.set(false);
+        hidingPeriodEndsAt.set(null);
+        roundFoundAt.set(null);
+        // Wipes inbox + hand + zone + spot + foundAt. Same helper the
+        // seeker side calls.
+        resetHiderRoundState();
+        setupDialogOpen.set(true);
+    };
+
     return (
         <div className="min-h-screen flex flex-col p-4 max-w-2xl mx-auto pb-12 bg-background text-foreground">
             {/* Header */}
@@ -191,6 +219,29 @@ export function HiderHome() {
                     <HideSeekMark size={36} onDark={false} />
                     <HideSeekWordmark />
                     <SectionPill className="ml-auto">Hider</SectionPill>
+                </div>
+                {/* Hider-side game controls. The seeker has the
+                    BottomNav; the hider has this compact toolbar.
+                    Both flows write the same nanostores. */}
+                <div className="mt-3 flex gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={openSettings}
+                        className="flex-1 gap-1.5 h-9 text-xs"
+                    >
+                        <Settings className="w-3.5 h-3.5" />
+                        Game settings
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={startNewGame}
+                        className="flex-1 gap-1.5 h-9 text-xs"
+                    >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        New game
+                    </Button>
                 </div>
             </header>
 

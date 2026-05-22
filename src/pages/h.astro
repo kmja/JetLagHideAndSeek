@@ -2,6 +2,7 @@
 import Layout from "@/layouts/Layout.astro";
 import { HiderView } from "@/components/HiderView";
 import { DebugPhaseControls } from "@/components/DebugPhaseControls";
+import { GameSetupDialog } from "@/components/GameSetupDialog";
 import { StaleSessionPrompt } from "@/components/StaleSessionPrompt";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 ---
@@ -11,4 +12,8 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
     <DebugPhaseControls client:only="react" />
     <StaleSessionPrompt client:only="react" />
     <MultiplayerBoot client:only="react" />
+    {/* Game settings + new-game wizard. Mounted on the hider page
+        so the hider has the same access the seeker does via the
+        BottomNav settings sheet. Triggered from HiderHome's header. */}
+    <GameSetupDialog client:only="react" />
 </Layout>

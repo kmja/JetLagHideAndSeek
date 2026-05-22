@@ -534,7 +534,7 @@ function SizeMinutesBadge({
  * has to show all three because it doesn't know the size, but the
  * digital UI does).
  */
-function renderBodyText(text: string, gameSize: GameSize): ReactNode {
+export function renderBodyText(text: string, gameSize: GameSize): ReactNode {
     // Value shape, in two parts so decimals work cleanly:
     //   1. The numeric portion — one or more digits, optionally
     //      followed by `.<digits>` for decimals. Required.

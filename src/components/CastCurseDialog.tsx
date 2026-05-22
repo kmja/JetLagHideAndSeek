@@ -1,8 +1,10 @@
-import { Dice5, Share2, Zap } from "lucide-react";
+import { useStore } from "@nanostores/react";
+import { Dice5, Share2, Trash2, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { toast } from "react-toastify";
 
+import { renderBodyText } from "@/components/CardTile";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -11,6 +13,7 @@ import {
     DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { gameSize } from "@/lib/gameSetup";
 import { discardCard } from "@/lib/hiderRole";
 import type { CurseCard } from "@/lib/hiderDeck";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
@@ -71,6 +74,7 @@ export function CastCurseDialog({
     onOpenChange: (o: boolean) => void;
     card: CurseCard | null;
 }) {
+    const $gameSize = useStore(gameSize);
     const fizzleRule = card ? DICE_FIZZLE[card.name] : undefined;
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
@@ -384,8 +388,16 @@ export function CastCurseDialog({
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 space-y-3 text-sm">
-                    <DialogDescription className="text-sm leading-snug text-foreground/90">
-                        {card.description}
+                    <DialogDescription
+                        asChild
+                        className="text-sm leading-snug text-foreground/90"
+                    >
+                        {/* `asChild` lets DialogDescription wrap our
+                            own <p> so renderBodyText's mix of strings
+                            + inline <SizeBadge> spans is valid React
+                            without breaking the Radix description
+                            semantics (sr-only label still works). */}
+                        <p>{renderBodyText(card.description, $gameSize)}</p>
                     </DialogDescription>
 
                     {card.castingCost && (
@@ -428,7 +440,7 @@ export function CastCurseDialog({
                                 Casting cost
                             </div>
                             <p className="text-xs text-foreground/90 leading-snug mt-1">
-                                {card.castingCost}
+                                {renderBodyText(card.castingCost, $gameSize)}
                             </p>
 
                             {fizzleRule && (
@@ -471,9 +483,21 @@ export function CastCurseDialog({
                                     </button>
                                     <div className="text-sm text-center leading-snug">
                                         {rolled === null ? (
-                                            <span className="text-muted-foreground">
-                                                Tap to roll the die.
-                                            </span>
+                                            <div className="space-y-1.5">
+                                                <div className="text-muted-foreground">
+                                                    Tap to roll the die.
+                                                </div>
+                                                <div className="text-[11px] uppercase tracking-[0.12em] font-poppins font-bold text-yellow-500/90">
+                                                    ⚠ This commits you to
+                                                    playing the curse
+                                                </div>
+                                                <div className="text-[11px] text-muted-foreground italic leading-snug">
+                                                    Once rolled, you can&apos;t
+                                                    back out — the card either
+                                                    casts on the seekers or
+                                                    fizzles to discard.
+                                                </div>
+                                            </div>
                                         ) : rolling ? (
                                             <span className="text-muted-foreground">
                                                 Rolling…
@@ -539,7 +563,7 @@ export function CastCurseDialog({
                         >
                             {fizzles ? (
                                 <>
-                                    <Zap className="w-4 h-4" />
+                                    <Trash2 className="w-4 h-4" />
                                     Discard fizzled curse
                                 </>
                             ) : (
