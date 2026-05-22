@@ -389,93 +389,109 @@ export function CastCurseDialog({
                     </DialogDescription>
 
                     {card.castingCost && (
-                        <div className="rounded-sm border-2 border-yellow-500/40 bg-yellow-500/5 px-3 py-2.5">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-yellow-500">
+                        // One unified "Casting cost" box. For curses
+                        // with a dice-fizzle rule the dice widget +
+                        // outcome message live INSIDE this box rather
+                        // than as a second card below — the printed
+                        // casting cost ("Roll a die. On a 5 or 6 …")
+                        // is already the instruction the player needs.
+                        // Repeating it as a separate explainer just
+                        // added visual noise.
+                        //
+                        // The border/background re-tints once the roll
+                        // settles to communicate the outcome — yellow
+                        // (pending) → red (fizzle) or green (success).
+                        <div
+                            className={cn(
+                                "rounded-sm border-2 px-3 py-2.5 transition-colors",
+                                fizzleRule && settled !== null && fizzles
+                                    ? "border-destructive/60 bg-destructive/10"
+                                    : fizzleRule &&
+                                        settled !== null &&
+                                        !fizzles
+                                      ? "border-emerald-500/60 bg-emerald-500/10"
+                                      : "border-yellow-500/40 bg-yellow-500/5",
+                            )}
+                        >
+                            <div
+                                className={cn(
+                                    "text-[10px] uppercase tracking-[0.16em] font-poppins font-bold transition-colors",
+                                    fizzleRule && settled !== null && fizzles
+                                        ? "text-destructive"
+                                        : fizzleRule &&
+                                            settled !== null &&
+                                            !fizzles
+                                          ? "text-emerald-400"
+                                          : "text-yellow-500",
+                                )}
+                            >
                                 Casting cost
                             </div>
                             <p className="text-xs text-foreground/90 leading-snug mt-1">
                                 {card.castingCost}
                             </p>
-                        </div>
-                    )}
 
-                    {fizzleRule && (
-                        <div
-                            className={cn(
-                                "rounded-sm border border-border bg-secondary/40 p-4 space-y-3",
-                                // Outcome tint — only paints once the
-                                // tumble settles, so the container
-                                // doesn't strobe red/green during
-                                // the roll.
-                                settled !== null && fizzles &&
-                                    "border-destructive/60 bg-destructive/10",
-                                settled !== null && !fizzles &&
-                                    "border-emerald-500/60 bg-emerald-500/10",
-                            )}
-                        >
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                                Pre-cast roll
-                            </div>
-                            <p className="text-xs text-muted-foreground leading-snug">
-                                {fizzleRule.explainer}
-                            </p>
-                            <div className="flex flex-col items-center gap-3 py-2">
-                                <button
-                                    type="button"
-                                    onClick={roll}
-                                    disabled={rolling || rolled !== null}
-                                    aria-label="Roll d6"
-                                    className={cn(
-                                        "shrink-0 w-24 h-24 rounded-xl",
-                                        "bg-background border-4 flex items-center justify-center",
-                                        "font-inter-tight italic font-black text-6xl tabular-nums",
-                                        "transition-all",
-                                        // Color the dice border by
-                                        // outcome — but only once
-                                        // the tumble has settled.
-                                        // During the roll itself we
-                                        // stay neutral (primary)
-                                        // so the border doesn't
-                                        // strobe red/green per tick.
-                                        settled === null
-                                            ? "border-primary text-primary"
-                                            : fizzles
-                                              ? "border-destructive text-destructive"
-                                              : "border-emerald-400 text-emerald-400",
-                                        rolling &&
-                                            "animate-[jlDiceTumble_300ms_ease-in-out_infinite]",
-                                        reveal &&
-                                            "animate-[jlDiceReveal_700ms_cubic-bezier(0.34,1.56,0.64,1)_forwards]",
-                                        !rolling && rolled === null &&
-                                            "hover:scale-[1.05] active:scale-95",
-                                        "disabled:cursor-default",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    )}
-                                >
-                                    {rolled ?? <Dice5 className="w-10 h-10" />}
-                                </button>
-                                <div className="text-sm text-center leading-snug">
-                                    {rolled === null ? (
-                                        <span className="text-muted-foreground">
-                                            Tap to roll the die.
-                                        </span>
-                                    ) : rolling ? (
-                                        <span className="text-muted-foreground">
-                                            Rolling…
-                                        </span>
-                                    ) : fizzles ? (
-                                        <span className="text-destructive font-semibold">
-                                            💀 The curse fizzles — card moves
-                                            to discard.
-                                        </span>
-                                    ) : (
-                                        <span className="text-emerald-400 font-semibold">
-                                            🎉 The curse stands — cast it on
-                                            the seekers.
-                                        </span>
-                                    )}
+                            {fizzleRule && (
+                                <div className="flex flex-col items-center gap-3 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={roll}
+                                        disabled={rolling || rolled !== null}
+                                        aria-label="Roll d6"
+                                        className={cn(
+                                            "shrink-0 w-24 h-24 rounded-xl",
+                                            "bg-background border-4 flex items-center justify-center",
+                                            "font-inter-tight italic font-black text-6xl tabular-nums",
+                                            "transition-all",
+                                            // Match the die border to
+                                            // the outcome tint — but
+                                            // only once the tumble
+                                            // settles, so it doesn't
+                                            // strobe red/green per
+                                            // tick during the roll.
+                                            settled === null
+                                                ? "border-primary text-primary"
+                                                : fizzles
+                                                  ? "border-destructive text-destructive"
+                                                  : "border-emerald-400 text-emerald-400",
+                                            rolling &&
+                                                "animate-[jlDiceTumble_300ms_ease-in-out_infinite]",
+                                            reveal &&
+                                                "animate-[jlDiceReveal_700ms_cubic-bezier(0.34,1.56,0.64,1)_forwards]",
+                                            !rolling &&
+                                                rolled === null &&
+                                                "hover:scale-[1.05] active:scale-95",
+                                            "disabled:cursor-default",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                        )}
+                                    >
+                                        {rolled ?? (
+                                            <Dice5 className="w-10 h-10" />
+                                        )}
+                                    </button>
+                                    <div className="text-sm text-center leading-snug">
+                                        {rolled === null ? (
+                                            <span className="text-muted-foreground">
+                                                Tap to roll the die.
+                                            </span>
+                                        ) : rolling ? (
+                                            <span className="text-muted-foreground">
+                                                Rolling…
+                                            </span>
+                                        ) : fizzles ? (
+                                            <span className="text-destructive font-semibold">
+                                                💀 The curse fizzles — card
+                                                moves to discard.
+                                            </span>
+                                        ) : (
+                                            <span className="text-emerald-400 font-semibold">
+                                                🎉 The curse stands — cast it
+                                                on the seekers.
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )}
                 </div>
