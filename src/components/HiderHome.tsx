@@ -23,6 +23,7 @@ import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { startNewGame, startNewRound } from "@/lib/roundActions";
 import {
     allowedTransit,
     formatTimeRemaining,
@@ -720,6 +721,31 @@ function FinalScoreBanner({
     const seekMs = Math.max(0, foundAt - hidingEndsAt);
     const finalMs = Math.max(0, seekMs - timeBonusMinutes * 60_000);
 
+    const onNewRound = () => {
+        if (
+            !confirm(
+                "Start a new round? Hiding zone, hand, discard pile and inbox reset. Play area + transit + size stay the same.",
+            )
+        ) {
+            return;
+        }
+        startNewRound();
+        toast.success("New round — hiding period starting now.", {
+            autoClose: 2500,
+        });
+    };
+
+    const onNewGame = () => {
+        if (
+            !confirm(
+                "Start a new game? This drops the play area, transit, and size — the setup wizard will re-open.",
+            )
+        ) {
+            return;
+        }
+        startNewGame();
+    };
+
     return (
         <section className="rounded-md border-2 border-primary bg-primary/10 px-4 py-4 mb-4">
             <div className="flex items-center gap-2 mb-3">
@@ -760,6 +786,15 @@ function FinalScoreBanner({
                 Lower is better for the seeker; higher is better for the hider.
                 Carry to the next round for cumulative scoring.
             </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button onClick={onNewRound} className="gap-1.5">
+                    <Sparkles className="w-4 h-4" />
+                    New round
+                </Button>
+                <Button variant="outline" onClick={onNewGame}>
+                    New game
+                </Button>
+            </div>
         </section>
     );
 }

@@ -9,6 +9,7 @@ import {
     Settings,
     Share2,
     Ship,
+    Sparkles,
     Target,
     Timer,
     Train,
@@ -22,6 +23,7 @@ import type { LucideIcon } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { startNewGame, startNewRound } from "@/lib/roundActions";
 
 import {
     Sheet,
@@ -343,6 +345,32 @@ export const BottomNav = () => {
                                                         void shareFoundLink(
                                                             $foundAt,
                                                         );
+                                                    }}
+                                                    onNewRound={() => {
+                                                        if (
+                                                            !confirm(
+                                                                "Start a new round? Question log, hider hand, hiding zone and spot will all reset. Play area + transit + size stay the same.",
+                                                            )
+                                                        ) {
+                                                            return;
+                                                        }
+                                                        setGameSheetOpen(false);
+                                                        startNewRound();
+                                                        toast.success(
+                                                            "New round — hiding period starting now.",
+                                                            { autoClose: 2500 },
+                                                        );
+                                                    }}
+                                                    onNewGame={() => {
+                                                        if (
+                                                            !confirm(
+                                                                "Start a new game? This drops the play area, transit modes, and size — the setup wizard will re-open.",
+                                                            )
+                                                        ) {
+                                                            return;
+                                                        }
+                                                        setGameSheetOpen(false);
+                                                        startNewGame();
                                                     }}
                                                 />
                                             ) : (
@@ -710,10 +738,14 @@ function FoundSummary({
     foundAt,
     hidingEndsAt,
     onShareAgain,
+    onNewRound,
+    onNewGame,
 }: {
     foundAt: number;
     hidingEndsAt: number;
     onShareAgain: () => void;
+    onNewRound: () => void;
+    onNewGame: () => void;
 }) {
     const elapsedMs = Math.max(0, foundAt - hidingEndsAt);
     const totalSec = Math.floor(elapsedMs / 1000);
@@ -751,6 +783,28 @@ function FoundSummary({
                 <Share2 className="w-4 h-4" />
                 Share round-end link again
             </Button>
+            {/* New-round / new-game actions live here so the
+                seeker has a clear next step from the same panel
+                that confirmed the round ended. New round keeps
+                the play area + size + transit + multiplayer room
+                — only the per-round state (questions, hider
+                hand, zone, spot, found-at) resets. New game
+                drops back to the wizard. */}
+            <div className="grid grid-cols-2 gap-2 mt-2">
+                <Button
+                    onClick={onNewRound}
+                    className="gap-1.5"
+                >
+                    <Sparkles className="w-4 h-4" />
+                    New round
+                </Button>
+                <Button
+                    variant="outline"
+                    onClick={onNewGame}
+                >
+                    New game
+                </Button>
+            </div>
         </div>
     );
 }

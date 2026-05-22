@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Plus } from "lucide-react";
+import { ListChecks, Plus } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -150,7 +150,36 @@ export const QuestionSidebar = () => {
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>
-                {questionsNewestFirst.map(renderQuestion)}
+                {questionsNewestFirst.length === 0 ? (
+                    // Empty state — separates "no questions yet"
+                    // from "list failed to load" or "list still
+                    // mounting". Mirrors the bottom-nav's primary
+                    // CTA label so the next step is obvious.
+                    <SidebarGroup>
+                        <SidebarGroupContent>
+                            <div
+                                className={cn(
+                                    "mx-2 my-2 rounded-md border-2 border-dashed border-border",
+                                    "px-4 py-6 flex flex-col items-center text-center gap-2",
+                                )}
+                            >
+                                <ListChecks
+                                    className="w-8 h-8 text-muted-foreground/60"
+                                    strokeWidth={1.5}
+                                />
+                                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                    No questions yet
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-snug max-w-[20ch]">
+                                    Tap <span className="font-semibold text-foreground">NEW QUESTION</span> in
+                                    the bottom nav to ask your first one.
+                                </p>
+                            </div>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
+                ) : (
+                    questionsNewestFirst.map(renderQuestion)
+                )}
             </SidebarContent>
             {!$autoSave && (
                 <SidebarGroup>
