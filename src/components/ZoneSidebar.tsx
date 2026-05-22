@@ -462,7 +462,7 @@ export const ZoneSidebar = () => {
 
         if ($displayHidingZones && $questionFinishedMapData) {
             initializeHidingZones().catch((error) => {
-                console.log("Error in hiding zone initialization:", error);
+                console.warn("Hiding zone initialization failed:", error);
                 toast.error(
                     "An error occurred during hiding zone initialization",
                     { toastId: "hiding-zone-initialization-error" },
@@ -498,7 +498,7 @@ export const ZoneSidebar = () => {
                     $questionFinishedMapData,
                     $hidingRadius,
                 ).catch((error) => {
-                    console.log("Error in hiding zone selection:", error);
+                    console.warn("Hiding zone selection failed:", error);
                     toast.error(
                         "An error occurred during hiding zone selection",
                         { toastId: "hiding-zone-selection-error" },

@@ -268,7 +268,12 @@ export const Map = ({ className }: { className?: string }) => {
                             mapGeoJSON.set(x);
                             mapGeoData = x;
                         })
-                        .catch((error) => console.log(error)),
+                        .catch((error) => {
+                            console.warn(
+                                "determineMapBoundaries failed:",
+                                error,
+                            );
+                        }),
                     {
                         error: "Error refreshing map data",
                     },
@@ -379,8 +384,7 @@ export const Map = ({ className }: { className?: string }) => {
                 }
             }
         } catch (error) {
-            console.log(error);
-
+            console.warn("Map refreshQuestions failed:", error);
             isLoading.set(false);
             if (document.querySelectorAll(".Toastify__toast").length === 0) {
                 return toast.error("No solutions found / error occurred");

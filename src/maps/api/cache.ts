@@ -252,7 +252,7 @@ export const cacheFetch = async (
         }
         // Otherwise it's probably a Cache API issue (e.g. private
         // browsing) — fall back to a direct timed fetch.
-        console.log(e);
+        console.warn("cacheFetch fell back to direct fetch:", e);
         return fetchWithTimeout(url, timeoutMs);
     }
 };
@@ -266,6 +266,6 @@ export const clearCache = async (cacheType: CacheType = CacheType.CACHE) => {
             });
         });
     } catch (e) {
-        console.log(e); // Probably a caches not supported error
+        console.warn("clearCache failed (Cache API unavailable?):", e);
     }
 };

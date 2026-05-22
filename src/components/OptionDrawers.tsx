@@ -354,7 +354,6 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
 
                     // Show platform native share sheet if possible
                     await shareOrFallback(shareUrl).then((result) => {
-                        console.log(`result ${result}`);
                         if (result === false) {
                             return toast.error(
                                 `Clipboard not supported. Try manually copying/pasting: ${shareUrl}`,
