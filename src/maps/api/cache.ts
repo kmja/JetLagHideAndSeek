@@ -107,31 +107,38 @@ function rememberSize(url: string, size: number) {
 }
 
 /**
- * Tee a Response body through a progress reporter so the loading
- * overlay can surface download progress. Returns a new Response
- * with an identical body but with `loadingProgress` bytes ticking
- * up as the original streams.
+ * Read a Response body fully while reporting progress to the
+ * global `loadingProgress` atom. Returns the bytes plus a "best
+ * available" total for the progress bar.
  *
- * Total bytes for the determinate progress bar are picked, in
- * priority order:
+ * Total bytes are picked, in priority order:
  *   1. Server's `Content-Length` header (rare on Overpass —
  *      chunked responses skip it).
  *   2. The size we last cached for THIS URL in localStorage. So a
  *      second visit to Sweden's boundary shows "X / ~17 MB" even
  *      though the server didn't tell us the total.
- *   3. None — the overlay falls back to "X downloaded" without a
- *      total.
+ *   3. None — the overlay shows just the downloaded byte count.
  *
  * After the body fully reads, the actual size is written back to
  * the cache so subsequent fetches use the freshest number.
+ *
+ * Why fully-read into a buffer instead of streaming through a
+ * `Response.clone() + tee` wrapper: the previous wrapper had a
+ * cross-stream contention bug where `cache.put` and the caller
+ * both consumed branches of a tee'd custom `ReadableStream`,
+ * which in practice deadlocked some browsers and left the
+ * loading overlay stuck on "Starting…". Buffering trades a
+ * small amount of memory for a deterministic, single-owner
+ * read path.
  */
-const wrapResponseWithProgress = (
+async function readBodyWithProgress(
     response: Response,
-    reportProgress: boolean,
     url: string,
-): Response => {
-    if (!reportProgress) return response;
-    if (!response.body) return response;
+): Promise<Uint8Array> {
+    if (!response.body) {
+        const ab = await response.arrayBuffer();
+        return new Uint8Array(ab);
+    }
     const contentLengthHeader = response.headers.get("Content-Length");
     const headerTotal = contentLengthHeader
         ? parseInt(contentLengthHeader, 10)
@@ -142,44 +149,55 @@ const wrapResponseWithProgress = (
             : null;
     const cachedTotal = headerTotalSafe ?? getCachedSize(url);
 
-    let downloaded = 0;
     const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let downloaded = 0;
 
-    const stream = new ReadableStream({
-        async pull(controller) {
-            try {
-                const { done, value } = await reader.read();
-                if (done) {
-                    // Save the final size for next time.
-                    rememberSize(url, downloaded);
-                    controller.close();
-                    return;
-                }
-                downloaded += value.byteLength;
-                // If our cached estimate underestimated, bump it
-                // up so the bar never appears stuck at 100% with
-                // bytes still arriving.
-                const effectiveTotal =
-                    cachedTotal !== null && downloaded > cachedTotal
-                        ? downloaded
-                        : cachedTotal;
-                setBytes(downloaded, effectiveTotal);
-                controller.enqueue(value);
-            } catch (e) {
-                controller.error(e);
-            }
-        },
-        cancel(reason) {
-            reader.cancel(reason);
-        },
-    });
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        downloaded += value.byteLength;
+        // If our cached estimate underestimated, bump it up so
+        // the bar never appears stuck at 100% with bytes still
+        // arriving.
+        const effectiveTotal =
+            cachedTotal !== null && downloaded > cachedTotal
+                ? downloaded
+                : cachedTotal;
+        setBytes(downloaded, effectiveTotal);
+    }
 
-    return new Response(stream, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
+    rememberSize(url, downloaded);
+
+    // Concat chunks into one Uint8Array.
+    const out = new Uint8Array(downloaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+        out.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return out;
+}
+
+/** Build a fresh Response from a previously-read body buffer.
+ *  Used so we can hand the SAME bytes to both `cache.put` (one
+ *  Response) and the eventual JSON consumer (another Response)
+ *  without sharing a body stream. */
+function responseFromBuffer(
+    bytes: Uint8Array,
+    template: Response,
+): Response {
+    // Copy to a fresh ArrayBuffer so each Response owns its own
+    // memory and can be consumed independently — passing the
+    // same Uint8Array to multiple Response constructors causes
+    // their bodies to share the underlying buffer.
+    return new Response(bytes.slice().buffer, {
+        status: template.status,
+        statusText: template.statusText,
+        headers: template.headers,
     });
-};
+}
 
 export const cacheFetch = async (
     url: string,
@@ -213,20 +231,32 @@ export const cacheFetch = async (
 
         const fetchAndMaybeCache = async () => {
             const rawResponse = await fetchWithTimeout(url, timeoutMs);
-            // Wrap with progress BEFORE the cache.put so the byte
-            // counter ticks during the actual network read rather
-            // than jumping to 100% after the cache write finishes.
-            const response = wrapResponseWithProgress(
-                rawResponse,
-                reportProgress,
-                url,
-            );
-            if (response.ok) {
-                await cache.put(url, response.clone());
-            } else {
+            if (!rawResponse.ok) {
                 await cache.delete(url);
+                return rawResponse;
             }
-            return response;
+            if (reportProgress) {
+                // Read fully through the progress reporter, then
+                // hand back a fresh Response from the same bytes.
+                // Caching uses another fresh Response from those
+                // bytes so there's no body-stream sharing between
+                // the cache write and the caller.
+                const bytes = await readBodyWithProgress(rawResponse, url);
+                try {
+                    await cache.put(
+                        url,
+                        responseFromBuffer(bytes, rawResponse),
+                    );
+                } catch (e) {
+                    console.warn("Cache write failed:", e);
+                }
+                return responseFromBuffer(bytes, rawResponse);
+            }
+            // Non-progress path: original behaviour — clone for
+            // the cache, return the original to the caller. No
+            // custom stream involved, no tee deadlock risk.
+            await cache.put(url, rawResponse.clone());
+            return rawResponse;
         };
 
         const fetchPromise = fetchAndMaybeCache();
