@@ -199,4 +199,22 @@ export default defineConfig({
     devToolbar: {
         enabled: false,
     },
+    vite: {
+        // Astro 5 + React 19 + nanostores: by default Vite's optimizer
+        // pre-bundles `react` and `react-dom` but not `@nanostores/react`.
+        // The mismatch is what triggers the dev-only "Invalid hook call"
+        // cascade — `@nanostores/react` ends up holding a *different*
+        // React instance than the rest of the app and the
+        // `useSyncExternalStore` it calls trips React's "two copies"
+        // detection. Forcing `@nanostores/react` (and `@nanostores/persistent`,
+        // which the same chain pulls in) into the optimizer puts
+        // everything on one shared React module.
+        optimizeDeps: {
+            include: [
+                "@nanostores/react",
+                "@nanostores/persistent",
+                "nanostores",
+            ],
+        },
+    },
 });
