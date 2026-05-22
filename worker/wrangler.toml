@@ -2,16 +2,24 @@
 # backend. Holds one Durable Object class — `GameRoom` — that backs
 # every live game (one DO instance per 6-char game code).
 #
-# Deploy from this repo root with:
+# Lives inside `worker/` (rather than at the repo root) so Cloudflare's
+# auto-build for the frontend Worker `jetlaghideandseek` doesn't pick
+# it up by mistake — that build is connected to the same GitHub repo
+# and would otherwise try to deploy the backend instead of the Astro
+# site.
+#
+# Deploy from `worker/` with:
 #
 #     pnpm wrangler deploy
+#
+# (The `deploy` script in worker/package.json runs that command.)
 #
 # After first deploy you'll get a workers.dev URL like
 # `https://jlhs-multiplayer.<your-subdomain>.workers.dev`. Bake that
 # into the client's PUBLIC_MULTIPLAYER_URL env var (see MULTIPLAYER.md).
 
 name = "jlhs-multiplayer"
-main = "worker/index.ts"
+main = "index.ts"
 compatibility_date = "2024-11-12"
 compatibility_flags = ["nodejs_compat"]
 

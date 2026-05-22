@@ -40,10 +40,15 @@ the `worker/` directory.
    cd worker && pnpm run deploy
    ```
 
-   That npm script wraps `wrangler deploy --config ../wrangler.toml`,
-   bundling `worker/index.ts` + `worker/GameRoom.ts` together with
-   the shared `protocol/` types, and ships them to
+   That npm script wraps `wrangler deploy` (which finds
+   `worker/wrangler.toml` locally), bundling `worker/index.ts` +
+   `worker/GameRoom.ts` together with the shared `protocol/` types,
+   and ships them to
    `https://jlhs-multiplayer.<your-subdomain>.workers.dev`.
+
+   The config lives inside `worker/` (not at the repo root) so the
+   frontend's Cloudflare auto-build doesn't accidentally pick it up
+   and try to deploy the backend in its place.
 
    The first deploy also runs the v1 migration that creates the
    `GameRoom` Durable Object class. Subsequent deploys just update
@@ -76,7 +81,7 @@ the `worker/` directory.
      environments.
 
 5. **Update `ALLOWED_ORIGINS` if needed.** The Worker's
-   `wrangler.toml` already includes the production Pages URL and
+   `worker/wrangler.toml` already includes the production Pages URL and
    common localhost ports. If you serve the client from a different
    origin, add it there and redeploy:
 
@@ -264,7 +269,7 @@ After deploying:
 
 If anything hangs at "Connecting…", check the browser console for
 `[multiplayer]` log lines. The most common issue is a CORS / Origin
-mismatch — verify `wrangler.toml`'s `ALLOWED_ORIGINS` includes your
+mismatch — verify `worker/wrangler.toml`'s `ALLOWED_ORIGINS` includes your
 client's origin.
 
 ## Going public — operational hardening
@@ -338,7 +343,7 @@ Before sharing the app widely:
 
 - [ ] Deploy the Worker (`pnpm wrangler deploy`).
 - [ ] Set `PUBLIC_MULTIPLAYER_URL` on production Pages env.
-- [ ] Verify `ALLOWED_ORIGINS` in `wrangler.toml` matches your
+- [ ] Verify `ALLOWED_ORIGINS` in `worker/wrangler.toml` matches your
       production Pages URL exactly (including https vs http).
 - [ ] Set up at least one Cloudflare billing/usage alert (Workers
       daily-requests at 80% is a good baseline).
