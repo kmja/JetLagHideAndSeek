@@ -585,23 +585,45 @@ export const Map = ({ className }: { className?: string }) => {
         refreshQuestions(true);
     }, [$questions, $mapGeoLocation, map, $hiderMode]);
 
+    // Defensive layer-cleanup watchdog. Used to run at 1 Hz forever
+    // — kept the CPU alive in the background even when the user
+    // wasn't looking. 5 s is well within the user-visible window for
+    // recovering from an occasional duplicate-layer race, and we
+    // pause entirely while the tab is hidden so the battery cost is
+    // zero when the screen is off.
     useEffect(() => {
-        const intervalId = setInterval(async () => {
+        if (!map) return;
+        let intervalId: number | null = null;
+        const tick = () => {
             if (!map) return;
             let layerCount = 0;
             map.eachLayer((layer: any) => {
-                if (layer.eliminationGeoJSON) {
-                    // Hopefully only geoJSON layers
-                    layerCount++;
-                }
+                if (layer.eliminationGeoJSON) layerCount++;
             });
             if (layerCount > 1) {
                 console.log("Too many layers, refreshing...");
                 refreshQuestions(false);
             }
-        }, 1000);
-
-        return () => clearInterval(intervalId);
+        };
+        const start = () => {
+            if (intervalId !== null) return;
+            intervalId = window.setInterval(tick, 5000);
+        };
+        const stop = () => {
+            if (intervalId === null) return;
+            window.clearInterval(intervalId);
+            intervalId = null;
+        };
+        const onVisibility = () => {
+            if (document.visibilityState === "visible") start();
+            else stop();
+        };
+        onVisibility();
+        document.addEventListener("visibilitychange", onVisibility);
+        return () => {
+            document.removeEventListener("visibilitychange", onVisibility);
+            stop();
+        };
     }, [map]);
 
     useEffect(() => {

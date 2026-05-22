@@ -22,6 +22,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     allowedTransit,
     formatTimeRemaining,
@@ -116,12 +117,14 @@ export function HiderHome() {
     const $foundAt = useStore(roundFoundAt);
 
     // 1-Hz tick — drives the countdown / elapsed timers.
+    // Visibility-aware so the locked-phone case doesn't keep
+    // waking the CPU once per second.
     const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!$hidingEndsAt) return;
-        const id = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(id);
-    }, [$hidingEndsAt]);
+    useVisibleInterval(
+        () => setNow(Date.now()),
+        1000,
+        $hidingEndsAt !== null,
+    );
 
     const inHidingPeriod = $hidingEndsAt !== null && now < $hidingEndsAt;
     const remainingMs = $hidingEndsAt

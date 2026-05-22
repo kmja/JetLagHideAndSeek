@@ -21,6 +21,8 @@ import type { LucideIcon } from "lucide-react";
 
 import { Drawer as VaulDrawer } from "vaul";
 
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+
 import {
     Sheet,
     SheetContent,
@@ -90,36 +92,21 @@ export const BottomNav = () => {
     const $currentGameCode = useStore(currentGameCode);
     const [gameSheetOpen, setGameSheetOpen] = useState(false);
 
-    // Tick state at 1 Hz when hiding period is active so the displayed
-    // countdown stays current without spamming re-renders the rest of the
-    // time. Effect is a no-op (and cheap) when no hiding period is set.
+    // Tick state at 1 Hz while a hiding period is active so the
+    // displayed countdown stays current. `useVisibleInterval`
+    // pauses while the tab is hidden — saves battery on locked
+    // phones since players run the app for hours. On resume it
+    // re-syncs immediately so the countdown jumps to truth.
     const [now, setNow] = useState(Date.now());
+    const hidingRunning =
+        $hidingEndsAt !== null && $hidingEndsAt > now;
+    useVisibleInterval(() => setNow(Date.now()), 1000, hidingRunning);
+    // Refresh `now` immediately whenever the end-timestamp changes
+    // — otherwise after "End hiding period · Start seeking" snaps
+    // hidingPeriodEndsAt to Date.now(), the next render could
+    // briefly see a stale `now > endsAt` and keep `hiding === true`.
     useEffect(() => {
-        if (!$hidingEndsAt) return;
-        // Always refresh `now` whenever the end-timestamp changes —
-        // otherwise after "End hiding period · Start seeking" snaps
-        // hidingPeriodEndsAt to Date.now(), the early-exit path below
-        // would leave `now` stuck at its last interval value, which
-        // could be up to a second stale. That left `remainingMs > 0`
-        // for that interval and kept `hiding === true`, blocking the
-        // NEW QUESTION button and re-showing the End-hiding UI.
-        setNow(Date.now());
-        // Don't clear the timestamp when the hiding period expires —
-        // HiderTimer uses it as the *anchor* for the "Hidden for"
-        // elapsed counter once we transition into the seeking phase.
-        // We just stop the per-second tick once the countdown reaches
-        // zero, since after that `now` doesn't need to keep changing
-        // for the hiding-period UI (the elapsed timer in HiderTimer
-        // has its own interval).
-        if ($hidingEndsAt <= Date.now()) return;
-        const id = window.setInterval(() => {
-            const t = Date.now();
-            setNow(t);
-            if ($hidingEndsAt <= t) {
-                window.clearInterval(id);
-            }
-        }, 1000);
-        return () => window.clearInterval(id);
+        if ($hidingEndsAt) setNow(Date.now());
     }, [$hidingEndsAt]);
 
     // Derive `hiding` from the live timestamp where possible — falling

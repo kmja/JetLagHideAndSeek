@@ -1,7 +1,8 @@
 import { useStore } from "@nanostores/react";
 import { Flag, Timer } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     formatTimeRemaining,
     gameSize,
@@ -37,15 +38,15 @@ export function HiderTimer() {
     const $setupCompleted = useStore(setupCompleted);
     const $gameSize = useStore(gameSize);
 
-    // Tick every second whenever the timer is meaningful. Cheap enough
-    // since the only side effect is a `setNow` that re-renders this
-    // small component.
+    // Tick every second whenever the timer is meaningful, but
+    // pause while the tab is hidden so the CPU isn't woken on
+    // locked phones.
     const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!$endsAt || !$setupCompleted) return;
-        const id = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(id);
-    }, [$endsAt, $setupCompleted]);
+    useVisibleInterval(
+        () => setNow(Date.now()),
+        1000,
+        Boolean($endsAt && $setupCompleted),
+    );
 
     if (!$setupCompleted || !$endsAt) return null;
 

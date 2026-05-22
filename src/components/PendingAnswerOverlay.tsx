@@ -29,6 +29,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions, triggerLocalRefresh } from "@/lib/context";
 import { participants } from "@/lib/multiplayer/session";
@@ -175,15 +176,15 @@ export function PendingAnswerOverlay() {
         setPhase("active");
     }, [pending?.key]);
 
-    // 1 Hz tick to keep the countdown fresh. No-op while we have nothing
-    // to show (or we're already in the answered/closing phase).
+    // 1 Hz tick to keep the countdown fresh. Visibility-aware so
+    // a hidden tab isn't waking the CPU every second just to drift
+    // a countdown that nobody is looking at.
     const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!displayed || phase !== "active") return;
-        setNow(Date.now());
-        const id = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(id);
-    }, [displayed?.key, phase]);
+    useVisibleInterval(
+        () => setNow(Date.now()),
+        1000,
+        Boolean(displayed) && phase === "active",
+    );
 
     // Nearest-reference lookup for matching/measuring headlines. Always
     // called so the hook order stays stable across renders.

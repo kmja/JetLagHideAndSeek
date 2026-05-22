@@ -16,6 +16,7 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     SidebarGroup,
     SidebarGroupContent,
@@ -105,12 +106,13 @@ export const QuestionCard = ({
         !forceExpanded;
 
     // Tick every minute to keep relative timestamps fresh.
+    // Visibility-aware so a hidden tab doesn't burn CPU.
     const [nowTick, setNowTick] = useState(Date.now());
-    useEffect(() => {
-        if (!createdAt) return;
-        const id = setInterval(() => setNowTick(Date.now()), 60000);
-        return () => clearInterval(id);
-    }, [createdAt]);
+    useVisibleInterval(
+        () => setNowTick(Date.now()),
+        60000,
+        createdAt !== undefined,
+    );
     const relativeTime = createdAt
         ? formatRelativeTime(createdAt, nowTick)
         : null;
@@ -127,11 +129,11 @@ export const QuestionCard = ({
         category === "photo" ? 10 * 60_000 : 5 * 60_000;
     const isPending = locked === false;
     const [countdownTick, setCountdownTick] = useState(Date.now());
-    useEffect(() => {
-        if (!isPending || !createdAt) return;
-        const id = setInterval(() => setCountdownTick(Date.now()), 1000);
-        return () => clearInterval(id);
-    }, [isPending, createdAt]);
+    useVisibleInterval(
+        () => setCountdownTick(Date.now()),
+        1000,
+        isPending && createdAt !== undefined,
+    );
     const remainingSec =
         isPending && createdAt
             ? Math.max(

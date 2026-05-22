@@ -1,7 +1,8 @@
 import { useStore } from "@nanostores/react";
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     mapGeoJSON,
     mapGeoLocation,
@@ -40,12 +41,15 @@ export function MapLoadingOverlay() {
     const $progress = useStore(loadingProgress);
 
     // 1 Hz tick so the elapsed + ETA labels update while we sit on
-    // the overlay. Cheap — only runs when the overlay is mounted.
+    // the overlay. Gated on the overlay being meaningful + the tab
+    // being visible — there's no point ticking when the page is
+    // hidden or no progress is being tracked.
     const [, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const id = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(id);
-    }, []);
+    const shouldTick =
+        $progress !== null ||
+        (!Boolean($mapGeoJSON || $polyGeoJSON) &&
+            ($mapGeoLocation?.properties?.osm_id ?? 0) > 0);
+    useVisibleInterval(() => setNow(Date.now()), 1000, shouldTick);
 
     const haveBoundary = Boolean($mapGeoJSON || $polyGeoJSON);
     const haveValidLocation =
