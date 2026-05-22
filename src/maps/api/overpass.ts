@@ -9,6 +9,7 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import { playArea } from "@/lib/gameSetup";
 import {
     finishLoading,
     setPhase,
@@ -447,7 +448,22 @@ export const determineMapBoundaries = async () => {
     const primary = mapGeoLocation.get();
     const extras = additionalMapGeoLocations.get();
     const totalPieces = 1 + extras.length;
-    const areaName = (primary?.properties as { name?: string })?.name ?? "play area";
+    // Prefer the wizard's friendly displayName (which already
+    // strips admin suffixes like "kommun" / "län" / "Municipality")
+    // over the raw OSM `name` field. Falls back to the OSM name,
+    // then a generic label if neither is set.
+    const friendlyName =
+        playArea.get()?.displayName?.split(",")[0]?.trim() ||
+        (primary?.properties as { name?: string })?.name ||
+        "play area";
+    // Strip a few common admin-area suffixes that read as noise on
+    // the loading card. We keep the rest of the name verbatim —
+    // "Stockholm Municipality" → "Stockholm", but "Île-de-France"
+    // is left untouched.
+    const areaName = friendlyName.replace(
+        /\s+(kommun|län|municipality|county|district|prefecture|province)$/i,
+        "",
+    );
 
     // Open the global loading overlay. The LoadingOverlay component
     // renders bytes-downloaded, current phase, and elapsed time.

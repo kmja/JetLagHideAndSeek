@@ -382,7 +382,23 @@ const { className } = Astro.props;
     </head>
     <body class:list={[className, "dark"]}>
         <slot />
-        <ToastContainer client:only />
+        {/* ToastContainer defaults: top-right at 3000ms autoClose.
+            That position sits right under iOS Safari's notch and
+            covers the Hider timer / Map options chip cluster. Bumping
+            to top-center keeps it out of the way of those controls
+            on mobile, and the 4 s autoClose covers a comfortable
+            read window without lingering. `theme="dark"` matches the
+            app's hardcoded dark mode so the toasts stop flashing
+            light backgrounds. */}
+        <ToastContainer
+            client:only
+            position="top-center"
+            autoClose={4000}
+            theme="dark"
+            newestOnTop
+            pauseOnFocusLoss={false}
+            limit={4}
+        />
         <PWAUpdatePrompt client:only="react" />
     </body>
 </html>
