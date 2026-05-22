@@ -113,6 +113,44 @@ export const showSubwayRoutes = persistentAtom<boolean>(
 export const setupDialogOpen = atom<boolean>(false);
 
 /**
+ * Volatile per-mode loading state for the Overpass-fetched transit
+ * overlays (subway / bus / ferry). The TransitRoutesOverlay component
+ * writes to this whenever it kicks off or finishes a fetch; the
+ * MapDisplayControls reads it to surface a spinner on the active
+ * toggle and avoid showing the button as "active" before the routes
+ * have actually rendered.
+ *
+ * Not persisted — these flags are derived from in-flight network
+ * activity and should reset to `false` on every page load.
+ *
+ * Bound to `globalThis` so HMR re-imports of this file return the
+ * same atom instance — the same pattern context.ts uses for its
+ * cross-island atoms. Without this, a dev-mode HMR cycle creates a
+ * fresh atom; existing subscribers stay attached to the old one and
+ * never see updates from the new one, which manifests as the
+ * loading spinner silently not firing.
+ */
+type TransitLoadingState = {
+    subway: boolean;
+    bus: boolean;
+    ferry: boolean;
+};
+const __TRANSIT_LOADING_KEY = "__jlhs_transitRoutesLoading";
+export const transitRoutesLoading: ReturnType<
+    typeof atom<TransitLoadingState>
+> = (() => {
+    const g = globalThis as Record<string, unknown>;
+    if (!g[__TRANSIT_LOADING_KEY]) {
+        g[__TRANSIT_LOADING_KEY] = atom<TransitLoadingState>({
+            subway: false,
+            bus: false,
+            ferry: false,
+        });
+    }
+    return g[__TRANSIT_LOADING_KEY] as ReturnType<typeof atom<TransitLoadingState>>;
+})();
+
+/**
  * Unix timestamp (ms) at which the hiding period ends. Null when no
  * hiding period is currently running. Persisted so the timer survives
  * page reloads — a 3-hour hiding period for a Large game needs to be

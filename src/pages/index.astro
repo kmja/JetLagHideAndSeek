@@ -25,6 +25,7 @@ import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
 import { RolePicker } from "@/components/RolePicker";
 import { CurseInbox } from "@/components/CurseInbox";
+import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 ---
 
 <Layout className="bg-jetlag">
@@ -87,6 +88,7 @@ import { CurseInbox } from "@/components/CurseInbox";
             <CurseInbox client:only />
             <DebugPhaseControls client:only />
             <StaleSessionPrompt client:only />
+            <MultiplayerBoot client:only="react" />
         </SidebarProviderR>
     </SidebarProviderL>
 </Layout>

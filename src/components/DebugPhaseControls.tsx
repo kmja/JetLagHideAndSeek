@@ -8,7 +8,16 @@ import {
     questions,
     addQuestion,
 } from "@/lib/context";
-import { hiderInbox, playerRole } from "@/lib/hiderRole";
+import {
+    hiderHand,
+    hiderInbox,
+    playerRole,
+    presentDraw,
+    QUESTION_DRAW_BUDGET,
+} from "@/lib/hiderRole";
+import { shuffledDeck, type Card } from "@/lib/hiderDeck";
+
+import { DICE_FIZZLE } from "./CastCurseDialog";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
@@ -265,6 +274,67 @@ export function DebugPhaseControls() {
 
     /* ─────── hider actions ─────── */
 
+    /**
+     * Pick a uniformly-random index using `crypto.getRandomValues`
+     * instead of `Math.random`. Lets the debug tool stay
+     * deterministically random even if a test eval has pinned
+     * `Math.random` to a fixed value (the GPS spoof + dice-roll
+     * mocks earlier in the session do this) — using `Math.random`
+     * directly would make the debug tool deal the same card
+     * every click. Falls back to `Math.random` if `crypto` isn't
+     * available (older / locked-down browsers).
+     */
+    const randIdx = (len: number): number => {
+        if (len <= 0) return 0;
+        try {
+            const buf = new Uint32Array(1);
+            crypto.getRandomValues(buf);
+            return buf[0] % len;
+        } catch {
+            return Math.floor(Math.random() * len);
+        }
+    };
+
+    /**
+     * Drop a fresh card into the hider's hand. Picks from the full
+     * deck of 100 cards — proportional kind distribution matches
+     * the real deck (55 time-bonus / 21 powerup / 24 curse).
+     * Ignores the hand cap so the user can stack however many they
+     * want for UI testing.
+     *
+     * `kind` lets you bias the pick to one of the three card kinds.
+     */
+    const drawRandomCard = (kind?: Card["kind"]) => {
+        const deck = shuffledDeck();
+        const pool = kind ? deck.filter((c) => c.kind === kind) : deck;
+        if (pool.length === 0) return;
+        const card = pool[randIdx(pool.length)];
+        hiderHand.set([...hiderHand.get(), card]);
+    };
+
+    /**
+     * Same draw flow as `drawRandomCard`, but filters to the
+     * subset of curses that have a pre-cast die roll (the
+     * Endless Tumble / Gambler's Feet family). Quick way to
+     * smoke-test the dice tumble, confetti, and fizzle effects
+     * without spamming the random-curse button until you land on
+     * a rollable one.
+     */
+    const drawRandomRollableCurse = () => {
+        const rollableNames = new Set(
+            Object.keys(DICE_FIZZLE).filter(
+                (name) => DICE_FIZZLE[name] !== undefined,
+            ),
+        );
+        const deck = shuffledDeck();
+        const pool = deck.filter(
+            (c) => c.kind === "curse" && rollableNames.has(c.name),
+        );
+        if (pool.length === 0) return;
+        const card = pool[randIdx(pool.length)];
+        hiderHand.set([...hiderHand.get(), card]);
+    };
+
     const injectInboxQuestion = () => {
         const list = hiderInbox.get();
         hiderInbox.set([
@@ -290,6 +360,8 @@ export function DebugPhaseControls() {
         const sorted = [...list].sort((a, b) => b.arrivedAt - a.arrivedAt);
         const target = sorted.find((e) => !e.repliedAt);
         if (!target) return;
+        // Stamp the inbox entry as replied so it moves from
+        // "Awaiting answer" into "Answered" in the hider's log.
         hiderInbox.set(
             list.map((e) =>
                 e.key === target.key
@@ -297,6 +369,21 @@ export function DebugPhaseControls() {
                     : e,
             ),
         );
+        // Mirror the card-draw side effect the real share-back flow
+        // produces (see ShareBackRow.markRepliedInInbox in
+        // HiderView). Without this, replying via the debug button
+        // never queues a draw and the hand/deck flows can't be
+        // tested end-to-end.
+        const budget = QUESTION_DRAW_BUDGET[target.id];
+        if (budget) {
+            const autoResolved = presentDraw(
+                budget.draw,
+                budget.keep,
+                target.id,
+                target.key,
+            );
+            void autoResolved;
+        }
     };
 
     const unreplyLatestInbox = () => {
@@ -482,6 +569,43 @@ export function DebugPhaseControls() {
                     </DebugButton>
                     <DebugButton onClick={clearInbox} variant="danger">
                         Clear inbox
+                    </DebugButton>
+
+                    {/* Hand-card injection — pulls from a freshly
+                        shuffled full deck so the kind distribution
+                        matches the real deck. Useful for stacking
+                        the hand to test the grid layout, the cast
+                        flow, the casting-cost UIs, etc. */}
+                    <DebugButton onClick={() => drawRandomCard()}>
+                        Add random card to hand
+                    </DebugButton>
+                    <div className="grid grid-cols-3 gap-1.5">
+                        <DebugButton
+                            onClick={() => drawRandomCard("time-bonus")}
+                        >
+                            + Time bonus
+                        </DebugButton>
+                        <DebugButton
+                            onClick={() => drawRandomCard("powerup")}
+                        >
+                            + Powerup
+                        </DebugButton>
+                        <DebugButton
+                            onClick={() => drawRandomCard("curse")}
+                        >
+                            + Curse
+                        </DebugButton>
+                    </div>
+                    {/* Specifically pick a curse that requires a
+                        die-roll pre-cast — quick way to smoke-test
+                        the dice tumble, confetti, and fizzle
+                        effects without rolling the random "+ Curse"
+                        button until one happens to land. */}
+                    <DebugButton
+                        onClick={drawRandomRollableCurse}
+                        variant="primary"
+                    >
+                        + Curse with die-roll cost
                     </DebugButton>
                 </Section>
 

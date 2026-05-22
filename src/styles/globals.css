@@ -103,6 +103,43 @@ div.leaflet-control-attribution.leaflet-control {
     100% { transform: rotate(0deg)    scale(1);    }
 }
 
+/* Final-reveal pop on the dice after the tumble has settled —
+ * scales up briefly then settles, giving the value a moment of
+ * spotlight before any side-effects (confetti, fizzle, etc) fire. */
+@keyframes jlDiceReveal {
+    0%   { transform: scale(1);    }
+    35%  { transform: scale(1.45); }
+    70%  { transform: scale(0.92); }
+    100% { transform: scale(1.1);  }
+}
+
+/* Confetti piece — bursts outward from origin using --dx/--dy
+ * passed in via inline style, rotates as it flies, fades at the
+ * end. Used by the curse-cast dialog when the player rolls a
+ * non-fizzle value and the curse stands. */
+@keyframes jlConfettiPop {
+    0%   { transform: translate(0, 0) rotate(0deg);                                                     opacity: 1; }
+    70%  { opacity: 1; }
+    100% { transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--rot, 0deg)) scale(0.6);    opacity: 0; }
+}
+
+/* Fizzle shake + red flash — used when the curse roll lands on a
+ * fail value. Brief left/right wobble plus a red glow so the
+ * player feels the disappointment without the dialog jumping
+ * around enough to be disorienting. */
+@keyframes jlFizzleShake {
+    0%, 100% { transform: translateX(0); }
+    15%      { transform: translateX(-6px); }
+    30%      { transform: translateX(6px); }
+    45%      { transform: translateX(-4px); }
+    60%      { transform: translateX(4px); }
+    75%      { transform: translateX(-2px); }
+}
+@keyframes jlFizzleFlash {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(2 70% 54% / 0); }
+    40%      { box-shadow: 0 0 40px 8px hsl(2 70% 54% / 0.55); }
+}
+
 /* Reference-point marker + label used on the configure-dialog inline
  * map for matching/measuring questions. The marker itself is rendered
  * via Leaflet DivIcon (see `buildReferenceIcon` in InlineLocationPicker)

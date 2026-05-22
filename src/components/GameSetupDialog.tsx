@@ -49,8 +49,16 @@ import {
     type TransitMode,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState } from "@/lib/hiderRole";
+import { hostPushSetup } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
-import { determineName, geocode, type OpenStreetMap } from "@/maps/api";
+import {
+    determineName,
+    geocode,
+    reverseGeocodeCity,
+    type OpenStreetMap,
+} from "@/maps/api";
+
+import { PlayAreaExtensions } from "./PlayAreaExtensions";
 
 import {
     HideSeekMark,
@@ -110,6 +118,22 @@ const BBOX_FILL_FACTOR = 0.55;
  * estimate.
  */
 function inferGameSize(feature: OpenStreetMap): GameSize | null {
+    const km2 = estimateAreaKm2(feature);
+    if (km2 === null) return null;
+    if (km2 < 250) return "small";
+    if (km2 < 2500) return "medium";
+    return "large";
+}
+
+/**
+ * Polygon-area estimate for a Photon OSM feature, in km². Returns
+ * null when the feature has no usable extent. Shared by
+ * `inferGameSize` (above) and the per-result metadata helper used in
+ * the play-area search list, so both surfaces agree on the number.
+ *
+ * See `BBOX_FILL_FACTOR` for the bbox→polygon adjustment rationale.
+ */
+function estimateAreaKm2(feature: OpenStreetMap): number | null {
     const extent = feature.properties.extent;
     if (!extent || extent.length < 4) return null;
     const [maxLat, minLng, minLat, maxLng] = extent;
@@ -128,9 +152,60 @@ function inferGameSize(feature: OpenStreetMap): GameSize | null {
     const bboxAreaKm2 = latSpanKm * lngSpanKm;
     const areaKm2 = bboxAreaKm2 * BBOX_FILL_FACTOR;
     if (!Number.isFinite(areaKm2) || areaKm2 <= 0) return null;
-    if (areaKm2 < 250) return "small";
-    if (areaKm2 < 2500) return "medium";
-    return "large";
+    return areaKm2;
+}
+
+/**
+ * Human-readable place-type label for a Photon result, used in the
+ * search list to disambiguate same-named results (e.g. Barcelona
+ * the city vs. Barcelona the province vs. Catalonia the region).
+ *
+ * Photon's `properties.type` is the closest thing to a user-facing
+ * label (`city`, `town`, `state`, `country`, `district`, ...). For
+ * administrative boundaries it falls back to `osm_value` which is
+ * usually `administrative` — not very informative on its own, but
+ * combined with the area estimate it's still enough to tell apart.
+ */
+function placeTypeLabel(feature: OpenStreetMap): string {
+    const props = feature.properties as {
+        type?: string;
+        osm_value?: string;
+        osm_key?: string;
+    };
+    const raw = (props.type || props.osm_value || "").trim();
+    if (!raw) return "Region";
+    // Photon sometimes returns "house" or "street" for non-admin
+    // POIs that slipped past the relation filter — display them
+    // as-is rather than pretending they're "Region".
+    const lower = raw.toLowerCase();
+    if (lower === "administrative") return "Administrative area";
+    return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+}
+
+/**
+ * Short human-readable area label like "~120 km²" or "~7,700 km²"
+ * derived from the bbox-adjusted polygon estimate. Returns null if
+ * the feature has no usable extent.
+ */
+function formatAreaLabel(feature: OpenStreetMap): string | null {
+    const km2 = estimateAreaKm2(feature);
+    if (km2 === null) return null;
+    // Round to a sensible precision for the size bucket.
+    let rounded: number;
+    if (km2 < 100) rounded = Math.round(km2);
+    else if (km2 < 1000) rounded = Math.round(km2 / 10) * 10;
+    else rounded = Math.round(km2 / 100) * 100;
+    return `~${rounded.toLocaleString("en-US")} km²`;
+}
+
+/**
+ * Recommended game size for a Photon search result, used in the
+ * result list. Returns the raw enum so the row can render the
+ * canonical `SizeBadge` (yellow/orange/red) and inherit the size
+ * colour code used everywhere else in the app.
+ */
+function recommendedGameSize(feature: OpenStreetMap): GameSize | null {
+    return inferGameSize(feature);
 }
 
 export function GameSetupDialog() {
@@ -220,6 +295,8 @@ export function GameSetupDialog() {
         } else {
             toast.success("Settings saved.", { autoClose: 2000 });
         }
+        // Push the updated setup to peers if we're in an online room.
+        hostPushSetup();
         setupDialogOpen.set(false);
     };
 
@@ -274,6 +351,9 @@ export function GameSetupDialog() {
 
         setupCompleted.set(true);
         setupDialogOpen.set(false);
+        // Push the local setup to peers if we're in an online room.
+        // No-op when offline.
+        hostPushSetup();
         toast.success(
             `Hiding period started — ${minutes} minutes. Good luck!`,
             { autoClose: 3000 },
@@ -468,6 +548,73 @@ function PlayAreaStep({
     // clobber a newer result list.
     const searchToken = useRef(0);
 
+    /**
+     * GPS-suggestion state machine. On first mount with an empty
+     * search and no committed play area, we request the device's
+     * coordinates and reverse-geocode them to a city name. That name
+     * is then dropped into the search box, which kicks the normal
+     * geocode flow and produces a ranked list with the matching
+     * city at the top.
+     *
+     *   "idle"        — haven't attempted yet
+     *   "pending"     — getCurrentPosition is in flight
+     *   "denied"      — user said no (or browser blocked it)
+     *   "unavailable" — geolocation API not present / failed
+     *   "no-match"    — got coordinates but reverse-geocode failed
+     *   "done"        — successfully prefilled the search
+     */
+    const [gpsState, setGpsState] = useState<
+        "idle" | "pending" | "denied" | "unavailable" | "no-match" | "done"
+    >("idle");
+    /** Whether we've already attempted GPS this mount — guards against
+     *  the effect re-running if React Strict Mode or HMR refires it. */
+    const gpsAttempted = useRef(false);
+
+    const tryGpsSuggest = (manual = false) => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            setGpsState("unavailable");
+            return;
+        }
+        setGpsState("pending");
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+                const { latitude, longitude } = pos.coords;
+                try {
+                    const name = await reverseGeocodeCity(latitude, longitude);
+                    if (!name) {
+                        setGpsState("no-match");
+                        return;
+                    }
+                    setQuery(name);
+                    setGpsState("done");
+                } catch {
+                    setGpsState("no-match");
+                }
+            },
+            (err) => {
+                if (err.code === err.PERMISSION_DENIED) {
+                    setGpsState("denied");
+                } else {
+                    setGpsState("unavailable");
+                }
+            },
+            // Short-ish timeout — the user is sitting in the wizard
+            // waiting for the result. If GPS is slow they can fall
+            // through to manual search.
+            { enableHighAccuracy: false, timeout: 8000, maximumAge: 600_000 },
+        );
+        void manual; // reserved for future "user explicitly retried" UX hints
+    };
+
+    useEffect(() => {
+        if (gpsAttempted.current) return;
+        if (value !== null) return; // existing pick — don't auto-locate
+        if (query.length > 0) return; // user already started typing
+        gpsAttempted.current = true;
+        tryGpsSuggest();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Search-as-you-type. On every settled keystroke (350ms debounce) we
     // hit Photon and auto-select the first OSM relation — usually the
     // best match, e.g. typing "Stockholm" lands on Stockholm County. The
@@ -527,6 +674,50 @@ function PlayAreaStep({
                         Searching for places matching &quot;{query}&quot;…
                     </p>
                 )}
+
+                {/* GPS suggestion row — surfaces while the
+                    getCurrentPosition + reverse-geocode is in flight,
+                    and provides a retry button if the user said no /
+                    geolocation failed. Hidden once the search returns
+                    results (the input has been populated) or the user
+                    started typing themselves. */}
+                {gpsState === "pending" && !busy && (
+                    <p
+                        className="text-xs text-muted-foreground flex items-center gap-1.5"
+                        aria-live="polite"
+                    >
+                        <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        Detecting your location…
+                    </p>
+                )}
+                {(gpsState === "denied" ||
+                    gpsState === "unavailable" ||
+                    gpsState === "no-match") &&
+                    query.length === 0 && (
+                        <div className="rounded-md border border-dashed border-border/60 bg-secondary/30 px-2.5 py-2 flex items-center gap-2 text-xs">
+                            <span className="text-muted-foreground">
+                                {gpsState === "denied"
+                                    ? "Couldn't access your location — search manually below."
+                                    : gpsState === "no-match"
+                                      ? "Couldn't recognise your location — search manually below."
+                                      : "Location unavailable — search manually below."}
+                            </span>
+                            {gpsState !== "denied" && (
+                                <button
+                                    type="button"
+                                    onClick={() => tryGpsSuggest(true)}
+                                    className={cn(
+                                        "ml-auto px-2 py-0.5 rounded-sm",
+                                        "text-[10px] uppercase tracking-wider font-poppins font-bold",
+                                        "bg-primary/15 text-primary border border-primary/40",
+                                        "hover:bg-primary/25 transition-colors",
+                                    )}
+                                >
+                                    Retry
+                                </button>
+                            )}
+                        </div>
+                    )}
             </div>
             {results.length > 0 && (
                 <div className="space-y-1.5">
@@ -537,6 +728,9 @@ function PlayAreaStep({
                         {results.map((r) => {
                             const active = r.properties.osm_id === selectedId;
                             const label = determineName(r);
+                            const typeLabel = placeTypeLabel(r);
+                            const areaLabel = formatAreaLabel(r);
+                            const sizeHint = recommendedGameSize(r);
                             return (
                                 <button
                                     key={`${r.properties.osm_id}-${r.properties.osm_type}`}
@@ -559,12 +753,44 @@ function PlayAreaStep({
                                                     : "text-muted-foreground",
                                             )}
                                         />
-                                        <div className="min-w-0">
+                                        <div className="min-w-0 flex-1">
                                             <div className="text-sm font-medium truncate">
                                                 {r.properties.name ??
                                                     label.split(",")[0]}
                                             </div>
-                                            <div className="text-xs text-muted-foreground truncate">
+                                            {/* Disambiguating metadata
+                                                row — surfaces place type
+                                                (city / state / etc.),
+                                                approximate polygon area,
+                                                and the resulting game-
+                                                size recommendation. Two
+                                                Photon hits sharing the
+                                                same name almost always
+                                                differ on at least one of
+                                                these. */}
+                                            <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                                                <span
+                                                    className={cn(
+                                                        "inline-flex items-center px-1.5 py-0.5 rounded-sm",
+                                                        "text-[10px] uppercase tracking-wider font-poppins font-bold",
+                                                        "bg-background/60 border border-border/60 text-muted-foreground",
+                                                    )}
+                                                >
+                                                    {typeLabel}
+                                                </span>
+                                                {areaLabel && (
+                                                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                                                        {areaLabel}
+                                                    </span>
+                                                )}
+                                                {sizeHint && (
+                                                    <SizeBadge
+                                                        size={sizeHint}
+                                                        className="!text-[9px] !px-1.5 !py-0.5"
+                                                    />
+                                                )}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground truncate mt-1">
                                                 {label}
                                             </div>
                                         </div>
@@ -575,6 +801,13 @@ function PlayAreaStep({
                     </div>
                 </div>
             )}
+            {/* Auto-suggest adjacent municipalities the user might
+                want to include — handles cases like Stockholm
+                Municipality legally excluding Solna / Sundbyberg /
+                Danderyd / Järfälla, which most locals would consider
+                part of Stockholm. Component is a no-op when there
+                are no siblings (e.g. country picks). */}
+            {value && <PlayAreaExtensions primary={value} />}
             {searched && !busy && results.length === 0 && (
                 <p className="text-xs text-muted-foreground italic">
                     No regions match. Try a broader name (city, country).

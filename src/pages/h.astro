@@ -3,10 +3,12 @@ import Layout from "@/layouts/Layout.astro";
 import { HiderView } from "@/components/HiderView";
 import { DebugPhaseControls } from "@/components/DebugPhaseControls";
 import { StaleSessionPrompt } from "@/components/StaleSessionPrompt";
+import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 ---
 
 <Layout className="bg-background min-h-screen">
     <HiderView client:only="react" />
     <DebugPhaseControls client:only="react" />
     <StaleSessionPrompt client:only="react" />
+    <MultiplayerBoot client:only="react" />
 </Layout>

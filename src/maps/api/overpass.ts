@@ -94,6 +94,11 @@ export const getOverpassData = async (
 export const determineGeoJSON = async (
     osmId: string,
     osmTypeLetter: "W" | "R" | "N",
+    /** Suppress the per-fetch "Loading map data..." toast. Used by
+     *  callers that fan this function out in parallel (like
+     *  `determineMapBoundaries` below) and want a single toast for
+     *  the whole batch instead of N stacking ones. */
+    silent: boolean = false,
 ): Promise<any> => {
     const osmTypeMap: { [key: string]: string } = {
         W: "way",
@@ -104,7 +109,7 @@ export const determineGeoJSON = async (
     const query = `[out:json];${osmType}(${osmId});out geom;`;
     const data = await getOverpassData(
         query,
-        "Loading map data...",
+        silent ? undefined : "Loading map data...",
         CacheType.PERMANENT_CACHE,
     );
     const geo = osmtogeojson(data);
@@ -409,7 +414,13 @@ export const nearestToQuestion = async (
 };
 
 export const determineMapBoundaries = async () => {
-    const mapGeoDatum = await Promise.all(
+    // Fan-out fetch all play-area component polygons in parallel.
+    // Each call below passes `silent: true` so we don't stack N
+    // toasts for an N-piece play area (Stockholm + adjacent
+    // municipalities can be 15+ pieces). The single wrapping toast
+    // around `Promise.all` below covers the whole batch with one
+    // "Loading map data..." indicator.
+    const fetchAll = Promise.all(
         [
             {
                 location: mapGeoLocation.get(),
@@ -422,8 +433,18 @@ export const determineMapBoundaries = async () => {
             data: await determineGeoJSON(
                 location.location.properties.osm_id.toString(),
                 location.location.properties.osm_type,
+                /* silent */ true,
             ),
         })),
+    );
+
+    const mapGeoDatum = await toast.promise(
+        fetchAll,
+        { pending: "Loading map data..." },
+        // toastId pins this to a single notification — if multiple
+        // determineMapBoundaries calls fire (e.g. play-area swap),
+        // the toasts reuse the same slot instead of stacking.
+        { toastId: "loading-map-boundaries" },
     );
 
     let mapGeoData = turf.featureCollection([

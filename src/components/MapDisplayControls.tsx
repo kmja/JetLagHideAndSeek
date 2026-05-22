@@ -19,6 +19,7 @@ import {
     showFerryRoutes,
     showSubwayRoutes,
     showTransitLines,
+    transitRoutesLoading,
 } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,7 @@ export function MapDisplayControls() {
     const $hidingZones = useStore(displayHidingZones);
     const $isLoading = useStore(isLoading);
     const $allowedTransit = useStore(allowedTransit);
+    const $transitLoading = useStore(transitRoutesLoading);
 
     // The "Rail" overlay is the OpenRailwayMap raster bundle: it
     // includes train, tram, and light-rail in a single layer. So
@@ -188,6 +190,7 @@ export function MapDisplayControls() {
                                     icon={TrainTrack}
                                     label="Subway"
                                     on={$subway}
+                                    loading={$transitLoading.subway}
                                     onToggle={() =>
                                         showSubwayRoutes.set(!$subway)
                                     }
@@ -202,6 +205,7 @@ export function MapDisplayControls() {
                                     icon={Bus}
                                     label="Bus"
                                     on={$bus}
+                                    loading={$transitLoading.bus}
                                     onToggle={() => showBusRoutes.set(!$bus)}
                                     borderLeft={buttons.length > 0}
                                 />,
@@ -214,6 +218,7 @@ export function MapDisplayControls() {
                                     icon={Ship}
                                     label="Ferry"
                                     on={$ferry}
+                                    loading={$transitLoading.ferry}
                                     onToggle={() =>
                                         showFerryRoutes.set(!$ferry)
                                     }
@@ -233,12 +238,19 @@ function TransitIconToggle({
     icon: Icon,
     label,
     on,
+    loading,
     onToggle,
     borderLeft,
 }: {
     icon: LucideIcon;
     label: string;
     on: boolean;
+    /** True while the Overpass fetch + chunked render is in progress.
+     *  Spinner is shown and the button uses a distinct in-progress
+     *  visual (translucent primary) rather than the solid "active"
+     *  colour, so the user doesn't think the routes are already on
+     *  the map. */
+    loading?: boolean;
     onToggle: () => void;
     borderLeft?: boolean;
 }) {
@@ -247,18 +259,25 @@ function TransitIconToggle({
             type="button"
             onClick={onToggle}
             aria-pressed={on}
-            title={label}
-            aria-label={label}
+            aria-busy={loading || undefined}
+            title={loading ? `${label} — loading routes…` : label}
+            aria-label={loading ? `${label} (loading routes)` : label}
             className={cn(
                 "w-9 flex items-center justify-center transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 borderLeft && "border-l-2 border-border",
-                on
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                    : "hover:bg-accent",
+                loading
+                    ? "bg-primary/20 text-primary hover:bg-primary/30"
+                    : on
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                      : "hover:bg-accent",
             )}
         >
-            <Icon className="w-4 h-4" />
+            {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+                <Icon className="w-4 h-4" />
+            )}
         </button>
     );
 }

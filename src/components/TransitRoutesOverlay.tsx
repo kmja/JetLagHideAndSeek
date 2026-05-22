@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import {
     additionalMapGeoLocations,
@@ -12,6 +12,7 @@ import {
     showBusRoutes,
     showFerryRoutes,
     showSubwayRoutes,
+    transitRoutesLoading,
 } from "@/lib/gameSetup";
 import { CacheType } from "@/maps/api/types";
 import { getOverpassData } from "@/maps/api/overpass";
@@ -91,12 +92,50 @@ export function TransitRoutesOverlay() {
         ferry: null,
     });
 
-    const [loading, setLoading] = useState<Record<Mode, boolean>>({
-        subway: false,
-        bus: false,
-        ferry: false,
+    /**
+     * Set the per-mode loading flag in the shared atom. Used so the
+     * top-right map-control toggles can render a spinner during the
+     * Overpass fetch + chunked render — see MapDisplayControls.
+     *
+     * When a fetch resolves from the Cache API (very common after the
+     * first toggle), the entire `setLayer` flow can complete inside a
+     * single animation frame, which means React never renders the
+     * intermediate `loading=true` state and the spinner flashes
+     * imperceptibly (or not at all). To avoid that, we enforce a
+     * minimum display time: once `true` is set, the corresponding
+     * `false` is deferred until at least MIN_SPINNER_MS have elapsed.
+     * Snappy enough not to feel laggy, long enough for the spinner to
+     * actually appear and communicate "something is happening."
+     */
+    const MIN_SPINNER_MS = 250;
+    const loadingStartedAt = useRef<Record<Mode, number | null>>({
+        subway: null,
+        bus: null,
+        ferry: null,
     });
-    void loading;
+    const setLoadingFlag = (mode: Mode, on: boolean) => {
+        const curr = transitRoutesLoading.get();
+        if (on) {
+            if (curr[mode]) return;
+            loadingStartedAt.current[mode] = Date.now();
+            transitRoutesLoading.set({ ...curr, [mode]: true });
+            return;
+        }
+        // Going false — respect the minimum-display contract.
+        const startedAt = loadingStartedAt.current[mode];
+        const elapsed = startedAt !== null ? Date.now() - startedAt : Infinity;
+        const finish = () => {
+            const c = transitRoutesLoading.get();
+            if (!c[mode]) return;
+            loadingStartedAt.current[mode] = null;
+            transitRoutesLoading.set({ ...c, [mode]: false });
+        };
+        if (elapsed >= MIN_SPINNER_MS) {
+            finish();
+        } else {
+            window.setTimeout(finish, MIN_SPINNER_MS - elapsed);
+        }
+    };
 
     useEffect(() => {
         if (!map) return;
@@ -111,8 +150,13 @@ export function TransitRoutesOverlay() {
                 map.removeLayer(existing as any);
                 layersRef.current[mode] = null;
             }
-            if (!on) return;
-            setLoading((s) => ({ ...s, [mode]: true }));
+            if (!on) {
+                // Make sure a leftover loading flag from a cancelled
+                // fetch doesn't get stranded as "true".
+                setLoadingFlag(mode, false);
+                return;
+            }
+            setLoadingFlag(mode, true);
             try {
                 const data = await fetchTransitRelations(cfg.routeType);
                 if (cancelled) return;
@@ -309,9 +353,9 @@ export function TransitRoutesOverlay() {
             } catch (e) {
                 console.warn(`Transit overlay (${mode}) fetch failed`, e);
             } finally {
-                if (!cancelled) {
-                    setLoading((s) => ({ ...s, [mode]: false }));
-                }
+                // Always clear the loading flag — even on cancel — so a
+                // navigate-away mid-fetch doesn't strand the spinner.
+                setLoadingFlag(mode, false);
             }
         };
 

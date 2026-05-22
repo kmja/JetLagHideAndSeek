@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check, Plus, Sparkles, Zap } from "lucide-react";
+import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,11 @@ import {
     DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { gameSize } from "@/lib/gameSetup";
 import { hiderHand } from "@/lib/hiderRole";
-import type { Card } from "@/lib/hiderDeck";
 import { cn } from "@/lib/utils";
+
+import { CardTile } from "./CardTile";
 
 /**
  * Reusable "pick N cards from your hand" modal. Used by powerup
@@ -46,6 +48,7 @@ export function HandCardPicker({
     onConfirm: (ids: string[]) => void;
 }) {
     const $hand = useStore(hiderHand);
+    const $gameSize = useStore(gameSize);
     const [selected, setSelected] = useState<string[]>([]);
 
     // Reset selection whenever the dialog opens fresh or the picker's
@@ -84,20 +87,25 @@ export function HandCardPicker({
                     </DialogDescription>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0 space-y-2">
+                <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
                     {candidates.length === 0 ? (
                         <p className="text-sm text-muted-foreground italic text-center py-6">
                             No eligible cards in hand.
                         </p>
                     ) : (
-                        candidates.map((card) => (
-                            <PickCardRow
-                                key={card.id}
-                                card={card}
-                                selected={selected.includes(card.id)}
-                                onToggle={() => toggle(card.id)}
-                            />
-                        ))
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {candidates.map((card) => (
+                                <CardTile
+                                    key={card.id}
+                                    card={card}
+                                    gameSize={$gameSize}
+                                    selected={selected.includes(card.id)}
+                                    onClick={() => toggle(card.id)}
+                                    selectionIndicator="checkbox"
+                                    ariaLabel={`Toggle ${card.name}`}
+                                />
+                            ))}
+                        </div>
                     )}
                 </div>
 
@@ -128,80 +136,6 @@ export function HandCardPicker({
             </DialogContent>
         </Dialog>
     );
-}
-
-function PickCardRow({
-    card,
-    selected,
-    onToggle,
-}: {
-    card: Card;
-    selected: boolean;
-    onToggle: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={onToggle}
-            aria-pressed={selected}
-            className={cn(
-                "w-full text-left rounded-sm border-2 transition-all",
-                "px-3 py-2.5",
-                selected
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-secondary/40 hover:bg-accent",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            )}
-        >
-            <div className="flex items-start gap-2.5">
-                <KindIcon card={card} />
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center flex-wrap gap-1.5">
-                        <span className="font-inter-tight font-bold uppercase tracking-wide text-xs leading-none">
-                            {card.name}
-                        </span>
-                        {card.kind === "time-bonus" && (
-                            <span className="text-[10px] font-mono text-yellow-500 tabular-nums ml-1">
-                                S{card.minutes.small} · M{card.minutes.medium} ·
-                                L{card.minutes.large}
-                            </span>
-                        )}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground mt-1 leading-snug line-clamp-2">
-                        {card.description}
-                    </p>
-                </div>
-                <div
-                    className={cn(
-                        "shrink-0 w-5 h-5 rounded-sm border-2 flex items-center justify-center",
-                        selected
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border",
-                    )}
-                    aria-hidden="true"
-                >
-                    {selected && <Check className="w-3.5 h-3.5" />}
-                </div>
-            </div>
-        </button>
-    );
-}
-
-function KindIcon({ card }: { card: Card }) {
-    switch (card.kind) {
-        case "time-bonus":
-            return (
-                <Plus className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
-            );
-        case "powerup":
-            return (
-                <Sparkles className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-            );
-        case "curse":
-            return (
-                <Zap className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
-            );
-    }
 }
 
 export default HandCardPicker;

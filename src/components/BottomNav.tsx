@@ -15,6 +15,7 @@ import {
     TrainTrack,
     TramFront,
     Trophy,
+    Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -59,6 +60,14 @@ import {
     resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
+import { seekerMarkFound } from "@/lib/multiplayer/store";
+import {
+    currentGameCode,
+    multiplayerEnabled,
+} from "@/lib/multiplayer/session";
+import { PresenceChip } from "./multiplayer/PresenceIndicators";
+import { InvitePanel } from "./multiplayer/InviteSheet";
+import { JoinGameDialog } from "./multiplayer/JoinGameDialog";
 import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
 import { toast } from "react-toastify";
 
@@ -84,6 +93,9 @@ export const BottomNav = () => {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $foundAt = useStore(roundFoundAt);
     const [moreOpen, setMoreOpen] = useState(false);
+    const [joinOpen, setJoinOpen] = useState(false);
+    const $multiplayerEnabled = useStore(multiplayerEnabled);
+    const $currentGameCode = useStore(currentGameCode);
     const [gameSheetOpen, setGameSheetOpen] = useState(false);
 
     // Tick state at 1 Hz when hiding period is active so the displayed
@@ -150,6 +162,13 @@ export const BottomNav = () => {
             )}
             data-tutorial-id="bottom-nav"
         >
+            {/* Tiny multiplayer status chip — only renders when in an
+                online game. Hovers just above the nav rail. */}
+            {$currentGameCode && (
+                <div className="absolute -top-7 left-1/2 -translate-x-1/2 pointer-events-none">
+                    <PresenceChip />
+                </div>
+            )}
             <div className="flex items-stretch px-2 py-2 gap-1">
                 <button
                     type="button"
@@ -351,6 +370,10 @@ export const BottomNav = () => {
                                                     onTap={() => {
                                                         const ts = Date.now();
                                                         roundFoundAt.set(ts);
+                                                        // Mirror through
+                                                        // multiplayer; no-op
+                                                        // when offline.
+                                                        seekerMarkFound(ts);
                                                         void shareFoundLink(
                                                             ts,
                                                         );
@@ -544,6 +567,40 @@ export const BottomNav = () => {
                                 Hiding zone settings
                             </button>
 
+                            {/* Multiplayer: either the "Play online"
+                                CTA (not yet in a game) or the invite
+                                panel (in a game). PresenceChip lives
+                                in the nav header itself for
+                                always-visible status. */}
+                            {$multiplayerEnabled && $currentGameCode ? (
+                                <div
+                                    className={cn(
+                                        "w-full px-3 py-3 rounded-md",
+                                        "bg-secondary/40 border border-border",
+                                    )}
+                                >
+                                    <InvitePanel />
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setMoreOpen(false);
+                                        setJoinOpen(true);
+                                    }}
+                                    className={cn(
+                                        "w-full flex items-center justify-center gap-2",
+                                        "px-3 py-2 rounded-md",
+                                        "bg-secondary hover:bg-accent border border-border",
+                                        "text-sm font-semibold text-foreground transition-colors",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    )}
+                                >
+                                    <Users className="w-4 h-4" />
+                                    Play online
+                                </button>
+                            )}
+
                             {/* PWA controls — install affordance for
                                 supported platforms, and tile pre-cache
                                 so the seeker can preload offline maps
@@ -626,6 +683,10 @@ export const BottomNav = () => {
                     </SheetContent>
                 </Sheet>
             </div>
+
+            {/* Multiplayer dialog — mounted at the root so it can
+                open from any sheet/drawer without portal weirdness. */}
+            <JoinGameDialog open={joinOpen} onOpenChange={setJoinOpen} />
         </div>
     );
 };

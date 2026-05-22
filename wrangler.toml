@@ -1,0 +1,41 @@
+# Cloudflare Worker config for the JetLag Hide and Seek multiplayer
+# backend. Holds one Durable Object class — `GameRoom` — that backs
+# every live game (one DO instance per 6-char game code).
+#
+# Deploy from this repo root with:
+#
+#     pnpm wrangler deploy
+#
+# After first deploy you'll get a workers.dev URL like
+# `https://jlhs-multiplayer.<your-subdomain>.workers.dev`. Bake that
+# into the client's PUBLIC_MULTIPLAYER_URL env var (see MULTIPLAYER.md).
+
+name = "jlhs-multiplayer"
+main = "worker/index.ts"
+compatibility_date = "2024-11-12"
+compatibility_flags = ["nodejs_compat"]
+
+# Single Durable Object binding for the game-room class. The binding
+# name here (`GAME_ROOM`) is what worker code references via
+# `env.GAME_ROOM.idFromName(...)`.
+[[durable_objects.bindings]]
+name = "GAME_ROOM"
+class_name = "GameRoom"
+
+# Migration for the new DO class. Cloudflare requires this to be
+# explicitly declared on first deploy so future schema changes have
+# a known starting point.
+[[migrations]]
+tag = "v1"
+new_classes = ["GameRoom"]
+
+# Tighten CORS to the production Pages origin in prod, but allow
+# localhost during dev. The worker reads this and echoes it back as
+# Access-Control-Allow-Origin.
+[vars]
+ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,http://localhost:4321,http://localhost:3000"
+
+# Observability — logs in the Cloudflare dashboard. Free tier limits
+# apply; safe defaults.
+[observability]
+enabled = true

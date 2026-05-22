@@ -16,13 +16,13 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { gameSize, type GameSize } from "@/lib/gameSetup";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import {
-    addQuestion,
     defaultCustomQuestions,
     defaultUnit,
     leafletMapContext,
     questionModified,
     questions,
 } from "@/lib/context";
+import { seekerAddQuestion as addQuestion } from "@/lib/multiplayer/store";
 import {
     encodeQuestionForHider,
     shareOrCopy,

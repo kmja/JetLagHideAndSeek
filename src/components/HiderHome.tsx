@@ -458,13 +458,14 @@ function EndgamePhaseView({
             {/* Tense elapsed banner — same numbers, different framing */}
             <section className="rounded-md border-2 border-yellow-500/70 bg-yellow-500/5 px-4 py-3 mb-4 flex items-center gap-3">
                 <Eye className="w-5 h-5 shrink-0 text-yellow-500" />
-                <div className="flex flex-col leading-none gap-1">
+                <div className="flex flex-col leading-none gap-1 min-w-0">
                     <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground">
                         Endgame · stay still
                     </span>
                     <span className="font-inter-tight italic font-black tabular-nums text-2xl text-yellow-500 leading-none">
                         {formatElapsed(hiddenElapsedMs)}
                     </span>
+                    <TimeBonusInHand size={size} />
                 </div>
                 <SizeBadge size={size} className="ml-auto" />
             </section>
@@ -572,16 +573,43 @@ function ElapsedHiddenBanner({
     return (
         <section className="rounded-md border-2 border-yellow-500/60 bg-yellow-500/5 px-4 py-3 mb-4 flex items-center gap-3">
             <Timer className="w-5 h-5 shrink-0 text-yellow-500" />
-            <div className="flex flex-col leading-none gap-1">
+            <div className="flex flex-col leading-none gap-1 min-w-0">
                 <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground">
                     Hidden for
                 </span>
                 <span className="font-inter-tight italic font-black tabular-nums text-2xl text-primary leading-none">
                     {formatElapsed(hiddenElapsedMs)}
                 </span>
+                <TimeBonusInHand size={size} />
             </div>
             <SizeBadge size={size} className="ml-auto" />
         </section>
+    );
+}
+
+/**
+ * Sub-line under the elapsed timer showing how many time-bonus
+ * minutes the hider is currently holding. Renders nothing when the
+ * tally is zero so it doesn't add noise during early game (before
+ * any cards have been drawn). Used in both the seeking-phase and
+ * endgame-phase banners — they share the same yellow tint so the
+ * bonus reads consistently across phases.
+ */
+function TimeBonusInHand({
+    size,
+}: {
+    size: ReturnType<typeof gameSize.get>;
+}) {
+    const $hand = useStore(hiderHand);
+    const bonusMinutes = useMemo(
+        () => tallyTimeBonusMinutes($hand, size),
+        [$hand, size],
+    );
+    if (bonusMinutes <= 0) return null;
+    return (
+        <span className="text-[10px] text-yellow-500 font-poppins font-semibold mt-0.5 tabular-nums">
+            +{bonusMinutes} min time bonus in hand
+        </span>
     );
 }
 

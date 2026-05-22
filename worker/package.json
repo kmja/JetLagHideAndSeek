@@ -1,0 +1,17 @@
+{
+    "name": "jlhs-multiplayer-worker",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "description": "Cloudflare Worker + Durable Object backend for the JetLag Hide and Seek multiplayer mode. Kept in its own package so Wrangler's deep esbuild/workerd dependency tree doesn't disturb the main Astro app's bundling.",
+    "scripts": {
+        "deploy": "wrangler deploy --config ../wrangler.toml",
+        "dev": "wrangler dev --config ../wrangler.toml",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20260520.1",
+        "typescript": "^5.7.3",
+        "wrangler": "^4.93.0"
+    }
+}

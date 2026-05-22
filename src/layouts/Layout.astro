@@ -140,6 +140,245 @@ const { className } = Astro.props;
         />
 
         {pwaInfo && <Fragment set:html={pwaInfo.webManifest.linkTag} />}
+
+        <!--
+          GPS spoof for local development. Lets you test GPS-dependent
+          flows (the wizard's auto-locate, thermometer live distance,
+          hider position pin) without a real device. Runs only when
+          serving from localhost AND the user has explicitly set the
+          `__jlhs_gpsSpoof` localStorage key. Production deploys
+          never trip this.
+
+          Two schemas supported:
+
+          (A) Single-position spoof — every call to navigator.geolocation
+              returns the same simulated walker, regardless of role:
+
+            localStorage.setItem('__jlhs_gpsSpoof', JSON.stringify({
+              centerLat: 59.3293, centerLng: 18.0686,
+              radiusM: 500, speedMps: 1.39,
+            }));
+            location.reload();
+
+          (B) Role-aware spoof — when `playerRole` is "seeker" the
+              spoof returns the seeker's simulated position, when
+              "hider" it returns the hider's. Lets you switch sides
+              via the debug panel's "→ Seeker / → Hider" buttons and
+              get the matching GPS without re-configuring:
+
+            localStorage.setItem('__jlhs_gpsSpoof', JSON.stringify({
+              seeker: { centerLat: 59.3303, centerLng: 18.0593,
+                        radiusM: 800, speedMps: 1.39 },
+              hider:  { centerLat: 59.3169, centerLng: 18.0626,
+                        radiusM: 100, speedMps: 0.5 },
+            }));
+            location.reload();
+
+          To disable either:
+            localStorage.removeItem('__jlhs_gpsSpoof');
+            location.reload();
+        -->
+        <script is:inline>
+            (function () {
+                if (
+                    !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(
+                        window.location.hostname,
+                    )
+                )
+                    return;
+                let cfg;
+                try {
+                    cfg = JSON.parse(localStorage.getItem("__jlhs_gpsSpoof"));
+                } catch (e) {
+                    return;
+                }
+                if (!cfg || typeof cfg !== "object") return;
+
+                const buildWalker = function (entry) {
+                    if (!entry || typeof entry !== "object") return null;
+                    const CENTER = {
+                        lat: Number(entry.centerLat),
+                        lng: Number(entry.centerLng),
+                    };
+                    if (
+                        !Number.isFinite(CENTER.lat) ||
+                        !Number.isFinite(CENTER.lng)
+                    )
+                        return null;
+                    const RADIUS_M = Number(entry.radiusM) || 500;
+                    // Speed of 0 means "stationary" — the position
+                    // stays clamped to the eastern edge of the (zero-
+                    // radius) circle. Used for "hider sitting still
+                    // at their hiding spot" scenarios.
+                    const SPEED_MPS = Number.isFinite(Number(entry.speedMps))
+                        ? Number(entry.speedMps)
+                        : 1.39;
+                    const M_PER_DEG_LAT = 111000;
+                    const M_PER_DEG_LNG =
+                        111000 * Math.cos((CENTER.lat * Math.PI) / 180);
+                    const RADIUS_DEG_LAT = RADIUS_M / M_PER_DEG_LAT;
+                    const RADIUS_DEG_LNG = RADIUS_M / M_PER_DEG_LNG;
+                    const OMEGA =
+                        RADIUS_M > 0 && SPEED_MPS > 0
+                            ? SPEED_MPS / RADIUS_M
+                            : 0;
+                    const start = Date.now();
+                    return {
+                        center: CENTER,
+                        radiusMeters: RADIUS_M,
+                        speedMps: SPEED_MPS,
+                        positionAt: function (when) {
+                            const elapsed = (when - start) / 1000;
+                            const angle = OMEGA * elapsed;
+                            return {
+                                coords: {
+                                    latitude:
+                                        CENTER.lat +
+                                        RADIUS_DEG_LAT * Math.cos(angle),
+                                    longitude:
+                                        CENTER.lng +
+                                        RADIUS_DEG_LNG * Math.sin(angle),
+                                    heading:
+                                        ((((angle * 180) / Math.PI + 90) %
+                                            360) +
+                                            360) %
+                                        360,
+                                    accuracy: 12,
+                                    altitude: 22,
+                                    altitudeAccuracy: 5,
+                                    speed: SPEED_MPS,
+                                },
+                                timestamp: when,
+                            };
+                        },
+                    };
+                };
+
+                // Detect schema. If the config has `seeker` and/or
+                // `hider` keys, it's role-aware; otherwise treat the
+                // whole object as a single-position config.
+                const seekerWalker = cfg.seeker
+                    ? buildWalker(cfg.seeker)
+                    : null;
+                const hiderWalker = cfg.hider ? buildWalker(cfg.hider) : null;
+                const singleWalker =
+                    !seekerWalker && !hiderWalker ? buildWalker(cfg) : null;
+
+                if (!seekerWalker && !hiderWalker && !singleWalker) return;
+
+                // Read the persisted role from localStorage. Default
+                // role is "seeker" so the seeker-side flows work even
+                // before the wizard has been touched. Be defensive:
+                // persistentAtom may store the value JSON-quoted or
+                // raw depending on the encode option.
+                const readRole = function () {
+                    const raw = localStorage.getItem("playerRole");
+                    if (!raw) return "seeker";
+                    try {
+                        const parsed = JSON.parse(raw);
+                        if (parsed === "hider") return "hider";
+                        if (parsed === "seeker") return "seeker";
+                    } catch (e) {}
+                    if (raw === "hider" || raw === '"hider"') return "hider";
+                    return "seeker";
+                };
+
+                const positionFor = function (when) {
+                    const role = readRole();
+                    const walker =
+                        role === "hider"
+                            ? hiderWalker || singleWalker || seekerWalker
+                            : seekerWalker || singleWalker || hiderWalker;
+                    return walker.positionAt(when);
+                };
+
+                const watchIntervals = new Map();
+                let nextWatchId = 9000;
+
+                Object.defineProperty(navigator.geolocation, "getCurrentPosition", {
+                    value: function (success) {
+                        setTimeout(function () {
+                            success(positionFor(Date.now()));
+                        }, 80);
+                    },
+                    configurable: true,
+                    writable: true,
+                });
+                Object.defineProperty(navigator.geolocation, "watchPosition", {
+                    value: function (success) {
+                        const id = nextWatchId++;
+                        setTimeout(function () {
+                            success(positionFor(Date.now()));
+                        }, 80);
+                        const handle = setInterval(function () {
+                            success(positionFor(Date.now()));
+                        }, 2000);
+                        watchIntervals.set(id, handle);
+                        return id;
+                    },
+                    configurable: true,
+                    writable: true,
+                });
+                Object.defineProperty(navigator.geolocation, "clearWatch", {
+                    value: function (id) {
+                        const h = watchIntervals.get(id);
+                        if (h !== undefined) {
+                            clearInterval(h);
+                            watchIntervals.delete(id);
+                        }
+                    },
+                    configurable: true,
+                    writable: true,
+                });
+
+                if (navigator.permissions && navigator.permissions.query) {
+                    const orig = navigator.permissions.query.bind(
+                        navigator.permissions,
+                    );
+                    Object.defineProperty(navigator.permissions, "query", {
+                        value: function (d) {
+                            if (d && d.name === "geolocation") {
+                                return Promise.resolve({
+                                    state: "granted",
+                                    onchange: null,
+                                    addEventListener: function () {},
+                                    removeEventListener: function () {},
+                                    dispatchEvent: function () {
+                                        return false;
+                                    },
+                                });
+                            }
+                            return orig(d);
+                        },
+                        configurable: true,
+                        writable: true,
+                    });
+                }
+
+                window.__gpsSpoof = {
+                    schema: seekerWalker || hiderWalker ? "role-aware" : "single",
+                    seeker: seekerWalker,
+                    hider: hiderWalker,
+                    single: singleWalker,
+                    positionFor: positionFor,
+                    readRole: readRole,
+                };
+
+                console.log(
+                    "[gpsSpoof] active — schema",
+                    window.__gpsSpoof.schema,
+                    seekerWalker
+                        ? "seeker centre " + JSON.stringify(seekerWalker.center)
+                        : "",
+                    hiderWalker
+                        ? "hider centre " + JSON.stringify(hiderWalker.center)
+                        : "",
+                    singleWalker
+                        ? "single centre " + JSON.stringify(singleWalker.center)
+                        : "",
+                );
+            })();
+        </script>
     </head>
     <body class:list={[className, "dark"]}>
         <slot />

@@ -7,33 +7,43 @@ import type { OpenStreetMap } from "./types";
 /**
  * Coarse place-type ranking used when re-sorting play-area search
  * results. Higher = more likely to be what the user means when they
- * type an unambiguous name like "Stockholm". Photon's default
- * ranking leans on Wikipedia importance, which doesn't help when
- * several Stockholms / Springfields / Birminghams share the exact
- * name — so we layer this on top.
+ * type an ambiguous name like "Stockholm" or "Barcelona". Photon's
+ * default ranking leans on Wikipedia importance, which doesn't help
+ * when several Stockholms / Barcelonas / Birminghams share the
+ * exact name — so we layer this on top.
  *
- * Values are deliberately spaced so the place-type bonus dominates
- * the area / exact-match bonuses for big admin distinctions
- * (country vs. village) but doesn't drown out the other signals
- * within the same band (city vs. town).
+ * Design principle: **prefer the more specific localised place over
+ * the larger administrative area of the same name.** Typing
+ * "Barcelona" almost always means the city, not the province
+ * containing it; typing "Stockholm" means Sweden's capital, not the
+ * county or län it sits inside. Admin regions still surface in the
+ * results — they just rank below same-named localities.
+ *
+ * Country is the special case: a query like "Sweden" or "Japan"
+ * matches the country directly, and there are rarely conflicting
+ * cities of the same name, so it gets a slightly elevated score so
+ * it doesn't lose to a tiny US town named "Sweden".
  */
 const PLACE_TYPE_SCORE: Record<string, number> = {
-    country: 1000,
-    state: 800,
-    region: 700,
-    province: 700,
-    county: 600,
-    municipality: 500,
-    city: 500,
-    district: 450,
-    borough: 400,
-    town: 300,
-    village: 150,
-    suburb: 100,
-    neighbourhood: 50,
-    quarter: 50,
-    hamlet: 40,
-    locality: 30,
+    // Specific localities — what users typically search for.
+    city: 1000,
+    town: 900,
+    municipality: 850,
+    village: 800,
+    suburb: 600,
+    hamlet: 500,
+    borough: 450,
+    district: 400,
+    neighbourhood: 300,
+    quarter: 300,
+    locality: 200,
+    // Admin regions — surface but rank below same-named localities.
+    country: 700,
+    state: 500,
+    region: 400,
+    province: 300,
+    county: 200,
+    administrative: 100,
 };
 
 /**
@@ -61,12 +71,28 @@ function scorePlayAreaResult(
     const name = (p.name ?? "").toLowerCase();
     const q = query.toLowerCase().trim();
 
-    // Descending bonus so Photon's first result still gets a nudge
-    // when scoring is tied — small enough not to drown out the
-    // place-type / area / exactness signals.
-    const photonRankBonus = 100 / (originalIndex + 1);
+    // Photon's intrinsic ranking carries the Wikipedia-importance
+    // signal — it correctly puts "the famous Paris" ahead of "Paris,
+    // Texas" already. Weight it heavily enough that same-type ties
+    // (two cities) follow Photon's order rather than getting flipped
+    // by the area bonus, while still being dominated by the
+    // place-type bonus so a famous province doesn't beat a same-named
+    // small city.
+    const photonRankBonus = 300 / (originalIndex + 1);
 
-    const typeBonus = PLACE_TYPE_SCORE[p.osm_value ?? ""] ?? 0;
+    // Read place-type scores from BOTH `type` and `osm_value` and
+    // take the more specific (higher-scoring) of the two. Reason:
+    //   - For `osm_key=place` features (Barcelona city) `osm_value`
+    //     is informative ("city", "province"), so it wins.
+    //   - For `osm_key=boundary` admin relations Photon reports
+    //     `osm_value="administrative"` (uninformative) and puts the
+    //     actual level in `type` ("city" for Stockholm Municipality,
+    //     "county" for Stockholm County). So `type` wins there.
+    // Picking the max lets both shapes be ranked correctly without
+    // a special-case branch.
+    const typeFromValue = PLACE_TYPE_SCORE[(p.osm_value ?? "").toLowerCase()] ?? 0;
+    const typeFromType = PLACE_TYPE_SCORE[((p as { type?: string }).type ?? "").toLowerCase()] ?? 0;
+    const typeBonus = Math.max(typeFromValue, typeFromType);
 
     let areaBonus = 0;
     const extent = p.extent;
@@ -140,7 +166,18 @@ export const geocode = async (
 
     const deduped = _.uniqBy(
         features.filter((feature) => {
-            return filter ? feature.properties.osm_type === "R" : true;
+            if (!filter) return true;
+            // Play-area search needs OSM relations (so the rest of
+            // the app can fetch a boundary polygon from them).
+            if (feature.properties.osm_type !== "R") return false;
+            // And the relation has to be a *place* or an admin
+            // *boundary* — not a tourism attraction, sports stadium,
+            // airport, or other point-of-interest that happens to be
+            // tagged as a relation. Photon's relation results
+            // include all of those by default; play-area-picking is
+            // strictly cities / countries / admin regions.
+            const key = (feature.properties.osm_key ?? "").toLowerCase();
+            return key === "place" || key === "boundary";
         }),
         (feature) => feature.properties.osm_id,
     );
@@ -201,6 +238,75 @@ export const reverseGeocode = (
         .catch(() => null);
     REVERSE_CACHE.set(key, promise);
     return promise;
+};
+
+/**
+ * Reverse geocoding tuned for the play-area picker. Prefers the
+ * **city/town** level over hyper-local labels like suburb /
+ * neighbourhood, falling back upward (county → state → country) if
+ * Photon doesn't surface a city for the coordinates. The play-area
+ * search then runs forward geocode on this name and lands a proper
+ * admin relation.
+ *
+ * The plain `reverseGeocode` above biases toward narrow names
+ * ("Eixample", "Södermalm") which is the right call for the question
+ * "what's the nearest neighbourhood" but the wrong one for "what
+ * city am I in" — we keep both helpers separate so neither caller
+ * gets the wrong bias.
+ */
+export const reverseGeocodeCity = (
+    lat: number,
+    lng: number,
+): Promise<string | null> => {
+    if (typeof lat !== "number" || typeof lng !== "number") {
+        return Promise.resolve(null);
+    }
+    const url = `${GEOCODER_API.replace(
+        /\/api\/?$/,
+        "",
+    )}/reverse?lat=${lat}&lon=${lng}&lang=en`;
+    return fetch(url, { headers: { Accept: "application/json" } })
+        .then(async (resp) => {
+            if (!resp.ok) return null;
+            const data = await resp.json();
+            const first = data?.features?.[0]?.properties ?? null;
+            if (!first) return null;
+            // Pick the most-specific locality name available.
+            const place =
+                first.city ||
+                first.town ||
+                first.municipality ||
+                first.county ||
+                first.state ||
+                first.country ||
+                first.name ||
+                null;
+            if (!place) return null;
+            // Disambiguate against same-named places elsewhere in the
+            // world by appending the country (and state, where it
+            // meaningfully helps — e.g. "Springfield, Illinois, United
+            // States" vs the dozens of other Springfields). Photon's
+            // forward search then lands the matching admin relation
+            // reliably. Without this the bare name "Stockholm" can
+            // surface a US town first depending on Photon's intrinsic
+            // popularity ranking, which is the opposite of what the
+            // user wants when they're physically in Sweden.
+            const country = first.country as string | undefined;
+            const state = first.state as string | undefined;
+            // Avoid pinning a state qualifier when the country isn't
+            // big enough to need it (state already implies country
+            // for the US, AU, BR, etc., but adding it for a tiny
+            // country can match badly).
+            const needsState =
+                (country && /^(United States|USA|US|Canada|Australia|Brazil|Mexico|India|China|Germany|France|Spain|Italy|Russia|Argentina|United Kingdom|UK)$/i.test(country)) &&
+                state &&
+                state !== place;
+            const parts = [place];
+            if (needsState) parts.push(state!);
+            if (country && country !== place) parts.push(country);
+            return parts.join(", ");
+        })
+        .catch(() => null);
 };
 
 /**

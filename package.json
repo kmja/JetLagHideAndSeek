@@ -86,11 +86,5 @@
     },
     "engines": {
         "node": "<25"
-    },
-    "pnpm": {
-        "onlyBuiltDependencies": [
-            "esbuild",
-            "sharp"
-        ]
     }
 }

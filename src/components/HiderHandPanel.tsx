@@ -2,7 +2,6 @@ import { useStore } from "@nanostores/react";
 import {
     AlertOctagon,
     ChevronDown,
-    Plus,
     Shuffle,
     Sparkles,
     Timer,
@@ -36,6 +35,7 @@ import {
 import { tallyTimeBonusMinutes, type Card, type CurseCard, type PowerupCard } from "@/lib/hiderDeck";
 import { cn } from "@/lib/utils";
 
+import { CardTile } from "./CardTile";
 import { CastCurseDialog } from "./CastCurseDialog";
 import { HandCardPicker } from "./HandCardPicker";
 import { SectionPill } from "./JetLagLogo";
@@ -231,16 +231,52 @@ export function HiderHandPanel() {
                     and so on (rulebook p16–37).
                 </p>
             ) : (
-                <ul className="space-y-1.5">
+                /* Each hand card renders as a CardTile (visual,
+                   matching the physical cards) wrapped with the
+                   action row BELOW it. The card itself stays
+                   "untouched" — no buttons baked into the tile —
+                   so it reads like the real card. The actions
+                   (Play / Cast / Discard) sit on a separate row
+                   beneath, attributed to the card via the shared
+                   column. */
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {$hand.map((card) => (
-                        <HandCardRow
-                            key={card.id}
-                            card={card}
-                            onPlayPowerup={onPlayPowerup}
-                            onCastCurse={(c) => setCastCurse(c)}
-                        />
+                        <div key={card.id} className="flex flex-col gap-1.5">
+                            <CardTile
+                                card={card}
+                                gameSize={$gameSize}
+                                selectionIndicator="none"
+                            />
+                            <div className="flex gap-1">
+                                {card.kind === "powerup" && (
+                                    <Button
+                                        type="button"
+                                        variant="default"
+                                        size="sm"
+                                        onClick={() => onPlayPowerup(card)}
+                                        className="flex-1 gap-1 h-7 px-2 text-[10px]"
+                                    >
+                                        <Sparkles className="w-3 h-3" />
+                                        Play
+                                    </Button>
+                                )}
+                                {card.kind === "curse" && (
+                                    <Button
+                                        type="button"
+                                        variant="default"
+                                        size="sm"
+                                        onClick={() => setCastCurse(card)}
+                                        className="flex-1 gap-1 h-7 px-2 text-[10px]"
+                                    >
+                                        <Zap className="w-3 h-3" />
+                                        Cast
+                                    </Button>
+                                )}
+                                <DiscardCardButton card={card} />
+                            </div>
+                        </div>
                     ))}
-                </ul>
+                </div>
             )}
 
             {/* Discard pile — collapsible read-only view */}
@@ -339,88 +375,20 @@ export function HiderHandPanel() {
 
 /* ────────────────── Hand card row ────────────────── */
 
-function HandCardRow({
-    card,
-    onPlayPowerup,
-    onCastCurse,
-}: {
-    card: Card;
-    onPlayPowerup: (c: PowerupCard) => void;
-    onCastCurse: (c: CurseCard) => void;
-}) {
-    return (
-        <li
-            className={cn(
-                "rounded-sm border border-border px-3 py-2",
-                "bg-secondary/40 text-sm",
-                card.kind === "curse" && "border-l-[3px] border-l-purple-500",
-                card.kind === "powerup" && "border-l-[3px] border-l-primary",
-                card.kind === "time-bonus" &&
-                    "border-l-[3px] border-l-yellow-500",
-            )}
-        >
-            <div className="flex items-start gap-2">
-                <CardKindIcon kind={card.kind} />
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center flex-wrap gap-1.5">
-                        <span className="font-inter-tight font-bold uppercase tracking-wide text-xs leading-none">
-                            {card.name}
-                        </span>
-                        {card.kind === "time-bonus" && (
-                            <span className="text-[10px] font-mono text-yellow-500 tabular-nums ml-1">
-                                S{card.minutes.small} · M{card.minutes.medium} ·
-                                L{card.minutes.large}
-                            </span>
-                        )}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                        {card.description}
-                    </p>
-                    {card.kind === "curse" && card.castingCost && (
-                        <p className="text-[11px] text-foreground/80 mt-1 leading-snug italic">
-                            Casting cost: {card.castingCost}
-                        </p>
-                    )}
-                </div>
-            </div>
-            <div className="flex gap-1.5 mt-2 justify-end">
-                {card.kind === "powerup" && (
-                    <Button
-                        type="button"
-                        variant="default"
-                        size="sm"
-                        onClick={() => onPlayPowerup(card)}
-                        className="gap-1.5 h-7 px-2 text-[11px]"
-                    >
-                        <Sparkles className="w-3 h-3" />
-                        Play
-                    </Button>
-                )}
-                {card.kind === "curse" && (
-                    <Button
-                        type="button"
-                        variant="default"
-                        size="sm"
-                        onClick={() => onCastCurse(card)}
-                        className="gap-1.5 h-7 px-2 text-[11px]"
-                    >
-                        <Zap className="w-3 h-3" />
-                        Cast on seeker
-                    </Button>
-                )}
-                <DiscardCardButton card={card} />
-            </div>
-        </li>
-    );
-}
-
 function DiscardCardButton({ card }: { card: Card }) {
     return (
         <AlertDialog>
             <AlertDialogTrigger asChild>
+                {/* "secondary" variant rather than "outline" — the
+                    outline variant on a dark page background just
+                    shows a subtle border + foreground text, which
+                    reads as disabled next to the bright Play/Cast
+                    button. Secondary gives the button a clearly
+                    clickable filled appearance without competing
+                    with the primary action's color. */}
                 <Button
                     type="button"
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className="gap-1.5 h-7 px-2 text-[11px]"
                 >
@@ -452,6 +420,7 @@ function DiscardCardButton({ card }: { card: Card }) {
 
 function DiscardPile() {
     const $discard = useStore(hiderDiscard);
+    const $gameSize = useStore(gameSize);
     const [open, setOpen] = useState(false);
     if ($discard.length === 0) return null;
 
@@ -480,48 +449,20 @@ function DiscardPile() {
                 />
             </button>
             {open && (
-                <ul className="mt-2 space-y-1">
+                <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 opacity-70">
                     {[...$discard].reverse().map((card, i) => (
-                        <li
+                        <CardTile
                             key={`${card.id}-${i}`}
-                            className={cn(
-                                "flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
-                                "bg-secondary/20 border border-border/50",
-                                "text-xs text-muted-foreground",
-                            )}
-                        >
-                            <CardKindIcon kind={card.kind} />
-                            <span className="font-inter-tight font-bold uppercase tracking-wide text-[11px]">
-                                {card.name}
-                            </span>
-                            {card.kind === "time-bonus" && (
-                                <span className="text-[10px] font-mono tabular-nums">
-                                    S{card.minutes.small}/M{card.minutes.medium}/L{card.minutes.large}
-                                </span>
-                            )}
-                        </li>
+                            card={card}
+                            gameSize={$gameSize}
+                            size="compact"
+                            selectionIndicator="none"
+                        />
                     ))}
-                </ul>
+                </div>
             )}
         </div>
     );
-}
-
-function CardKindIcon({ kind }: { kind: Card["kind"] }) {
-    switch (kind) {
-        case "time-bonus":
-            return (
-                <Plus className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
-            );
-        case "powerup":
-            return (
-                <Sparkles className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-            );
-        case "curse":
-            return (
-                <Zap className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
-            );
-    }
 }
 
 export default HiderHandPanel;

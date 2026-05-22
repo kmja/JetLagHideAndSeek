@@ -11,7 +11,6 @@ import { toast } from "react-toastify";
 
 import {
     additionalMapGeoLocations,
-    addQuestion,
     animateMapMovements,
     autoZoom,
     baseTileLayer,
@@ -29,6 +28,7 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { seekerAddQuestion as addQuestion } from "@/lib/multiplayer/store";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
