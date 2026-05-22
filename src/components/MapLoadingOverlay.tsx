@@ -129,16 +129,18 @@ export function MapLoadingOverlay() {
                     )}
                 </div>
 
-                {/* Stats line: bytes + elapsed + ETA. Each row item
-                    is conditional so the line doesn't show empty
-                    placeholders when totals are missing. */}
+                {/* Stats line: bytes + elapsed + ETA. The total is
+                    prefixed `~` when it came from our localStorage
+                    size cache rather than a real Content-Length —
+                    most Overpass mirrors stream chunked so the
+                    cached number is our only estimate. */}
                 <div className="flex items-center justify-between gap-2 text-[11px] tabular-nums text-muted-foreground">
                     <span>
-                        {total !== null
-                            ? `${formatBytes(downloaded)} / ${formatBytes(total)}`
+                        {total !== null && downloaded > 0
+                            ? `${formatBytes(downloaded)} / ~${formatBytes(total)}`
                             : downloaded > 0
-                              ? formatBytes(downloaded)
-                              : ""}
+                              ? `${formatBytes(downloaded)} downloaded`
+                              : "Starting…"}
                     </span>
                     <span className="flex gap-2">
                         {elapsed !== null && elapsed >= 1000 && (
