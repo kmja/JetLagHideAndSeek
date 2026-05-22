@@ -1,0 +1,31 @@
+// Cloudflare Worker config for the JetLag Hide and Seek **frontend**.
+//
+// This is the public site at
+// https://jetlaghideandseek.karl-mj-andersson.workers.dev — it serves
+// the Astro-built static bundle from `dist/` as Worker Static
+// Assets. No server-side code is involved here; the multiplayer
+// backend is a separate Worker (see `worker/wrangler.toml`).
+//
+// We need this file at the repo root so Cloudflare's auto-build
+// pipeline (which is connected to this GitHub repo) does not try to
+// add the `@astrojs/cloudflare` SSR adapter on every build. With a
+// `wrangler.jsonc` present, the pipeline trusts the explicit config
+// and skips the `astro add cloudflare` auto-setup that would
+// otherwise rewrite `astro.config.mjs` mid-build.
+//
+// `not_found_handling: "single-page-application"` makes Cloudflare
+// fall back to `index.html` for client-routed paths so deep links
+// keep working. Astro already emits `/h/index.html` for the hider
+// route, so that page is served directly.
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "jetlaghideandseek",
+    "compatibility_date": "2026-05-22",
+    "observability": {
+        "enabled": true
+    },
+    "assets": {
+        "directory": "dist",
+        "not_found_handling": "single-page-application"
+    }
+}
