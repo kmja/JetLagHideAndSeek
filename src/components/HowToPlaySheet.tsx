@@ -14,31 +14,47 @@ import { SectionPill, SizeBadge } from "./JetLagLogo";
  *
  * Triggered from the More sheet's first row. Renders as a VaulDrawer
  * so it inherits the swipe-to-dismiss behavior we use elsewhere.
+ *
+ * `onBeforeOpen` lets a host sheet close itself first — without that,
+ * a Sheet z-1051 stacked over a VaulDrawer z-1045 hides the drawer
+ * entirely (the user sees only the parent overlay).
  */
-export function HowToPlaySheet() {
+export function HowToPlaySheet({
+    onBeforeOpen,
+}: { onBeforeOpen?: () => void } = {}) {
     const [open, setOpen] = useState(false);
 
     return (
-        <VaulDrawer.Root
-            open={open}
-            onOpenChange={setOpen}
-            shouldScaleBackground={false}
-        >
-            <VaulDrawer.Trigger asChild>
-                <button
-                    type="button"
-                    className={cn(
-                        "w-full flex items-center justify-center gap-2",
-                        "px-3 py-2 rounded-md",
-                        "bg-secondary hover:bg-accent border border-border",
-                        "text-sm font-semibold text-foreground transition-colors",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    )}
-                >
-                    <BookOpen className="w-4 h-4" />
-                    How to play
-                </button>
-            </VaulDrawer.Trigger>
+        <>
+            <button
+                type="button"
+                onClick={() => {
+                    onBeforeOpen?.();
+                    // If the host closes itself, give the close
+                    // animation a frame to start so the focus ring
+                    // and overlay don't visibly stack while opening.
+                    if (onBeforeOpen) {
+                        requestAnimationFrame(() => setOpen(true));
+                    } else {
+                        setOpen(true);
+                    }
+                }}
+                className={cn(
+                    "w-full flex items-center justify-center gap-2",
+                    "px-3 py-2 rounded-md",
+                    "bg-secondary hover:bg-accent border border-border",
+                    "text-sm font-semibold text-foreground transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+            >
+                <BookOpen className="w-4 h-4" />
+                How to play
+            </button>
+            <VaulDrawer.Root
+                open={open}
+                onOpenChange={setOpen}
+                shouldScaleBackground={false}
+            >
             <VaulDrawer.Portal>
                 <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
                 <VaulDrawer.Content
@@ -213,7 +229,8 @@ export function HowToPlaySheet() {
                     </div>
                 </VaulDrawer.Content>
             </VaulDrawer.Portal>
-        </VaulDrawer.Root>
+            </VaulDrawer.Root>
+        </>
     );
 }
 

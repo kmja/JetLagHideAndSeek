@@ -79,6 +79,24 @@ function wsUrlForCode(code: string): string {
     return `${ws}/games/${code}/ws`;
 }
 
+/**
+ * True iff we're in an online game AND a participant with the
+ * `hider` role is currently connected. Used by the seeker's share
+ * flow to decide between sending via WebSocket (the hider will see
+ * the question instantly) vs falling back to a share-link.
+ *
+ * Returns `false` when offline, when no hider has joined yet, or
+ * when the hider joined but is currently disconnected — share-link
+ * fallback covers all those cases.
+ */
+export function isHiderConnected(): boolean {
+    if (!multiplayerEnabled.get()) return false;
+    if (!currentGameCode.get()) return false;
+    return participants
+        .get()
+        .some((p) => p.role === "hider" && p.online === true);
+}
+
 /* ────────────────── Connection lifecycle ────────────────── */
 
 /**

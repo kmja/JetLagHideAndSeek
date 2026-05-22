@@ -49,7 +49,16 @@ import {
     type TransitMode,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState } from "@/lib/hiderRole";
-import { hostPushSetup } from "@/lib/multiplayer/store";
+import {
+    createGame,
+    hostPushSetup,
+    joinAsHost,
+} from "@/lib/multiplayer/store";
+import {
+    currentGameCode,
+    displayName as displayNameAtom,
+    multiplayerEnabled,
+} from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 import {
     determineName,
@@ -58,6 +67,7 @@ import {
     type OpenStreetMap,
 } from "@/maps/api";
 
+import { OnlinePlaySection } from "./multiplayer/OnlinePlaySection";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
 
 import {
@@ -229,6 +239,12 @@ export function GameSetupDialog() {
     // as they tap a size tile, we stop auto-inferring from the play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
 
+    // Display name for the auto-hosted online room. Pre-fills from the
+    // persisted atom so returning players don't retype.
+    const [draftDisplayName, setDraftDisplayName] = useState(
+        displayNameAtom.get() || "",
+    );
+
     // Whenever the selected play area changes (and the user hasn't yet
     // picked a size by hand), infer the recommended game size from the
     // OSM extent's approximate area, per the rulebook's S/M/L bands.
@@ -256,6 +272,7 @@ export function GameSetupDialog() {
             setDraftFeature(null);
             setDraftTransit(allowedTransit.get());
             setDraftSize(gameSize.get());
+            setDraftDisplayName(displayNameAtom.get() || "");
             // Reset auto-infer flag for the new session. In edit mode we
             // assume the existing size is intentional and don't override.
             setSizeManuallySet(setupCompleted.get());
@@ -351,9 +368,46 @@ export function GameSetupDialog() {
 
         setupCompleted.set(true);
         setupDialogOpen.set(false);
-        // Push the local setup to peers if we're in an online room.
-        // No-op when offline.
-        hostPushSetup();
+
+        // Auto-host an online room (unless already in one). Every new
+        // game gets a multiplayer code by default — sharing is opt-in
+        // (do nothing and the room idles out via the Worker's TTL),
+        // but if friends want to join later the code is already live.
+        const trimmedName = draftDisplayName.trim();
+        const alreadyOnline =
+            multiplayerEnabled.get() && currentGameCode.get();
+        if (trimmedName && !alreadyOnline) {
+            displayNameAtom.set(trimmedName);
+            createGame()
+                .then((newCode) => {
+                    joinAsHost(newCode, trimmedName);
+                    // Push the just-configured setup so any peers
+                    // (current or future) get the play area, transit,
+                    // size, and hiding-period clock. Transport queues
+                    // until the socket opens, so this is safe to call
+                    // immediately after `joinAsHost`.
+                    hostPushSetup();
+                    toast.info(
+                        `Online room ${newCode} ready — share from Game settings.`,
+                        { autoClose: 3500 },
+                    );
+                })
+                .catch((e) => {
+                    // Failing to host doesn't block solo play; surface
+                    // a soft warning so the user knows online didn't
+                    // start (they can retry from Game settings).
+                    toast.warn(
+                        e instanceof Error
+                            ? `Online room not started: ${e.message}`
+                            : "Online room not started.",
+                        { autoClose: 3500 },
+                    );
+                });
+        } else {
+            // Already in a room: push the new setup to peers.
+            hostPushSetup();
+        }
+
         toast.success(
             `Hiding period started — ${minutes} minutes. Good luck!`,
             { autoClose: 3000 },
@@ -422,6 +476,10 @@ export function GameSetupDialog() {
                                     onChange={setDraftSizeManual}
                                 />
                             </section>
+                            <section className="space-y-3">
+                                <SectionPill>Online play</SectionPill>
+                                <OnlinePlaySection />
+                            </section>
                         </div>
 
                         <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
@@ -479,10 +537,37 @@ export function GameSetupDialog() {
                                 />
                             )}
                             {step === 3 && (
-                                <SizeStep
-                                    value={draftSize}
-                                    onChange={setDraftSizeManual}
-                                />
+                                <div className="space-y-5">
+                                    <SizeStep
+                                        value={draftSize}
+                                        onChange={setDraftSizeManual}
+                                    />
+                                    {/* Display name → drives the
+                                        auto-created online room. Field
+                                        is optional: blank skips the
+                                        host-on-start step entirely. */}
+                                    <div className="space-y-1.5 border-t border-border pt-4">
+                                        <label className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                            Your display name
+                                        </label>
+                                        <Input
+                                            value={draftDisplayName}
+                                            onChange={(e) =>
+                                                setDraftDisplayName(
+                                                    e.target.value,
+                                                )
+                                            }
+                                            placeholder="What others see (e.g. Kalle)"
+                                            maxLength={24}
+                                        />
+                                        <p className="text-[10px] text-muted-foreground leading-snug">
+                                            Starting the game also hosts
+                                            an online room you can share
+                                            with friends. Leave blank to
+                                            play offline.
+                                        </p>
+                                    </div>
+                                </div>
                             )}
                         </div>
 

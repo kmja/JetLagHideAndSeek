@@ -22,7 +22,10 @@ import {
     questionModified,
     questions,
 } from "@/lib/context";
-import { seekerAddQuestion as addQuestion } from "@/lib/multiplayer/store";
+import {
+    seekerAddQuestion as addQuestion,
+    isHiderConnected,
+} from "@/lib/multiplayer/store";
 import {
     encodeQuestionForHider,
     shareOrCopy,
@@ -257,6 +260,17 @@ export const AddQuestionDialog = ({
         const meta = CATEGORIES[q.id as CategoryId];
         setPendingKey(null);
         releaseBodyLock();
+
+        // If the hider is online and connected we've already pushed
+        // the question via `seekerAddQuestion` — skip the share sheet
+        // entirely and just start the 5-min answer clock. Otherwise
+        // fall through to share-link delivery.
+        if (isHiderConnected()) {
+            (q.data as { createdAt?: number }).createdAt = Date.now();
+            questionModified();
+            toast.success("Sent to hider", { autoClose: 1500 });
+            return;
+        }
 
         // Auto-share the question with the hider. We deliberately wait for
         // `shareOrCopy` to resolve before stamping `createdAt` so that the

@@ -31,6 +31,8 @@ import { toast } from "react-toastify";
 
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions, triggerLocalRefresh } from "@/lib/context";
+import { participants } from "@/lib/multiplayer/session";
+import { isHiderConnected } from "@/lib/multiplayer/store";
 import { encodeQuestionForHider, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question, ThermometerQuestion } from "@/maps/schema";
@@ -129,6 +131,10 @@ function subtypeLabel(type: string | undefined): string | null {
 export function PendingAnswerOverlay() {
     useStore(triggerLocalRefresh);
     const $questions = useStore(questions);
+    // Reactive subscription — the share button re-labels itself when
+    // a hider joins/leaves the online room mid-question. `isHiderConnected`
+    // reads the same store imperatively for the click handler.
+    useStore(participants);
 
     const pending = findOldestPending($questions);
 
@@ -214,6 +220,20 @@ export function PendingAnswerOverlay() {
     const status = pickStatus({ phase, notYetSent, overdue });
 
     const handleShare = async () => {
+        // If the hider is connected to the online room they already
+        // received the question over the WebSocket bridge — skip the
+        // share-link entirely and just stamp `createdAt` so the 5-min
+        // answer clock starts ticking.
+        if (isHiderConnected()) {
+            const d = displayed.data as { createdAt?: number };
+            if (!d.createdAt) {
+                d.createdAt = Date.now();
+                questionModified();
+            }
+            toast.success("Sent to hider", { autoClose: 1500 });
+            return;
+        }
+
         const url = encodeQuestionForHider(displayed);
         const result = await shareOrCopy({
             title: `${meta?.label ?? "Question"} for the hider`,
@@ -347,14 +367,20 @@ export function PendingAnswerOverlay() {
                         type="button"
                         onClick={handleShare}
                         aria-label={
-                            notYetSent
-                                ? "Share question with hider"
-                                : "Re-share question with hider"
+                            isHiderConnected()
+                                ? notYetSent
+                                    ? "Mark sent to hider"
+                                    : "Re-send to hider"
+                                : notYetSent
+                                  ? "Share question with hider"
+                                  : "Re-share question with hider"
                         }
                         title={
-                            notYetSent
-                                ? "Share with hider — starts the answer window"
-                                : "Re-share with hider"
+                            isHiderConnected()
+                                ? "Hider is connected — they already see this question. Tap to start the 5-min answer window."
+                                : notYetSent
+                                  ? "Share with hider — starts the answer window"
+                                  : "Re-share with hider"
                         }
                         className={cn(
                             "flex items-center justify-center w-9 h-9 rounded-md shrink-0",
