@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import {
     additionalMapGeoLocations,
     leafletMapContext,
+    mapGeoJSON,
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
@@ -212,9 +213,26 @@ export function TransitRoutesOverlay() {
                 // Overpass returns routes whose *relation* intersects
                 // the play area; individual member ways can extend
                 // out into the suburbs. Skipping them client-side
-                // saves canvas draw cost.
+                // saves draw cost.
+                //
+                // CRITICAL: we use `mapGeoJSON` (the loaded boundary
+                // polygon) — NOT `mapGeoLocation`, whose geometry
+                // is a Point (the OSM centroid). `turf.bbox()` of a
+                // Point returns a degenerate zero-area bbox, which
+                // would reject every single way and produce an
+                // empty overlay. That was why the subway overlay
+                // for Stockholm rendered nothing — the symptom
+                // looked like "fetch returned nothing" but was
+                // actually 100 % client-side bbox rejection.
+                //
+                // When neither the loaded boundary nor a drawn
+                // polygon is available yet, skip the bbox prefilter
+                // entirely (`playBbox = null` → no rejection). All
+                // ways then render and Leaflet itself culls them
+                // off-screen. Slightly slower for huge networks but
+                // never wrong.
                 const polyArea = polyGeoJSON.get();
-                const primaryLoc = mapGeoLocation.get();
+                const boundary = mapGeoJSON.get();
                 let playBbox:
                     | {
                           minLat: number;
@@ -224,12 +242,25 @@ export function TransitRoutesOverlay() {
                       }
                     | null = null;
                 try {
-                    const src = polyArea ?? (primaryLoc as any);
+                    const src = polyArea ?? boundary;
                     if (src) {
                         const [minLon, minLat, maxLon, maxLat] = turf.bbox(
                             src as any,
                         );
-                        playBbox = { minLat, maxLat, minLon, maxLon };
+                        // Sanity-check: a degenerate bbox (zero area
+                        // either lat-wise or lng-wise) would still
+                        // be useless. Drop to null and let everything
+                        // through if that happens.
+                        if (
+                            Number.isFinite(minLat) &&
+                            Number.isFinite(maxLat) &&
+                            Number.isFinite(minLon) &&
+                            Number.isFinite(maxLon) &&
+                            maxLat > minLat &&
+                            maxLon > minLon
+                        ) {
+                            playBbox = { minLat, maxLat, minLon, maxLon };
+                        }
                     }
                 } catch {
                     playBbox = null;
