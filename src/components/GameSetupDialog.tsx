@@ -228,7 +228,7 @@ export function GameSetupDialog() {
         if (!setupCompleted.get()) setupDialogOpen.set(true);
     }, []);
 
-    const [step, setStep] = useState<1 | 2 | 3>(1);
+    const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
     const [draftFeature, setDraftFeature] = useState<OpenStreetMap | null>(
         null,
     );
@@ -435,8 +435,10 @@ export function GameSetupDialog() {
         step === 1
             ? draftFeature !== null
             : step === 2
-              ? draftTransit.length > 0
-              : true;
+              ? true // Adjacent picks are optional
+              : step === 3
+                ? draftTransit.length > 0
+                : true;
 
     return (
         <Dialog
@@ -522,20 +524,23 @@ export function GameSetupDialog() {
                                 <HideSeekMark size={36} onDark />
                                 <HideSeekWordmark />
                                 <SectionPill className="ml-auto">
-                                    Step {step} / 3
+                                    Step {step} / 4
                                 </SectionPill>
                             </div>
                             <DialogTitle className="font-inter-tight font-black uppercase text-2xl tracking-tight leading-tight">
                                 {step === 1 && "Where are you playing?"}
-                                {step === 2 && "What transit is allowed?"}
-                                {step === 3 && "How big is the game?"}
+                                {step === 2 && "Nearby areas to include?"}
+                                {step === 3 && "What transit is allowed?"}
+                                {step === 4 && "How big is the game?"}
                             </DialogTitle>
                             <DialogDescription className="mt-2 text-sm">
                                 {step === 1 &&
                                     "Pick the city or region you'll be seeking in."}
                                 {step === 2 &&
-                                    "Which public transit modes the hider can use."}
+                                    "Many cities are tightly integrated with neighbouring municipalities. Pick any that should be part of the play area."}
                                 {step === 3 &&
+                                    "Which public transit modes the hider can use."}
+                                {step === 4 &&
                                     "Larger games span more ground and last longer."}
                             </DialogDescription>
                         </div>
@@ -547,13 +552,16 @@ export function GameSetupDialog() {
                                     onChange={setDraftFeature}
                                 />
                             )}
-                            {step === 2 && (
+                            {step === 2 && draftFeature && (
+                                <PlayAreaExtensions primary={draftFeature} />
+                            )}
+                            {step === 3 && (
                                 <TransitStep
                                     value={draftTransit}
                                     onChange={setDraftTransit}
                                 />
                             )}
-                            {step === 3 && (
+                            {step === 4 && (
                                 <div className="space-y-5">
                                     <SizeStep
                                         value={draftSize}
@@ -593,7 +601,9 @@ export function GameSetupDialog() {
                                 variant="outline"
                                 onClick={() =>
                                     setStep((s) =>
-                                        s > 1 ? ((s - 1) as 1 | 2 | 3) : s,
+                                        s > 1
+                                            ? ((s - 1) as 1 | 2 | 3 | 4)
+                                            : s,
                                     )
                                 }
                                 disabled={step === 1}
@@ -602,12 +612,17 @@ export function GameSetupDialog() {
                                 <ChevronLeft className="w-4 h-4" />
                                 Back
                             </Button>
-                            {step < 3 ? (
+                            {step < 4 ? (
                                 <Button
                                     disabled={!canContinue}
                                     onClick={() =>
                                         setStep(
-                                            (s) => ((s + 1) as 1 | 2 | 3),
+                                            (s) =>
+                                                ((s + 1) as
+                                                    | 1
+                                                    | 2
+                                                    | 3
+                                                    | 4),
                                         )
                                     }
                                 >
@@ -903,13 +918,13 @@ function PlayAreaStep({
                     </div>
                 </div>
             )}
-            {/* Auto-suggest adjacent municipalities the user might
-                want to include — handles cases like Stockholm
-                Municipality legally excluding Solna / Sundbyberg /
-                Danderyd / Järfälla, which most locals would consider
-                part of Stockholm. Component is a no-op when there
-                are no siblings (e.g. country picks). */}
-            {value && <PlayAreaExtensions primary={value} />}
+            {/* PlayAreaExtensions used to render inline below the
+                search results here, but it now has its own
+                wizard step (step 2) so the user makes the
+                neighbour decision as a separate, explicit
+                choice. The component reference is kept in this
+                file (the import is still in use) but no longer
+                rendered inside step 1. */}
             {searched && !busy && results.length === 0 && (
                 <p className="text-xs text-muted-foreground italic">
                     No regions match. Try a broader name (city, country).

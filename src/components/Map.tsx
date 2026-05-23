@@ -133,17 +133,76 @@ export const Map = ({ className }: { className?: string }) => {
     const $polyGeoJSON = useStore(polyGeoJSON);
     const map = useStore(leafletMapContext);
 
-    // Transit overlays (rail tiles + bus/subway/ferry vector
-    // polylines) now render straight into Leaflet's default
-    // `overlayPane`. We previously had a custom `transit` pane
-    // at z-index 250 plus a CSS `clip-path` tracking the play-
-    // area polygon on every move/zoom event, but the clipping
-    // was visually unreliable at varying zooms ("mirror catching
-    // the light" flicker) and the extra pane management was a
-    // long-tail source of bugs. Default behaviour just lets the
-    // rail tiles and route polylines spill outside the play area
-    // boundary — which is fine, the elimination mask above them
-    // makes the in-play area visually dominant anyway.
+    // Custom `railTiles` Leaflet pane — z-index 250, between the
+    // basemap (200) and the default overlayPane (400). Rail tiles
+    // render into this pane so we can apply a CSS clip-path
+    // tracking the play-area polygon, keeping the rail overlay
+    // visually constrained to the play area. The vector
+    // bus/subway/ferry overlays stay in the default overlayPane
+    // (they did fine without clipping; only the raster rail
+    // tiles benefit from being scoped to the play area).
+    const [railPaneReady, setRailPaneReady] = useState(false);
+    useEffect(() => {
+        if (!map) return;
+        if (!map.getPane("railTiles")) {
+            const pane = map.createPane("railTiles");
+            pane.style.zIndex = "250";
+            pane.style.pointerEvents = "none";
+        }
+        setRailPaneReady(true);
+    }, [map]);
+
+    // Maintain a CSS clip-path on the rail tile pane that
+    // follows the play-area polygon as the map pans / zooms.
+    // Updates on every `move`/`zoom` event so the clip stays
+    // pixel-accurate.
+    useEffect(() => {
+        if (!map) return;
+        const pane = map.getPane("railTiles");
+        if (!pane) return;
+
+        const poly = $polyGeoJSON ?? $mapGeoJSON;
+        if (!poly) {
+            pane.style.clipPath = "";
+            return;
+        }
+
+        const extractOuterRing = (): Array<[number, number]> | null => {
+            const features = (poly as any).features ?? [poly];
+            for (const f of features) {
+                const g = f?.geometry ?? f;
+                if (!g) continue;
+                if (g.type === "Polygon") return g.coordinates[0];
+                if (g.type === "MultiPolygon") return g.coordinates[0]?.[0];
+            }
+            return null;
+        };
+
+        const updateClipPath = () => {
+            const ring = extractOuterRing();
+            if (!ring || ring.length < 3) {
+                pane.style.clipPath = "";
+                return;
+            }
+            // Cap at ~200 vertices for the clip-path. CSS handles
+            // arbitrary polygon clips but the cost of evaluating
+            // them on every paint scales with vertex count.
+            const stride = Math.max(1, Math.floor(ring.length / 200));
+            const pts: string[] = [];
+            for (let i = 0; i < ring.length; i += stride) {
+                const [lng, lat] = ring[i];
+                const p = map.latLngToContainerPoint([lat, lng]);
+                pts.push(`${p.x.toFixed(0)}px ${p.y.toFixed(0)}px`);
+            }
+            pane.style.clipPath = `polygon(${pts.join(",")})`;
+        };
+
+        updateClipPath();
+        map.on("move zoom moveend zoomend", updateClipPath);
+        return () => {
+            map.off("move zoom moveend zoomend", updateClipPath);
+        };
+    }, [map, $polyGeoJSON, $mapGeoJSON, railPaneReady]);
 
     const followMeMarkerRef = useMemo(
         () => ({ current: null as L.Marker | null }),
@@ -456,22 +515,22 @@ export const Map = ({ className }: { className?: string }) => {
                         maxZoom={19}
                     />
                 )}
-                {$showTransitLines && (
-                    /* OpenRailwayMap — vanilla TileLayer in the
-                       default overlayPane. No custom pane, no
-                       clip-path, no subdomain rotation, no bounds
-                       restriction. Past attempts at all of those
-                       produced visible bugs (clip-path mis-projection
-                       at low zooms, tile loads suppressed before the
-                       boundary arrived). Default behaviour just lets
-                       the rail tiles sit on top of the basemap; the
-                       elimination mask above them keeps the in-play
-                       area visually dominant. */
+                {$showTransitLines && railPaneReady && (
+                    /* OpenRailwayMap rendered into the custom
+                       `railTiles` pane so its CSS clip-path
+                       confines the overlay to the play area
+                       polygon. Without this the rail lines spill
+                       across the whole world. We keep the URL
+                       bare (no subdomain rotation, no `bounds`
+                       restriction) and the renderer plain —
+                       only the pane assignment differs from a
+                       vanilla TileLayer. */
                     <TileLayer
                         attribution='&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>'
                         url="https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
                         maxZoom={19}
                         opacity={0.85}
+                        pane="railTiles"
                     />
                 )}
                 <DraggableMarkers />
