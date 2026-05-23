@@ -176,32 +176,19 @@ export function TransitRoutesOverlay() {
                 if (cancelled) return;
 
                 const L = await import("leaflet");
-                // Render into the shared `transit` pane that Map.tsx
-                // sets up (z-index 250 + clip-path matching the
-                // play-area polygon), so all transit overlays — rail
-                // tiles, bus, ferry, subway — are visually clipped to
-                // the actual play area. Falls back to the default
-                // overlay pane if Map.tsx hasn't created it yet
-                // (shouldn't happen in normal flow but keeps us safe).
-                const usePane = map.getPane?.("transit") ? "transit" : undefined;
-                // SVG renderer (Leaflet's default for a polyline
-                // layer with no explicit `renderer` option). The
-                // previous canvas renderer had a `padding: 0.5`
-                // halo: lines outside the viewport+halo were clipped
-                // out of the bitmap, so zooming or panning past the
-                // halo made segments flicker in/out — the "mirror
-                // catching light" artifact you spotted.
-                //
-                // SVG paints each LineString as its own <path> so
-                // there's no fixed clip region. We already
-                // aggressively decimate (`MAX_VERTICES=50` per way)
-                // and bbox-filter ways outside the play area, which
-                // keeps the DOM-node count down to something the
-                // browser handles fine even in dense cities. If
-                // perf becomes a problem at the high end (e.g.
-                // Tokyo bus on a low-end phone), bring canvas back
-                // with a much larger padding (≥4) rather than
-                // returning to 0.5.
+                // Vanilla Leaflet GeoJSON layer — default
+                // overlayPane, default SVG renderer. Earlier
+                // versions tried a custom `transit` pane with a
+                // CSS clip-path, and a Canvas renderer with
+                // padding-based clipping; both produced visible
+                // bugs (clip mis-projection at low zooms, canvas
+                // padding flicker as the viewport edge crossed
+                // the bitmap boundary). The simple defaults work
+                // reliably — and we already keep the DOM cost
+                // down via per-way decimation
+                // (MAX_VERTICES = 50) and a bbox-rejection pass
+                // for ways that lie entirely outside the play
+                // area.
                 const layerOpts = {
                     style: {
                         color: cfg.color,
@@ -210,7 +197,6 @@ export function TransitRoutesOverlay() {
                         dashArray: cfg.dashArray,
                     },
                     interactive: false,
-                    pane: usePane,
                     filter: (feature: any) => {
                         const t = feature?.geometry?.type;
                         return t === "LineString" || t === "MultiLineString";

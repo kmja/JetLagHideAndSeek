@@ -133,92 +133,17 @@ export const Map = ({ className }: { className?: string }) => {
     const $polyGeoJSON = useStore(polyGeoJSON);
     const map = useStore(leafletMapContext);
 
-    // Custom Leaflet panes:
-    //
-    //   • `eliminationMask` (z-index 230) — the dim "outside the
-    //     play area + eliminated zones" polygon. Sits between the
-    //     basemap and the transit overlays so it darkens the basemap
-    //     without dimming the transit lines on top of it.
-    //
-    //   • `transit` (z-index 250) — rail tiles + bus/ferry/subway
-    //     polylines. Above the elimination mask so transit stays
-    //     fully visible across the entire *original* play area
-    //     regardless of how many questions have narrowed the
-    //     effective playable region. Below overlayPane (400) so
-    //     planning polygons, the radar-sweep overlay, and markers
-    //     stay on top.
-    //
-    // Both panes are created once per map instance.
-    const [transitPaneReady, setTransitPaneReady] = useState(false);
-    useEffect(() => {
-        if (!map) return;
-        if (!map.getPane("eliminationMask")) {
-            const pane = map.createPane("eliminationMask");
-            pane.style.zIndex = "230";
-            pane.style.pointerEvents = "none";
-        }
-        if (!map.getPane("transit")) {
-            const pane = map.createPane("transit");
-            pane.style.zIndex = "250";
-            pane.style.pointerEvents = "none";
-        }
-        setTransitPaneReady(true);
-    }, [map]);
-
-    // Maintain a CSS `clip-path` on the transit pane that follows the
-    // play-area polygon as the map pans / zooms. Updates on every
-    // `move`/`zoom` event so the clip stays pixel-accurate.
-    useEffect(() => {
-        if (!map) return;
-        const pane = map.getPane("transit");
-        if (!pane) return;
-
-        const poly = $polyGeoJSON ?? $mapGeoJSON;
-        if (!poly) {
-            pane.style.clipPath = "";
-            return;
-        }
-
-        // Walk the polygon (or first polygon of a MultiPolygon) and
-        // project its outer ring to container pixels. We deliberately
-        // ignore holes — game play areas don't have meaningful holes
-        // for which we'd want to *show* outside content.
-        const extractOuterRing = (): Array<[number, number]> | null => {
-            const features = (poly as any).features ?? [poly];
-            for (const f of features) {
-                const g = f?.geometry ?? f;
-                if (!g) continue;
-                if (g.type === "Polygon") return g.coordinates[0];
-                if (g.type === "MultiPolygon") return g.coordinates[0]?.[0];
-            }
-            return null;
-        };
-
-        const updateClipPath = () => {
-            const ring = extractOuterRing();
-            if (!ring || ring.length < 3) {
-                pane.style.clipPath = "";
-                return;
-            }
-            // Simplify aggressively — a 100-vertex clip-path is plenty
-            // for visual accuracy, and avoids the perf hit of a
-            // 5000-vertex polygon on every map move.
-            const stride = Math.max(1, Math.floor(ring.length / 200));
-            const pts: string[] = [];
-            for (let i = 0; i < ring.length; i += stride) {
-                const [lng, lat] = ring[i];
-                const p = map.latLngToContainerPoint([lat, lng]);
-                pts.push(`${p.x.toFixed(0)}px ${p.y.toFixed(0)}px`);
-            }
-            pane.style.clipPath = `polygon(${pts.join(",")})`;
-        };
-
-        updateClipPath();
-        map.on("move zoom moveend zoomend", updateClipPath);
-        return () => {
-            map.off("move zoom moveend zoomend", updateClipPath);
-        };
-    }, [map, $polyGeoJSON, $mapGeoJSON, transitPaneReady]);
+    // Transit overlays (rail tiles + bus/subway/ferry vector
+    // polylines) now render straight into Leaflet's default
+    // `overlayPane`. We previously had a custom `transit` pane
+    // at z-index 250 plus a CSS `clip-path` tracking the play-
+    // area polygon on every move/zoom event, but the clipping
+    // was visually unreliable at varying zooms ("mirror catching
+    // the light" flicker) and the extra pane management was a
+    // long-tail source of bugs. Default behaviour just lets the
+    // rail tiles and route polylines spill outside the play area
+    // boundary — which is fine, the elimination mask above them
+    // makes the in-play area visually dominant anyway.
 
     const followMeMarkerRef = useMemo(
         () => ({ current: null as L.Marker | null }),
@@ -349,11 +274,10 @@ export const Map = ({ className }: { className?: string }) => {
             // dark overlay so the in-play area pops on light basemaps —
             // Leaflet's default #3388ff @ 0.2 is invisible on cartodb voyager.
             //
-            // Rendered into the `eliminationMask` pane (z-index 230) so it
-            // sits *below* the transit overlays (z-index 250). That way
-            // transit lines stay at full brightness even over
-            // question-eliminated zones — the mask only darkens the
-            // basemap underneath, not the transit content above.
+            // Rendered into Leaflet's default `overlayPane` (z-index 400).
+            // The transit overlays render here too, so the rail tiles /
+            // route polylines now sit *above* the elimination mask in DOM
+            // order, which keeps them readable even over eliminated zones.
             const g = L.geoJSON(mapGeoData, {
                 style: {
                     color: "#0f172a",
@@ -362,7 +286,6 @@ export const Map = ({ className }: { className?: string }) => {
                     fillColor: "#0f172a",
                     fillOpacity: 0.45,
                 },
-                pane: "eliminationMask",
             });
             // @ts-expect-error This is a check such that only this type of layer is removed
             g.eliminationGeoJSON = true;
@@ -533,29 +456,22 @@ export const Map = ({ className }: { className?: string }) => {
                         maxZoom={19}
                     />
                 )}
-                {$showTransitLines && transitPaneReady && (
-                    /* OpenRailwayMap — semi-transparent overlay showing
-                       train/metro/tram lines. Rendered into the custom
-                       `transit` pane so its tiles get clipped to the
-                       play-area polygon via CSS clip-path. The bare
-                       `tiles.openrailwaymap.org` host was flaky for
-                       large play areas (often 404'd or never resolved)
-                       — the subdomain-rotated `{s}.tiles…` form is
-                       what the OpenRailwayMap wiki documents as
-                       canonical, and gives us parallel HTTP/2
-                       streams. The `bounds` restriction is gone too:
-                       it was suppressing tile loads when the polygon
-                       loaded after the user toggled the layer (e.g.
-                       picking a country and immediately enabling
-                       transit while Overpass was still fetching the
-                       boundary). */
+                {$showTransitLines && (
+                    /* OpenRailwayMap — vanilla TileLayer in the
+                       default overlayPane. No custom pane, no
+                       clip-path, no subdomain rotation, no bounds
+                       restriction. Past attempts at all of those
+                       produced visible bugs (clip-path mis-projection
+                       at low zooms, tile loads suppressed before the
+                       boundary arrived). Default behaviour just lets
+                       the rail tiles sit on top of the basemap; the
+                       elimination mask above them keeps the in-play
+                       area visually dominant. */
                     <TileLayer
                         attribution='&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>'
-                        url="https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
-                        subdomains={["a", "b", "c"]}
+                        url="https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png"
                         maxZoom={19}
                         opacity={0.85}
-                        pane="transit"
                     />
                 )}
                 <DraggableMarkers />
