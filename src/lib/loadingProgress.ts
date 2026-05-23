@@ -49,22 +49,69 @@ export function setPhase(phase: string): void {
     loadingProgress.set({ ...curr, phase });
 }
 
-export function setBytes(downloaded: number, total: number | null): void {
+/**
+ * Per-URL byte progress, aggregated into the overlay. The
+ * `determineMapBoundaries` pipeline fans out multiple parallel
+ * fetches (primary + N adjacent areas); each one calls
+ * `setBytesForUrl(url, downloaded, total)` independently, and the
+ * overlay shows the SUM across all in-flight URLs. Previously only
+ * the first piece reported progress, so a slow first piece left
+ * the counter stuck on 0 even while the others were downloading
+ * happily.
+ *
+ * Tracked in a module-level map so the same URL re-arriving
+ * (cancelled fetch + retry, or two concurrent calls hitting the
+ * same URL) doesn't double-count — we replace the per-URL entry
+ * each time and recompute the sum.
+ */
+const perUrlBytes = new Map<
+    string,
+    { downloaded: number; total: number | null }
+>();
+
+function recomputeAndPublish(): void {
     const curr = loadingProgress.get();
     if (!curr) return;
-    // Skip equality-no-op updates to avoid render churn on streams that
-    // tick fast.
+    let downloaded = 0;
+    let total: number | null = 0;
+    let anyTotalUnknown = false;
+    for (const entry of perUrlBytes.values()) {
+        downloaded += entry.downloaded;
+        if (entry.total === null) anyTotalUnknown = true;
+        else if (total !== null) total += entry.total;
+    }
+    if (anyTotalUnknown) total = null;
     if (
         curr.bytesDownloaded === downloaded &&
         curr.totalBytes === total
     ) {
         return;
     }
-    loadingProgress.set({ ...curr, bytesDownloaded: downloaded, totalBytes: total });
+    loadingProgress.set({
+        ...curr,
+        bytesDownloaded: downloaded,
+        totalBytes: total,
+    });
+}
+
+export function setBytesForUrl(
+    url: string,
+    downloaded: number,
+    total: number | null,
+): void {
+    if (!loadingProgress.get()) return;
+    perUrlBytes.set(url, { downloaded, total });
+    recomputeAndPublish();
+}
+
+/** Backwards-compat shim — single-fetch callers still work. */
+export function setBytes(downloaded: number, total: number | null): void {
+    setBytesForUrl("__legacy_single__", downloaded, total);
 }
 
 export function finishLoading(): void {
     loadingProgress.set(null);
+    perUrlBytes.clear();
 }
 
 /**

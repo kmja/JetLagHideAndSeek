@@ -1,7 +1,7 @@
 import _ from "lodash";
 import { toast } from "react-toastify";
 
-import { setBytes } from "@/lib/loadingProgress";
+import { setBytesForUrl } from "@/lib/loadingProgress";
 
 import { CacheType } from "./types";
 
@@ -165,7 +165,7 @@ async function readBodyWithProgress(
             cachedTotal !== null && downloaded > cachedTotal
                 ? downloaded
                 : cachedTotal;
-        setBytes(downloaded, effectiveTotal);
+        setBytesForUrl(url, downloaded, effectiveTotal);
     }
 
     rememberSize(url, downloaded);

@@ -485,19 +485,24 @@ export const determineMapBoundaries = async () => {
     try {
         // Fan-out fetch all play-area component polygons in parallel.
         // `silent: true` suppresses toast.promise spam (we have the
-        // global overlay instead); only the FIRST piece reports byte
-        // progress to the overlay — otherwise N parallel streams
-        // would clobber each other's byte counts.
+        // global overlay instead). Each piece now reports its OWN
+        // byte progress — the loadingProgress atom aggregates across
+        // all in-flight URLs via setBytesForUrl, so the overlay
+        // shows total downloaded / total estimated across the whole
+        // fetch fan-out. Previously only piece 0 reported progress,
+        // which left the counter stuck on 0 whenever piece 0 was a
+        // large area still server-side computing while the smaller
+        // adjacents were already downloading.
         const piecePromises = [
             { location: primary, added: true, base: true },
             ...extras,
-        ].map(async (location, idx) => ({
+        ].map(async (location) => ({
             added: location.added,
             data: await determineGeoJSON(
                 location.location.properties.osm_id.toString(),
                 location.location.properties.osm_type,
                 /* silent */ true,
-                /* reportProgress */ idx === 0,
+                /* reportProgress */ true,
             ),
         }));
 
