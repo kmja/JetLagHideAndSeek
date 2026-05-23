@@ -1,7 +1,12 @@
 import _ from "lodash";
 import { toast } from "react-toastify";
 
-import { setBytesForUrl } from "@/lib/loadingProgress";
+import {
+    markPieceDone,
+    markPieceFailed,
+    registerPiece,
+    setBytesForUrl,
+} from "@/lib/loadingProgress";
 
 import { CacheType } from "./types";
 
@@ -134,10 +139,16 @@ function rememberSize(url: string, size: number) {
 async function readBodyWithProgress(
     response: Response,
     url: string,
+    progressLabel?: string,
 ): Promise<Uint8Array> {
     if (!response.body) {
         const ab = await response.arrayBuffer();
-        return new Uint8Array(ab);
+        const bytes = new Uint8Array(ab);
+        // Even on the no-body fallback, still record the piece so
+        // the overlay shows it ticked through.
+        setBytesForUrl(url, bytes.byteLength, bytes.byteLength, progressLabel);
+        markPieceDone(url);
+        return bytes;
     }
     const contentLengthHeader = response.headers.get("Content-Length");
     const headerTotal = contentLengthHeader
@@ -165,10 +176,13 @@ async function readBodyWithProgress(
             cachedTotal !== null && downloaded > cachedTotal
                 ? downloaded
                 : cachedTotal;
-        setBytesForUrl(url, downloaded, effectiveTotal);
+        setBytesForUrl(url, downloaded, effectiveTotal, progressLabel);
     }
 
     rememberSize(url, downloaded);
+    // Mark this piece complete so the row reads as "done" rather
+    // than sitting on "streaming" while the parse/union steps run.
+    markPieceDone(url);
 
     // Concat chunks into one Uint8Array.
     const out = new Uint8Array(downloaded);
@@ -209,7 +223,21 @@ export const cacheFetch = async (
      *  is responsible for opening (`startLoading`) and closing
      *  (`finishLoading`) the overlay around its full operation. */
     reportProgress: boolean = false,
+    /** User-visible label for this fetch's piece row in the loading
+     *  overlay (e.g. "Stockholm Municipality"). Only meaningful when
+     *  `reportProgress` is true — otherwise the piece atom isn't
+     *  touched. */
+    progressLabel?: string,
 ) => {
+    // Register this piece up front (waiting state) so the overlay
+    // shows a row IMMEDIATELY when the fetch is queued, even before
+    // any bytes have arrived. This is the main visible cue that
+    // multiple adjacents are loading in parallel. We register before
+    // touching the Cache API because cache reads themselves can take
+    // tens of ms on slow storage and we don't want a perceived stall.
+    if (reportProgress && progressLabel) {
+        registerPiece(url, progressLabel);
+    }
     try {
         const cache = await determineCache(cacheType);
 
@@ -218,6 +246,12 @@ export const cacheFetch = async (
             if (!cachedResponse.ok) {
                 await cache.delete(url);
             } else {
+                // Cache hit: count it as instantly-done for the
+                // piece row so the user sees that adjacent area
+                // flick to ✓ without waiting on the network.
+                if (reportProgress && progressLabel) {
+                    markPieceDone(url);
+                }
                 return cachedResponse.clone();
             }
         }
@@ -233,6 +267,9 @@ export const cacheFetch = async (
             const rawResponse = await fetchWithTimeout(url, timeoutMs);
             if (!rawResponse.ok) {
                 await cache.delete(url);
+                if (reportProgress && progressLabel) {
+                    markPieceFailed(url);
+                }
                 return rawResponse;
             }
             if (reportProgress) {
@@ -241,7 +278,11 @@ export const cacheFetch = async (
                 // Caching uses another fresh Response from those
                 // bytes so there's no body-stream sharing between
                 // the cache write and the caller.
-                const bytes = await readBodyWithProgress(rawResponse, url);
+                const bytes = await readBodyWithProgress(
+                    rawResponse,
+                    url,
+                    progressLabel,
+                );
                 try {
                     await cache.put(
                         url,
@@ -274,6 +315,11 @@ export const cacheFetch = async (
             inFlightFetches.delete(inflightKey);
         }
     } catch (e) {
+        // Mark the piece failed so the user sees that this adjacent
+        // didn't make it (vs. silently sitting at "streaming").
+        if (reportProgress && progressLabel) {
+            markPieceFailed(url);
+        }
         // Propagate AbortError (timeout) and TypeError (network failure)
         // so the caller can fail over to a fallback mirror instead of
         // burning another full timeout retrying the same dead URL.

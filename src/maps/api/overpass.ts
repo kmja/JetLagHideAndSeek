@@ -46,6 +46,12 @@ export const getOverpassData = async (
      *  loadingProgress atom so the LoadingOverlay can show byte
      *  counts. The caller still owns startLoading/finishLoading. */
     reportProgress: boolean = false,
+    /** User-visible label for THIS query's piece row in the loading
+     *  overlay (e.g. "Stockholm Municipality"). Only meaningful when
+     *  `reportProgress` is true. The same label is reused for both
+     *  primary and fallback mirror attempts so the row updates in
+     *  place if we fail over. */
+    progressLabel?: string,
 ) => {
     const encodedQuery = encodeURIComponent(query);
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
@@ -62,6 +68,7 @@ export const getOverpassData = async (
                 cacheType,
                 fetchTimeoutMs,
                 reportProgress,
+                progressLabel,
             );
         } catch (e) {
             console.warn(`Overpass fetch failed for ${url}:`, e);
@@ -118,6 +125,10 @@ export const determineGeoJSON = async (
     /** Report download progress to the global loadingProgress atom
      *  (used by determineMapBoundaries which owns the overlay). */
     reportProgress: boolean = false,
+    /** User-visible label for this fetch's piece row in the loading
+     *  overlay (e.g. "Stockholm Municipality"). Only meaningful when
+     *  `reportProgress` is true. */
+    progressLabel?: string,
 ): Promise<any> => {
     const osmTypeMap: { [key: string]: string } = {
         W: "way",
@@ -148,6 +159,7 @@ export const determineGeoJSON = async (
         CacheType.PERMANENT_CACHE,
         130_000,
         reportProgress,
+        progressLabel,
     );
     const geo = osmtogeojson(data);
     return {
@@ -454,6 +466,15 @@ export const determineMapBoundaries = async () => {
     const primary = mapGeoLocation.get();
     const extras = additionalMapGeoLocations.get();
     const totalPieces = 1 + extras.length;
+    // Shared helper — strips a few common admin-area suffixes that
+    // read as noise on the loading card. We keep the rest of the
+    // name verbatim — "Stockholm Municipality" → "Stockholm", but
+    // "Île-de-France" is left untouched.
+    const stripAdminSuffix = (s: string) =>
+        s.replace(
+            /\s+(kommun|län|municipality|county|district|prefecture|province)$/i,
+            "",
+        );
     // Prefer the wizard's friendly displayName (which already
     // strips admin suffixes like "kommun" / "län" / "Municipality")
     // over the raw OSM `name` field. Falls back to the OSM name,
@@ -462,14 +483,17 @@ export const determineMapBoundaries = async () => {
         playArea.get()?.displayName?.split(",")[0]?.trim() ||
         (primary?.properties as { name?: string })?.name ||
         "play area";
-    // Strip a few common admin-area suffixes that read as noise on
-    // the loading card. We keep the rest of the name verbatim —
-    // "Stockholm Municipality" → "Stockholm", but "Île-de-France"
-    // is left untouched.
-    const areaName = friendlyName.replace(
-        /\s+(kommun|län|municipality|county|district|prefecture|province)$/i,
-        "",
-    );
+    const areaName = stripAdminSuffix(friendlyName);
+
+    // Per-piece labels so each adjacent area gets its own row in
+    // the loading overlay. The primary piece keeps the friendlier
+    // wizard displayName; adjacents fall back to their raw OSM name
+    // (which is the only thing we have at this point).
+    const labelFor = (loc: typeof primary, isPrimary: boolean): string => {
+        if (isPrimary) return areaName;
+        const raw = (loc?.properties as { name?: string })?.name;
+        return raw ? stripAdminSuffix(raw) : "Adjacent area";
+    };
 
     // Open the global loading overlay. The LoadingOverlay component
     // renders bytes-downloaded, current phase, and elapsed time.
@@ -478,7 +502,7 @@ export const determineMapBoundaries = async () => {
     startLoading(
         `Loading ${areaName}`,
         totalPieces > 1
-            ? `Fetching boundaries (1/${totalPieces})…`
+            ? `Fetching ${totalPieces} areas in parallel…`
             : "Fetching boundary…",
     );
 
@@ -486,23 +510,24 @@ export const determineMapBoundaries = async () => {
         // Fan-out fetch all play-area component polygons in parallel.
         // `silent: true` suppresses toast.promise spam (we have the
         // global overlay instead). Each piece now reports its OWN
-        // byte progress — the loadingProgress atom aggregates across
-        // all in-flight URLs via setBytesForUrl, so the overlay
-        // shows total downloaded / total estimated across the whole
-        // fetch fan-out. Previously only piece 0 reported progress,
-        // which left the counter stuck on 0 whenever piece 0 was a
-        // large area still server-side computing while the smaller
-        // adjacents were already downloading.
+        // byte progress AND its own labeled row in the loading
+        // overlay — the loadingPieces atom holds one entry per URL
+        // so the user sees a list like:
+        //   • Stockholm — 2.1 / ~9 MB
+        //   • Solna     — done
+        //   • Sundbyberg — waiting…
+        // even while one big primary is still server-computing.
         const piecePromises = [
             { location: primary, added: true, base: true },
-            ...extras,
-        ].map(async (location) => ({
-            added: location.added,
+            ...extras.map((e) => ({ ...e, base: false })),
+        ].map(async (entry) => ({
+            added: entry.added,
             data: await determineGeoJSON(
-                location.location.properties.osm_id.toString(),
-                location.location.properties.osm_type,
+                entry.location.properties.osm_id.toString(),
+                entry.location.properties.osm_type,
                 /* silent */ true,
                 /* reportProgress */ true,
+                labelFor(entry.location, entry.base),
             ),
         }));
 

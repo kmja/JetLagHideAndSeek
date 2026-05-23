@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Loader2 } from "lucide-react";
+import { Check, Loader2, X } from "lucide-react";
 import { useState } from "react";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
@@ -12,6 +12,7 @@ import {
     estimateEtaMs,
     formatBytes,
     formatDurationMs,
+    loadingPieces,
     loadingProgress,
 } from "@/lib/loadingProgress";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,7 @@ export function MapLoadingOverlay() {
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $mapGeoLocation = useStore(mapGeoLocation);
     const $progress = useStore(loadingProgress);
+    const $pieces = useStore(loadingPieces);
 
     // 1 Hz tick so the elapsed + ETA labels update while we sit on
     // the overlay. Gated on the overlay being meaningful + the tab
@@ -155,9 +157,82 @@ export function MapLoadingOverlay() {
                         )}
                     </span>
                 </div>
+
+                {/* Per-piece progress list. Only shown when there's
+                    more than one piece (single-area games have all
+                    the info they need in the aggregate line above).
+                    Each row is a parallel Overpass fetch — surfacing
+                    them individually so the user can tell that the
+                    overall progress isn't stalled, just waiting on
+                    one slow server-computed piece. */}
+                {$pieces.length > 1 && (
+                    <ul className="flex flex-col gap-1.5 pt-1 border-t border-border/50">
+                        {$pieces.map((p) => (
+                            <li
+                                key={p.id}
+                                className="flex items-center justify-between gap-2 text-[11px]"
+                            >
+                                <span className="flex items-center gap-1.5 min-w-0">
+                                    <PieceIcon state={p.state} />
+                                    <span
+                                        className={cn(
+                                            "truncate",
+                                            p.state === "done" &&
+                                                "text-muted-foreground line-through decoration-muted-foreground/40",
+                                            p.state === "failed" &&
+                                                "text-destructive",
+                                        )}
+                                    >
+                                        {p.label}
+                                    </span>
+                                </span>
+                                <span className="tabular-nums text-muted-foreground shrink-0">
+                                    {pieceStatusLabel(p)}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                )}
             </div>
         </div>
     );
+}
+
+function PieceIcon({
+    state,
+}: {
+    state: "waiting" | "streaming" | "done" | "failed";
+}) {
+    if (state === "done")
+        return <Check className="w-3 h-3 text-primary shrink-0" />;
+    if (state === "failed")
+        return <X className="w-3 h-3 text-destructive shrink-0" />;
+    if (state === "streaming")
+        return (
+            <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
+        );
+    // waiting
+    return (
+        <span className="w-3 h-3 rounded-full border border-muted-foreground/40 shrink-0" />
+    );
+}
+
+function pieceStatusLabel(p: {
+    state: "waiting" | "streaming" | "done" | "failed";
+    downloaded: number;
+    total: number | null;
+}): string {
+    if (p.state === "waiting") return "queued";
+    if (p.state === "failed") return "failed";
+    if (p.state === "done") {
+        return p.downloaded > 0 ? formatBytes(p.downloaded) : "done";
+    }
+    // streaming
+    if (p.downloaded <= 0) return "starting…";
+    if (p.total !== null && p.total > 0) {
+        return `${formatBytes(p.downloaded)} / ~${formatBytes(p.total)}`;
+    }
+    return formatBytes(p.downloaded);
 }
 
 export default MapLoadingOverlay;

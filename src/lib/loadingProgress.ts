@@ -50,24 +50,35 @@ export function setPhase(phase: string): void {
 }
 
 /**
- * Per-URL byte progress, aggregated into the overlay. The
- * `determineMapBoundaries` pipeline fans out multiple parallel
- * fetches (primary + N adjacent areas); each one calls
- * `setBytesForUrl(url, downloaded, total)` independently, and the
- * overlay shows the SUM across all in-flight URLs. Previously only
- * the first piece reported progress, so a slow first piece left
- * the counter stuck on 0 even while the others were downloading
- * happily.
+ * Per-piece loading state. The `determineMapBoundaries` pipeline
+ * fans out multiple parallel fetches (primary + N adjacent areas);
+ * each one is a piece with its own user-visible label
+ * (e.g. "Stockholm Municipality", "Solna kommun") and its own
+ * download state. The overlay shows one row per piece so the user
+ * can see "things are happening" — even while a slow piece is
+ * still server-computing, faster pieces tick visibly.
  *
- * Tracked in a module-level map so the same URL re-arriving
- * (cancelled fetch + retry, or two concurrent calls hitting the
- * same URL) doesn't double-count — we replace the per-URL entry
- * each time and recompute the sum.
+ * The atom holds an array (not a Map) so the overlay can render
+ * pieces in a stable order — primary first, then adjacents in the
+ * order they were registered.
  */
-const perUrlBytes = new Map<
-    string,
-    { downloaded: number; total: number | null }
->();
+export type LoadingPieceState =
+    | "waiting"
+    | "streaming"
+    | "done"
+    | "failed";
+
+export interface LoadingPiece {
+    /** Stable identifier (we use the request URL). */
+    id: string;
+    /** User-visible label, e.g. "Stockholm Municipality". */
+    label: string;
+    downloaded: number;
+    total: number | null;
+    state: LoadingPieceState;
+}
+
+export const loadingPieces = atom<LoadingPiece[]>([]);
 
 function recomputeAndPublish(): void {
     const curr = loadingProgress.get();
@@ -75,10 +86,10 @@ function recomputeAndPublish(): void {
     let downloaded = 0;
     let total: number | null = 0;
     let anyTotalUnknown = false;
-    for (const entry of perUrlBytes.values()) {
-        downloaded += entry.downloaded;
-        if (entry.total === null) anyTotalUnknown = true;
-        else if (total !== null) total += entry.total;
+    for (const piece of loadingPieces.get()) {
+        downloaded += piece.downloaded;
+        if (piece.total === null) anyTotalUnknown = true;
+        else if (total !== null) total += piece.total;
     }
     if (anyTotalUnknown) total = null;
     if (
@@ -94,13 +105,100 @@ function recomputeAndPublish(): void {
     });
 }
 
+/**
+ * Register or update a piece. If a piece with `id` already exists,
+ * its label and bytes are updated; otherwise it's appended.
+ */
 export function setBytesForUrl(
     url: string,
     downloaded: number,
     total: number | null,
+    label?: string,
 ): void {
     if (!loadingProgress.get()) return;
-    perUrlBytes.set(url, { downloaded, total });
+    const pieces = loadingPieces.get();
+    const idx = pieces.findIndex((p) => p.id === url);
+    if (idx >= 0) {
+        const prev = pieces[idx];
+        // Don't downgrade a 'done' or 'failed' piece back to streaming.
+        const state: LoadingPieceState =
+            prev.state === "done" || prev.state === "failed"
+                ? prev.state
+                : "streaming";
+        const next = [...pieces];
+        next[idx] = {
+            ...prev,
+            downloaded,
+            total,
+            state,
+            ...(label ? { label } : null),
+        };
+        loadingPieces.set(next);
+    } else {
+        loadingPieces.set([
+            ...pieces,
+            {
+                id: url,
+                label: label ?? url,
+                downloaded,
+                total,
+                state: "streaming",
+            },
+        ]);
+    }
+    recomputeAndPublish();
+}
+
+/** Register a piece in the waiting state — used so the row
+ *  appears immediately when the fetch is queued, before any
+ *  bytes arrive. */
+export function registerPiece(url: string, label: string): void {
+    if (!loadingProgress.get()) return;
+    const pieces = loadingPieces.get();
+    const idx = pieces.findIndex((p) => p.id === url);
+    if (idx >= 0) return; // already registered
+    loadingPieces.set([
+        ...pieces,
+        {
+            id: url,
+            label,
+            downloaded: 0,
+            total: null,
+            state: "waiting",
+        },
+    ]);
+}
+
+/** Mark a piece as fully downloaded. Snaps its `downloaded` to
+ *  its `total` (or itself if total wasn't known) so the row
+ *  reads "1.2 MB" cleanly. */
+export function markPieceDone(url: string): void {
+    const pieces = loadingPieces.get();
+    const idx = pieces.findIndex((p) => p.id === url);
+    if (idx < 0) return;
+    const prev = pieces[idx];
+    const final = prev.total ?? prev.downloaded;
+    const next = [...pieces];
+    next[idx] = {
+        ...prev,
+        downloaded: final,
+        total: final > 0 ? final : prev.total,
+        state: "done",
+    };
+    loadingPieces.set(next);
+    recomputeAndPublish();
+}
+
+/** Mark a piece as failed — keeps it in the list so the user
+ *  sees that one of the parallel fetches errored, while the
+ *  rest can still finish. */
+export function markPieceFailed(url: string): void {
+    const pieces = loadingPieces.get();
+    const idx = pieces.findIndex((p) => p.id === url);
+    if (idx < 0) return;
+    const next = [...pieces];
+    next[idx] = { ...next[idx], state: "failed" };
+    loadingPieces.set(next);
     recomputeAndPublish();
 }
 
@@ -111,7 +209,7 @@ export function setBytes(downloaded: number, total: number | null): void {
 
 export function finishLoading(): void {
     loadingProgress.set(null);
-    perUrlBytes.clear();
+    loadingPieces.set([]);
 }
 
 /**
