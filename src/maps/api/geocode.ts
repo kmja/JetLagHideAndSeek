@@ -77,13 +77,14 @@ function scorePlayAreaResult(
     const q = query.toLowerCase().trim();
 
     // Photon's intrinsic ranking carries the Wikipedia-importance
-    // signal — it correctly puts "the famous Paris" ahead of "Paris,
-    // Texas" already. Weight it heavily enough that same-type ties
-    // (two cities) follow Photon's order rather than getting flipped
-    // by the area bonus, while still being dominated by the
-    // place-type bonus so a famous province doesn't beat a same-named
-    // small city.
-    const photonRankBonus = 300 / (originalIndex + 1);
+    // signal, but for our play-area-picking use case it's
+    // misleadingly aggressive — small US towns named "Stockholm"
+    // can rank above the Swedish capital just because they're a
+    // literal exact-name match at position 0. We keep Photon's
+    // signal as a TIE-BREAKER (sqrt falloff so the gap between
+    // position 0 and position 5 is much smaller than 1/(idx+1)
+    // would give) and let area + exact-name + place-type dominate.
+    const photonRankBonus = 80 / Math.sqrt(originalIndex + 1);
 
     // Read place-type scores from BOTH `type` and `osm_value` and
     // take the more specific (higher-scoring) of the two. Reason:
@@ -116,11 +117,39 @@ function scorePlayAreaResult(
                 Math.abs(maxLng - minLng) *
                 111 *
                 Math.cos((midLat * Math.PI) / 180);
-            if (km2 > 0) areaBonus = Math.min(200, Math.log10(km2) * 50);
+            // Area weight bumped from log10(km2)*50 → *100 so a
+            // big-city-of-the-same-name decisively beats a tiny
+            // hamlet of the same name. Capped at 600 so the area
+            // bonus alone doesn't drown out the place-type signal
+            // (a 100,000 km² province should still rank below a
+            // 200 km² city of the same name).
+            if (km2 > 0) areaBonus = Math.min(600, Math.log10(km2) * 100);
         }
     }
 
-    const exactNameBonus = name === q ? 500 : 0;
+    // Strip common admin-area suffixes from BOTH sides before
+    // comparing — otherwise "Stockholm Municipality" loses the
+    // exact-name bonus to "Stockholm, Maine" and the Swedish
+    // capital gets ranked below tiny US towns of the same name.
+    // Mirrors the loading-overlay's display-time suffix strip so
+    // the search ranking and the displayed label agree.
+    const stripSuffix = (s: string) =>
+        s.replace(
+            /\s+(kommun|län|municipality|county|district|prefecture|province|borough)$/i,
+            "",
+        );
+    const strippedName = stripSuffix(name);
+    const strippedQ = stripSuffix(q);
+    let exactNameBonus = 0;
+    if (strippedName === strippedQ) {
+        exactNameBonus = 500;
+    } else if (strippedName.startsWith(strippedQ + " ")) {
+        // Prefix match — query is a whole word at the start of
+        // the name. Partial credit so "Stockholm Municipality"
+        // still beats unrelated "Stockholm, NY" tied on
+        // typeBonus when the query is just "Stockholm".
+        exactNameBonus = 300;
+    }
 
     return photonRankBonus + typeBonus + areaBonus + exactNameBonus;
 }
@@ -128,16 +157,38 @@ function scorePlayAreaResult(
 /**
  * Re-rank a Photon result list for play-area search. Stable sort: ties
  * preserve Photon's order.
+ *
+ * Accepts the country of Photon's #1 raw result so that even when our
+ * relation filter drops it (Photon's #1 is often a node, not the
+ * admin relation we need), we can still surface relations in the same
+ * country as that #1 result. This is what makes "Stockholm" return
+ * the Swedish municipality even though Photon's literal #1 for
+ * "Stockholm" is a Node (osm_type=N) that our filter rejects.
  */
 function rankPlayAreaResults(
     features: OpenStreetMap[],
     query: string,
+    famousCountry: string | null,
 ): OpenStreetMap[] {
-    const scored = features.map((feature, originalIndex) => ({
-        feature,
-        score: scorePlayAreaResult(feature, originalIndex, query),
-        originalIndex,
-    }));
+    const scored = features.map((feature, originalIndex) => {
+        const base = scorePlayAreaResult(feature, originalIndex, query);
+        // Famous-country bonus — substantial, so a relation in the
+        // famous-Stockholm country (Sweden) beats relations in
+        // unrelated countries even if the latter rank higher in
+        // Photon's surviving result set.
+        const country = (
+            feature.properties.country ?? ""
+        ).toLowerCase();
+        const famousBonus =
+            famousCountry && country === famousCountry.toLowerCase()
+                ? 700
+                : 0;
+        return {
+            feature,
+            score: base + famousBonus,
+            originalIndex,
+        };
+    });
     scored.sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         return a.originalIndex - b.originalIndex;
@@ -169,6 +220,17 @@ export const geocode = async (
         ];
     });
 
+    // Capture Photon's #1 raw result's country BEFORE we filter.
+    // Photon's top result for a well-known city is often a Node
+    // (osm_type=N) that our relation filter drops — but its
+    // country is the strongest "famous-city" signal we have, so
+    // we forward it into the scoring pass so the corresponding
+    // admin relation in that country wins the re-rank.
+    const famousCountry =
+        filter && features[0]?.properties?.country
+            ? features[0].properties.country
+            : null;
+
     const deduped = _.uniqBy(
         features.filter((feature) => {
             if (!filter) return true;
@@ -193,7 +255,7 @@ export const geocode = async (
     // fallback) keeps Photon's native ordering — it usually wants the
     // most-specific match for an ad-hoc address, not the broadest
     // admin region with that name.
-    if (filter) return rankPlayAreaResults(deduped, address);
+    if (filter) return rankPlayAreaResults(deduped, address, famousCountry);
     return deduped;
 };
 
