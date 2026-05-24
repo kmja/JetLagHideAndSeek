@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Dice5, Share2, Trash2, Zap } from "lucide-react";
+import { Copy, Dice5, RotateCw, Share2, Trash2, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { toast } from "react-toastify";
@@ -79,6 +79,12 @@ export function CastCurseDialog({
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
     const [sharing, setSharing] = useState(false);
+    /** Tracks the most recent shareOrCopy outcome so we can show a
+     *  retry hint when the user dismissed / failed the share sheet
+     *  without sending. Cleared on dialog re-open. */
+    const [lastShareResult, setLastShareResult] = useState<
+        "share" | "copy" | "cancelled" | "failed" | null
+    >(null);
     /** Set briefly after the tumble settles so the dice display
      *  scales up via the jlDiceReveal keyframe — the "big reveal"
      *  moment before any side-effects (confetti, fizzle) fire. */
@@ -138,6 +144,7 @@ export function CastCurseDialog({
             setReveal(false);
             setShowConfetti(false);
             setShowFizzleEffect(false);
+            setLastShareResult(null);
         }
     }, [open, card?.id]);
 
@@ -255,6 +262,7 @@ export function CastCurseDialog({
                 text: `${card.name}: ${card.description}`,
                 url,
             });
+            setLastShareResult(result.method);
             if (result.method === "share" || result.method === "copy") {
                 discardCard(card.id);
                 toast.success(
@@ -263,10 +271,57 @@ export function CastCurseDialog({
                 );
                 onOpenChange(false);
             } else if (result.method === "failed") {
-                toast.error("Could not share the curse — try again.");
+                toast.error(
+                    "Could not share the curse — use Copy link below or tap to retry.",
+                );
             }
             // "cancelled" → leave the dialog open so the hider can
             // retry. Their casting cost is still paid in real life.
+            // The retry hint below the action buttons surfaces the
+            // recovery path explicitly.
+        } finally {
+            setSharing(false);
+        }
+    };
+
+    /**
+     * Manual fallback: copy the curse link to the clipboard. Same
+     * end-state as a successful share (card → discard, dialog
+     * closes) — gives the hider a single-tap recovery for when the
+     * share sheet was dismissed without sending, or when the OS
+     * share sheet doesn't include the recipient they need.
+     */
+    const copyLink = async () => {
+        if (!canCast) return;
+        if (fizzles) {
+            // Defensive: copy shouldn't show on fizzles, but if a
+            // future refactor surfaces it, behave like Discard.
+            discardCard(card.id);
+            onOpenChange(false);
+            return;
+        }
+        setSharing(true);
+        try {
+            const url = encodeCurseLink({
+                name: card.name,
+                description: card.description,
+                castingCost: card.castingCost ?? null,
+            });
+            try {
+                await navigator.clipboard.writeText(url);
+                setLastShareResult("copy");
+                discardCard(card.id);
+                toast.success(
+                    `${card.name} link copied. Curse moved to discard.`,
+                    { autoClose: 2500 },
+                );
+                onOpenChange(false);
+            } catch {
+                setLastShareResult("failed");
+                toast.error(
+                    "Couldn't access the clipboard — try the Share button.",
+                );
+            }
         } finally {
             setSharing(false);
         }
@@ -520,60 +575,115 @@ export function CastCurseDialog({
                     )}
                 </div>
 
-                <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
-                    {/* "Not now" only makes sense before the roll
-                        commits. After a roll, the curse is fated
-                        either way — either to discard (fizzle) or
-                        to the seekers (success) — and the player
-                        doesn't get to back out keeping the card. */}
-                    {!rolledAndCommitted && (
-                        <Button
-                            variant="outline"
-                            onClick={() => onOpenChange(false)}
-                        >
-                            {/* "Cancel" reads as "abort this attempt"
-                                — fitting once the dialog is staged
-                                around an action (the dice roll) the
-                                player is about to commit. For curses
-                                without a roll, "Not now" reads more
-                                naturally — there's no committed
-                                action to abort, the player is just
-                                deferring the cast. */}
-                            {fizzleRule ? "Cancel" : "Not now"}
-                        </Button>
-                    )}
-                    {/* Hide the cast/discard action button entirely
-                        until *after* the dice has settled for
-                        curses with a fizzle rule — the pre-roll
-                        screen should be 100% focused on the roll,
-                        with no Share/Cast button hanging around
-                        disabled and distracting from the dice.
-                        Curses without a fizzle rule have no roll
-                        step at all, so the button shows from the
-                        start. */}
-                    {(fizzleRule === undefined || settled !== null) && (
-                        <Button
-                            onClick={cast}
-                            disabled={!canCast}
-                            className={cn(
-                                "gap-1.5",
-                                fizzles &&
-                                    "bg-destructive hover:bg-destructive/90",
+                <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:flex-col sm:items-stretch sm:justify-end">
+                    {/* Retry hint surfaced when the share sheet was
+                        dismissed without sending (or the share API
+                        itself failed). The "Cast on seekers" button
+                        below stays enabled and re-tappable, but the
+                        hint makes the recovery path obvious instead
+                        of relying on the hider noticing the dialog
+                        is still open. */}
+                    {(lastShareResult === "cancelled" ||
+                        lastShareResult === "failed") &&
+                        !fizzles && (
+                            <div
+                                className={cn(
+                                    "rounded-sm border px-3 py-2 flex items-start gap-2",
+                                    "border-yellow-500/40 bg-yellow-500/10",
+                                    "text-xs text-yellow-100 leading-snug",
+                                )}
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <RotateCw className="w-3.5 h-3.5 mt-0.5 shrink-0 text-yellow-300" />
+                                <span>
+                                    {lastShareResult === "cancelled"
+                                        ? "Share dismissed before it landed. Tap Cast on seekers again, or use Copy link."
+                                        : "Sharing didn't work. Use Copy link instead, or tap Cast on seekers to retry."}
+                                </span>
+                            </div>
+                        )}
+
+                    <div className="flex flex-row gap-2 sm:justify-end">
+                        {/* "Not now" only makes sense before the roll
+                            commits. After a roll, the curse is fated
+                            either way — either to discard (fizzle) or
+                            to the seekers (success) — and the player
+                            doesn't get to back out keeping the card. */}
+                        {!rolledAndCommitted && (
+                            <Button
+                                variant="outline"
+                                onClick={() => onOpenChange(false)}
+                            >
+                                {/* "Cancel" reads as "abort this attempt"
+                                    — fitting once the dialog is staged
+                                    around an action (the dice roll) the
+                                    player is about to commit. For curses
+                                    without a roll, "Not now" reads more
+                                    naturally — there's no committed
+                                    action to abort, the player is just
+                                    deferring the cast. */}
+                                {fizzleRule ? "Cancel" : "Not now"}
+                            </Button>
+                        )}
+                        {/* Manual copy fallback — same end-state as a
+                            successful share (card → discard) but uses
+                            the clipboard, so the hider always has a
+                            single-tap recovery even when the OS share
+                            sheet keeps getting dismissed. Hidden on
+                            fizzle since the card is going to discard
+                            unshared in that branch anyway. */}
+                        {(fizzleRule === undefined || settled !== null) &&
+                            !fizzles && (
+                                <Button
+                                    variant="outline"
+                                    onClick={copyLink}
+                                    disabled={!canCast}
+                                    className="gap-1.5"
+                                >
+                                    <Copy className="w-4 h-4" />
+                                    Copy link
+                                </Button>
                             )}
-                        >
-                            {fizzles ? (
-                                <>
-                                    <Trash2 className="w-4 h-4" />
-                                    Discard fizzled curse
-                                </>
-                            ) : (
-                                <>
-                                    <Share2 className="w-4 h-4" />
-                                    Cast on seekers
-                                </>
-                            )}
-                        </Button>
-                    )}
+                        {/* Hide the cast/discard action button entirely
+                            until *after* the dice has settled for
+                            curses with a fizzle rule — the pre-roll
+                            screen should be 100% focused on the roll,
+                            with no Share/Cast button hanging around
+                            disabled and distracting from the dice.
+                            Curses without a fizzle rule have no roll
+                            step at all, so the button shows from the
+                            start. */}
+                        {(fizzleRule === undefined || settled !== null) && (
+                            <Button
+                                onClick={cast}
+                                disabled={!canCast}
+                                className={cn(
+                                    "gap-1.5",
+                                    fizzles &&
+                                        "bg-destructive hover:bg-destructive/90",
+                                )}
+                            >
+                                {fizzles ? (
+                                    <>
+                                        <Trash2 className="w-4 h-4" />
+                                        Discard fizzled curse
+                                    </>
+                                ) : lastShareResult === "cancelled" ||
+                                  lastShareResult === "failed" ? (
+                                    <>
+                                        <RotateCw className="w-4 h-4" />
+                                        Share again
+                                    </>
+                                ) : (
+                                    <>
+                                        <Share2 className="w-4 h-4" />
+                                        Cast on seekers
+                                    </>
+                                )}
+                            </Button>
+                        )}
+                    </div>
                 </DialogFooter>
                 </div>
             </DialogContent>

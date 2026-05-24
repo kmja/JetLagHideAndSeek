@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import {
     Bus,
+    Copy,
     Flag,
     Footprints,
     List,
@@ -404,6 +405,11 @@ export const BottomNav = () => {
                                                             $foundAt,
                                                         );
                                                     }}
+                                                    onCopyLink={() => {
+                                                        void copyFoundLink(
+                                                            $foundAt,
+                                                        );
+                                                    }}
                                                     onNewRound={handleNewRound}
                                                     onNewGame={() => {
                                                         if (
@@ -758,6 +764,23 @@ async function shareFoundLink(foundAt: number) {
     }
 }
 
+/**
+ * Manual fallback for the round-end link: writes the URL directly
+ * to the clipboard. Surfaced as an outline button next to the
+ * Share button in `FoundSummary` so the seeker has a guaranteed
+ * recovery path when the OS share sheet kept getting dismissed
+ * — same end-state without going through navigator.share at all.
+ */
+async function copyFoundLink(foundAt: number) {
+    const url = encodeFoundLink(foundAt);
+    try {
+        await navigator.clipboard.writeText(url);
+        toast.success("Round-ended link copied", { autoClose: 1500 });
+    } catch {
+        toast.error("Couldn't copy the link — try the Share button.");
+    }
+}
+
 function MarkFoundCta({ onTap }: { onTap: () => void }) {
     return (
         <div
@@ -791,12 +814,14 @@ function FoundSummary({
     foundAt,
     hidingEndsAt,
     onShareAgain,
+    onCopyLink,
     onNewRound,
     onNewGame,
 }: {
     foundAt: number;
     hidingEndsAt: number;
     onShareAgain: () => void;
+    onCopyLink: () => void;
     onNewRound: () => void;
     onNewGame: () => void;
 }) {
@@ -828,14 +853,30 @@ function FoundSummary({
                     </p>
                 </div>
             </div>
-            <Button
-                variant="outline"
-                onClick={onShareAgain}
-                className="w-full mt-3 gap-2"
-            >
-                <Share2 className="w-4 h-4" />
-                Share round-end link again
-            </Button>
+            {/* Share-again row. Always-visible recovery for when
+                the auto-fired share sheet was dismissed without
+                sending — Share retries via the OS sheet, Copy
+                writes the link straight to the clipboard. Either
+                gets the hider the link they need to lock their
+                device, so neither one is the "wrong" choice. */}
+            <div className="grid grid-cols-2 gap-2 mt-3">
+                <Button
+                    variant="outline"
+                    onClick={onShareAgain}
+                    className="gap-1.5"
+                >
+                    <Share2 className="w-4 h-4" />
+                    Share again
+                </Button>
+                <Button
+                    variant="outline"
+                    onClick={onCopyLink}
+                    className="gap-1.5"
+                >
+                    <Copy className="w-4 h-4" />
+                    Copy link
+                </Button>
+            </div>
             {/* New-round / new-game actions live here so the
                 seeker has a clear next step from the same panel
                 that confirmed the round ended. New round keeps
