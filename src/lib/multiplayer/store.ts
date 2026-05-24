@@ -30,6 +30,7 @@ import {
 import {
     hiderInbox,
     playerRole,
+    resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
 import {
@@ -269,6 +270,24 @@ export function setOnlineRole(role: "seeker" | "hider" | null) {
     getTransport().send({ t: "role", role });
 }
 
+/**
+ * Round-rotation: tell the server who the new hider should be. The
+ * server clears the current hider's role and assigns hider to the
+ * target participant, then broadcasts the new presence. Each
+ * connected client's bridge picks up the role change on the
+ * `presence` event and reconciles their local `playerRole` atom
+ * via {@link reconcileLocalRoleFromPresence}, so the hider's app
+ * automatically becomes the seeker's app (and vice versa) without
+ * any extra client coordination.
+ *
+ * No-op offline — the dialog short-circuits to the local "Start
+ * new round" path in that case.
+ */
+export function seekerRotateHider(toParticipantId: string) {
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "rotateHider", to: toParticipantId });
+}
+
 /* ────────────────── Inbound dispatch ────────────────── */
 
 /**
@@ -325,6 +344,58 @@ function mergeIncomingQuestion(raw: unknown) {
     questionModified();
 }
 
+/**
+ * Pull our local `playerRole` atom in line with what the server
+ * thinks our role is. Called every time we receive a fresh
+ * participants list (presence + snapshot + welcome). Without this
+ * reconciliation, a server-initiated rotation (another player
+ * promoted us, or demoted us) wouldn't show up in the local UI —
+ * the role atom is what drives whether this device sees the seeker
+ * map vs the hider home.
+ *
+ * Skips entirely if there's no selfId yet (pre-welcome) or if the
+ * server doesn't know about us (transient drift right after a
+ * resume — the next presence will fix it).
+ */
+function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
+    const selfId = selfParticipantId.get();
+    if (!selfId) return;
+    const me = roster.find((p) => p.id === selfId);
+    if (!me) return;
+    // Server's authoritative role for us. `null` means "no role
+    // assigned" — we don't override the local atom for that case;
+    // the user might be in the role-picker UI deciding.
+    if (me.role === null) return;
+    const prev = playerRole.get();
+    if (prev === me.role) return;
+    // Role TRANSITION — fresh round elsewhere just promoted /
+    // demoted us. Wipe per-device hider-side state (hiding zone,
+    // hand, deck, discard, inbox, pendingDraw, roundFoundAt) so
+    // a player switching out of the hider seat doesn't leave
+    // stale data lying around AND a player switching INTO the
+    // seat lands on a clean slate. Skip this on first role assignment
+    // (prev === null) — that's the role-picker landing case.
+    if (prev !== null && (prev === "hider" || me.role === "hider")) {
+        resetHiderRoundState();
+    }
+    playerRole.set(me.role);
+    // Navigate the affected device to the correct page. The seeker
+    // app lives on `/`; the hider home on `/h`. Skip the navigation
+    // on first role assignment (prev === null) — that path is the
+    // initial RolePicker landing which already steers the user.
+    if (prev !== null && typeof window !== "undefined") {
+        const path = window.location.pathname;
+        const onHider = path === "/h" || path.startsWith("/h/");
+        const onSeeker =
+            path === "/" || (!onHider && !path.startsWith("/h"));
+        if (me.role === "hider" && !onHider) {
+            window.location.assign("/h");
+        } else if (me.role === "seeker" && !onSeeker) {
+            window.location.assign("/");
+        }
+    }
+}
+
 /** Apply a server snapshot wholesale to the local stores. */
 function applySnapshot(state: GameState) {
     // Setup
@@ -366,6 +437,11 @@ function applySnapshot(state: GameState) {
     roundFoundAt.set(state.roundFoundAt);
     // Presence
     participants.set(state.participants);
+    // Sync local role from server canonical roster — covers
+    // rotation-initiated-elsewhere ("you are now the hider"),
+    // initial welcome (server may know our prior role from a
+    // resume), and snapshot replays.
+    reconcileLocalRoleFromPresence(state.participants);
 }
 
 /** Dispatch a single inbound message. */
@@ -400,6 +476,10 @@ function handleServerMessage(msg: ServerMessage) {
             return;
         case "presence":
             participants.set(msg.participants);
+            // Live role updates land here (rotation, other player's
+            // role claim, etc.) — pull the local role in line so
+            // the seeker map / hider home swaps without a reload.
+            reconcileLocalRoleFromPresence(msg.participants);
             return;
         case "setupChanged":
             if (msg.setup.playArea) playArea.set(msg.setup.playArea);

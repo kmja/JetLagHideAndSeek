@@ -62,9 +62,17 @@ import type { Question } from "@/maps/schema";
  */
 export const ANSWER_VIEW_DISMISSED_KEY = "jlhs:hiderAnswerDismissedKey";
 
+import {
+    currentGameCode,
+    multiplayerEnabled,
+    participants,
+} from "@/lib/multiplayer/session";
+import { seekerRotateHider } from "@/lib/multiplayer/store";
+
 import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
 import { HiderQuestionLog } from "./HiderQuestionLog";
+import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import {
     HideSeekMark,
     HideSeekWordmark,
@@ -721,7 +729,22 @@ function FinalScoreBanner({
     const seekMs = Math.max(0, foundAt - hidingEndsAt);
     const finalMs = Math.max(0, seekMs - timeBonusMinutes * 60_000);
 
+    // Multiplayer-aware new-round flow. In an online room with 2+
+    // participants we open the hider-rotation picker so the table
+    // can hand off the role; otherwise we fall back to the simple
+    // confirm() prompt (offline / solo case).
+    const $multiplayerEnabled = useStore(multiplayerEnabled);
+    const $code = useStore(currentGameCode);
+    const $participants = useStore(participants);
+    const [rotateDialogOpen, setRotateDialogOpen] = useState(false);
+    const canRotateHider =
+        $multiplayerEnabled && $code !== null && $participants.length >= 2;
+
     const onNewRound = () => {
+        if (canRotateHider) {
+            setRotateDialogOpen(true);
+            return;
+        }
         if (
             !confirm(
                 "Start a new round? Hiding zone, hand, discard pile and inbox reset. Play area + transit + size stay the same.",
@@ -730,6 +753,19 @@ function FinalScoreBanner({
             return;
         }
         startNewRound();
+        toast.success("New round — hiding period starting now.", {
+            autoClose: 2500,
+        });
+    };
+
+    const handleConfirmRotation = (newHiderId: string) => {
+        seekerRotateHider(newHiderId);
+        // Local cleanup runs on this device. The bridge wipes
+        // hider-only stores on role transitions (see
+        // `reconcileLocalRoleFromPresence`) so the player switching
+        // out of the hider seat doesn't carry stale zone/hand data.
+        startNewRound();
+        setRotateDialogOpen(false);
         toast.success("New round — hiding period starting now.", {
             autoClose: 2500,
         });
@@ -795,6 +831,13 @@ function FinalScoreBanner({
                     New game
                 </Button>
             </div>
+            {/* Hider-rotation dialog. Only opens when an online room
+                has 2+ participants — see canRotateHider gate above. */}
+            <RotateHiderDialog
+                open={rotateDialogOpen}
+                onOpenChange={setRotateDialogOpen}
+                onConfirm={handleConfirmRotation}
+            />
         </section>
     );
 }

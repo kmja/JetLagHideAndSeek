@@ -117,6 +117,28 @@ export interface CMsgUpdateQuestion {
 }
 
 /**
+ * Round-rotation: pick the next hider out of the room. The sender
+ * does NOT need any special privilege — anyone can trigger a
+ * rotation. In practice this is fired from the "Start new round"
+ * dialog on the seeker (or current hider) side after they pick a
+ * new hider out of the participant list.
+ *
+ * Server behaviour:
+ *   - Validates `to` is an online participant in the room.
+ *   - Clears the current hider's role to seeker (if anyone holds
+ *     it) so the "max 1 hider" invariant survives.
+ *   - Sets the target participant's role to hider.
+ *   - Broadcasts a fresh `presence` event — each client picks up
+ *     its new role from there and reconciles its local
+ *     `playerRole` atom in the bridge layer.
+ */
+export interface CMsgRotateHider {
+    t: "rotateHider";
+    /** Participant id of the player who should become the new hider. */
+    to: string;
+}
+
+/**
  * Keep-alive — sent periodically by the client. Server responds with
  * `pong`. Used to detect dead connections behind NATs that don't
  * close them cleanly.
@@ -136,6 +158,7 @@ export type ClientMessage =
     | CMsgAnswerQuestion
     | CMsgUpdateQuestion
     | CMsgMarkFound
+    | CMsgRotateHider
     | CMsgPing;
 
 /* ────────────────── Server → Client ────────────────── */

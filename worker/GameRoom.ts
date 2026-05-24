@@ -288,6 +288,8 @@ export class GameRoom {
                 return this.handleUpdateQuestion(socket, msg.key, msg.data);
             case "found":
                 return this.handleMarkFound(socket, msg.foundAt);
+            case "rotateHider":
+                return this.handleRotateHider(socket, msg.to);
             case "ping":
                 return this.sendTo(socket, { t: "pong", ts: msg.ts });
             default: {
@@ -594,6 +596,55 @@ export class GameRoom {
         if (this.game.roundFoundAt !== null) return;
         this.game.roundFoundAt = foundAt;
         this.broadcast({ t: "ended", foundAt });
+    }
+
+    /**
+     * Round-rotation: assign the hider role to a different
+     * participant. Any participant in the room can trigger this —
+     * the UI restricts the call site to the "Start new round"
+     * dialog, where the seeker (or hider) picks the next hider out
+     * of the room.
+     *
+     * Server enforces:
+     *   - Sender is in the room (any role; presence is enough).
+     *   - Target participant exists.
+     *   - Result still satisfies "max 1 hider": we zero out any
+     *     existing hider role before promoting the target.
+     *
+     * Also clears `roundFoundAt` so the round resets cleanly — the
+     * GO GO GO gate on the seeker side is what re-arms the hiding
+     * period clock, so we don't touch `hidingPeriodEndsAt` here.
+     */
+    private handleRotateHider(socket: WebSocket, toId: string) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const target = this.game.participants.find((q) => q.id === toId);
+        if (!target) {
+            return this.sendTo(socket, {
+                t: "error",
+                code: "bad_message",
+                message: "Unknown participant for hider rotation.",
+            });
+        }
+        // Demote everyone currently holding the hider role first.
+        // Most rooms only have one hider at a time, but this still
+        // covers the edge case where two clients raced the role
+        // claim before the "max 1 hider" check landed.
+        for (const p of this.game.participants) {
+            if (p.role === "hider" && p.id !== toId) {
+                p.role = "seeker";
+            }
+        }
+        target.role = "hider";
+        // Roll back the round-end marker so reload-mid-round
+        // doesn't drop clients straight into the "found" UI.
+        this.game.roundFoundAt = null;
+        this.broadcastPresence();
+        // Push a snapshot too — this is a multi-field state change
+        // (roles + roundFoundAt) and we want every client to land
+        // in a clean state, not a torn intermediate. Cheap: rooms
+        // are bounded at MAX_PARTICIPANTS + MAX_QUESTIONS_PER_ROOM.
+        this.broadcast({ t: "snapshot", state: this.game });
     }
 
     /* ────────────────── Socket housekeeping ────────────────── */

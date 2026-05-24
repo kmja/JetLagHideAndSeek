@@ -64,9 +64,14 @@ import {
     resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
-import { seekerMarkFound } from "@/lib/multiplayer/store";
-import { currentGameCode } from "@/lib/multiplayer/session";
+import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
+import {
+    currentGameCode,
+    multiplayerEnabled,
+    participants,
+} from "@/lib/multiplayer/session";
 import { PresenceChip } from "./multiplayer/PresenceIndicators";
+import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
 import { toast } from "react-toastify";
 
@@ -93,7 +98,60 @@ export const BottomNav = () => {
     const $foundAt = useStore(roundFoundAt);
     const [moreOpen, setMoreOpen] = useState(false);
     const $currentGameCode = useStore(currentGameCode);
+    const $multiplayerEnabled = useStore(multiplayerEnabled);
+    const $participants = useStore(participants);
     const [gameSheetOpen, setGameSheetOpen] = useState(false);
+    // "Start new round" → rotation dialog gate. Only meaningful in
+    // online games with ≥2 participants (solo / offline takes the
+    // confirm()-only fast path below).
+    const [rotateDialogOpen, setRotateDialogOpen] = useState(false);
+
+    // Does the new-round flow need to show the hider-picker?
+    // Yes when we're in an online room with at least two
+    // participants — otherwise there's no one to rotate to.
+    const canRotateHider =
+        $multiplayerEnabled &&
+        $currentGameCode !== null &&
+        $participants.length >= 2;
+
+    const handleNewRound = () => {
+        if (canRotateHider) {
+            // Open the picker; the dialog's onConfirm will run the
+            // wire send + local reset.
+            setRotateDialogOpen(true);
+            return;
+        }
+        // Offline / solo: existing confirm() flow.
+        if (
+            !confirm(
+                "Start a new round? Question log, hider hand, hiding zone and spot will all reset. Play area + transit + size stay the same.",
+            )
+        ) {
+            return;
+        }
+        setGameSheetOpen(false);
+        startNewRound();
+        toast.success("New round — hiding period starting now.", {
+            autoClose: 2500,
+        });
+    };
+
+    const handleConfirmRotation = (newHiderId: string) => {
+        // Tell the server who the new hider is; the server
+        // broadcasts presence + a fresh snapshot so every client
+        // reconciles their role and wipes round-scoped state.
+        seekerRotateHider(newHiderId);
+        // Local cleanup for THIS device. Other devices apply the
+        // snapshot they get via the bridge; per-device hider state
+        // (zone / hand / deck) cleans up in
+        // reconcileLocalRoleFromPresence when their role transitions.
+        startNewRound();
+        setRotateDialogOpen(false);
+        setGameSheetOpen(false);
+        toast.success("New round — hiding period starting now.", {
+            autoClose: 2500,
+        });
+    };
 
     // Tick state at 1 Hz while a hiding period is active so the
     // displayed countdown stays current. `useVisibleInterval`
@@ -346,21 +404,7 @@ export const BottomNav = () => {
                                                             $foundAt,
                                                         );
                                                     }}
-                                                    onNewRound={() => {
-                                                        if (
-                                                            !confirm(
-                                                                "Start a new round? Question log, hider hand, hiding zone and spot will all reset. Play area + transit + size stay the same.",
-                                                            )
-                                                        ) {
-                                                            return;
-                                                        }
-                                                        setGameSheetOpen(false);
-                                                        startNewRound();
-                                                        toast.success(
-                                                            "New round — hiding period starting now.",
-                                                            { autoClose: 2500 },
-                                                        );
-                                                    }}
+                                                    onNewRound={handleNewRound}
                                                     onNewGame={() => {
                                                         if (
                                                             !confirm(
@@ -680,6 +724,15 @@ export const BottomNav = () => {
                 </Sheet>
             </div>
 
+            {/* Hider-rotation dialog. Opened by `handleNewRound` when
+                an online game has multiple participants. Renders at
+                the BottomNav root so its z-index isn't trapped by
+                any sheet/drawer that's also open. */}
+            <RotateHiderDialog
+                open={rotateDialogOpen}
+                onOpenChange={setRotateDialogOpen}
+                onConfirm={handleConfirmRotation}
+            />
         </div>
     );
 };
