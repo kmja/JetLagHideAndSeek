@@ -253,11 +253,21 @@ Sequence: server skeleton → identity+transport → `questions` store bridge �
 - Bottom nav is mobile-only (`md:hidden`). Top-left/right controls are `hidden md:block` or always-visible depending on what they replace.
 - No emojis in code/UI text.
 
+## Versioning
+
+`src/lib/version.ts` exports `APP_VERSION` (the `vNN` batch sequence),
+shown in the debug panel header (`DebugPhaseControls`) and the collapsed
+bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
+so the live build is identifiable at a glance — there's no other visible
+build stamp. Current: `v19` (multiplayer rounds + co-hider role + transit
+overlay fix).
+
 ## Dev workflow
 
 1. Edit files
-2. Push to master → Cloudflare auto-builds (2–3 min)
-3. Check build logs in Cloudflare dashboard
-4. If build fails: check for `window is not defined` (SSR leaflet import) or TypeScript errors first
+2. Bump `APP_VERSION` in `src/lib/version.ts`
+3. Push to master → Cloudflare auto-builds (2–3 min)
+4. Check build logs in Cloudflare dashboard
+5. If build fails: check for `window is not defined` (SSR leaflet import) or TypeScript errors first
 
 For multi-file changes: use `github.dev` (press `.` on repo) to batch-commit across folders in a single build trigger.
