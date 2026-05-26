@@ -12,6 +12,11 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
+import {
+    multiplayerEnabled,
+    participants,
+    selfParticipantId,
+} from "@/lib/multiplayer/session";
 
 import {
     HideSeekMark,
@@ -33,6 +38,19 @@ import {
 export function RolePicker() {
     const $role = useStore(playerRole);
     const $open = useStore(rolePickerOpen);
+    const $mp = useStore(multiplayerEnabled);
+    const $participants = useStore(participants);
+    const $self = useStore(selfParticipantId);
+
+    // In an online room the main hider slot is exclusive — the server
+    // rejects a second hider (`role_taken`). Gate the option in the UI
+    // so a joiner can't pick a role that's only going to bounce back.
+    const hiderHolder = $mp
+        ? $participants.find(
+              (p) => p.role === "hider" && p.online && p.id !== $self,
+          )
+        : undefined;
+    const hiderTaken = Boolean(hiderHolder);
 
     // Auto-open when no role has been chosen yet. Don't auto-open on
     // subsequent renders if the user has picked.
@@ -49,6 +67,7 @@ export function RolePicker() {
     };
 
     const pickHider = () => {
+        if (hiderTaken) return;
         playerRole.set("hider");
         rolePickerOpen.set(false);
         // Send them to the hider home.
@@ -115,12 +134,15 @@ export function RolePicker() {
                     <button
                         type="button"
                         onClick={pickHider}
+                        disabled={hiderTaken}
                         className={cn(
                             "flex flex-col items-start text-left gap-2 p-4 rounded-sm",
                             "bg-secondary border-2 border-border border-t-[6px]",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                            "hover:bg-accent hover:-translate-y-[1px] transition-all",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            "transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            hiderTaken
+                                ? "opacity-50 cursor-not-allowed"
+                                : "hover:bg-accent hover:-translate-y-[1px]",
                         )}
                         style={{
                             borderTopColor: "hsl(44 87% 64%)" /* yellow */,
@@ -141,6 +163,12 @@ export function RolePicker() {
                             Pick a hiding zone, dodge the seeker's
                             questions, hold time-bonus cards.
                         </p>
+                        {hiderTaken && (
+                            <p className="text-[11px] font-semibold text-destructive">
+                                Taken by{" "}
+                                {hiderHolder?.displayName || "another player"}
+                            </p>
+                        )}
                     </button>
                 </div>
 

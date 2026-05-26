@@ -209,6 +209,26 @@ export interface SMsgRoundEnded {
     foundAt: number;
 }
 
+/**
+ * Broadcast when a new round begins (hider rotation / "Start new
+ * round"). Carries the post-rotation roster so every client applies
+ * the new role assignments, and signals a full per-device round
+ * reset: the question log, the hider's inbox / hand / deck / hiding
+ * zone, and the round-found marker all clear. Only the core setup
+ * (play area, transit, game size) survives.
+ *
+ * Deliberately distinct from `snapshot`: a snapshot means "sync to
+ * the current state" and is also sent on reconnect, where wiping
+ * round state would be wrong. `roundStarted` is the discrete "a new
+ * round just began" event — receiving it is the unambiguous trigger
+ * to reset round-scoped local state, including for a hider who kept
+ * their role (no role transition to key off otherwise).
+ */
+export interface SMsgRoundStarted {
+    t: "roundStarted";
+    participants: GameState["participants"];
+}
+
 /** Broadcast when participants join, leave, change role, or
  *  toggle online. Always sends the full participants array. */
 export interface SMsgPresence {
@@ -250,6 +270,7 @@ export type ServerMessage =
     | SMsgQuestionUpdated
     | SMsgQuestionAnswered
     | SMsgRoundEnded
+    | SMsgRoundStarted
     | SMsgPresence
     | SMsgSetupChanged
     | SMsgError

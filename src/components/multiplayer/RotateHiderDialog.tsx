@@ -68,18 +68,35 @@ export function RotateHiderDialog({
     const currentHiderId =
         ordered.find((p) => p.role === "hider")?.id ?? null;
 
-    // Default selection: current hider, falling back to self,
-    // falling back to the first participant. Re-derived whenever
-    // the dialog (re-)opens so a long-running app doesn't keep a
-    // stale selection from a previous round.
+    // Suggested next hider — a simple round-robin: the next online
+    // player after the current hider, by join order, wrapping around.
+    // This rotates the hide through the table over successive rounds
+    // while staying predictable. With no current hider yet, suggest
+    // the first online player. The table can always override.
+    const suggestedId = useMemo(() => {
+        const online = [...$participants]
+            .filter((p) => p.online)
+            .sort((a, b) => a.joinedAt - b.joinedAt);
+        if (online.length === 0) return null;
+        const curIdx = online.findIndex((p) => p.role === "hider");
+        if (curIdx === -1) return online[0].id;
+        return online[(curIdx + 1) % online.length].id;
+    }, [$participants]);
+
+    // Default selection: the suggested rotation, falling back to the
+    // current hider / self / first. Re-derived whenever the dialog
+    // (re-)opens so a long-running app doesn't keep a stale selection
+    // from a previous round.
     const [selectedId, setSelectedId] = useState<string | null>(
-        currentHiderId ?? $self,
+        suggestedId ?? currentHiderId ?? $self,
     );
     useEffect(() => {
         if (open) {
-            setSelectedId(currentHiderId ?? $self ?? ordered[0]?.id ?? null);
+            setSelectedId(
+                suggestedId ?? currentHiderId ?? $self ?? ordered[0]?.id ?? null,
+            );
         }
-    }, [open, currentHiderId, $self, ordered]);
+    }, [open, suggestedId, currentHiderId, $self, ordered]);
 
     const handleConfirm = () => {
         if (!selectedId) return;
@@ -96,9 +113,9 @@ export function RotateHiderDialog({
                         Start new round
                     </DialogTitle>
                     <DialogDescription>
-                        Pick who hides next. Question log, hand and
-                        zone all reset. Play area, transit and game
-                        size stay the same.
+                        Pick who hides next — everyone else becomes a
+                        seeker. Question log, hand and zone all reset;
+                        play area, transit and game size stay the same.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -108,6 +125,8 @@ export function RotateHiderDialog({
                         const isSelf = p.id === $self;
                         const selectable = canSelect(p.online);
                         const isSelected = selectedId === p.id;
+                        const isSuggested =
+                            p.id === suggestedId && p.id !== currentHiderId;
                         return (
                             <li key={p.id}>
                                 <button
@@ -154,6 +173,11 @@ export function RotateHiderDialog({
                                             {isSelf && (
                                                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
                                                     you
+                                                </span>
+                                            )}
+                                            {isSuggested && (
+                                                <span className="text-[10px] uppercase tracking-wider font-semibold text-primary">
+                                                    suggested
                                                 </span>
                                             )}
                                         </span>

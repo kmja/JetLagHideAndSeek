@@ -20,7 +20,13 @@
  * `installMultiplayerBridge()` at the bottom.
  */
 
-import { questions, addQuestion as localAddQuestion, questionModified } from "@/lib/context";
+import {
+    questions,
+    addQuestion as localAddQuestion,
+    questionModified,
+    disabledStations,
+    permanentOverlay,
+} from "@/lib/context";
 import {
     allowedTransit,
     gameSize,
@@ -396,6 +402,37 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
     }
 }
 
+/**
+ * A new round began (server broadcast a `roundStarted`). Wipe every
+ * round-scoped store on this device, regardless of whether our role
+ * changed — this is the one signal a hider who keeps their role gets
+ * that the round flipped. Core setup (play area, transit, game size)
+ * is intentionally left untouched; it lives in the setup atoms and
+ * carries across rounds.
+ *
+ * Distinct from `applySnapshot`, which also runs on reconnect: we
+ * must NOT reset round state just because we reconnected, so the
+ * reset lives here on the discrete round-start event only.
+ */
+function applyRoundStarted(roster: GameState["participants"]) {
+    // Seeker-side round state.
+    questions.set([]);
+    questionModified();
+    disabledStations.set([]);
+    permanentOverlay.set(null);
+    // Hider-side round state: hiding zone, spot, inbox, hand, deck,
+    // discard, hand limit, pending draw, and the round-found marker.
+    resetHiderRoundState();
+    // The hiding-period clock restarts per round; the seeker re-arms
+    // it via the GO GO GO flow and pushes it back over `setupChanged`.
+    hidingPeriodEndsAt.set(null);
+    // Apply the new roster + role assignments. Role-changers get
+    // navigated to the right surface; same-role players are no-ops
+    // here (we already reset their round state above).
+    participants.set(roster);
+    reconcileLocalRoleFromPresence(roster);
+}
+
 /** Apply a server snapshot wholesale to the local stores. */
 function applySnapshot(state: GameState) {
     // Setup
@@ -473,6 +510,9 @@ function handleServerMessage(msg: ServerMessage) {
             return;
         case "ended":
             if (roundFoundAt.get() === null) roundFoundAt.set(msg.foundAt);
+            return;
+        case "roundStarted":
+            applyRoundStarted(msg.participants);
             return;
         case "presence":
             participants.set(msg.participants);

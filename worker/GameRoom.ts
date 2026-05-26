@@ -626,31 +626,29 @@ export class GameRoom {
                 message: "Unknown participant for hider rotation.",
             });
         }
-        // Demote everyone currently holding the hider role first.
-        // Most rooms only have one hider at a time, but this still
-        // covers the edge case where two clients raced the role
-        // claim before the "max 1 hider" check landed.
+        // Assign roles for the new round: the target hides, everyone
+        // else seeks. This covers the old hider (demoted), any racing
+        // second hider, and anyone still unassigned (role null) — one
+        // hider, everyone else a seeker, in a single pass.
         for (const p of this.game.participants) {
-            if (p.role === "hider" && p.id !== toId) {
-                p.role = "seeker";
-            }
+            p.role = p.id === toId ? "hider" : "seeker";
         }
-        target.role = "hider";
-        // Roll back the round-end marker so reload-mid-round
-        // doesn't drop clients straight into the "found" UI.
+        // Round boundary: clear the round-end marker and the question
+        // log so the new round starts clean. The initiator's local
+        // startNewRound() clears these too, but the canonical state
+        // must match so a later snapshot / a late joiner doesn't
+        // replay last round's questions.
         this.game.roundFoundAt = null;
-        // Rotation is the round boundary. The seeker's local
-        // startNewRound() clears the question log, but that's a
-        // local-only mutation — without clearing it here too, the
-        // snapshot below replays last round's questions back to
-        // every device (and re-populates the new hider's inbox).
         this.game.questions = [];
-        this.broadcastPresence();
-        // Push a snapshot too — this is a multi-field state change
-        // (roles + roundFoundAt) and we want every client to land
-        // in a clean state, not a torn intermediate. Cheap: rooms
-        // are bounded at MAX_PARTICIPANTS + MAX_QUESTIONS_PER_ROOM.
-        this.broadcast({ t: "snapshot", state: this.game });
+        // Announce the new round. Clients apply the roster (role
+        // swaps) AND wipe round-scoped local state on this event —
+        // see SMsgRoundStarted. A plain snapshot wouldn't do: it also
+        // fires on reconnect, where resetting would be wrong, and it
+        // can't reset a hider who kept their role (no transition).
+        this.broadcast({
+            t: "roundStarted",
+            participants: this.game.participants,
+        });
     }
 
     /* ────────────────── Socket housekeeping ────────────────── */
