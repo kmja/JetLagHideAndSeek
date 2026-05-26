@@ -271,3 +271,20 @@ overlay fix).
 5. If build fails: check for `window is not defined` (SSR leaflet import) or TypeScript errors first
 
 For multi-file changes: use `github.dev` (press `.` on repo) to batch-commit across folders in a single build trigger.
+
+## Deploy mechanism (Cloudflare Workers Builds, not GitHub Actions)
+
+GitHub Actions is **not** usable on this account (billing-locked — the
+runner refuses to start). Deploys run on **Cloudflare's own build
+system** (Workers Builds), connected to the GitHub repo, which builds
+and deploys on every push to `master` — no GitHub minutes, no API token.
+
+Two separate Cloudflare Workers Builds projects watch the same repo:
+- **`jetlaghideandseek`** — the Astro frontend (repo root). Already wired.
+- **`jlhs-multiplayer`** — the multiplayer worker + Durable Object.
+  Build root directory `worker/`, deploy command `npx wrangler deploy`.
+  The worker imports `@protocol/*` from the repo-root `protocol/` dir
+  (resolved via `worker/tsconfig.json` paths against `baseUrl: ".."`),
+  so the full repo checkout must be present — which it is.
+
+Do not add `.github/workflows/*` deploy jobs — they can't run here.
