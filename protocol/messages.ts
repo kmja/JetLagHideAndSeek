@@ -18,6 +18,7 @@
 import type {
     GameSize,
     GameState,
+    HidingZoneShare,
     Role,
     SetupState,
     TransitMode,
@@ -139,6 +140,17 @@ export interface CMsgRotateHider {
 }
 
 /**
+ * The primary hider pushes their committed hiding zone (or null when
+ * cleared / reset). The server stores it and fans it out to the hide
+ * team — co-hiders — only. Seekers never receive it; the zone is the
+ * secret they're trying to deduce.
+ */
+export interface CMsgSetHideZone {
+    t: "setHideZone";
+    zone: HidingZoneShare | null;
+}
+
+/**
  * Keep-alive — sent periodically by the client. Server responds with
  * `pong`. Used to detect dead connections behind NATs that don't
  * close them cleanly.
@@ -159,6 +171,7 @@ export type ClientMessage =
     | CMsgUpdateQuestion
     | CMsgMarkFound
     | CMsgRotateHider
+    | CMsgSetHideZone
     | CMsgPing;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -209,6 +222,26 @@ export interface SMsgRoundEnded {
     foundAt: number;
 }
 
+/**
+ * Broadcast when a new round begins (hider rotation / "Start new
+ * round"). Carries the post-rotation roster so every client applies
+ * the new role assignments, and signals a full per-device round
+ * reset: the question log, the hider's inbox / hand / deck / hiding
+ * zone, and the round-found marker all clear. Only the core setup
+ * (play area, transit, game size) survives.
+ *
+ * Deliberately distinct from `snapshot`: a snapshot means "sync to
+ * the current state" and is also sent on reconnect, where wiping
+ * round state would be wrong. `roundStarted` is the discrete "a new
+ * round just began" event — receiving it is the unambiguous trigger
+ * to reset round-scoped local state, including for a hider who kept
+ * their role (no role transition to key off otherwise).
+ */
+export interface SMsgRoundStarted {
+    t: "roundStarted";
+    participants: GameState["participants"];
+}
+
 /** Broadcast when participants join, leave, change role, or
  *  toggle online. Always sends the full participants array. */
 export interface SMsgPresence {
@@ -237,6 +270,17 @@ export interface SMsgError {
     message: string;
 }
 
+/**
+ * Delivered to hide-team connections (the primary hider + co-hiders)
+ * when the hider commits or clears their hiding zone. Never sent to
+ * seekers. `null` clears the local zone (round reset / hider cleared
+ * it).
+ */
+export interface SMsgHideZone {
+    t: "hideZone";
+    zone: HidingZoneShare | null;
+}
+
 /** Keep-alive response. */
 export interface SMsgPong {
     t: "pong";
@@ -250,8 +294,10 @@ export type ServerMessage =
     | SMsgQuestionUpdated
     | SMsgQuestionAnswered
     | SMsgRoundEnded
+    | SMsgRoundStarted
     | SMsgPresence
     | SMsgSetupChanged
+    | SMsgHideZone
     | SMsgError
     | SMsgPong;
 

@@ -34,7 +34,7 @@ const __globalPersistent = <T>(
 
 /* ────────────────── Role selection ────────────────── */
 
-export type PlayerRole = "seeker" | "hider" | null;
+export type PlayerRole = "seeker" | "hider" | "coHider" | null;
 
 /**
  * Which side of the game this device is playing. `null` means the user
@@ -47,7 +47,8 @@ export const playerRole = __globalPersistent<PlayerRole>(
     "playerRole",
     null,
     (v) => (v === null ? "" : v),
-    (v) => (v === "seeker" || v === "hider" ? v : null),
+    (v) =>
+        v === "seeker" || v === "hider" || v === "coHider" ? v : null,
 );
 
 /* ────────────────── Hiding zone ────────────────── */

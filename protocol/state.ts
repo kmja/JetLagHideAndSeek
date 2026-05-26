@@ -9,7 +9,27 @@
  * zod / leaflet / turf chain.
  */
 
-export type Role = "seeker" | "hider";
+/**
+ * Player roles. One `hider` per room; `coHider`s are hide-team
+ * teammates who watch the same hide (zone + incoming questions) but
+ * don't own the canonical hider state; everyone else `seek`s.
+ */
+export type Role = "seeker" | "hider" | "coHider";
+
+/**
+ * The hider's committed hiding zone, shared with the hide team (the
+ * primary hider + any co-hiders). Mirrors the client `HidingZone`
+ * shape. Deliberately NOT part of `GameState`: it's a secret from the
+ * seekers, so the server keeps it out of the wholesale snapshot and
+ * delivers it only to hide-team connections.
+ */
+export interface HidingZoneShare {
+    stationName: string;
+    stationLat: number;
+    stationLng: number;
+    radiusMeters: number;
+    committedAt: number;
+}
 
 export type TransitMode = "bus" | "tram" | "train" | "subway" | "ferry";
 export type GameSize = "small" | "medium" | "large";
