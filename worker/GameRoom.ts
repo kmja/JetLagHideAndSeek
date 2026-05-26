@@ -25,6 +25,7 @@ import {
     PROTOCOL_VERSION,
     type ClientMessage,
     type GameState,
+    type HidingZoneShare,
     type Participant,
     type Role,
     type ServerMessage,
@@ -77,6 +78,14 @@ export class GameRoom {
 
     /** Live socket connections. Keyed by participant id. */
     private conns: Map<string, ConnInfo> = new Map();
+
+    /**
+     * The hider's committed hiding zone. Held OUTSIDE `this.game` on
+     * purpose — it's a secret from seekers, so it must never enter the
+     * wholesale snapshot. Delivered only to hide-team connections
+     * (the hider + co-hiders). Cleared on each new round.
+     */
+    private hidingZone: HidingZoneShare | null = null;
 
     /** Idle-eviction wake handle. */
     private evictionAlarmSet = false;
@@ -290,6 +299,8 @@ export class GameRoom {
                 return this.handleMarkFound(socket, msg.foundAt);
             case "rotateHider":
                 return this.handleRotateHider(socket, msg.to);
+            case "setHideZone":
+                return this.handleSetHideZone(socket, msg.zone);
             case "ping":
                 return this.sendTo(socket, { t: "pong", ts: msg.ts });
             default: {
@@ -497,6 +508,34 @@ export class GameRoom {
         }
         p.role = role;
         this.broadcastPresence();
+        // A freshly-minted co-hider joins the hide team mid-round —
+        // hand them the current zone so they can watch the hide right
+        // away (the inbox rebuilds from the snapshot they already got).
+        if (role === "coHider") {
+            this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
+        }
+    }
+
+    private handleSetHideZone(
+        socket: WebSocket,
+        zone: HidingZoneShare | null,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find((q) => q.id === conn.participantId);
+        // Only the primary hider owns the zone. Ignore anyone else so
+        // a co-hider (read-only) or a seeker can't spoof the hide.
+        if (!p || p.role !== "hider") return;
+        this.hidingZone = zone;
+        // Fan out to co-hiders only — never to seekers (the zone is
+        // the secret they're deducing) and not back to the hider (we'd
+        // just echo their own commit, risking a sync loop client-side).
+        for (const [pid, c] of this.conns.entries()) {
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role === "coHider") {
+                this.sendTo(c.socket, { t: "hideZone", zone });
+            }
+        }
     }
 
     /**
@@ -640,6 +679,9 @@ export class GameRoom {
         // replay last round's questions.
         this.game.roundFoundAt = null;
         this.game.questions = [];
+        // New round, new hide — drop the old zone secret. The new
+        // hider will push a fresh one once they commit it.
+        this.hidingZone = null;
         // Announce the new round. Clients apply the roster (role
         // swaps) AND wipe round-scoped local state on this event —
         // see SMsgRoundStarted. A plain snapshot wouldn't do: it also

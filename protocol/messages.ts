@@ -18,6 +18,7 @@
 import type {
     GameSize,
     GameState,
+    HidingZoneShare,
     Role,
     SetupState,
     TransitMode,
@@ -139,6 +140,17 @@ export interface CMsgRotateHider {
 }
 
 /**
+ * The primary hider pushes their committed hiding zone (or null when
+ * cleared / reset). The server stores it and fans it out to the hide
+ * team — co-hiders — only. Seekers never receive it; the zone is the
+ * secret they're trying to deduce.
+ */
+export interface CMsgSetHideZone {
+    t: "setHideZone";
+    zone: HidingZoneShare | null;
+}
+
+/**
  * Keep-alive — sent periodically by the client. Server responds with
  * `pong`. Used to detect dead connections behind NATs that don't
  * close them cleanly.
@@ -159,6 +171,7 @@ export type ClientMessage =
     | CMsgUpdateQuestion
     | CMsgMarkFound
     | CMsgRotateHider
+    | CMsgSetHideZone
     | CMsgPing;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -257,6 +270,17 @@ export interface SMsgError {
     message: string;
 }
 
+/**
+ * Delivered to hide-team connections (the primary hider + co-hiders)
+ * when the hider commits or clears their hiding zone. Never sent to
+ * seekers. `null` clears the local zone (round reset / hider cleared
+ * it).
+ */
+export interface SMsgHideZone {
+    t: "hideZone";
+    zone: HidingZoneShare | null;
+}
+
 /** Keep-alive response. */
 export interface SMsgPong {
     t: "pong";
@@ -273,6 +297,7 @@ export type ServerMessage =
     | SMsgRoundStarted
     | SMsgPresence
     | SMsgSetupChanged
+    | SMsgHideZone
     | SMsgError
     | SMsgPong;
 

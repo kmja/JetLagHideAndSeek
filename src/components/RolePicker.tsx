@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Eye, MapPin, UserRound } from "lucide-react";
+import { Eye, MapPin, Users, UserRound } from "lucide-react";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,15 @@ export function RolePicker() {
         playerRole.set("hider");
         rolePickerOpen.set(false);
         // Send them to the hider home.
+        if (typeof window !== "undefined") window.location.assign("/h");
+    };
+
+    // Co-hider only makes sense once a primary hider holds the slot —
+    // you're joining their hide, not starting your own.
+    const pickCoHider = () => {
+        if (!hiderTaken) return;
+        playerRole.set("coHider");
+        rolePickerOpen.set(false);
         if (typeof window !== "undefined") window.location.assign("/h");
     };
 
@@ -171,6 +180,38 @@ export function RolePicker() {
                         )}
                     </button>
                 </div>
+
+                {hiderTaken && (
+                    <div className="px-6 pb-4">
+                        <button
+                            type="button"
+                            onClick={pickCoHider}
+                            className={cn(
+                                "w-full flex items-start text-left gap-3 p-4 rounded-sm",
+                                "bg-secondary border-2 border-border",
+                                "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
+                                "hover:bg-accent hover:-translate-y-[1px] transition-all",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                        >
+                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-muted text-foreground shrink-0">
+                                <Users size={18} strokeWidth={2.4} />
+                            </span>
+                            <span className="flex flex-col gap-1">
+                                <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
+                                    Join the hide
+                                </span>
+                                <span className="text-xs text-muted-foreground leading-snug">
+                                    Hide together with{" "}
+                                    {hiderHolder?.displayName || "the hider"}.
+                                    You'll see the hiding zone and incoming
+                                    questions live; they manage the cards and
+                                    answers.
+                                </span>
+                            </span>
+                        </button>
+                    </div>
+                )}
 
                 <DialogFooter className="px-6 py-3 shrink-0 border-t border-border text-[11px] text-muted-foreground">
                     <UserRound className="w-3.5 h-3.5 shrink-0" />

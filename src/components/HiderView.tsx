@@ -1,7 +1,9 @@
+import { useStore } from "@nanostores/react";
 import { ArrowLeft, Check, Copy, Eye, Home, MapPin, Share2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
+import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { HiderMap, distanceKm } from "@/components/HiderMap";
 import { HiderHome, ANSWER_VIEW_DISMISSED_KEY } from "@/components/HiderHome";
@@ -37,6 +39,7 @@ import type { Question } from "@/maps/schema";
  * hider just needs to see what's being asked and tap an answer.
  */
 export function HiderView() {
+    const $role = useStore(playerRole);
     const [question, setQuestion] = useState<Question | null>(null);
     const [loaded, setLoaded] = useState(false);
     const [hasQueryParam, setHasQueryParam] = useState(false);
@@ -50,7 +53,10 @@ export function HiderView() {
         // they're clearly playing the hider side. Same trick the seeker app
         // uses for its own role (set on the first wizard finish).
         if (q) {
-            playerRole.set("hider");
+            // Don't clobber a co-hider's role — they watch via sync,
+            // not share-links, but a stray link shouldn't promote them
+            // to the primary hider.
+            if (playerRole.get() !== "coHider") playerRole.set("hider");
             // Save to inbox if not already there. Keyed by question.key
             // for idempotency — re-opening the same link doesn't duplicate.
             const inbox = hiderInbox.get();
@@ -77,7 +83,7 @@ export function HiderView() {
         try {
             const found = decodeFoundFromUrl(params);
             if (found) {
-                playerRole.set("hider");
+                if (playerRole.get() !== "coHider") playerRole.set("hider");
                 if (roundFoundAt.get() === null) {
                     roundFoundAt.set(found.foundAt);
                     toast.success("Seeker says they found you. Round over!", {
@@ -108,6 +114,12 @@ export function HiderView() {
     if (!loaded) {
         // Brief loading state to avoid flashing the "no question" screen
         return null;
+    }
+
+    // Co-hiders get the read-only hide-team view, never the answer /
+    // deck flow — they don't own the canonical hider state.
+    if ($role === "coHider") {
+        return <CompanionView />;
     }
 
     // The DrawPickerDialog has to live above both branches so the

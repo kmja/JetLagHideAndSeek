@@ -35,6 +35,7 @@ import {
 } from "@/lib/gameSetup";
 import {
     hiderInbox,
+    hidingZone,
     playerRole,
     resetHiderRoundState,
     roundFoundAt,
@@ -394,7 +395,9 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
         const onHider = path === "/h" || path.startsWith("/h/");
         const onSeeker =
             path === "/" || (!onHider && !path.startsWith("/h"));
-        if (me.role === "hider" && !onHider) {
+        // Hider and co-hider both live on the hider surface (/h); the
+        // co-hider just renders the read-only companion view there.
+        if ((me.role === "hider" || me.role === "coHider") && !onHider) {
             window.location.assign("/h");
         } else if (me.role === "seeker" && !onSeeker) {
             window.location.assign("/");
@@ -521,6 +524,14 @@ function handleServerMessage(msg: ServerMessage) {
             // the seeker map / hider home swaps without a reload.
             reconcileLocalRoleFromPresence(msg.participants);
             return;
+        case "hideZone":
+            // Hide-team sync: the primary hider's committed zone, or
+            // null on clear / new round. Co-hiders mirror it locally
+            // so the companion view can render it. The hider is the
+            // source and never receives this (server excludes them),
+            // so this only ever lands on a co-hider.
+            hidingZone.set(msg.zone);
+            return;
         case "setupChanged":
             if (msg.setup.playArea) playArea.set(msg.setup.playArea);
             allowedTransit.set(msg.setup.allowedTransit);
@@ -590,8 +601,25 @@ export function installMultiplayerBridge() {
         if (!multiplayerEnabled.get()) return;
         if (!currentGameCode.get()) return;
         if (transportStatus.get() !== "open") return;
-        if (role === "seeker" || role === "hider") {
+        if (role === "seeker" || role === "hider" || role === "coHider") {
             getTransport().send({ t: "role", role });
         }
+    });
+
+    // Forward the primary hider's committed hiding zone to the server
+    // so it can fan out to co-hiders. Only the hider pushes — co-hiders
+    // mirror it inbound, and pushing from them would loop. Skip the
+    // initial nanostores fire (stale value from a prior session).
+    let firstZoneFire = true;
+    hidingZone.subscribe((zone) => {
+        if (firstZoneFire) {
+            firstZoneFire = false;
+            return;
+        }
+        if (!multiplayerEnabled.get()) return;
+        if (!currentGameCode.get()) return;
+        if (transportStatus.get() !== "open") return;
+        if (playerRole.get() !== "hider") return;
+        getTransport().send({ t: "setHideZone", zone: zone ?? null });
     });
 }
