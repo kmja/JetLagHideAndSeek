@@ -639,6 +639,12 @@ export class GameRoom {
         // Roll back the round-end marker so reload-mid-round
         // doesn't drop clients straight into the "found" UI.
         this.game.roundFoundAt = null;
+        // Rotation is the round boundary. The seeker's local
+        // startNewRound() clears the question log, but that's a
+        // local-only mutation — without clearing it here too, the
+        // snapshot below replays last round's questions back to
+        // every device (and re-populates the new hider's inbox).
+        this.game.questions = [];
         this.broadcastPresence();
         // Push a snapshot too — this is a multi-field state change
         // (roles + roundFoundAt) and we want every client to land
