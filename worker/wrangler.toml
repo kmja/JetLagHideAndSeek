@@ -10,9 +10,17 @@
 #
 # Deploy from `worker/` with:
 #
-#     pnpm wrangler deploy
+#     pnpm run deploy        # = wrangler deploy --config wrangler.toml
 #
-# (The `deploy` script in worker/package.json runs that command.)
+# The explicit `--config` is REQUIRED. Without it, wrangler's config
+# auto-discovery walks up and grabs the repo-root `wrangler.jsonc`
+# (the FRONTEND config, with assets.directory = dist) and the deploy
+# fails with "assets.directory ... does not exist". Always name this
+# file explicitly.
+#
+# Cloudflare Workers Builds setup for this worker:
+#   • Root directory: worker
+#   • Deploy command: npx wrangler deploy --config wrangler.toml
 #
 # After first deploy you'll get a workers.dev URL like
 # `https://jlhs-multiplayer.<your-subdomain>.workers.dev`. Bake that

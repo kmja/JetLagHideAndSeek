@@ -282,9 +282,13 @@ and deploys on every push to `master` — no GitHub minutes, no API token.
 Two separate Cloudflare Workers Builds projects watch the same repo:
 - **`jetlaghideandseek`** — the Astro frontend (repo root). Already wired.
 - **`jlhs-multiplayer`** — the multiplayer worker + Durable Object.
-  Build root directory `worker/`, deploy command `npx wrangler deploy`.
-  The worker imports `@protocol/*` from the repo-root `protocol/` dir
-  (resolved via `worker/tsconfig.json` paths against `baseUrl: ".."`),
-  so the full repo checkout must be present — which it is.
+  Build root directory `worker/`, deploy command
+  `npx wrangler deploy --config wrangler.toml`. The explicit `--config`
+  is REQUIRED: without it wrangler's auto-discovery walks up to the
+  repo-root `wrangler.jsonc` (the frontend config) and fails on
+  `assets.directory ... does not exist`. The worker imports
+  `@protocol/*` from the repo-root `protocol/` dir (resolved via
+  `worker/tsconfig.json` paths against `baseUrl: ".."`), so the full
+  repo checkout must be present — which it is.
 
 Do not add `.github/workflows/*` deploy jobs — they can't run here.
