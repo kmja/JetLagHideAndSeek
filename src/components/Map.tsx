@@ -30,7 +30,7 @@ import {
 } from "@/lib/context";
 import { seekerAddQuestion as addQuestion } from "@/lib/multiplayer/store";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { satelliteView, showTransitLines } from "@/lib/gameSetup";
+import { allowedTransit, satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { hiderifyQuestion } from "@/maps";
@@ -124,6 +124,14 @@ export const Map = ({ className }: { className?: string }) => {
     const $baseTileLayer = useStore(baseTileLayer);
     const $satelliteView = useStore(satelliteView);
     const $showTransitLines = useStore(showTransitLines);
+    const $allowedTransit = useStore(allowedTransit);
+    // The rail overlay only applies when the game allows train/tram —
+    // mirrors MapDisplayControls' rail-toggle visibility so a stale
+    // persisted toggle can't strand an overlay with no way to clear it.
+    const railOverlayOn =
+        $showTransitLines &&
+        ($allowedTransit.includes("train") ||
+            $allowedTransit.includes("tram"));
     const $thunderforestApiKey = useStore(thunderforestApiKey);
     const $hiderMode = useStore(hiderMode);
     const $isLoading = useStore(isLoading);
@@ -515,7 +523,7 @@ export const Map = ({ className }: { className?: string }) => {
                         maxZoom={19}
                     />
                 )}
-                {$showTransitLines && railPaneReady && (
+                {railOverlayOn && railPaneReady && (
                     /* OpenRailwayMap rendered into the custom
                        `railTiles` pane so its CSS clip-path
                        confines the overlay to the play area
@@ -555,7 +563,7 @@ export const Map = ({ className }: { className?: string }) => {
                 />
             </MapContainer>
         ),
-        [map, $baseTileLayer, $thunderforestApiKey, $satelliteView, $showTransitLines],
+        [map, $baseTileLayer, $thunderforestApiKey, $satelliteView, railOverlayOn],
     );
 
     useEffect(() => {

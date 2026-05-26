@@ -10,6 +10,7 @@ import {
     polyGeoJSON,
 } from "@/lib/context";
 import {
+    allowedTransit,
     showBusRoutes,
     showFerryRoutes,
     showSubwayRoutes,
@@ -78,7 +79,18 @@ export function TransitRoutesOverlay() {
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
     const $ferry = useStore(showFerryRoutes);
+    const $allowedTransit = useStore(allowedTransit);
     const $playArea = useStore(mapGeoLocation);
+
+    // An overlay must be BOTH toggled on AND allowed in the current
+    // game's transit settings. Without the allowedTransit gate a stale
+    // persisted toggle (e.g. bus left enabled in a previous game) keeps
+    // drawing its overlay even though MapDisplayControls hides the
+    // toggle for disallowed modes — leaving the user no way to turn it
+    // off.
+    const subwayOn = $subway && $allowedTransit.includes("subway");
+    const busOn = $bus && $allowedTransit.includes("bus");
+    const ferryOn = $ferry && $allowedTransit.includes("ferry");
     const $poly = useStore(polyGeoJSON);
     const map = useStore(leafletMapContext);
 
@@ -375,15 +387,15 @@ export function TransitRoutesOverlay() {
             }
         };
 
-        setLayer("subway", $subway);
-        setLayer("bus", $bus);
-        setLayer("ferry", $ferry);
+        setLayer("subway", subwayOn);
+        setLayer("bus", busOn);
+        setLayer("ferry", ferryOn);
 
         return () => {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [map, $subway, $bus, $ferry, areaKey]);
+    }, [map, subwayOn, busOn, ferryOn, areaKey]);
 
     // Clean up on unmount.
     useEffect(() => {
