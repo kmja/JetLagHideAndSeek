@@ -16,6 +16,7 @@ import {
     QUESTION_DRAW_BUDGET,
 } from "@/lib/hiderRole";
 import { shuffledDeck, type Card } from "@/lib/hiderDeck";
+import { APP_VERSION } from "@/lib/version";
 
 import { DICE_FIZZLE } from "./CastCurseDialog";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
@@ -423,7 +424,7 @@ export function DebugPhaseControls() {
                     "hover:bg-amber-400 transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300",
                 )}
-                title="Debug phase controls"
+                title={`Debug phase controls · ${APP_VERSION}`}
             >
                 <Bug className="w-4 h-4" />
             </button>
@@ -445,6 +446,9 @@ export function DebugPhaseControls() {
                 <span className="font-poppins font-bold uppercase tracking-wider flex items-center gap-1.5">
                     <Bug className="w-3.5 h-3.5" />
                     Phase tester
+                    <span className="font-mono font-semibold normal-case tracking-normal text-[10px] bg-white/20 rounded px-1.5 py-0.5">
+                        {APP_VERSION}
+                    </span>
                 </span>
                 <button
                     type="button"
