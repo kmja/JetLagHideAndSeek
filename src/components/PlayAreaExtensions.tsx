@@ -4,6 +4,7 @@ import {
     ChevronDown,
     ChevronUp,
     Loader2,
+    Minus,
     PlusCircle,
     Sparkles,
     TrainTrack,
@@ -130,6 +131,17 @@ export function PlayAreaExtensions({
     }
 
     const checkedCount = checked.size;
+    const allChecked =
+        candidates.length > 0 &&
+        candidates.every((c) => checked.has(c.feature.properties.osm_id));
+    const someChecked = checkedCount > 0 && !allChecked;
+    const toggleAll = () => {
+        setChecked(
+            allChecked
+                ? new Set()
+                : new Set(candidates.map((c) => c.feature.properties.osm_id)),
+        );
+    };
 
     return (
         <div className="mt-3 rounded-md border border-dashed border-border bg-secondary/20 p-3 space-y-2.5">
@@ -165,6 +177,44 @@ export function PlayAreaExtensions({
 
             {open && !loading && candidates.length > 0 && (
                 <ul className="space-y-1">
+                    {/* Master toggle — select / deselect every neighbour
+                        at once. Shows a filled check when all are on, a
+                        dash when only some are. */}
+                    <li>
+                        <button
+                            type="button"
+                            onClick={toggleAll}
+                            aria-pressed={allChecked}
+                            className={cn(
+                                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
+                                "text-left transition-colors mb-1 border-b border-border/40",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                "hover:bg-accent",
+                            )}
+                        >
+                            <div
+                                className={cn(
+                                    "w-4 h-4 rounded-sm border-2 shrink-0 flex items-center justify-center",
+                                    allChecked || someChecked
+                                        ? "border-primary bg-primary text-primary-foreground"
+                                        : "border-border",
+                                )}
+                                aria-hidden="true"
+                            >
+                                {allChecked ? (
+                                    <Check className="w-3 h-3" />
+                                ) : someChecked ? (
+                                    <Minus className="w-3 h-3" />
+                                ) : null}
+                            </div>
+                            <span className="flex-1 text-sm font-poppins font-semibold">
+                                {allChecked ? "Deselect all" : "Select all"}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                                {checkedCount}/{candidates.length}
+                            </span>
+                        </button>
+                    </li>
                     {candidates.map((c) => {
                         const id = c.feature.properties.osm_id;
                         const isChecked = checked.has(id);

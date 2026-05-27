@@ -232,6 +232,10 @@ export function GameSetupDialog() {
     const [draftFeature, setDraftFeature] = useState<OpenStreetMap | null>(
         null,
     );
+    // The play-area osm_id we opened with (edit mode). Used so saving
+    // edits only re-commits / clears questions when the area actually
+    // changed, not when the user merely re-opened settings.
+    const initialPlayAreaIdRef = useRef<number | null>(null);
     const [draftTransit, setDraftTransit] =
         useState<TransitMode[]>($allowedTransit);
     const [draftSize, setDraftSize] = useState<GameSize>($gameSize);
@@ -269,7 +273,14 @@ export function GameSetupDialog() {
     useEffect(() => {
         if ($open) {
             setStep(1);
-            setDraftFeature(null);
+            // Edit mode: seed the draft with the area already in play so
+            // the picker shows the current selection instead of falling
+            // back to a GPS auto-search. Wizard mode starts blank.
+            const editing = setupCompleted.get();
+            const current = editing ? mapGeoLocation.get() : null;
+            setDraftFeature(current);
+            initialPlayAreaIdRef.current =
+                current?.properties?.osm_id ?? null;
             setDraftTransit(allowedTransit.get());
             setDraftSize(gameSize.get());
             setDraftDisplayName(displayNameAtom.get() || "");
@@ -284,12 +295,17 @@ export function GameSetupDialog() {
         allowedTransit.set(draftTransit);
         gameSize.set(draftSize);
 
-        // Play area: only commit if the user picked a new one; leave the
-        // existing area alone otherwise so transit/size tweaks don't force
-        // a re-pick. If the user did change it, also wipe questions/zone
-        // caches the same way handleFinish does — because changing play
-        // area mid-game means questions are no longer geographically valid.
-        if (draftFeature) {
+        // Play area: only commit if the user actually picked a DIFFERENT
+        // area. In edit mode the draft is seeded with the current area,
+        // so a plain transit/size tweak must not re-commit it (that would
+        // needlessly wipe questions). Compare against the osm_id we opened
+        // with. When it genuinely changed, wipe questions/zone caches the
+        // same way handleFinish does — the old questions are no longer
+        // geographically valid.
+        const playAreaChanged =
+            draftFeature != null &&
+            draftFeature.properties.osm_id !== initialPlayAreaIdRef.current;
+        if (playAreaChanged) {
             const coords = draftFeature.geometry.coordinates as number[];
             const [lat, lng] = coords;
             playArea.set({
@@ -836,6 +852,27 @@ function PlayAreaStep({
                         </div>
                     )}
             </div>
+            {/* Current selection (edit mode / after a pick) — shown while
+                the search box is empty so the user can see the active
+                play area is preserved, with the search above to change it. */}
+            {value && !query.trim() && results.length === 0 && (
+                <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2">
+                    <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
+                            Current play area
+                        </div>
+                        <div className="text-sm font-medium truncate">
+                            {value.properties.name ??
+                                determineName(value).split(",")[0]}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                            Search above to change it.
+                        </div>
+                    </div>
+                    <Check className="w-4 h-4 text-primary shrink-0" />
+                </div>
+            )}
             {results.length > 0 && (
                 <div className="space-y-1.5">
                     <p className="text-xs text-muted-foreground">
