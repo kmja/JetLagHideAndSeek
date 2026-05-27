@@ -120,6 +120,12 @@ export function resetMapOverlays() {
     showBusRoutes.set(false);
     showSubwayRoutes.set(false);
     showFerryRoutes.set(false);
+    // Hiding-zones analysis overlay lives in context.ts. Imported lazily
+    // inside the function so the module-load order between gameSetup and
+    // context can't matter (the binding is only read at call time).
+    import("@/lib/context").then(({ displayHidingZones }) => {
+        displayHidingZones.set(false);
+    });
 }
 
 /** Volatile: is the setup wizard currently shown? */
