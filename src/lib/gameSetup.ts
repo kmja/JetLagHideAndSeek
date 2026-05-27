@@ -109,6 +109,19 @@ export const showSubwayRoutes = persistentAtom<boolean>(
     { encode: JSON.stringify, decode: JSON.parse },
 );
 
+/**
+ * Reset every map display overlay to its default OFF state. Called on
+ * new game / new round / settings change so a fresh game never inherits
+ * a stale overlay (e.g. a transit layer left on from a previous game).
+ */
+export function resetMapOverlays() {
+    satelliteView.set(false);
+    showTransitLines.set(false);
+    showBusRoutes.set(false);
+    showSubwayRoutes.set(false);
+    showFerryRoutes.set(false);
+}
+
 /** Volatile: is the setup wizard currently shown? */
 export const setupDialogOpen = atom<boolean>(false);
 

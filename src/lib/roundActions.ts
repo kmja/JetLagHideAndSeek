@@ -11,6 +11,7 @@ import {
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
+    resetMapOverlays,
     setupCompleted,
     setupDialogOpen,
 } from "@/lib/gameSetup";
@@ -45,6 +46,8 @@ export function startNewRound() {
     // found-at — all wiped.
     resetHiderRoundState();
     roundFoundAt.set(null);
+    // Map overlays revert to their default OFF state for the new round.
+    resetMapOverlays();
     // Restart the hiding-period clock from now.
     const minutes = HIDING_PERIOD_MINUTES[gameSize.get()];
     // Use the gated start: clear the live timer and stage the
@@ -76,6 +79,7 @@ export function startNewGame() {
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);
     additionalMapGeoLocations.set([]);
+    resetMapOverlays();
     setupCompleted.set(false);
     setupDialogOpen.set(true);
 }

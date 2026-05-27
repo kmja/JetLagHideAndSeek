@@ -32,6 +32,7 @@ import {
     gameSize,
     hidingPeriodEndsAt,
     playArea,
+    resetMapOverlays,
 } from "@/lib/gameSetup";
 import {
     hiderInbox,
@@ -426,6 +427,8 @@ function applyRoundStarted(roster: GameState["participants"]) {
     // Hider-side round state: hiding zone, spot, inbox, hand, deck,
     // discard, hand limit, pending draw, and the round-found marker.
     resetHiderRoundState();
+    // Map overlays revert to default OFF for the new round.
+    resetMapOverlays();
     // The hiding-period clock restarts per round; the seeker re-arms
     // it via the GO GO GO flow and pushes it back over `setupChanged`.
     hidingPeriodEndsAt.set(null);

@@ -6,6 +6,7 @@ import {
     Footprints,
     MapPin,
     Ship,
+    Sparkles,
     Train,
     TramFront,
     TrainTrack,
@@ -24,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useDebounce } from "@/hooks/useDebounce";
 import {
+    additionalMapGeoLocations,
     disabledStations,
     displayHidingZones,
     hiderMode,
@@ -41,6 +43,7 @@ import {
     HIDING_PERIOD_MINUTES,
     pendingHidingDurationMin,
     playArea,
+    resetMapOverlays,
     SIZE_DESCRIPTIONS,
     setupCompleted,
     setupDialogOpen,
@@ -243,6 +246,13 @@ export function GameSetupDialog() {
     // as they tap a size tile, we stop auto-inferring from the play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
 
+    // Adjacent-areas opt-in (wizard step 2). null = not asked yet,
+    // true = show the neighbour picker, false = skip it. Reset whenever
+    // the dialog re-opens or the chosen play area changes.
+    const [includeAdjacent, setIncludeAdjacent] = useState<boolean | null>(
+        null,
+    );
+
     // Display name for the auto-hosted online room. Pre-fills from the
     // persisted atom so returning players don't retype.
     const [draftDisplayName, setDraftDisplayName] = useState(
@@ -257,6 +267,12 @@ export function GameSetupDialog() {
         const inferred = inferGameSize(draftFeature);
         if (inferred) setDraftSize(inferred);
     }, [draftFeature, sizeManuallySet]);
+
+    // Re-ask the adjacent-areas question whenever the play area changes —
+    // a previous "yes/no" decision doesn't carry over to a new region.
+    useEffect(() => {
+        setIncludeAdjacent(null);
+    }, [draftFeature?.properties.osm_id]);
 
     // Wrap setDraftSize so any tile tap also flips the override flag.
     const setDraftSizeManual = (s: GameSize) => {
@@ -284,6 +300,7 @@ export function GameSetupDialog() {
             setDraftTransit(allowedTransit.get());
             setDraftSize(gameSize.get());
             setDraftDisplayName(displayNameAtom.get() || "");
+            setIncludeAdjacent(null);
             // Reset auto-infer flag for the new session. In edit mode we
             // assume the existing size is intentional and don't override.
             setSizeManuallySet(setupCompleted.get());
@@ -294,6 +311,8 @@ export function GameSetupDialog() {
         // Apply transit + size live, no hiding-period restart.
         allowedTransit.set(draftTransit);
         gameSize.set(draftSize);
+        // Changing settings reverts map overlays to their default OFF state.
+        resetMapOverlays();
 
         // Play area: only commit if the user actually picked a DIFFERENT
         // area. In edit mode the draft is seeded with the current area,
@@ -341,6 +360,8 @@ export function GameSetupDialog() {
     const handleFinish = () => {
         allowedTransit.set(draftTransit);
         gameSize.set(draftSize);
+        // Fresh game starts with all map overlays off.
+        resetMapOverlays();
 
         // Defer the hiding-period clock until the play-area boundary
         // is actually rendered — otherwise a country-sized load
@@ -451,10 +472,15 @@ export function GameSetupDialog() {
         step === 1
             ? draftFeature !== null
             : step === 2
-              ? true // Adjacent picks are optional
+              ? // Must answer the opt-in first; "No" advances on its own,
+                // so the footer Continue only matters once they've said yes.
+                includeAdjacent === true
               : step === 3
                 ? draftTransit.length > 0
                 : true;
+    // On the step-2 decision prompt, the Yes/No buttons drive navigation,
+    // so the footer Continue button is hidden until they opt in.
+    const hideNext = step === 2 && includeAdjacent !== true;
 
     return (
         <Dialog
@@ -568,9 +594,30 @@ export function GameSetupDialog() {
                                     onChange={setDraftFeature}
                                 />
                             )}
-                            {step === 2 && draftFeature && (
-                                <PlayAreaExtensions primary={draftFeature} />
-                            )}
+                            {step === 2 &&
+                                draftFeature &&
+                                (includeAdjacent === true ? (
+                                    <PlayAreaExtensions
+                                        primary={draftFeature}
+                                    />
+                                ) : (
+                                    <AdjacentDecision
+                                        areaName={
+                                            draftFeature.properties.name ??
+                                            determineName(draftFeature).split(
+                                                ",",
+                                            )[0]
+                                        }
+                                        onYes={() => setIncludeAdjacent(true)}
+                                        onNo={() => {
+                                            setIncludeAdjacent(false);
+                                            // No neighbours — make sure none
+                                            // linger from a prior decision.
+                                            additionalMapGeoLocations.set([]);
+                                            setStep(3);
+                                        }}
+                                    />
+                                ))}
                             {step === 3 && (
                                 <TransitStep
                                     value={draftTransit}
@@ -628,7 +675,9 @@ export function GameSetupDialog() {
                                 <ChevronLeft className="w-4 h-4" />
                                 Back
                             </Button>
-                            {step < 4 ? (
+                            {step < 4 && hideNext ? (
+                                <span />
+                            ) : step < 4 ? (
                                 <Button
                                     disabled={!canContinue}
                                     onClick={() =>
@@ -982,6 +1031,45 @@ function PlayAreaStep({
                     through the round.
                 </p>
             )}
+        </div>
+    );
+}
+
+/* ─── Adjacent areas opt-in ─── */
+
+function AdjacentDecision({
+    areaName,
+    onYes,
+    onNo,
+}: {
+    areaName: string;
+    onYes: () => void;
+    onNo: () => void;
+}) {
+    return (
+        <div className="space-y-4">
+            <div className="rounded-md border border-border bg-secondary/30 p-4">
+                <p className="text-sm leading-relaxed">
+                    Some cities are tightly linked to neighbouring
+                    municipalities that the map doesn't count as part of{" "}
+                    <span className="font-semibold">{areaName}</span>, but which
+                    are usually played as one area (e.g. Solna and Sundbyberg
+                    with Stockholm).
+                </p>
+            </div>
+            <div className="grid grid-cols-1 gap-2.5">
+                <Button onClick={onYes} className="w-full gap-2 py-6 text-base">
+                    <Sparkles className="w-4 h-4" />
+                    Yes, add nearby areas
+                </Button>
+                <Button
+                    onClick={onNo}
+                    variant="outline"
+                    className="w-full gap-2 py-6 text-base"
+                >
+                    No, just {areaName}
+                </Button>
+            </div>
         </div>
     );
 }
