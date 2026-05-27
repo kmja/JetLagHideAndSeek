@@ -45,10 +45,14 @@ export function RolePicker() {
     // In an online room the main hider slot is exclusive — the server
     // rejects a second hider (`role_taken`). Gate the option in the UI
     // so a joiner can't pick a role that's only going to bounce back.
+    // The hider slot is exclusive AND persistent: the server's
+    // max-one-hider check keys off role alone, not connection status, so
+    // a transiently-offline hider (subway, backgrounded app) still holds
+    // it. Gate on role presence — NOT `online` — otherwise a brief blip
+    // would re-enable the Hider tile (claim bounces with role_taken) and
+    // hide the co-hider "Join the hide" option mid-round.
     const hiderHolder = $mp
-        ? $participants.find(
-              (p) => p.role === "hider" && p.online && p.id !== $self,
-          )
+        ? $participants.find((p) => p.role === "hider" && p.id !== $self)
         : undefined;
     const hiderTaken = Boolean(hiderHolder);
 

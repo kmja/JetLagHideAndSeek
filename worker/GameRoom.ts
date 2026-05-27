@@ -486,6 +486,17 @@ export class GameRoom {
             self: { id: entry.participantId },
             state: this.game,
         });
+        // The hiding zone lives outside GameState (it's secret from
+        // seekers) so it isn't in the welcome snapshot. Re-deliver it to a
+        // reconnecting hide-team member, otherwise a co-hider who reloads
+        // or drops connection loses the zone view for the rest of the
+        // round (it's only otherwise pushed on a fresh role claim).
+        if (
+            existing &&
+            (existing.role === "coHider" || existing.role === "hider")
+        ) {
+            this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
+        }
         this.broadcastPresence();
     }
 

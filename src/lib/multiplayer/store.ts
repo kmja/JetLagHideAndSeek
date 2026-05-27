@@ -383,7 +383,13 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
     // stale data lying around AND a player switching INTO the
     // seat lands on a clean slate. Skip this on first role assignment
     // (prev === null) — that's the role-picker landing case.
-    if (prev !== null && (prev === "hider" || me.role === "hider")) {
+    // Reset on any transition into OR out of a hide-team seat (hider or
+    // coHider), so a demoted co-hider doesn't keep a stale hiding zone /
+    // inbox and a freshly-promoted one lands clean — not just on hider
+    // transitions.
+    const wasHideTeam = prev === "hider" || prev === "coHider";
+    const nowHideTeam = me.role === "hider" || me.role === "coHider";
+    if (prev !== null && (wasHideTeam || nowHideTeam)) {
         resetHiderRoundState();
     }
     playerRole.set(me.role);
@@ -501,7 +507,11 @@ function handleServerMessage(msg: ServerMessage) {
             // to seeker locally.
             {
                 const local = playerRole.get();
-                if (local === "seeker" || local === "hider") {
+                if (
+                    local === "seeker" ||
+                    local === "hider" ||
+                    local === "coHider"
+                ) {
                     getTransport().send({ t: "role", role: local });
                 }
             }
