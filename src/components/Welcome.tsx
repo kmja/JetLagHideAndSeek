@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Loader2 } from "lucide-react";
+import { Eye, Loader2, MapPin } from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-toastify";
 
@@ -11,7 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setupCompleted, setupDialogOpen, welcomeSeen } from "@/lib/gameSetup";
-import { joinAsGuest } from "@/lib/multiplayer/store";
+import { playerRole } from "@/lib/hiderRole";
+import { joinAsGuest, setOnlineRole } from "@/lib/multiplayer/store";
 import {
     displayName as displayNameAtom,
     multiplayerError,
@@ -45,6 +46,13 @@ export function Welcome() {
     const [name, setName] = useState(displayNameAtom.get() || "");
     const [code, setCode] = useState("");
     const [joining, setJoining] = useState(false);
+    // Joiner picks their own role at join time — defaults to seeker
+    // since the most common Join flow is "friend invited me to seek".
+    // The server's role assignment for returning device IDs is
+    // overridden by an explicit setOnlineRole call right after the
+    // join, so the user can never get auto-stuck as the role they
+    // were last time.
+    const [joinRole, setJoinRole] = useState<"seeker" | "hider">("seeker");
 
     const open = !$welcomeSeen;
 
@@ -68,6 +76,12 @@ export function Welcome() {
         setJoining(true);
         displayNameAtom.set(trimmedName);
         joinAsGuest(trimmedCode, trimmedName);
+        // Force the joiner's chosen role over whatever the server
+        // would otherwise restore from a prior session for this
+        // device id. Fire-and-forget; the role message queues until
+        // the socket opens.
+        playerRole.set(joinRole);
+        setOnlineRole(joinRole);
         // joinAsGuest is fire-and-forget; the transport status atom
         // flips through connecting → open (success) or closed/error.
         // We close the welcome screen optimistically — if the join
@@ -77,6 +91,9 @@ export function Welcome() {
         welcomeSeen.set(true);
         setupCompleted.set(true);
         toast.info(`Joining game ${trimmedCode}…`, { autoClose: 2500 });
+        if (joinRole === "hider" && typeof window !== "undefined") {
+            window.location.assign("/h");
+        }
     };
 
     return (
@@ -188,6 +205,49 @@ export function Welcome() {
                                 <p className="text-[10px] text-muted-foreground">
                                     Letters and digits only. Case-insensitive.
                                 </p>
+                            </div>
+
+                            {/* Role picker — joiner explicitly picks
+                                their side. Each role lands them on a
+                                different page (seeker stays on /,
+                                hider redirects to /h) so it has to
+                                be settled before the join completes. */}
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground">
+                                    Your role
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setJoinRole("seeker")}
+                                        className={cn(
+                                            "flex items-center gap-2 px-3 py-2 rounded-sm border-2",
+                                            "transition-colors text-sm font-display font-extrabold uppercase tracking-[0.08em]",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                            joinRole === "seeker"
+                                                ? "bg-primary text-primary-foreground border-primary"
+                                                : "bg-secondary border-border hover:bg-accent",
+                                        )}
+                                    >
+                                        <Eye className="w-4 h-4 shrink-0" />
+                                        Seeker
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setJoinRole("hider")}
+                                        className={cn(
+                                            "flex items-center gap-2 px-3 py-2 rounded-sm border-2",
+                                            "transition-colors text-sm font-display font-extrabold uppercase tracking-[0.08em]",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                            joinRole === "hider"
+                                                ? "border-[hsl(var(--accent-yellow))] text-[hsl(var(--accent-yellow))] bg-[hsl(var(--accent-yellow)/0.1)]"
+                                                : "bg-secondary border-border hover:bg-accent",
+                                        )}
+                                    >
+                                        <MapPin className="w-4 h-4 shrink-0" />
+                                        Hider
+                                    </button>
+                                </div>
                             </div>
 
                             {joining &&

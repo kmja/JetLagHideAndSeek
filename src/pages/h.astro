@@ -6,6 +6,7 @@ import { GameLobbyDialog } from "@/components/GameLobbyDialog";
 import { GameSetupDialog } from "@/components/GameSetupDialog";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
+import { RolePicker } from "@/components/RolePicker";
 import { StaleSessionPrompt } from "@/components/StaleSessionPrompt";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 ---
@@ -19,6 +20,9 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
         so the hider has the same access the seeker does via the
         BottomNav settings sheet. Triggered from HiderHome's header. */}
     <GameSetupDialog client:only="react" />
+    {/* Role picker — mounted here so the "Switch role" button in
+        the lobby has a dialog to consume rolePickerOpen on /h too. */}
+    <RolePicker client:only="react" />
     {/* Pre-game lobby. Same component as on the seeker page; it
         auto-detects the hider role and renders the waiting state
         (no map readiness check, no Start button — the hider can't

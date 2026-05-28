@@ -18,6 +18,7 @@ import {
     participants,
     selfParticipantId,
 } from "@/lib/multiplayer/session";
+import { setOnlineRole } from "@/lib/multiplayer/store";
 
 import {
     HideSeekMark,
@@ -69,13 +70,24 @@ export function RolePicker() {
 
     const pickSeeker = () => {
         playerRole.set("seeker");
+        // Push the choice to the server so the multiplayer roster
+        // reflects the switch immediately (no-op when offline).
+        setOnlineRole("seeker");
         rolePickerOpen.set(false);
-        // Already on the seeker home (index.astro), nothing to navigate.
+        // If we're on /h (hider page) and just became a seeker,
+        // navigate back to / so we don't sit on the wrong surface.
+        if (
+            typeof window !== "undefined" &&
+            window.location.pathname.startsWith("/h")
+        ) {
+            window.location.assign("/");
+        }
     };
 
     const pickHider = () => {
         if (hiderTaken) return;
         playerRole.set("hider");
+        setOnlineRole("hider");
         rolePickerOpen.set(false);
         // Send them to the hider home.
         if (typeof window !== "undefined") window.location.assign("/h");
@@ -86,6 +98,8 @@ export function RolePicker() {
     const pickCoHider = () => {
         if (!hiderTaken) return;
         playerRole.set("coHider");
+        // No setOnlineRole — coHider is not a server-tracked role
+        // (the server only knows seeker / hider / null).
         rolePickerOpen.set(false);
         if (typeof window !== "undefined") window.location.assign("/h");
     };

@@ -29,7 +29,7 @@ import {
     setupCompleted,
     welcomeSeen,
 } from "@/lib/gameSetup";
-import { playerRole } from "@/lib/hiderRole";
+import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -578,6 +578,16 @@ export function GameLobbyDialog() {
                         <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => rolePickerOpen.set(true)}
+                            className="w-full gap-1.5 text-muted-foreground"
+                        >
+                            Switch role
+                        </Button>
+                    )}
+                    {$mp && $code && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => {
                                 if (
                                     typeof window === "undefined" ||
@@ -585,7 +595,23 @@ export function GameLobbyDialog() {
                                         "Leave this online game? You'll exit the room — the others can keep playing without you.",
                                     )
                                 ) {
+                                    // Reset the local session all the
+                                    // way back to Welcome so the user
+                                    // doesn't end up in a dead-end
+                                    // hider view with nothing to do.
+                                    // Clears: the connection, the
+                                    // welcome dismissal, the wizard
+                                    // completion, and the player
+                                    // role. Then navigate to / so a
+                                    // hider on /h ends up on the
+                                    // welcome surface.
                                     leaveGame();
+                                    welcomeSeen.set(false);
+                                    setupCompleted.set(false);
+                                    playerRole.set(null);
+                                    if (typeof window !== "undefined") {
+                                        window.location.assign("/");
+                                    }
                                 }
                             }}
                             className="w-full gap-1.5 text-muted-foreground"
