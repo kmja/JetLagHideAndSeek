@@ -11,6 +11,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { welcomeSeen } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import {
     multiplayerEnabled,
@@ -41,6 +42,7 @@ export function RolePicker() {
     const $mp = useStore(multiplayerEnabled);
     const $participants = useStore(participants);
     const $self = useStore(selfParticipantId);
+    const $welcomeSeen = useStore(welcomeSeen);
 
     // In an online room the main hider slot is exclusive — the server
     // rejects a second hider (`role_taken`). Gate the option in the UI
@@ -52,13 +54,14 @@ export function RolePicker() {
         : undefined;
     const hiderTaken = Boolean(hiderHolder);
 
-    // Auto-open when no role has been chosen yet. Don't auto-open on
-    // subsequent renders if the user has picked.
+    // Auto-open when no role has been chosen yet — but only after the
+    // welcome screen has been dismissed. Otherwise both dialogs race
+    // to open on a fresh load and stack on top of each other.
     useEffect(() => {
-        if ($role === null) rolePickerOpen.set(true);
-    }, [$role]);
+        if ($role === null && $welcomeSeen) rolePickerOpen.set(true);
+    }, [$role, $welcomeSeen]);
 
-    const open = $open || $role === null;
+    const open = ($open || $role === null) && $welcomeSeen;
 
     const pickSeeker = () => {
         playerRole.set("seeker");

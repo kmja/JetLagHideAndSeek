@@ -1,43 +1,44 @@
 import { useStore } from "@nanostores/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
-import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
 import {
     gameStartCelebrationAt,
-    pendingHidingDurationMin,
+    hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
 
 /**
- * Mount-only watcher. When the wizard's `handleFinish` queues a
- * `pendingHidingDurationMin`, this watcher waits for the play-area
- * boundary to actually finish loading (`mapGeoJSON` / `polyGeoJSON`)
- * and then **opens the GO GO GO dialog** by setting
- * `gameStartCelebrationAt`. The dialog itself owns the "Start"
- * button — the hiding-period clock only begins running once the
- * player actually taps that button.
+ * Mount-only watcher. Opens the GoGoGoOverlay celebration the
+ * moment the hiding period actually starts — i.e. when
+ * `hidingPeriodEndsAt` transitions from null to a non-null
+ * timestamp. That single trigger covers both:
  *
- * That two-step flow gives the player a conscious "the game is
- * about to begin" moment instead of an automatic clock kick-off
- * that might surprise them while the boundary is still painting.
+ *  - Host devices, where the GameLobbyDialog's Start button sets
+ *    hidingPeriodEndsAt directly.
+ *  - Guest devices, where the host's setupChanged push propagates
+ *    a freshly-set hidingPeriodEndsAt over the multiplayer
+ *    transport, which then writes the local atom.
  *
- * Mounted on both `index.astro` (seeker) and `h.astro` (hider) so
- * the celebration fires whichever side is loaded.
+ * We only react to null→non-null transitions, never to mid-game
+ * updates (e.g. peers refreshing the timer), so the celebration
+ * doesn't pop back up after the user dismissed it.
+ *
+ * Mounted on both /index.astro (seeker) and /h.astro (hider) so
+ * the celebration appears whichever side is loaded.
  */
 export function GameStartWatcher() {
-    const $pending = useStore(pendingHidingDurationMin);
-    const $mapGeoJSON = useStore(mapGeoJSON);
-    const $polyGeoJSON = useStore(polyGeoJSON);
-    const $celebrationAt = useStore(gameStartCelebrationAt);
+    const $endsAt = useStore(hidingPeriodEndsAt);
+    const prev = useRef<number | null>($endsAt);
 
     useEffect(() => {
-        if ($pending === null || $pending <= 0) return;
-        const boundaryReady = Boolean($mapGeoJSON || $polyGeoJSON);
-        if (!boundaryReady) return;
-        // Already showing the dialog? Don't re-open on subsequent
-        // boundary refreshes (e.g. re-fetches mid-game).
-        if ($celebrationAt !== null) return;
+        const wasNull = prev.current === null;
+        const isSet = $endsAt !== null;
+        prev.current = $endsAt;
+        if (!wasNull || !isSet) return;
+        // Only fire if the celebration isn't already open (we don't
+        // want to re-pop on a dismiss-then-mount cycle).
+        if (gameStartCelebrationAt.get() !== null) return;
         gameStartCelebrationAt.set(Date.now());
-    }, [$pending, $mapGeoJSON, $polyGeoJSON, $celebrationAt]);
+    }, [$endsAt]);
 
     return null;
 }
