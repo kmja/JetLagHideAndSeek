@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Bug, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
     leafletMapContext,
@@ -411,30 +412,40 @@ export function DebugPhaseControls() {
     const hasLatest = latestQuestion() !== null;
     const phase = currentPhase();
 
-    if (!open) {
-        return (
-            <button
-                type="button"
-                onClick={() => setOpen(true)}
-                aria-label="Open debug phase controls"
-                className={cn(
-                    "fixed left-3 top-3 z-[2000]",
-                    "w-9 h-9 flex items-center justify-center rounded-full",
-                    "bg-amber-500 text-white shadow-lg",
-                    "hover:bg-amber-400 transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300",
-                )}
-                title={`Debug phase controls · ${APP_VERSION}`}
-            >
-                <Bug className="w-4 h-4" />
-            </button>
-        );
-    }
+    // Render into a fresh body-level portal so the bug button + open
+    // panel are never trapped inside another component's stacking
+    // context or Radix's modal-Dialog sibling tree (which can mark
+    // siblings as inert and swallow clicks even when z-index is
+    // higher). Combined with z-[9999] and explicit pointer-events,
+    // this guarantees the debug control is clickable in every app
+    // state — over the welcome screen, lobby, role picker, GO GO GO
+    // celebration, anything.
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+    if (!mounted || typeof document === "undefined") return null;
 
-    return (
+    const content = !open ? (
+        <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label="Open debug phase controls"
+            className={cn(
+                "fixed left-3 top-3 z-[9999] pointer-events-auto",
+                "w-9 h-9 flex items-center justify-center rounded-full",
+                "bg-amber-500 text-white shadow-lg",
+                "hover:bg-amber-400 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300",
+            )}
+            title={`Debug phase controls · ${APP_VERSION}`}
+        >
+            <Bug className="w-4 h-4" />
+        </button>
+    ) : (
         <div
             className={cn(
-                "fixed left-3 top-3 z-[2000]",
+                "fixed left-3 top-3 z-[9999] pointer-events-auto",
                 "w-[300px] max-h-[85vh] overflow-y-auto",
                 "bg-background text-foreground border-2 border-amber-500 rounded-md shadow-2xl",
                 "text-xs",
@@ -624,6 +635,8 @@ export function DebugPhaseControls() {
             </div>
         </div>
     );
+
+    return createPortal(content, document.body);
 }
 
 function phaseLabel(p: Phase): string {
