@@ -151,12 +151,36 @@ export function setBytesForUrl(
 
 /** Register a piece in the waiting state — used so the row
  *  appears immediately when the fetch is queued, before any
- *  bytes arrive. */
+ *  bytes arrive.
+ *
+ *  Dedup by label: if a piece with the same user-visible label
+ *  already exists (e.g. a primary mirror just failed and we're
+ *  about to try the fallback), reuse that row instead of
+ *  appending a new one. The row's id gets updated to the new
+ *  URL so subsequent setBytes/markDone/markFailed calls (which
+ *  key off URL) find it, and the state resets to "waiting" so
+ *  the user sees the retry rather than a stale failure. */
 export function registerPiece(url: string, label: string): void {
     if (!loadingProgress.get()) return;
     const pieces = loadingPieces.get();
-    const idx = pieces.findIndex((p) => p.id === url);
-    if (idx >= 0) return; // already registered
+    // Exact-URL dedup: no-op if this very URL was already registered.
+    if (pieces.some((p) => p.id === url)) return;
+    // Same-label dedup: a retry on a different mirror. Reuse the
+    // existing row and reset its tracking.
+    const byLabel = pieces.findIndex((p) => p.label === label);
+    if (byLabel >= 0) {
+        const next = [...pieces];
+        next[byLabel] = {
+            ...next[byLabel],
+            id: url,
+            downloaded: 0,
+            total: null,
+            state: "waiting",
+        };
+        loadingPieces.set(next);
+        recomputeAndPublish();
+        return;
+    }
     loadingPieces.set([
         ...pieces,
         {
@@ -191,7 +215,13 @@ export function markPieceDone(url: string): void {
 
 /** Mark a piece as failed — keeps it in the list so the user
  *  sees that one of the parallel fetches errored, while the
- *  rest can still finish. */
+ *  rest can still finish.
+ *
+ *  No-op if the URL no longer matches any piece. This happens
+ *  when a primary-mirror failure marker arrives AFTER the
+ *  registerPiece call for the fallback URL has already taken
+ *  over the row (id was reassigned to the fallback URL). The
+ *  stale failure must not overwrite a legitimate retry-in-flight. */
 export function markPieceFailed(url: string): void {
     const pieces = loadingPieces.get();
     const idx = pieces.findIndex((p) => p.id === url);

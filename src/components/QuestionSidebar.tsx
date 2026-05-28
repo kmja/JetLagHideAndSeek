@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { ListChecks, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -23,7 +23,11 @@ import {
     triggerLocalRefresh,
 } from "@/lib/context";
 
+import { playerRole } from "@/lib/hiderRole";
+import { currentGameCode } from "@/lib/multiplayer/session";
+
 import { AddQuestionDialog } from "./AddQuestionDialog";
+import { HideSeekMark, RoleChip } from "./JetLagLogo";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -39,6 +43,8 @@ export const QuestionSidebar = () => {
     const $autoSave = useStore(autoSave);
     const $isLoading = useStore(isLoading);
     const $mobileOpen = useStore(questionsDrawerOpen);
+    const $playerRole = useStore(playerRole);
+    const $gameCode = useStore(currentGameCode);
 
     // Newest-first display order. The store keeps questions in insertion
     // order so we don't mutate it — just iterate in reverse for the UI.
@@ -104,7 +110,17 @@ export const QuestionSidebar = () => {
 
     const innerContent = (
         <>
-            <h2 className="ml-4 mt-4 font-poppins text-2xl">Questions</h2>
+            <div className="flex items-center justify-between gap-2 mx-4 mt-4">
+                <h2 className="font-display font-extrabold text-2xl uppercase leading-none" style={{ letterSpacing: "-0.02em" }}>
+                    Questions
+                </h2>
+                {$playerRole && (
+                    <RoleChip
+                        role={$playerRole}
+                        tag={$gameCode ?? undefined}
+                    />
+                )}
+            </div>
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarGroupContent>
@@ -160,17 +176,16 @@ export const QuestionSidebar = () => {
                             <div
                                 className={cn(
                                     "mx-2 my-2 rounded-md border-2 border-dashed border-border",
-                                    "px-4 py-6 flex flex-col items-center text-center gap-2",
+                                    "px-4 py-8 flex flex-col items-center text-center gap-3",
                                 )}
                             >
-                                <ListChecks
-                                    className="w-8 h-8 text-muted-foreground/60"
-                                    strokeWidth={1.5}
-                                />
-                                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                <div className="opacity-60">
+                                    <HideSeekMark size={56} onDark />
+                                </div>
+                                <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
                                     No questions yet
                                 </div>
-                                <p className="text-xs text-muted-foreground leading-snug max-w-[20ch]">
+                                <p className="text-xs text-muted-foreground leading-snug max-w-[22ch]">
                                     Tap <span className="font-semibold text-foreground">NEW QUESTION</span> in
                                     the bottom nav to ask your first one.
                                 </p>

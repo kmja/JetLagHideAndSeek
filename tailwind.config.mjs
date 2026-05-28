@@ -58,6 +58,10 @@ export default {
     			}
     		},
     		fontFamily: {
+    			// Display — M PLUS Rounded 1c. Used for the HIDE+SEEK
+    			// wordmark and any header that wants to echo the rulebook
+    			// cover (rounded geometric, heavy weight).
+    			display: ["'M PLUS Rounded 1c'", "system-ui", "sans-serif"],
     			// Headings — Inter Tight (condensed, sharp terminals). We
     			// keep the legacy `font-poppins` class name as an alias so
     			// existing call-sites don't all need rewriting in one batch.

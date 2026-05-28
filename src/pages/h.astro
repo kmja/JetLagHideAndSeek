@@ -2,6 +2,7 @@
 import Layout from "@/layouts/Layout.astro";
 import { HiderView } from "@/components/HiderView";
 import { DebugPhaseControls } from "@/components/DebugPhaseControls";
+import { GameLobbyDialog } from "@/components/GameLobbyDialog";
 import { GameSetupDialog } from "@/components/GameSetupDialog";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
@@ -18,6 +19,11 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
         so the hider has the same access the seeker does via the
         BottomNav settings sheet. Triggered from HiderHome's header. */}
     <GameSetupDialog client:only="react" />
+    {/* Pre-game lobby. Same component as on the seeker page; it
+        auto-detects the hider role and renders the waiting state
+        (no map readiness check, no Start button — the hider can't
+        start, only the host on / can). */}
+    <GameLobbyDialog client:only="react" />
     {/* Hiding-period gate + GO GO GO moment. Same watchers as
         index.astro so the hider sees the celebration too once the
         boundary load completes. */}

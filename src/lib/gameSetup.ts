@@ -25,6 +25,17 @@ export const setupCompleted = persistentAtom<boolean>(
     { encode: JSON.stringify, decode: JSON.parse },
 );
 
+/**
+ * Whether the user has dismissed the first-load welcome screen. The
+ * welcome screen takes precedence over the setup wizard — while
+ * `welcomeSeen` is false, the wizard suppresses its auto-open so the
+ * two don't race.
+ */
+export const welcomeSeen = persistentAtom<boolean>("welcomeSeen", false, {
+    encode: JSON.stringify,
+    decode: JSON.parse,
+});
+
 /** The play area as a named place + coordinates. */
 export const playArea = persistentAtom<{
     displayName: string;

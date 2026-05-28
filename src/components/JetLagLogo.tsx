@@ -125,17 +125,53 @@ export function HideSeekMark({
 export function HideSeekWordmark({
     className,
     showTagline = false,
+    /**
+     * Box-cover layout: wordmark, full-width horizontal rule, then
+     * `a transit game · find your friends` split left/right beneath.
+     * Implies `showTagline`. Used for hero surfaces (welcome screen,
+     * setup wizard header, splash) where we want to echo the rulebook
+     * cover. Defaults off to keep tight inline usages unaffected.
+     */
+    boxLayout = false,
+    size = "default",
 }: {
     className?: string;
     showTagline?: boolean;
+    boxLayout?: boolean;
+    size?: "default" | "lg" | "xl";
 }) {
+    const tagline = showTagline || boxLayout;
+    const wordmarkClass =
+        size === "xl"
+            ? "text-5xl"
+            : size === "lg"
+              ? "text-4xl"
+              : "text-3xl";
     return (
         <div className={cn("inline-flex flex-col", className)}>
-            <span className="font-inter-tight font-black uppercase tracking-tight leading-none text-3xl">
-                HIDE<span className="font-light mx-0.5">+</span>SEEK
+            <span
+                className={cn(
+                    "font-display font-black uppercase leading-none",
+                    wordmarkClass,
+                )}
+                style={{ letterSpacing: "-0.05em" }}
+            >
+                HIDE
+                <span className="text-primary">+</span>
+                SEEK
             </span>
-            {showTagline && (
-                <div className="mt-1.5 flex justify-between text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground">
+            {boxLayout && (
+                <div className="mt-2.5 h-[2px] w-full bg-current opacity-95" />
+            )}
+            {tagline && (
+                <div
+                    className={cn(
+                        "flex justify-between font-medium",
+                        boxLayout
+                            ? "mt-2 text-[13px] tracking-[0.005em]"
+                            : "mt-1.5 text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground",
+                    )}
+                >
                     <span>a transit game</span>
                     <span>find your friends</span>
                 </div>
@@ -164,7 +200,7 @@ export function SectionPill({
         <span
             className={cn(
                 "inline-flex items-center px-2 py-0.5 rounded-sm",
-                "font-inter-tight font-extrabold uppercase tracking-[0.12em] text-[11px] leading-none",
+                "font-inter-tight font-extrabold uppercase tracking-[0.08em] text-[11px] leading-none",
                 tone === "dark"
                     ? "bg-[hsl(210_30%_14%)] text-white"
                     : "bg-white text-[hsl(210_30%_14%)]",
@@ -172,6 +208,70 @@ export function SectionPill({
             )}
         >
             {children}
+        </span>
+    );
+}
+
+/* ────────────────── Role chip ────────────────── */
+
+/**
+ * Outlined chip showing the local player's role — modeled on the
+ * JET LAG · THE GAME lockup from the box: an outlined rectangle
+ * with heavy uppercase text and a small yellow "tag" pill underneath.
+ *
+ * Tone:
+ *   - "onDark"  (default) — white border + text, transparent fill.
+ *   - "onLight"            — primary border + text, on a transparent fill.
+ *
+ * Pass `tag` to render the secondary yellow pill (e.g. a room code).
+ */
+export function RoleChip({
+    role,
+    tag,
+    onDark = true,
+    className,
+}: {
+    role: "seeker" | "hider" | "coHider";
+    tag?: string;
+    onDark?: boolean;
+    className?: string;
+}) {
+    const label =
+        role === "seeker"
+            ? "Seeker"
+            : role === "hider"
+              ? "Hider"
+              : "Co-hider";
+    const border = onDark ? "border-white text-white" : "border-primary text-primary";
+    return (
+        <span
+            className={cn(
+                "inline-flex flex-col items-center gap-0.5",
+                "rounded-md border-[1.5px] px-2.5 pt-1 pb-1.5",
+                "leading-none",
+                border,
+                className,
+            )}
+            aria-label={`Your role: ${label}`}
+        >
+            <span
+                className="font-display font-extrabold uppercase text-[13px]"
+                style={{ letterSpacing: "0.02em" }}
+            >
+                {label}
+            </span>
+            {tag && (
+                <span
+                    className={cn(
+                        "rounded-[3px] px-1 py-[1px]",
+                        "font-display font-extrabold uppercase text-[8px]",
+                        "tabular-nums tracking-[0.08em]",
+                        "bg-[hsl(var(--accent-yellow))] text-[hsl(var(--sidebar-background))]",
+                    )}
+                >
+                    {tag}
+                </span>
+            )}
         </span>
     );
 }

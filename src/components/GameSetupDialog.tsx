@@ -47,6 +47,7 @@ import {
     SIZE_DESCRIPTIONS,
     setupCompleted,
     setupDialogOpen,
+    welcomeSeen,
     TRANSIT_LABELS,
     type GameSize,
     type TransitMode,
@@ -226,10 +227,16 @@ export function GameSetupDialog() {
     const $allowedTransit = useStore(allowedTransit);
     const $gameSize = useStore(gameSize);
     const $setupCompleted = useStore(setupCompleted);
+    const $welcomeSeen = useStore(welcomeSeen);
 
+    // Auto-open the wizard on first load — but only once the user has
+    // dismissed the welcome screen (otherwise the two dialogs race and
+    // stack). Reactive on welcomeSeen so the wizard pops the moment
+    // the welcome screen flips it.
     useEffect(() => {
+        if (!$welcomeSeen) return;
         if (!setupCompleted.get()) setupDialogOpen.set(true);
-    }, []);
+    }, [$welcomeSeen]);
 
     const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
     const [draftFeature, setDraftFeature] = useState<OpenStreetMap | null>(
@@ -506,7 +513,10 @@ export function GameSetupDialog() {
                                     Edit
                                 </SectionPill>
                             </div>
-                            <DialogTitle className="font-inter-tight font-black uppercase text-2xl tracking-tight leading-tight">
+                            <DialogTitle
+                                className="font-display font-black uppercase text-2xl leading-tight"
+                                style={{ letterSpacing: "-0.02em" }}
+                            >
                                 Game settings
                             </DialogTitle>
                             <DialogDescription className="mt-2 text-sm">
@@ -569,7 +579,10 @@ export function GameSetupDialog() {
                                     Step {step} / 4
                                 </SectionPill>
                             </div>
-                            <DialogTitle className="font-inter-tight font-black uppercase text-2xl tracking-tight leading-tight">
+                            <DialogTitle
+                                className="font-display font-black uppercase text-2xl leading-tight"
+                                style={{ letterSpacing: "-0.02em" }}
+                            >
                                 {step === 1 && "Where are you playing?"}
                                 {step === 2 && "Nearby areas to include?"}
                                 {step === 3 && "What transit is allowed?"}
@@ -767,8 +780,18 @@ function PlayAreaStep({
                         setGpsState("no-match");
                         return;
                     }
-                    setQuery(name);
-                    setGpsState("done");
+                    // Don't stomp the user's typing if they started
+                    // while the geolocation + reverse-geocode round-trip
+                    // was in flight. The functional setter reads the
+                    // freshest state — the closure captured `query` at
+                    // tryGpsSuggest call time which is stale by now.
+                    let applied = false;
+                    setQuery((curr) => {
+                        if (curr.length > 0) return curr;
+                        applied = true;
+                        return name;
+                    });
+                    setGpsState(applied ? "done" : "no-match");
                 } catch {
                     setGpsState("no-match");
                 }

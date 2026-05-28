@@ -290,7 +290,10 @@ export const BottomNav = () => {
                         >
                             {hiding ? (
                                 <Timer
-                                    className="w-5 h-5 text-primary"
+                                    className="w-5 h-5"
+                                    style={{
+                                        color: "hsl(var(--accent-yellow))",
+                                    }}
                                     strokeWidth={2}
                                 />
                             ) : (
@@ -302,8 +305,15 @@ export const BottomNav = () => {
                             <span
                                 className={cn(
                                     navLabelClass,
-                                    hiding && "tabular-nums text-primary",
+                                    hiding && "tabular-nums",
                                 )}
+                                style={
+                                    hiding
+                                        ? {
+                                              color: "hsl(var(--accent-yellow))",
+                                          }
+                                        : undefined
+                                }
                             >
                                 {hiding
                                     ? formatTimeRemaining(remainingMs)
@@ -345,7 +355,12 @@ export const BottomNav = () => {
                                             <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-inter-tight font-bold mb-2">
                                                 Time remaining
                                             </div>
-                                            <div className="text-5xl font-inter-tight italic font-black tabular-nums text-primary leading-none">
+                                            <div
+                                                className="text-5xl font-inter-tight italic font-black tabular-nums leading-none"
+                                                style={{
+                                                    color: "hsl(var(--accent-yellow))",
+                                                }}
+                                            >
                                                 {formatTimeRemaining(
                                                     remainingMs,
                                                 )}
