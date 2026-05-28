@@ -715,8 +715,18 @@ function PlayAreaStep({
                         setGpsState("no-match");
                         return;
                     }
-                    setQuery(name);
-                    setGpsState("done");
+                    // Don't stomp the user's typing if they started
+                    // while the geolocation + reverse-geocode round-trip
+                    // was in flight. The functional setter reads the
+                    // freshest state — the closure captured `query` at
+                    // tryGpsSuggest call time which is stale by now.
+                    let applied = false;
+                    setQuery((curr) => {
+                        if (curr.length > 0) return curr;
+                        applied = true;
+                        return name;
+                    });
+                    setGpsState(applied ? "done" : "no-match");
                 } catch {
                     setGpsState("no-match");
                 }
