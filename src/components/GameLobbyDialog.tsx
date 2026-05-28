@@ -6,9 +6,9 @@ import {
     Loader2,
     LogOut,
     MapPin,
-    Rocket,
     Share2,
     Users,
+    X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
@@ -19,6 +19,7 @@ import {
     mapGeoJSON,
     polyGeoJSON,
 } from "@/lib/context";
+import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
 import {
     HIDING_PERIOD_MINUTES,
     gameSize,
@@ -39,7 +40,12 @@ import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
 import { loadingProgress } from "@/lib/loadingProgress";
 import { cn } from "@/lib/utils";
 
-import { HideSeekMark, HideSeekWordmark, RoleChip } from "./JetLagLogo";
+import {
+    HideSeekMark,
+    HideSeekWordmark,
+    JetLagLogo,
+    RoleChip,
+} from "./JetLagLogo";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -81,6 +87,7 @@ export function GameLobbyDialog() {
     const $pending = useStore(pendingHidingDurationMin);
     const $size = useStore(gameSize);
     const $loading = useStore(loadingProgress);
+    const $pieces = useStore(loadingPieces);
 
     const open =
         $welcomeSeen &&
@@ -98,9 +105,13 @@ export function GameLobbyDialog() {
         (p) =>
             p.online && (p.role === "hider" || p.role === "coHider"),
     );
-    const hasRoleBalance = $mp
-        ? seekers.length >= 1 && hiders.length >= 1
-        : true;
+    // Require a real room with at least one seeker AND one hider.
+    // Solo "single device" play is not allowed — the wizard now
+    // always auto-creates a multiplayer room on finish, so the only
+    // way to be without $mp is an autohost network failure, which
+    // shouldn't let the player start either.
+    const hasRoleBalance =
+        $mp && seekers.length >= 1 && hiders.length >= 1;
 
     // Identify the host. In a multiplayer room the host owns the
     // clock kickoff; guests see a "waiting for host to start"
@@ -191,10 +202,15 @@ export function GameLobbyDialog() {
                     "flex flex-col p-0 gap-0 max-h-[92vh] sm:max-w-md",
                 )}
             >
-                {/* Hero: wordmark + role chip */}
+                {/* Hero: full box-layout lockup —
+                    JET LAG : THE GAME plate above the wordmark,
+                    HIDE+SEEK wordmark with rule + split subline
+                    below, peak mark off to the side. Matches the
+                    box face composition. */}
                 <div className="px-6 pt-6 pb-4 flex flex-col items-center text-center gap-3">
-                    <HideSeekMark size={56} onDark />
-                    <HideSeekWordmark boxLayout size="lg" />
+                    <JetLagLogo size={28} showWordmark className="text-white" />
+                    <HideSeekMark size={64} onDark />
+                    <HideSeekWordmark boxLayout size="xl" />
                     <DialogTitle className="sr-only">
                         Game lobby — waiting to start
                     </DialogTitle>
@@ -317,30 +333,66 @@ export function GameLobbyDialog() {
                             <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
                                 Map
                             </div>
-                            <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 flex items-center gap-3">
-                                {mapReady ? (
-                                    <>
-                                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/15 text-primary shrink-0">
-                                            <Check className="w-4 h-4" />
-                                        </span>
-                                        <div className="text-sm">
-                                            Play area ready
-                                        </div>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
-                                        <div className="text-sm min-w-0 flex-1">
-                                            <div className="truncate">
-                                                {$loading?.title ??
-                                                    "Loading play area"}
+                            <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 space-y-2">
+                                <div className="flex items-center gap-3">
+                                    {mapReady ? (
+                                        <>
+                                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/15 text-primary shrink-0">
+                                                <Check className="w-4 h-4" />
+                                            </span>
+                                            <div className="text-sm">
+                                                Play area ready
                                             </div>
-                                            <div className="text-xs text-muted-foreground truncate">
-                                                {$loading?.phase ??
-                                                    "Fetching boundary…"}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
+                                            <div className="text-sm min-w-0 flex-1">
+                                                <div className="truncate">
+                                                    {$loading?.title ??
+                                                        "Loading play area"}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground truncate">
+                                                    {$loading?.phase ??
+                                                        "Fetching boundary…"}
+                                                </div>
                                             </div>
-                                        </div>
-                                    </>
+                                        </>
+                                    )}
+                                </div>
+                                {/* Per-piece list — surfaces each
+                                    adjacent area as its own row so the
+                                    host can see exactly which fetches
+                                    are queued / streaming / done /
+                                    failed. Hidden once the boundary
+                                    is fully ready (clean state). */}
+                                {!mapReady && $pieces.length > 0 && (
+                                    <ul className="flex flex-col gap-1 max-h-48 overflow-y-auto pt-1 border-t border-border/50">
+                                        {$pieces.map((p) => (
+                                            <li
+                                                key={p.id}
+                                                className="flex items-center justify-between gap-2 text-[11px]"
+                                            >
+                                                <span className="flex items-center gap-1.5 min-w-0">
+                                                    <PieceIcon state={p.state} />
+                                                    <span
+                                                        className={cn(
+                                                            "truncate",
+                                                            p.state === "done" &&
+                                                                "text-muted-foreground line-through decoration-muted-foreground/40",
+                                                            p.state === "failed" &&
+                                                                "text-destructive",
+                                                        )}
+                                                    >
+                                                        {p.label}
+                                                    </span>
+                                                </span>
+                                                <span className="tabular-nums text-muted-foreground shrink-0">
+                                                    {pieceStatusLabel(p)}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
                                 )}
                             </div>
                         </div>
@@ -365,7 +417,6 @@ export function GameLobbyDialog() {
                                     }
                                 }}
                             >
-                                <Rocket className="w-4 h-4" />
                                 Open seeker page to start
                             </Button>
                         ) : (
@@ -384,18 +435,30 @@ export function GameLobbyDialog() {
                             <Button
                                 size="lg"
                                 className={cn(
-                                    "w-full h-14 gap-2 text-base",
-                                    "font-display font-extrabold uppercase tracking-[0.02em]",
+                                    "w-full h-16 flex flex-col items-center justify-center gap-0.5",
+                                    "font-display uppercase",
                                 )}
                                 onClick={handleStartGame}
                                 disabled={!canStart}
                             >
-                                <Rocket className="w-5 h-5" />
-                                {canStart
-                                    ? `Start game · ${minutes}-min hiding period`
-                                    : !hasRoleBalance
-                                      ? "Waiting for players…"
-                                      : "Start game"}
+                                <span
+                                    className="text-base font-extrabold leading-none"
+                                    style={{ letterSpacing: "0.02em" }}
+                                >
+                                    {canStart
+                                        ? "Start game"
+                                        : !hasRoleBalance
+                                          ? "Waiting for players…"
+                                          : "Start game"}
+                                </span>
+                                {canStart && (
+                                    <span
+                                        className="text-[10px] font-semibold opacity-80 leading-none mt-1"
+                                        style={{ letterSpacing: "0.14em" }}
+                                    >
+                                        {minutes}-min hiding period
+                                    </span>
+                                )}
                             </Button>
                             {/* Map still streaming? The host can start
                                 anyway — let them know the seeker side
@@ -438,6 +501,41 @@ export function GameLobbyDialog() {
             </DialogContent>
         </Dialog>
     );
+}
+
+function PieceIcon({
+    state,
+}: {
+    state: "waiting" | "streaming" | "done" | "failed";
+}) {
+    if (state === "done")
+        return <Check className="w-3 h-3 text-primary shrink-0" />;
+    if (state === "failed")
+        return <X className="w-3 h-3 text-destructive shrink-0" />;
+    if (state === "streaming")
+        return (
+            <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
+        );
+    return (
+        <span className="w-3 h-3 rounded-full border border-muted-foreground/40 shrink-0" />
+    );
+}
+
+function pieceStatusLabel(p: {
+    state: "waiting" | "streaming" | "done" | "failed";
+    downloaded: number;
+    total: number | null;
+}): string {
+    if (p.state === "waiting") return "queued";
+    if (p.state === "failed") return "failed";
+    if (p.state === "done") {
+        return p.downloaded > 0 ? formatBytes(p.downloaded) : "done";
+    }
+    if (p.downloaded <= 0) return "starting…";
+    if (p.total !== null && p.total > 0) {
+        return `${formatBytes(p.downloaded)} / ~${formatBytes(p.total)}`;
+    }
+    return formatBytes(p.downloaded);
 }
 
 function RoleDot({ role }: { role: "seeker" | "hider" | "coHider" | null }) {

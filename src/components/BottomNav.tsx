@@ -397,6 +397,21 @@ export const BottomNav = () => {
                                         >
                                             End hiding period · Start seeking
                                         </Button>
+                                        {/* Game settings remain editable
+                                            during the hiding period — the
+                                            host can still tweak transit /
+                                            size or add adjacent areas
+                                            while the hider is en route. */}
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                setGameSheetOpen(false);
+                                                setupDialogOpen.set(true);
+                                            }}
+                                            className="w-full mt-2"
+                                        >
+                                            Edit settings
+                                        </Button>
                                     </div>
                                 )}
 

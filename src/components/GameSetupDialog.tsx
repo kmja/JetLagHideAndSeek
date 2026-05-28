@@ -430,14 +430,16 @@ export function GameSetupDialog() {
         setupCompleted.set(true);
         setupDialogOpen.set(false);
 
-        // Auto-host an online room (unless already in one). Every new
-        // game gets a multiplayer code by default — sharing is opt-in
-        // (do nothing and the room idles out via the Worker's TTL),
-        // but if friends want to join later the code is already live.
-        const trimmedName = draftDisplayName.trim();
+        // Auto-host an online room (unless already in one). Every
+        // new game gets a multiplayer code by default — even if the
+        // host didn't type a display name yet — so the lobby always
+        // has an invite to share and the role-balance gate (>=1
+        // seeker AND >=1 hider) is enforced from the start. The
+        // host can rename themselves later from the InvitePanel.
+        const trimmedName = draftDisplayName.trim() || "Host";
         const alreadyOnline =
             multiplayerEnabled.get() && currentGameCode.get();
-        if (trimmedName && !alreadyOnline) {
+        if (!alreadyOnline) {
             displayNameAtom.set(trimmedName);
             createGame()
                 .then((newCode) => {
@@ -449,7 +451,7 @@ export function GameSetupDialog() {
                     // immediately after `joinAsHost`.
                     hostPushSetup();
                     toast.info(
-                        `Online room ${newCode} ready — share from Game settings.`,
+                        `Game room ${newCode} ready — share the link from the lobby.`,
                         { autoClose: 3500 },
                     );
                 })
@@ -459,8 +461,8 @@ export function GameSetupDialog() {
                     // start (they can retry from Game settings).
                     toast.warn(
                         e instanceof Error
-                            ? `Online room not started: ${e.message}`
-                            : "Online room not started.",
+                            ? `Game room not started: ${e.message}`
+                            : "Game room not started.",
                         { autoClose: 3500 },
                     );
                 });

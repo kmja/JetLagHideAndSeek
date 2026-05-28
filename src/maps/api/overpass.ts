@@ -578,20 +578,67 @@ export const determineMapBoundaries = async () => {
             { location: primary, added: true, base: true },
             ...extras.map((e) => ({ ...e, base: false })),
         ];
+        const fetchEntry = async (entry: (typeof entries)[number]) => ({
+            added: entry.added,
+            data: await determineGeoJSON(
+                entry.location.properties.osm_id.toString(),
+                entry.location.properties.osm_type,
+                /* silent */ true,
+                /* reportProgress */ true,
+                labelFor(entry.location, entry.base),
+            ),
+        });
         const mapGeoDatum = await mapWithConcurrency(
             entries,
             BOUNDARY_FETCH_CONCURRENCY,
-            async (entry) => ({
-                added: entry.added,
-                data: await determineGeoJSON(
-                    entry.location.properties.osm_id.toString(),
-                    entry.location.properties.osm_type,
-                    /* silent */ true,
-                    /* reportProgress */ true,
-                    labelFor(entry.location, entry.base),
-                ),
-            }),
+            fetchEntry,
         );
+
+        // Retry pass for empty-result pieces. The user-visible
+        // symptom this fixes: occasionally a multi-area load
+        // completes "successfully" but with one or more adjacent
+        // areas silently missing — usually because the Overpass
+        // public mirror rate-limited that one fetch and getOverpassData
+        // returned `{ elements: [] }` rather than throwing. The fix
+        // is to detect any feature-empty entries after the initial
+        // pass and re-fetch JUST those after a small delay, giving
+        // the rate-limit window time to relax.
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            const failedIdx: number[] = [];
+            mapGeoDatum.forEach((result, i) => {
+                if (
+                    !result?.data?.features ||
+                    result.data.features.length === 0
+                ) {
+                    failedIdx.push(i);
+                }
+            });
+            if (failedIdx.length === 0) break;
+            // Don't burn retries on a totally-broken initial pass
+            // (every piece empty) — that's a hard failure, not a
+            // rate-limit blip. Let the outer flow surface it.
+            if (failedIdx.length === entries.length) break;
+            setPhase(
+                `Retrying ${failedIdx.length} area${failedIdx.length === 1 ? "" : "s"}…`,
+            );
+            await new Promise((r) => setTimeout(r, attempt * 3000));
+            const retried = await mapWithConcurrency(
+                failedIdx.map((i) => entries[i]),
+                BOUNDARY_FETCH_CONCURRENCY,
+                fetchEntry,
+            );
+            retried.forEach((result, j) => {
+                const i = failedIdx[j];
+                // Only replace if the retry actually returned features —
+                // a second empty result is worse than no replacement.
+                if (
+                    result?.data?.features &&
+                    result.data.features.length > 0
+                ) {
+                    mapGeoDatum[i] = result;
+                }
+            });
+        }
 
         // Parse phase. osmtogeojson already ran inside
         // determineGeoJSON; what's expensive next is the union /
