@@ -308,23 +308,26 @@ export const reverseGeocode = (
 };
 
 /**
- * Reverse geocoding tuned for the play-area picker. Prefers the
- * **city/town** level over hyper-local labels like suburb /
- * neighbourhood, falling back upward (county → state → country) if
- * Photon doesn't surface a city for the coordinates. The play-area
- * search then runs forward geocode on this name and lands a proper
- * admin relation.
+ * Reverse geocoding tuned for the play-area picker. Returns an
+ * ORDERED candidate list, most-specific → least-specific, so the
+ * caller can iterate and try each against the forward geocoder
+ * until one actually yields OSM admin relations. This handles the
+ * common case where the user's town name (e.g. "Falun") has no
+ * matching OSM relation but the surrounding municipality
+ * ("Falu kommun") or county ("Dalarna") does.
  *
- * The plain `reverseGeocode` above biases toward narrow names
- * ("Eixample", "Södermalm") which is the right call for the question
- * "what's the nearest neighbourhood" but the wrong one for "what
- * city am I in" — we keep both helpers separate so neither caller
- * gets the wrong bias.
+ * Order: city/town → municipality → county → state → country.
+ * Each candidate (except the country itself) gets the country
+ * appended for forward-search disambiguation; for big multi-state
+ * countries the state also gets appended (US Springfield problem).
+ *
+ * Returns `null` only when no admin levels could be extracted from
+ * Photon's reverse response.
  */
 export const reverseGeocodeCity = (
     lat: number,
     lng: number,
-): Promise<string | null> => {
+): Promise<string[] | null> => {
     if (typeof lat !== "number" || typeof lng !== "number") {
         return Promise.resolve(null);
     }
@@ -338,17 +341,27 @@ export const reverseGeocodeCity = (
             const data = await resp.json();
             const first = data?.features?.[0]?.properties ?? null;
             if (!first) return null;
-            // Pick the most-specific locality name available.
-            const place =
-                first.city ||
-                first.town ||
-                first.municipality ||
-                first.county ||
-                first.state ||
-                first.country ||
-                first.name ||
-                null;
-            if (!place) return null;
+            const country = first.country as string | undefined;
+            const state = first.state as string | undefined;
+
+            // Build ordered candidates, dedup'd.
+            const places: string[] = [];
+            const push = (s: unknown) => {
+                if (typeof s !== "string" || !s) return;
+                if (!places.includes(s)) places.push(s);
+            };
+            push(first.city);
+            push(first.town);
+            push(first.municipality);
+            push(first.county);
+            push(first.state);
+            push(first.country);
+            // Photon sometimes only fills `name` for very granular
+            // results (e.g. a single building). Keep it as a last
+            // resort but after all admin levels.
+            push(first.name);
+            if (places.length === 0) return null;
+
             // Disambiguate against same-named places elsewhere in the
             // world by appending the country (and state, where it
             // meaningfully helps — e.g. "Springfield, Illinois, United
@@ -358,20 +371,27 @@ export const reverseGeocodeCity = (
             // surface a US town first depending on Photon's intrinsic
             // popularity ranking, which is the opposite of what the
             // user wants when they're physically in Sweden.
-            const country = first.country as string | undefined;
-            const state = first.state as string | undefined;
-            // Avoid pinning a state qualifier when the country isn't
-            // big enough to need it (state already implies country
-            // for the US, AU, BR, etc., but adding it for a tiny
-            // country can match badly).
-            const needsState =
-                (country && /^(United States|USA|US|Canada|Australia|Brazil|Mexico|India|China|Germany|France|Spain|Italy|Russia|Argentina|United Kingdom|UK)$/i.test(country)) &&
-                state &&
-                state !== place;
-            const parts = [place];
-            if (needsState) parts.push(state!);
-            if (country && country !== place) parts.push(country);
-            return parts.join(", ");
+            const needsStateQualifier =
+                country !== undefined &&
+                /^(United States|USA|US|Canada|Australia|Brazil|Mexico|India|China|Germany|France|Spain|Italy|Russia|Argentina|United Kingdom|UK)$/i.test(
+                    country,
+                );
+            const qualify = (place: string): string => {
+                // Don't tag the country onto itself.
+                if (place === country) return place;
+                const parts = [place];
+                if (
+                    needsStateQualifier &&
+                    state &&
+                    state !== place &&
+                    place !== country
+                ) {
+                    parts.push(state);
+                }
+                if (country && country !== place) parts.push(country);
+                return parts.join(", ");
+            };
+            return places.map(qualify);
         })
         .catch(() => null);
 };

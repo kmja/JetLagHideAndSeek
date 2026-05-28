@@ -113,17 +113,18 @@ export function GameLobbyDialog() {
     const hostId = sorted[0]?.id ?? null;
     const isHost = !$mp || hostId === null || hostId === $self;
 
-    // The boundary fetch only runs on the seeker page (Map.tsx), so a
-    // hider device's mapGeoJSON / polyGeoJSON stay null even when the
-    // host's map is fully loaded. Don't gate the hider lobby on a
-    // local boundary load that will never happen — the hider has no
-    // Start button to press anyway.
+    // Start gates on role balance + host status only — NOT on the
+    // boundary load. The Overpass fetch for a big play area can
+    // take 30-90 seconds in the wild, and blocking the social
+    // setup (invite, share, "go go go") on it makes the host wait
+    // around for nothing. The clock kicks off the moment Start is
+    // pressed; the map keeps streaming in the background and lights
+    // up under the dismissed celebration. Seekers can't ask
+    // questions until the boundary is in (the MapLoadingOverlay
+    // covers it), but the hiding-period clock is ticking — which
+    // is what the host actually wants when they press Start.
     const canStart =
-        (mapReady || isHiderRole) &&
-        hasRoleBalance &&
-        isHost &&
-        !isHiderRole &&
-        $playerRole !== null;
+        hasRoleBalance && isHost && !isHiderRole && $playerRole !== null;
 
     const minutes =
         $pending && $pending > 0
@@ -379,24 +380,35 @@ export function GameLobbyDialog() {
                             </div>
                         )
                     ) : isHost ? (
-                        <Button
-                            size="lg"
-                            className={cn(
-                                "w-full h-14 gap-2 text-base",
-                                "font-display font-extrabold uppercase tracking-[0.02em]",
+                        <>
+                            <Button
+                                size="lg"
+                                className={cn(
+                                    "w-full h-14 gap-2 text-base",
+                                    "font-display font-extrabold uppercase tracking-[0.02em]",
+                                )}
+                                onClick={handleStartGame}
+                                disabled={!canStart}
+                            >
+                                <Rocket className="w-5 h-5" />
+                                {canStart
+                                    ? `Start game · ${minutes}-min hiding period`
+                                    : !hasRoleBalance
+                                      ? "Waiting for players…"
+                                      : "Start game"}
+                            </Button>
+                            {/* Map still streaming? The host can start
+                                anyway — let them know the seeker side
+                                will catch up once the boundary lands. */}
+                            {!mapReady && canStart && (
+                                <p className="text-[11px] text-muted-foreground leading-snug text-center">
+                                    Map is still loading — you can start
+                                    the clock now; seekers will see the
+                                    play area as soon as the boundary
+                                    finishes streaming.
+                                </p>
                             )}
-                            onClick={handleStartGame}
-                            disabled={!canStart}
-                        >
-                            <Rocket className="w-5 h-5" />
-                            {canStart
-                                ? `Start game · ${minutes}-min hiding period`
-                                : !mapReady
-                                  ? "Preparing map…"
-                                  : !hasRoleBalance
-                                    ? "Waiting for players…"
-                                    : "Start game"}
-                        </Button>
+                        </>
                     ) : (
                         <div className="text-center text-sm text-slate-300 py-2">
                             Waiting for the host to start the game…

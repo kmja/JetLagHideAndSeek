@@ -775,21 +775,64 @@ function PlayAreaStep({
             async (pos) => {
                 const { latitude, longitude } = pos.coords;
                 try {
-                    const name = await reverseGeocodeCity(latitude, longitude);
-                    if (!name) {
+                    const candidates = await reverseGeocodeCity(
+                        latitude,
+                        longitude,
+                    );
+                    if (!candidates || candidates.length === 0) {
                         setGpsState("no-match");
                         return;
                     }
-                    // Don't stomp the user's typing if they started
-                    // while the geolocation + reverse-geocode round-trip
-                    // was in flight. The functional setter reads the
-                    // freshest state — the closure captured `query` at
-                    // tryGpsSuggest call time which is stale by now.
+                    // Helper: read freshest query without committing
+                    // a write. Lets us bail mid-iteration if the user
+                    // starts typing.
+                    const peekQuery = (): string => {
+                        let curr = "";
+                        setQuery((q) => {
+                            curr = q;
+                            return q;
+                        });
+                        return curr;
+                    };
+                    // Try each candidate (most-specific → least)
+                    // until forward-geocode returns OSM relations.
+                    // Handles the Falun case: "Falun, Sweden" → no
+                    // matches → fall through to "Falu kommun,
+                    // Sweden" → Dalarna → Sweden. The first that
+                    // hits wins.
+                    let winner: string | null = null;
+                    for (const candidate of candidates) {
+                        // User started typing — abandon the
+                        // suggestion entirely, don't apply any
+                        // candidate.
+                        if (peekQuery().length > 0) {
+                            setGpsState("no-match");
+                            return;
+                        }
+                        try {
+                            const found = await geocode(candidate, "en");
+                            if (found.length > 0) {
+                                winner = candidate;
+                                break;
+                            }
+                        } catch {
+                            // Network blip on this candidate —
+                            // try the next one rather than aborting.
+                            continue;
+                        }
+                    }
+                    if (!winner) {
+                        setGpsState("no-match");
+                        return;
+                    }
+                    // Apply via functional updater, still guarding
+                    // against a late typing race in the gap between
+                    // the last peek and the commit.
                     let applied = false;
                     setQuery((curr) => {
                         if (curr.length > 0) return curr;
                         applied = true;
-                        return name;
+                        return winner!;
                     });
                     setGpsState(applied ? "done" : "no-match");
                 } catch {
@@ -1076,8 +1119,8 @@ function AdjacentDecision({
                     Some cities are tightly linked to neighbouring
                     municipalities that the map doesn't count as part of{" "}
                     <span className="font-semibold">{areaName}</span>, but which
-                    are usually played as one area (e.g. Solna and Sundbyberg
-                    with Stockholm).
+                    are usually played as one area (e.g. Brooklyn and Queens
+                    with Manhattan, or Île-de-France with Paris).
                 </p>
             </div>
             <div className="grid grid-cols-1 gap-2.5">
