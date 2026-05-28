@@ -125,22 +125,53 @@ export function HideSeekMark({
 export function HideSeekWordmark({
     className,
     showTagline = false,
+    /**
+     * Box-cover layout: wordmark, full-width horizontal rule, then
+     * `a transit game · find your friends` split left/right beneath.
+     * Implies `showTagline`. Used for hero surfaces (welcome screen,
+     * setup wizard header, splash) where we want to echo the rulebook
+     * cover. Defaults off to keep tight inline usages unaffected.
+     */
+    boxLayout = false,
+    size = "default",
 }: {
     className?: string;
     showTagline?: boolean;
+    boxLayout?: boolean;
+    size?: "default" | "lg" | "xl";
 }) {
+    const tagline = showTagline || boxLayout;
+    const wordmarkClass =
+        size === "xl"
+            ? "text-5xl"
+            : size === "lg"
+              ? "text-4xl"
+              : "text-3xl";
     return (
         <div className={cn("inline-flex flex-col", className)}>
             <span
-                className="font-display font-black uppercase leading-none text-3xl"
+                className={cn(
+                    "font-display font-black uppercase leading-none",
+                    wordmarkClass,
+                )}
                 style={{ letterSpacing: "-0.05em" }}
             >
                 HIDE
                 <span className="text-primary">+</span>
                 SEEK
             </span>
-            {showTagline && (
-                <div className="mt-1.5 flex justify-between text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground">
+            {boxLayout && (
+                <div className="mt-2.5 h-[2px] w-full bg-current opacity-95" />
+            )}
+            {tagline && (
+                <div
+                    className={cn(
+                        "flex justify-between font-medium",
+                        boxLayout
+                            ? "mt-2 text-[13px] tracking-[0.005em]"
+                            : "mt-1.5 text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground",
+                    )}
+                >
                     <span>a transit game</span>
                     <span>find your friends</span>
                 </div>
@@ -169,7 +200,7 @@ export function SectionPill({
         <span
             className={cn(
                 "inline-flex items-center px-2 py-0.5 rounded-sm",
-                "font-inter-tight font-extrabold uppercase tracking-[0.12em] text-[11px] leading-none",
+                "font-inter-tight font-extrabold uppercase tracking-[0.08em] text-[11px] leading-none",
                 tone === "dark"
                     ? "bg-[hsl(210_30%_14%)] text-white"
                     : "bg-white text-[hsl(210_30%_14%)]",

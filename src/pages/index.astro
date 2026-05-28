@@ -14,6 +14,7 @@ import { OptionDrawers } from "@/components/OptionDrawers";
 import { BottomNav } from "@/components/BottomNav";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
 import { GameSetupDialog } from "@/components/GameSetupDialog";
+import { Welcome } from "@/components/Welcome";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { TransitRoutesOverlay } from "@/components/TransitRoutesOverlay";
@@ -84,6 +85,7 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
             </main>
             <ZoneSidebar client:only />
             <BottomNav client:only />
+            <Welcome client:only />
             <GameSetupDialog client:only />
             <AnswerLinkReader client:only />
             <RolePicker client:only />
