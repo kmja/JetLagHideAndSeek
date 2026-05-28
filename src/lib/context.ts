@@ -63,12 +63,79 @@ export const permanentOverlay = persistentAtom<FeatureCollection | null>(
 export const mapGeoJSON = atom<FeatureCollection<
     Polygon | MultiPolygon
 > | null>(null);
-export const polyGeoJSON = persistentAtom<FeatureCollection<
+
+/**
+ * Play-area boundary polygon — the result of the Overpass
+ * fan-out + turf union/difference pipeline. Backed by the Cache
+ * API (see `mapBoundaryCache.ts`), NOT localStorage: country
+ * boundaries blow past localStorage's 5 MB quota and the silent
+ * write failure was producing the "ready game but missing map"
+ * symptom on reload.
+ *
+ * The atom is volatile; we hydrate it from Cache on first client
+ * mount via the side-effect below. Subscribers also write back to
+ * Cache on every change so the next page load can rehydrate
+ * without an Overpass round-trip. `polyGeoJSONHydrated` flips
+ * true once the initial cache read settles so Map.tsx can wait
+ * before deciding the boundary is missing.
+ */
+export const polyGeoJSON = atom<FeatureCollection<
     Polygon | MultiPolygon
-> | null>("polyGeoJSON", null, {
-    encode: JSON.stringify,
-    decode: JSON.parse,
-});
+> | null>(null);
+export const polyGeoJSONHydrated = atom<boolean>(false);
+
+if (typeof window !== "undefined") {
+    void (async () => {
+        // One-time migration: previous versions stored the boundary
+        // in localStorage under "polyGeoJSON". If we still have it
+        // there, move it into Cache, then remove the localStorage
+        // copy so future writes don't trip the quota again.
+        try {
+            const legacy = localStorage.getItem("polyGeoJSON");
+            if (legacy) {
+                try {
+                    const parsed = JSON.parse(legacy);
+                    if (parsed) {
+                        const { saveBoundary } = await import(
+                            "./mapBoundaryCache"
+                        );
+                        await saveBoundary(parsed);
+                        polyGeoJSON.set(parsed);
+                    }
+                } catch {
+                    /* corrupt JSON — drop it */
+                }
+                localStorage.removeItem("polyGeoJSON");
+                polyGeoJSONHydrated.set(true);
+                return;
+            }
+        } catch {
+            /* localStorage unavailable — fall through to cache */
+        }
+        try {
+            const { loadBoundary } = await import("./mapBoundaryCache");
+            const cached = await loadBoundary<
+                FeatureCollection<Polygon | MultiPolygon>
+            >();
+            if (cached && polyGeoJSON.get() === null) {
+                polyGeoJSON.set(cached);
+            }
+        } catch {
+            /* no-op */
+        } finally {
+            polyGeoJSONHydrated.set(true);
+        }
+    })();
+    // Persist subsequent atom changes back to Cache. We do this
+    // dynamically-imported so the SSR build doesn't reach for
+    // caches at module-evaluation time.
+    polyGeoJSON.subscribe((value) => {
+        void import("./mapBoundaryCache").then(({ saveBoundary, clearBoundary }) => {
+            if (value === null) void clearBoundary();
+            else void saveBoundary(value);
+        });
+    });
+}
 
 export const questions = persistentAtom<Questions>("questions", [], {
     encode: JSON.stringify,

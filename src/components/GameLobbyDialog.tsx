@@ -37,6 +37,7 @@ import {
     multiplayerError,
     participants,
     selfParticipantId,
+    transportStatus,
 } from "@/lib/multiplayer/session";
 import {
     createGame,
@@ -88,6 +89,7 @@ export function GameLobbyDialog() {
     const $participants = useStore(participants);
     const $self = useStore(selfParticipantId);
     const $mp = useStore(multiplayerEnabled);
+    const $transportStatus = useStore(transportStatus);
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $pending = useStore(pendingHidingDurationMin);
@@ -117,11 +119,33 @@ export function GameLobbyDialog() {
     useEffect(() => {
         if (!open) return;
         if (isHiderRole) return; // Hiders never auto-host.
-        if ($code) return; // Already in a room.
         if (hostingState === "creating") return; // Already in flight.
+        // Working room? Keep it. A persisted code that's currently
+        // connecting/reconnecting counts as "in progress" — we
+        // don't want to abandon it mid-handshake.
+        if ($code && $mp) return;
+        if (
+            $code &&
+            ($transportStatus === "connecting" ||
+                $transportStatus === "reconnecting")
+        ) {
+            return;
+        }
+        // We're here with EITHER no code at all, OR a stale code
+        // whose transport gave up (closed) and never came back as
+        // $mp=true — abandon it and create a fresh room so the user
+        // isn't stuck in a "waiting for players…" state with a dead
+        // invite link. leaveGame() clears the stale code/session
+        // first; createGame() then yields a working one.
         const name = displayNameAtom.get()?.trim() || "Host";
         setHostingState("creating");
         multiplayerError.set(null);
+        if ($code && !$mp) {
+            // Clear the dead session bits before grabbing a new
+            // code, otherwise joinAsHost would try to layer on top
+            // of a closed transport.
+            leaveGame();
+        }
         createGame()
             .then((newCode) => {
                 joinAsHost(newCode, name);
@@ -131,7 +155,7 @@ export function GameLobbyDialog() {
             .catch(() => {
                 setHostingState("failed");
             });
-    }, [open, isHiderRole, $code, hostingState]);
+    }, [open, isHiderRole, $code, $mp, $transportStatus, hostingState]);
 
     const seekers = $participants.filter(
         (p) => p.online && p.role === "seeker",

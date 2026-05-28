@@ -23,6 +23,7 @@ import {
     permanentOverlay,
     planningModeEnabled,
     polyGeoJSON,
+    polyGeoJSONHydrated,
     questionFinishedMapData,
     questions,
     thunderforestApiKey,
@@ -248,6 +249,23 @@ export const Map = ({ className }: { className?: string }) => {
                     map.removeLayer(layer);
                 }
             });
+
+            // polyGeoJSON is now async-hydrated from Cache API on
+            // boot (see context.ts). If we got here before the
+            // hydration settled, the atom would briefly read as
+            // null and we'd mistakenly trigger a re-fetch of a
+            // boundary we already have on disk. Wait for the
+            // hydration flag before deciding.
+            if (!polyGeoJSONHydrated.get()) {
+                await new Promise<void>((resolve) => {
+                    const unsub = polyGeoJSONHydrated.subscribe((v) => {
+                        if (v) {
+                            unsub();
+                            resolve();
+                        }
+                    });
+                });
+            }
 
             const polyGeoData = polyGeoJSON.get();
             if (polyGeoData) {
