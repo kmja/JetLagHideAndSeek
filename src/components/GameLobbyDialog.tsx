@@ -89,6 +89,8 @@ export function GameLobbyDialog() {
         $playerRole !== null;
 
     const mapReady = Boolean($mapGeoJSON || $polyGeoJSON);
+    const isHiderRole =
+        $playerRole === "hider" || $playerRole === "coHider";
     const seekers = $participants.filter(
         (p) => p.online && p.role === "seeker",
     );
@@ -111,8 +113,17 @@ export function GameLobbyDialog() {
     const hostId = sorted[0]?.id ?? null;
     const isHost = !$mp || hostId === null || hostId === $self;
 
+    // The boundary fetch only runs on the seeker page (Map.tsx), so a
+    // hider device's mapGeoJSON / polyGeoJSON stay null even when the
+    // host's map is fully loaded. Don't gate the hider lobby on a
+    // local boundary load that will never happen — the hider has no
+    // Start button to press anyway.
     const canStart =
-        mapReady && hasRoleBalance && isHost && $playerRole !== null;
+        (mapReady || isHiderRole) &&
+        hasRoleBalance &&
+        isHost &&
+        !isHiderRole &&
+        $playerRole !== null;
 
     const minutes =
         $pending && $pending > 0
@@ -297,43 +308,77 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Map loading status */}
-                    <div className="space-y-1.5">
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
-                            Map
-                        </div>
-                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 flex items-center gap-3">
-                            {mapReady ? (
-                                <>
-                                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/15 text-primary shrink-0">
-                                        <Check className="w-4 h-4" />
-                                    </span>
-                                    <div className="text-sm">
-                                        Play area ready
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
-                                    <div className="text-sm min-w-0 flex-1">
-                                        <div className="truncate">
-                                            {$loading?.title ??
-                                                "Loading play area"}
+                    {/* Map loading status — seeker only. Hider device
+                        doesn't load the boundary so this section would
+                        sit on "Preparing map…" forever. */}
+                    {!isHiderRole && (
+                        <div className="space-y-1.5">
+                            <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
+                                Map
+                            </div>
+                            <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 flex items-center gap-3">
+                                {mapReady ? (
+                                    <>
+                                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/15 text-primary shrink-0">
+                                            <Check className="w-4 h-4" />
+                                        </span>
+                                        <div className="text-sm">
+                                            Play area ready
                                         </div>
-                                        <div className="text-xs text-muted-foreground truncate">
-                                            {$loading?.phase ??
-                                                "Fetching boundary…"}
+                                    </>
+                                ) : (
+                                    <>
+                                        <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
+                                        <div className="text-sm min-w-0 flex-1">
+                                            <div className="truncate">
+                                                {$loading?.title ??
+                                                    "Loading play area"}
+                                            </div>
+                                            <div className="text-xs text-muted-foreground truncate">
+                                                {$loading?.phase ??
+                                                    "Fetching boundary…"}
+                                            </div>
                                         </div>
-                                    </div>
-                                </>
-                            )}
+                                    </>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 {/* Start button */}
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
-                    {isHost ? (
+                    {isHiderRole ? (
+                        isHost ? (
+                            // Edge case: the host picked the hider role
+                            // for themselves. The boundary load lives
+                            // on the seeker page so they need to open
+                            // it to actually start the clock.
+                            <Button
+                                size="lg"
+                                variant="outline"
+                                className="w-full h-12 gap-2 font-display font-extrabold uppercase tracking-[0.02em]"
+                                onClick={() => {
+                                    if (typeof window !== "undefined") {
+                                        window.location.assign("/");
+                                    }
+                                }}
+                            >
+                                <Rocket className="w-4 h-4" />
+                                Open seeker page to start
+                            </Button>
+                        ) : (
+                            <div className="text-center py-3 space-y-1">
+                                <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+                                <div className="text-sm text-slate-300">
+                                    Waiting for the host to start the game…
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                    Pick your hiding spot in the meantime.
+                                </div>
+                            </div>
+                        )
+                    ) : isHost ? (
                         <Button
                             size="lg"
                             className={cn(
