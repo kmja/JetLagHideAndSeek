@@ -10,7 +10,7 @@ import {
     Users,
     X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
@@ -32,11 +32,18 @@ import {
 import { playerRole } from "@/lib/hiderRole";
 import {
     currentGameCode,
+    displayName as displayNameAtom,
     multiplayerEnabled,
+    multiplayerError,
     participants,
     selfParticipantId,
 } from "@/lib/multiplayer/session";
-import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
+import {
+    createGame,
+    hostPushSetup,
+    joinAsHost,
+    leaveGame,
+} from "@/lib/multiplayer/store";
 import { loadingProgress } from "@/lib/loadingProgress";
 import { cn } from "@/lib/utils";
 
@@ -97,6 +104,35 @@ export function GameLobbyDialog() {
     const mapReady = Boolean($mapGeoJSON || $polyGeoJSON);
     const isHiderRole =
         $playerRole === "hider" || $playerRole === "coHider";
+
+    // Self-heal autohost. If we land in the lobby with no game code
+    // — e.g. the wizard's autohost attempt failed on a network blip,
+    // or the user joined via Welcome → Join and the host got
+    // disconnected — kick a new room here rather than leaving the
+    // user stuck in a "Waiting for players…" state with no invite
+    // section visible. Idempotent: re-runs only if $code clears.
+    const [hostingState, setHostingState] = useState<
+        "idle" | "creating" | "failed"
+    >("idle");
+    useEffect(() => {
+        if (!open) return;
+        if (isHiderRole) return; // Hiders never auto-host.
+        if ($code) return; // Already in a room.
+        if (hostingState === "creating") return; // Already in flight.
+        const name = displayNameAtom.get()?.trim() || "Host";
+        setHostingState("creating");
+        multiplayerError.set(null);
+        createGame()
+            .then((newCode) => {
+                joinAsHost(newCode, name);
+                hostPushSetup();
+                setHostingState("idle");
+            })
+            .catch(() => {
+                setHostingState("failed");
+            });
+    }, [open, isHiderRole, $code, hostingState]);
+
     const seekers = $participants.filter(
         (p) => p.online && p.role === "seeker",
     );
@@ -238,6 +274,39 @@ export function GameLobbyDialog() {
                                 {$playArea.displayName.split(",")[0]}
                             </span>{" "}
                             · {minutes}-min hiding period
+                        </div>
+                    )}
+
+                    {/* Autohost status — only visible until we have a
+                        room code. Creating shows a spinner; failed
+                        shows a retry button so the user can recover
+                        without leaving the lobby. */}
+                    {!isHiderRole && !$code && hostingState === "creating" && (
+                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 flex items-center gap-3">
+                            <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
+                            <div className="text-sm">
+                                Creating game room…
+                            </div>
+                        </div>
+                    )}
+                    {!isHiderRole && !$code && hostingState === "failed" && (
+                        <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2.5 space-y-2">
+                            <div className="text-sm font-medium text-destructive">
+                                Couldn't create a game room.
+                            </div>
+                            <div className="text-xs text-muted-foreground leading-snug">
+                                Check your connection — without a room
+                                there's no way to invite players or
+                                start the game.
+                            </div>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setHostingState("idle")}
+                                className="w-full mt-1"
+                            >
+                                Retry
+                            </Button>
                         </div>
                     )}
 
