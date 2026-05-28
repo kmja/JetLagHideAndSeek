@@ -241,11 +241,21 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Invite + share */}
+                    {/* Invite + share. When mapReady AND we're still
+                        waiting for players, this is the ONLY thing
+                        the host can act on — emphasize it so the
+                        share link is the obvious next step. */}
                     {$mp && $code && (
-                        <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                                <div>
+                        <div
+                            className={cn(
+                                "rounded-md border bg-secondary/40 p-3 space-y-3 transition-colors",
+                                mapReady && !hasRoleBalance
+                                    ? "border-primary/60 shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"
+                                    : "border-border",
+                            )}
+                        >
+                            <div className="flex items-baseline justify-between gap-3">
+                                <div className="min-w-0">
                                     <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
                                         Room code
                                     </div>
@@ -253,29 +263,52 @@ export function GameLobbyDialog() {
                                         {$code}
                                     </div>
                                 </div>
-                                <div className="flex gap-1.5">
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={handleCopy}
-                                        className="gap-1.5"
-                                    >
-                                        {copied ? (
-                                            <Check className="w-3.5 h-3.5" />
-                                        ) : (
-                                            <Copy className="w-3.5 h-3.5" />
-                                        )}
-                                        Copy link
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        onClick={handleShare}
-                                        className="gap-1.5"
-                                    >
-                                        <Share2 className="w-3.5 h-3.5" />
-                                        Share
-                                    </Button>
+                                {mapReady && !hasRoleBalance && (
+                                    <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-primary shrink-0">
+                                        Invite to start
+                                    </span>
+                                )}
+                            </div>
+                            {/* Visible share URL — readable and
+                                selectable, so the host can show their
+                                phone to a friend or paste it manually
+                                without going through the share-sheet
+                                hop. */}
+                            <div className="rounded-sm bg-background/60 border border-border/60 px-2.5 py-1.5">
+                                <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground mb-0.5">
+                                    Share link
                                 </div>
+                                <div
+                                    className="text-xs font-mono break-all select-all leading-snug"
+                                    onClick={handleCopy}
+                                    role="button"
+                                    title="Tap to copy"
+                                >
+                                    {shareUrl || "—"}
+                                </div>
+                            </div>
+                            <div className="flex gap-1.5">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleCopy}
+                                    className="flex-1 gap-1.5"
+                                >
+                                    {copied ? (
+                                        <Check className="w-3.5 h-3.5" />
+                                    ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                    Copy link
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleShare}
+                                    className="flex-1 gap-1.5"
+                                >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    Share
+                                </Button>
                             </div>
                         </div>
                     )}
@@ -332,46 +365,30 @@ export function GameLobbyDialog() {
 
                     {/* Map loading status — seeker only. Hider device
                         doesn't load the boundary so this section would
-                        sit on "Preparing map…" forever. */}
-                    {!isHiderRole && (
+                        sit on "Preparing map…" forever. Once the
+                        boundary is in, collapse this to a one-liner
+                        so the share + participant rows can dominate
+                        the lobby for the "waiting for players" state. */}
+                    {!isHiderRole && !mapReady && (
                         <div className="space-y-1.5">
                             <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
                                 Map
                             </div>
                             <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 space-y-2">
                                 <div className="flex items-center gap-3">
-                                    {mapReady ? (
-                                        <>
-                                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/15 text-primary shrink-0">
-                                                <Check className="w-4 h-4" />
-                                            </span>
-                                            <div className="text-sm">
-                                                Play area ready
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
-                                            <div className="text-sm min-w-0 flex-1">
-                                                <div className="truncate">
-                                                    {$loading?.title ??
-                                                        "Loading play area"}
-                                                </div>
-                                                <div className="text-xs text-muted-foreground truncate">
-                                                    {$loading?.phase ??
-                                                        "Fetching boundary…"}
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
+                                    <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
+                                    <div className="text-sm min-w-0 flex-1">
+                                        <div className="truncate">
+                                            {$loading?.title ??
+                                                "Loading play area"}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground truncate">
+                                            {$loading?.phase ??
+                                                "Fetching boundary…"}
+                                        </div>
+                                    </div>
                                 </div>
-                                {/* Per-piece list — surfaces each
-                                    adjacent area as its own row so the
-                                    host can see exactly which fetches
-                                    are queued / streaming / done /
-                                    failed. Hidden once the boundary
-                                    is fully ready (clean state). */}
-                                {!mapReady && $pieces.length > 0 && (
+                                {$pieces.length > 0 && (
                                     <ul className="flex flex-col gap-1 max-h-48 overflow-y-auto pt-1 border-t border-border/50">
                                         {$pieces.map((p) => (
                                             <li
@@ -400,6 +417,12 @@ export function GameLobbyDialog() {
                                     </ul>
                                 )}
                             </div>
+                        </div>
+                    )}
+                    {!isHiderRole && mapReady && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Check className="w-3.5 h-3.5 text-primary shrink-0" />
+                            <span>Map ready</span>
                         </div>
                     )}
                 </div>
