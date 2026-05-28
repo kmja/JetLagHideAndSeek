@@ -131,8 +131,13 @@ export function HideSeekWordmark({
 }) {
     return (
         <div className={cn("inline-flex flex-col", className)}>
-            <span className="font-inter-tight font-black uppercase tracking-tight leading-none text-3xl">
-                HIDE<span className="font-light mx-0.5">+</span>SEEK
+            <span
+                className="font-display font-black uppercase leading-none text-3xl"
+                style={{ letterSpacing: "-0.05em" }}
+            >
+                HIDE
+                <span className="text-primary">+</span>
+                SEEK
             </span>
             {showTagline && (
                 <div className="mt-1.5 flex justify-between text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground">

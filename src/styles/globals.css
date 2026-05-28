@@ -252,15 +252,15 @@ div.leaflet-control-attribution.leaflet-control {
         --card-foreground: 210 40% 98%;
         --popover: 222.2 84% 4.9%;
         --popover-foreground: 210 40% 98%;
-        /* Jet Lag Hide+Seek brand red #DC3D38 — the saturated red of the
-         * physical box, rulebook cover, and JET LAG: THE GAME wordmark.
-         * Foreground is white so primary buttons read clean. */
-        --primary: 2 70% 54%;
+        /* Jet Lag Hide+Seek brand red #DC4A3E — sampled by eye from the
+         * investigation-book cover photo. Foreground is white so primary
+         * buttons read clean. */
+        --primary: 5 69% 55%;
         --primary-foreground: 0 0% 100%;
         /* Supporting accents lifted from the box / cards / dice palette. */
         --accent-yellow: 44 87% 64%; /* SMALL pill, "LAG" highlight */
         --accent-orange: 22 82% 58%; /* MEDIUM pill */
-        --accent-red: 2 70% 54%; /* LARGE pill / brand red */
+        --accent-red: 5 69% 55%; /* LARGE pill / brand red */
         --accent-peach: 18 85% 75%; /* Radius category, dice */
         --accent-purple: 263 25% 45%; /* Curse card titles */
         --secondary: 217.2 32.6% 17.5%;
