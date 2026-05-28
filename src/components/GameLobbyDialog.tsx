@@ -43,7 +43,6 @@ import { cn } from "@/lib/utils";
 import {
     HideSeekMark,
     HideSeekWordmark,
-    JetLagLogo,
     RoleChip,
 } from "./JetLagLogo";
 
@@ -202,26 +201,32 @@ export function GameLobbyDialog() {
                     "flex flex-col p-0 gap-0 max-h-[92vh] sm:max-w-md",
                 )}
             >
-                {/* Hero: full box-layout lockup —
-                    JET LAG : THE GAME plate above the wordmark,
-                    HIDE+SEEK wordmark with rule + split subline
-                    below, peak mark off to the side. Matches the
-                    box face composition. */}
-                <div className="px-6 pt-6 pb-4 flex flex-col items-center text-center gap-3">
-                    <JetLagLogo size={28} showWordmark className="text-white" />
-                    <HideSeekMark size={64} onDark />
-                    <HideSeekWordmark boxLayout size="xl" />
-                    <DialogTitle className="sr-only">
-                        Game lobby — waiting to start
+                {/* Compact header — same shape the wizard uses: small
+                    peak mark + wordmark on one row, role chip + room
+                    code floated right. The big box-cover lockup
+                    belongs to the welcome screen (the start of the
+                    flow); by the time we're in the lobby the user
+                    knows what app they're in and the screen real
+                    estate is better spent on invite + participants. */}
+                <div className="px-6 pt-5 pb-4 shrink-0 border-b border-border">
+                    <div className="flex items-center gap-3">
+                        <HideSeekMark size={32} onDark />
+                        <HideSeekWordmark />
+                        {$playerRole && (
+                            <div className="ml-auto">
+                                <RoleChip
+                                    role={$playerRole}
+                                    tag={$code ?? undefined}
+                                />
+                            </div>
+                        )}
+                    </div>
+                    <DialogTitle
+                        className="font-display font-black uppercase text-2xl leading-tight mt-3"
+                        style={{ letterSpacing: "-0.02em" }}
+                    >
+                        Ready to play
                     </DialogTitle>
-                    {$playerRole && (
-                        <div className="pt-1">
-                            <RoleChip
-                                role={$playerRole}
-                                tag={$code ?? undefined}
-                            />
-                        </div>
-                    )}
                 </div>
 
                 <div className="px-6 pb-2 flex-1 overflow-y-auto space-y-5">
