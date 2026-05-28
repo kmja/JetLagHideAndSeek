@@ -462,6 +462,44 @@ export const nearestToQuestion = async (
     return turf.nearestPoint(questionPoint, instances as any);
 };
 
+/**
+ * Max parallel Overpass boundary fetches inside
+ * `determineMapBoundaries`. Set to 4 so we stay well below the
+ * browser's ~6-per-origin connection limit AND the public
+ * Overpass mirrors' rate-limit threshold (the cause of the
+ * cascade of "failed" rows on multi-area games observed in the
+ * wild). The primary boundary is first in the queue, so it
+ * always grabs a slot immediately; the rest stream in 3 at a
+ * time alongside it.
+ */
+const BOUNDARY_FETCH_CONCURRENCY = 4;
+
+/**
+ * Tiny promise pool — runs `worker` over `items` with at most
+ * `limit` in flight at any one time, preserving result order.
+ * No dependency required; we spawn N runner loops that each
+ * pull the next index off a shared counter.
+ */
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    limit: number,
+    worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let next = 0;
+    const workers = new Array(Math.min(limit, items.length))
+        .fill(0)
+        .map(async () => {
+            while (true) {
+                const i = next++;
+                if (i >= items.length) return;
+                results[i] = await worker(items[i], i);
+            }
+        });
+    await Promise.all(workers);
+    return results;
+}
+
 export const determineMapBoundaries = async () => {
     const primary = mapGeoLocation.get();
     const extras = additionalMapGeoLocations.get();
@@ -499,10 +537,19 @@ export const determineMapBoundaries = async () => {
     // renders bytes-downloaded, current phase, and elapsed time.
     // Caller of determineMapBoundaries doesn't need to manage this —
     // we open + close around the full pipeline.
+    //
+    // Concurrency cap below: we don't fan all 14 areas out at once,
+    // we run BOUNDARY_FETCH_CONCURRENCY in flight at a time. That
+    // matches the phase text — "4 at a time" — to what the user
+    // actually sees in the per-piece list (most rows queue, four
+    // stream).
     startLoading(
         `Loading ${areaName}`,
         totalPieces > 1
-            ? `Fetching ${totalPieces} areas in parallel…`
+            ? `Fetching ${totalPieces} areas (${Math.min(
+                  totalPieces,
+                  BOUNDARY_FETCH_CONCURRENCY,
+              )} at a time)…`
             : "Fetching boundary…",
     );
 
@@ -517,21 +564,34 @@ export const determineMapBoundaries = async () => {
         //   • Solna     — done
         //   • Sundbyberg — waiting…
         // even while one big primary is still server-computing.
-        const piecePromises = [
+        //
+        // We cap concurrency at BOUNDARY_FETCH_CONCURRENCY (4) rather
+        // than letting every adjacent fan out at once. Browsers limit
+        // HTTP/1.1 connections to ~6 per origin, and Overpass mirrors
+        // are a single origin each, so 14+ simultaneous fetches just
+        // queue up at the network layer AND trigger the public
+        // mirror's rate limit (the cause of the cascade of "failed"
+        // rows users were seeing on multi-area games like Manchester +
+        // 13 adjacents). 4 keeps us under the rate limit AND leaves
+        // browser connection slots free for the rest of the app.
+        const entries = [
             { location: primary, added: true, base: true },
             ...extras.map((e) => ({ ...e, base: false })),
-        ].map(async (entry) => ({
-            added: entry.added,
-            data: await determineGeoJSON(
-                entry.location.properties.osm_id.toString(),
-                entry.location.properties.osm_type,
-                /* silent */ true,
-                /* reportProgress */ true,
-                labelFor(entry.location, entry.base),
-            ),
-        }));
-
-        const mapGeoDatum = await Promise.all(piecePromises);
+        ];
+        const mapGeoDatum = await mapWithConcurrency(
+            entries,
+            BOUNDARY_FETCH_CONCURRENCY,
+            async (entry) => ({
+                added: entry.added,
+                data: await determineGeoJSON(
+                    entry.location.properties.osm_id.toString(),
+                    entry.location.properties.osm_type,
+                    /* silent */ true,
+                    /* reportProgress */ true,
+                    labelFor(entry.location, entry.base),
+                ),
+            }),
+        );
 
         // Parse phase. osmtogeojson already ran inside
         // determineGeoJSON; what's expensive next is the union /
