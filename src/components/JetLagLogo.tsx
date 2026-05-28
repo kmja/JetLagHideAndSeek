@@ -212,6 +212,70 @@ export function SectionPill({
     );
 }
 
+/* ────────────────── Role chip ────────────────── */
+
+/**
+ * Outlined chip showing the local player's role — modeled on the
+ * JET LAG · THE GAME lockup from the box: an outlined rectangle
+ * with heavy uppercase text and a small yellow "tag" pill underneath.
+ *
+ * Tone:
+ *   - "onDark"  (default) — white border + text, transparent fill.
+ *   - "onLight"            — primary border + text, on a transparent fill.
+ *
+ * Pass `tag` to render the secondary yellow pill (e.g. a room code).
+ */
+export function RoleChip({
+    role,
+    tag,
+    onDark = true,
+    className,
+}: {
+    role: "seeker" | "hider" | "coHider";
+    tag?: string;
+    onDark?: boolean;
+    className?: string;
+}) {
+    const label =
+        role === "seeker"
+            ? "Seeker"
+            : role === "hider"
+              ? "Hider"
+              : "Co-hider";
+    const border = onDark ? "border-white text-white" : "border-primary text-primary";
+    return (
+        <span
+            className={cn(
+                "inline-flex flex-col items-center gap-0.5",
+                "rounded-md border-[1.5px] px-2.5 pt-1 pb-1.5",
+                "leading-none",
+                border,
+                className,
+            )}
+            aria-label={`Your role: ${label}`}
+        >
+            <span
+                className="font-display font-extrabold uppercase text-[13px]"
+                style={{ letterSpacing: "0.02em" }}
+            >
+                {label}
+            </span>
+            {tag && (
+                <span
+                    className={cn(
+                        "rounded-[3px] px-1 py-[1px]",
+                        "font-display font-extrabold uppercase text-[8px]",
+                        "tabular-nums tracking-[0.08em]",
+                        "bg-[hsl(var(--accent-yellow))] text-[hsl(var(--sidebar-background))]",
+                    )}
+                >
+                    {tag}
+                </span>
+            )}
+        </span>
+    );
+}
+
 /* ────────────────── S / M / L size badge ────────────────── */
 
 const SIZE_BADGE: Record<GameSize, { bg: string; label: string }> = {

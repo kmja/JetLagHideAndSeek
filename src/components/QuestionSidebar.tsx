@@ -23,8 +23,11 @@ import {
     triggerLocalRefresh,
 } from "@/lib/context";
 
+import { playerRole } from "@/lib/hiderRole";
+import { currentGameCode } from "@/lib/multiplayer/session";
+
 import { AddQuestionDialog } from "./AddQuestionDialog";
-import { HideSeekMark } from "./JetLagLogo";
+import { HideSeekMark, RoleChip } from "./JetLagLogo";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -40,6 +43,8 @@ export const QuestionSidebar = () => {
     const $autoSave = useStore(autoSave);
     const $isLoading = useStore(isLoading);
     const $mobileOpen = useStore(questionsDrawerOpen);
+    const $playerRole = useStore(playerRole);
+    const $gameCode = useStore(currentGameCode);
 
     // Newest-first display order. The store keeps questions in insertion
     // order so we don't mutate it — just iterate in reverse for the UI.
@@ -105,7 +110,17 @@ export const QuestionSidebar = () => {
 
     const innerContent = (
         <>
-            <h2 className="ml-4 mt-4 font-poppins text-2xl">Questions</h2>
+            <div className="flex items-center justify-between gap-2 mx-4 mt-4">
+                <h2 className="font-display font-extrabold text-2xl uppercase leading-none" style={{ letterSpacing: "-0.02em" }}>
+                    Questions
+                </h2>
+                {$playerRole && (
+                    <RoleChip
+                        role={$playerRole}
+                        tag={$gameCode ?? undefined}
+                    />
+                )}
+            </div>
             <SidebarContent>
                 <SidebarGroup>
                     <SidebarGroupContent>
