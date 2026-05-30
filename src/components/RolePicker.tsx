@@ -190,8 +190,8 @@ export function RolePicker() {
                             </span>
                         </div>
                         <p className="text-xs text-muted-foreground leading-snug">
-                            Pick a hiding zone, dodge the seeker's
-                            questions, hold time-bonus cards.
+                            Answers the seekers' questions and manages
+                            the deck of hider cards. One per game.
                         </p>
                         {hiderTaken && (
                             <p className="text-[11px] font-semibold text-destructive">
@@ -220,14 +220,14 @@ export function RolePicker() {
                             </span>
                             <span className="flex flex-col gap-1">
                                 <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
-                                    Join the hide
+                                    Co-hider
                                 </span>
                                 <span className="text-xs text-muted-foreground leading-snug">
-                                    Hide together with{" "}
-                                    {hiderHolder?.displayName || "the hider"}.
-                                    You'll see the hiding zone and incoming
-                                    questions live; they manage the cards and
-                                    answers.
+                                    View-only. You see{" "}
+                                    {hiderHolder?.displayName || "the hider"}
+                                    's view live — hiding zone, incoming
+                                    questions, deck — but they answer
+                                    questions and play the cards.
                                 </span>
                             </span>
                         </button>
