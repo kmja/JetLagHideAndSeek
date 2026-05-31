@@ -299,6 +299,8 @@ export class GameRoom {
                 return this.handleMarkFound(socket, msg.foundAt);
             case "rotateHider":
                 return this.handleRotateHider(socket, msg.to);
+            case "promoteCoHider":
+                return this.handlePromoteCoHider(socket, msg.to);
             case "setHideZone":
                 return this.handleSetHideZone(socket, msg.zone);
             case "ping":
@@ -702,6 +704,44 @@ export class GameRoom {
             t: "roundStarted",
             participants: this.game.participants,
         });
+    }
+
+    /**
+     * Hand off the main hider seat to a co-hider mid-game. Sender
+     * must be the current hider; target must currently be a
+     * coHider. Swap is in-place: sender becomes coHider, target
+     * becomes hider; other coHiders / seekers untouched. We
+     * deliberately do NOT reset round state (no roundStarted
+     * broadcast) — the hide team's view continues with the
+     * questions, deck, and hiding zone they already share.
+     */
+    private handlePromoteCoHider(socket: WebSocket, toId: string) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const sender = this.game.participants.find(
+            (q) => q.id === conn.participantId,
+        );
+        if (!sender || sender.role !== "hider") {
+            return this.sendTo(socket, {
+                t: "error",
+                code: "bad_message",
+                message:
+                    "Only the current main hider can promote a co-hider.",
+            });
+        }
+        const target = this.game.participants.find((q) => q.id === toId);
+        if (!target || target.role !== "coHider") {
+            return this.sendTo(socket, {
+                t: "error",
+                code: "bad_message",
+                message: "Target must be a current co-hider.",
+            });
+        }
+        sender.role = "coHider";
+        target.role = "hider";
+        // Broadcast the new roster via presence — clients reconcile
+        // their local playerRole atoms from this.
+        this.broadcastPresence();
     }
 
     /* ────────────────── Socket housekeeping ────────────────── */

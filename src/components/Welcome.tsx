@@ -315,40 +315,34 @@ export function Welcome() {
                             <RosterGroup
                                 label={`Seekers · ${seekers.length}`}
                                 tone="seeker"
-                                names={seekers.map(
-                                    (p) =>
+                                entries={seekers.map((p) => ({
+                                    name:
                                         p.displayName || "Anonymous",
-                                )}
+                                }))}
                                 emptyHint="No seekers yet."
                             />
                             <RosterGroup
-                                label={
-                                    hider
-                                        ? "Hider · 1"
-                                        : "Hider · 0"
-                                }
+                                label={`Team Hiders · ${hider ? 1 + coHiders.length : coHiders.length}`}
                                 tone="hider"
-                                names={
-                                    hider
+                                entries={[
+                                    ...(hider
                                         ? [
-                                              hider.displayName ||
-                                                  "Anonymous",
+                                              {
+                                                  name:
+                                                      hider.displayName ||
+                                                      "Anonymous",
+                                                  badge: "MAIN",
+                                              },
                                           ]
-                                        : []
-                                }
-                                emptyHint="No hider yet — the seat is open."
+                                        : []),
+                                    ...coHiders.map((p) => ({
+                                        name:
+                                            p.displayName ||
+                                            "Anonymous",
+                                    })),
+                                ]}
+                                emptyHint="No hiders yet — the seat is open."
                             />
-                            {coHiders.length > 0 && (
-                                <RosterGroup
-                                    label={`Co-hiders · ${coHiders.length}`}
-                                    tone="coHider"
-                                    names={coHiders.map(
-                                        (p) =>
-                                            p.displayName || "Anonymous",
-                                    )}
-                                    emptyHint=""
-                                />
-                            )}
                         </div>
 
                         {/* Role tiles. Hider is disabled when the
@@ -479,20 +473,18 @@ export function Welcome() {
 function RosterGroup({
     label,
     tone,
-    names,
+    entries,
     emptyHint,
 }: {
     label: string;
-    tone: "seeker" | "hider" | "coHider";
-    names: string[];
+    tone: "seeker" | "hider";
+    entries: { name: string; badge?: string }[];
     emptyHint: string;
 }) {
     const dotColor =
         tone === "seeker"
             ? "bg-primary"
-            : tone === "hider"
-              ? "bg-[hsl(var(--accent-yellow))]"
-              : "bg-[hsl(var(--accent-orange))]";
+            : "bg-[hsl(var(--accent-yellow))]";
     return (
         <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 space-y-1">
             <div className="flex items-center gap-1.5">
@@ -507,10 +499,28 @@ function RosterGroup({
                     {label}
                 </span>
             </div>
-            {names.length > 0 ? (
-                <div className="text-xs text-slate-200 leading-snug pl-3.5">
-                    {names.join(", ")}
-                </div>
+            {entries.length > 0 ? (
+                <ul className="text-xs text-slate-200 leading-snug pl-3.5 space-y-0.5">
+                    {entries.map((e, i) => (
+                        <li
+                            key={`${e.name}-${i}`}
+                            className="flex items-center gap-1.5"
+                        >
+                            <span>{e.name}</span>
+                            {e.badge && (
+                                <span
+                                    className={cn(
+                                        "text-[9px] font-display font-extrabold uppercase tracking-[0.10em]",
+                                        "rounded-[3px] px-1 py-[1px] leading-none",
+                                        "bg-[hsl(var(--accent-yellow))] text-[hsl(var(--sidebar-background))]",
+                                    )}
+                                >
+                                    {e.badge}
+                                </span>
+                            )}
+                        </li>
+                    ))}
+                </ul>
             ) : emptyHint ? (
                 <div className="text-[11px] text-muted-foreground italic leading-snug pl-3.5">
                     {emptyHint}

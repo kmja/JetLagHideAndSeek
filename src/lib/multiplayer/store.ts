@@ -296,6 +296,18 @@ export function seekerRotateHider(toParticipantId: string) {
     getTransport().send({ t: "rotateHider", to: toParticipantId });
 }
 
+/**
+ * Hand the main-hider seat to a co-hider. Sender must currently be
+ * the hider; target must be a co-hider. Server validates both and
+ * rejects with `bad_message` otherwise. On success, the next
+ * presence broadcast carries the swapped roles and every client
+ * reconciles its local `playerRole` from there.
+ */
+export function promoteCoHider(toParticipantId: string) {
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "promoteCoHider", to: toParticipantId });
+}
+
 /* ────────────────── Inbound dispatch ────────────────── */
 
 /**

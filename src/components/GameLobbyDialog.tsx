@@ -44,6 +44,7 @@ import {
     hostPushSetup,
     joinAsHost,
     leaveGame,
+    promoteCoHider,
 } from "@/lib/multiplayer/store";
 import { loadingProgress } from "@/lib/loadingProgress";
 import { cn } from "@/lib/utils";
@@ -160,10 +161,13 @@ export function GameLobbyDialog() {
     const seekers = $participants.filter(
         (p) => p.online && p.role === "seeker",
     );
-    const hiders = $participants.filter(
-        (p) =>
-            p.online && (p.role === "hider" || p.role === "coHider"),
+    const hider = $participants.find(
+        (p) => p.online && p.role === "hider",
     );
+    const coHiders = $participants.filter(
+        (p) => p.online && p.role === "coHider",
+    );
+    const hiders = [...(hider ? [hider] : []), ...coHiders];
     // Require a real room with at least one seeker AND one hider.
     // Solo "single device" play is not allowed — the wizard now
     // always auto-creates a multiplayer room on finish, so the only
@@ -406,45 +410,46 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Participants */}
+                    {/* Participants — grouped into Seekers and
+                        Team Hiders. Hider + co-hiders share the
+                        team since they share the same view; only
+                        the main hider answers questions and plays
+                        the deck. Marked with a yellow MAIN badge.
+                        If the local player is currently the main
+                        hider, each co-hider gets a "Promote" button
+                        that hands off the seat (sender → coHider,
+                        target → hider) via promoteCoHider. */}
                     {$mp && $participants.length > 0 && (
-                        <div className="space-y-1.5">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
-                                Who's in
-                            </div>
-                            <ul className="rounded-md border border-border bg-secondary/40 divide-y divide-border/70">
-                                {sorted.map((p) => {
-                                    const isMe = p.id === $self;
-                                    const isThisHost = p.id === hostId;
-                                    return (
-                                        <li
-                                            key={p.id}
-                                            className="flex items-center gap-2 px-3 py-2 text-sm"
-                                        >
-                                            <RoleDot role={p.role} />
-                                            <span
-                                                className={cn(
-                                                    "flex-1 truncate",
-                                                    !p.online && "opacity-50",
-                                                )}
-                                            >
-                                                {p.displayName || "Anonymous"}
-                                                {isMe && (
-                                                    <span className="ml-1.5 text-xs text-muted-foreground">
-                                                        (you)
-                                                    </span>
-                                                )}
-                                            </span>
-                                            {isThisHost && (
-                                                <span className="text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
-                                                    Host
-                                                </span>
-                                            )}
-                                            <RoleTag role={p.role} />
-                                        </li>
-                                    );
-                                })}
-                            </ul>
+                        <div className="space-y-2">
+                            <RosterCard
+                                label={`Seekers · ${seekers.length}`}
+                                tone="seeker"
+                                participants={seekers}
+                                selfId={$self}
+                                hostId={hostId}
+                            />
+                            <RosterCard
+                                label={`Team Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
+                                tone="hider"
+                                participants={[
+                                    ...(hider ? [hider] : []),
+                                    ...coHiders,
+                                ]}
+                                mainHiderId={hider?.id ?? null}
+                                selfId={$self}
+                                hostId={hostId}
+                                // Promote affordance is shown when
+                                // the LOCAL player is currently the
+                                // main hider AND the row is a
+                                // co-hider. The server enforces both
+                                // again; this is just UI gating.
+                                showPromote={
+                                    $playerRole === "hider" &&
+                                    !!hider &&
+                                    hider.id === $self
+                                }
+                                onPromote={(id) => promoteCoHider(id)}
+                            />
                             {!hasRoleBalance && (
                                 <p className="text-xs text-muted-foreground leading-snug pt-1">
                                     Need at least one <b>seeker</b> and one{" "}
@@ -685,46 +690,129 @@ function pieceStatusLabel(p: {
     return formatBytes(p.downloaded);
 }
 
-function RoleDot({ role }: { role: "seeker" | "hider" | "coHider" | null }) {
-    const cls =
-        role === "seeker"
+function RosterCard({
+    label,
+    tone,
+    participants: rows,
+    selfId,
+    hostId,
+    mainHiderId,
+    showPromote = false,
+    onPromote,
+}: {
+    label: string;
+    tone: "seeker" | "hider";
+    participants: {
+        id: string;
+        displayName: string;
+        role: "seeker" | "hider" | "coHider" | null;
+        online: boolean;
+    }[];
+    selfId: string | null;
+    hostId: string | null;
+    /** When set, the row matching this id wears the MAIN badge. */
+    mainHiderId?: string | null;
+    /** Show a "Promote" button next to co-hiders (gated on the
+     *  caller already confirming the local player can act). */
+    showPromote?: boolean;
+    onPromote?: (id: string) => void;
+}) {
+    const dotColor =
+        tone === "seeker"
             ? "bg-primary"
-            : role === "hider"
-              ? "bg-[hsl(var(--accent-yellow))]"
-              : role === "coHider"
-                ? "bg-[hsl(var(--accent-orange))]"
-                : "bg-muted";
+            : "bg-[hsl(var(--accent-yellow))]";
     return (
-        <span
-            className={cn("inline-block w-2.5 h-2.5 rounded-full shrink-0", cls)}
-            aria-hidden
-        />
-    );
-}
-
-function RoleTag({ role }: { role: "seeker" | "hider" | "coHider" | null }) {
-    if (!role) {
-        return (
-            <span className="text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
-                Picking…
-            </span>
-        );
-    }
-    const icon =
-        role === "seeker" ? (
-            <Eye className="w-3 h-3" />
-        ) : role === "hider" ? (
-            <MapPin className="w-3 h-3" />
-        ) : (
-            <Users className="w-3 h-3" />
-        );
-    const label =
-        role === "seeker" ? "Seeker" : role === "hider" ? "Hider" : "Co-hider";
-    return (
-        <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
-            {icon}
-            {label}
-        </span>
+        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+                <span
+                    className={cn(
+                        "inline-block w-2 h-2 rounded-full shrink-0",
+                        dotColor,
+                    )}
+                    aria-hidden
+                />
+                <span className="text-[10px] uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
+                    {label}
+                </span>
+            </div>
+            {rows.length === 0 ? (
+                <div className="text-[11px] text-muted-foreground italic leading-snug pl-3.5">
+                    {tone === "seeker"
+                        ? "No seekers yet."
+                        : "No hiders yet — the seat is open."}
+                </div>
+            ) : (
+                <ul className="space-y-1 pl-3.5">
+                    {rows.map((p) => {
+                        const isMe = p.id === selfId;
+                        const isHost = p.id === hostId;
+                        const isMain =
+                            mainHiderId !== undefined &&
+                            mainHiderId === p.id;
+                        const isCoHider = p.role === "coHider";
+                        return (
+                            <li
+                                key={p.id}
+                                className="flex items-center gap-2 text-sm"
+                            >
+                                <span
+                                    className={cn(
+                                        "flex-1 truncate flex items-center gap-1.5",
+                                        !p.online && "opacity-50",
+                                    )}
+                                >
+                                    <span>
+                                        {p.displayName || "Anonymous"}
+                                    </span>
+                                    {isMain && (
+                                        <span
+                                            className={cn(
+                                                "text-[9px] font-display font-extrabold uppercase tracking-[0.10em]",
+                                                "rounded-[3px] px-1 py-[1px] leading-none",
+                                                "bg-[hsl(var(--accent-yellow))] text-[hsl(var(--sidebar-background))]",
+                                            )}
+                                            title="Main hider — answers questions and plays the deck."
+                                        >
+                                            MAIN
+                                        </span>
+                                    )}
+                                    {isHost && (
+                                        <span className="text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
+                                            Host
+                                        </span>
+                                    )}
+                                    {isMe && (
+                                        <span className="text-xs text-muted-foreground">
+                                            (you)
+                                        </span>
+                                    )}
+                                </span>
+                                {showPromote &&
+                                    isCoHider &&
+                                    p.online &&
+                                    onPromote && (
+                                        <button
+                                            type="button"
+                                            onClick={() => onPromote(p.id)}
+                                            className={cn(
+                                                "text-[10px] uppercase tracking-[0.08em] font-display font-extrabold",
+                                                "rounded-[3px] px-2 py-1 leading-none",
+                                                "bg-[hsl(var(--accent-yellow)/0.15)] text-[hsl(var(--accent-yellow))]",
+                                                "border border-[hsl(var(--accent-yellow))/0.4]",
+                                                "hover:bg-[hsl(var(--accent-yellow)/0.25)]",
+                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-yellow))]",
+                                            )}
+                                            title="Promote to main hider (you become a co-hider)"
+                                        >
+                                            Promote
+                                        </button>
+                                    )}
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
+        </div>
     );
 }
 

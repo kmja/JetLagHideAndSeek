@@ -151,6 +151,21 @@ export interface CMsgSetHideZone {
 }
 
 /**
+ * The primary hider hands the seat off to a co-hider. The server
+ * swaps the two roles: the sender (must currently be the hider)
+ * becomes a co-hider, the target (must currently be a co-hider)
+ * becomes the hider. Other co-hiders and seekers are untouched —
+ * unlike `rotateHider`, this is a within-the-hide-team promotion,
+ * not a round-end role reset. Broadcast as a fresh presence so
+ * every client reconciles its local `playerRole`.
+ */
+export interface CMsgPromoteCoHider {
+    t: "promoteCoHider";
+    /** Participant id of the co-hider being promoted to main hider. */
+    to: string;
+}
+
+/**
  * Keep-alive — sent periodically by the client. Server responds with
  * `pong`. Used to detect dead connections behind NATs that don't
  * close them cleanly.
@@ -171,6 +186,7 @@ export type ClientMessage =
     | CMsgUpdateQuestion
     | CMsgMarkFound
     | CMsgRotateHider
+    | CMsgPromoteCoHider
     | CMsgSetHideZone
     | CMsgPing;
 
