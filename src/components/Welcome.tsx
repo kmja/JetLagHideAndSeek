@@ -147,7 +147,7 @@ export function Welcome() {
             <DialogContent
                 className={cn(
                     "!bg-[hsl(var(--sidebar-background))] !text-white",
-                    "flex flex-col p-0 gap-0 max-h-[92vh] sm:max-w-md",
+                    "flex flex-col p-0 gap-0 sm:max-w-md",
                 )}
                 // Hide the default radix close X — no escape hatch.
                 closeIcon={false}

@@ -502,7 +502,7 @@ export function GameSetupDialog() {
             <DialogContent
                 className={cn(
                     "!bg-[hsl(var(--sidebar-background))] !text-white",
-                    "flex flex-col p-0 gap-0 max-h-[90vh]",
+                    "flex flex-col p-0 gap-0",
                 )}
             >
                 {isEditMode ? (
