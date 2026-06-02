@@ -1,0 +1,61 @@
+# Cloudflare Worker config for the Overpass-boundary R2 cache.
+#
+# Why this exists: public Overpass mirrors occasionally hang or
+# rate-limit, blocking the seeker app's "Loading play area" step.
+# This worker sits in front of three independent mirrors, caches
+# successful responses in R2 keyed by a hash of the query string,
+# and serves subsequent identical requests from cache at single-
+# digit-ms latency. A scheduled cron also pre-warms a curated list
+# of popular cities once a week so first-time-in-region loads hit
+# warm cache on day one.
+#
+# Lives in its own directory (not the repo root, not inside
+# `worker/`) so each of the three Workers Builds projects has a
+# clean root with one wrangler config.
+#
+# Deploy from `overpass-cache/` with:
+#
+#     pnpm run deploy        # = wrangler deploy --config wrangler.toml
+#
+# As with the multiplayer worker, the explicit `--config` is
+# required so wrangler doesn't walk up and grab the frontend's
+# repo-root config.
+#
+# Cloudflare Workers Builds setup for this worker:
+#   • Root directory: overpass-cache
+#   • Deploy command: npx wrangler deploy --config wrangler.toml
+#
+# R2 bucket needs to exist before first deploy:
+#     wrangler r2 bucket create jlhs-overpass-cache
+#
+# The bucket can be created from the Cloudflare dashboard too —
+# just match the `bucket_name` below.
+
+name = "jlhs-overpass-cache"
+main = "src/index.ts"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# R2 bucket binding. The binding name (`CACHE`) is what worker code
+# references via `env.CACHE.get(...)`. Bucket name is the actual
+# storage namespace on the account.
+[[r2_buckets]]
+binding = "CACHE"
+bucket_name = "jlhs-overpass-cache"
+
+# Weekly pre-warm. Mondays 04:00 UTC — off-peak in most regions
+# and well away from the multiplayer worker's eviction sweeps.
+[triggers]
+crons = ["0 4 * * 1"]
+
+# CORS allowlist for browser requests. The frontend worker's
+# workers.dev URL is included by default; add a custom domain to
+# this comma-separated list once one is wired up.
+[vars]
+ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,http://localhost:4321,http://localhost:3000"
+# Cache freshness. Boundaries change rarely on OSM — anything
+# fresher than a month is fine to serve straight from R2.
+CACHE_TTL_DAYS = "30"
+# How many cities the weekly cron pre-warms per run. Keep small
+# so we don't blast the upstream mirrors with our own cron.
+PREWARM_BATCH_SIZE = "5"

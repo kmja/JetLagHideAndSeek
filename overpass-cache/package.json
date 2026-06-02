@@ -1,0 +1,17 @@
+{
+    "name": "jlhs-overpass-cache-worker",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "description": "Cloudflare Worker + R2 cache for Overpass boundary fetches. Sits in front of the public Overpass mirrors so the seeker app's first-time play-area load is fast and reliable, with a weekly cron that pre-warms a curated list of major cities.",
+    "scripts": {
+        "deploy": "wrangler deploy --config wrangler.toml",
+        "dev": "wrangler dev --config wrangler.toml",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20260520.1",
+        "typescript": "^5.7.3",
+        "wrangler": "^4.93.0"
+    }
+}

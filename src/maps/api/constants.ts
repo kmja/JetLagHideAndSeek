@@ -1,6 +1,23 @@
 import type { APILocations } from "@/maps/schema";
 
-export const OVERPASS_API = "https://overpass-api.de/api/interpreter";
+/**
+ * Overpass boundary endpoints, in failover order:
+ *
+ *   1. OVERPASS_API — our own R2-backed cache worker. Cached
+ *      requests return in single-digit ms; cache misses fall
+ *      through to the same three public mirrors below, store
+ *      the result in R2, and return. A weekly cron also
+ *      pre-warms a curated list of major cities so first-time
+ *      regional loads hit warm cache.
+ *   2. OVERPASS_API_FALLBACK — direct hit on the second public
+ *      mirror. Used only if our worker is itself unreachable.
+ *   3. OVERPASS_API_TERTIARY — third public mirror, same role.
+ *
+ * If you're running locally without the cache worker deployed,
+ * swap OVERPASS_API back to `https://overpass-api.de/api/interpreter`.
+ */
+export const OVERPASS_API =
+    "https://jlhs-overpass-cache.karl-mj-andersson.workers.dev/api/interpreter";
 export const OVERPASS_API_FALLBACK =
     "https://overpass.private.coffee/api/interpreter";
 export const OVERPASS_API_TERTIARY =
