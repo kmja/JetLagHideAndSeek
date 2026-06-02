@@ -22,6 +22,7 @@ import {
     LOCATION_FIRST_TAG,
     OVERPASS_API,
     OVERPASS_API_FALLBACK,
+    OVERPASS_API_TERTIARY,
 } from "./constants";
 import type {
     EncompassingTentacleQuestionSchema,
@@ -56,6 +57,7 @@ export const getOverpassData = async (
     const encodedQuery = encodeURIComponent(query);
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
     const fallbackUrl = `${OVERPASS_API_FALLBACK}?data=${encodedQuery}`;
+    const tertiaryUrl = `${OVERPASS_API_TERTIARY}?data=${encodedQuery}`;
 
     // Try a mirror. Returns Response on success, null if the request
     // threw (timeout, network error, CORS). Non-ok responses are
@@ -76,11 +78,14 @@ export const getOverpassData = async (
         }
     };
 
+    // Failover chain: primary → private.coffee → kumi.systems. We
+    // keep the toast pending so the user sees one continuous
+    // "Loading map data..." rather than a stop-and-start. Each
+    // mirror gets a fresh per-attempt timeout (see fetchTimeoutMs
+    // override below — lowered from the original 130s to 45s so a
+    // silent mirror doesn't pin the whole pipeline waiting for a
+    // response that never comes).
     let response = await tryFetch(primaryUrl);
-
-    // Failover to the fallback mirror on timeout, network error, or 5xx.
-    // We keep the toast pending so the user sees one continuous "Loading
-    // map data..." rather than a stop-and-start.
     if (!response || !response.ok) {
         const fallbackResponse = await tryFetch(fallbackUrl);
         if (fallbackResponse && fallbackResponse.ok) {
@@ -94,8 +99,21 @@ export const getOverpassData = async (
             }
             response = fallbackResponse;
         } else if (fallbackResponse) {
-            // Fallback responded but with a non-ok status — surface it.
             response = fallbackResponse;
+        }
+    }
+    if (!response || !response.ok) {
+        const tertiaryResponse = await tryFetch(tertiaryUrl);
+        if (tertiaryResponse && tertiaryResponse.ok) {
+            try {
+                const cache = await determineCache(cacheType);
+                await cache.put(primaryUrl, tertiaryResponse.clone());
+            } catch {
+                /* no-op */
+            }
+            response = tertiaryResponse;
+        } else if (tertiaryResponse) {
+            response = tertiaryResponse;
         }
     }
 
@@ -150,14 +168,20 @@ export const determineGeoJSON = async (
     // countries — the default 25 s would otherwise time out
     // before the boundary geometry is assembled.
     const query = `[out:json][timeout:120];${osmType}(${osmId});out geom;`;
-    // Client-side timeout matches the server's, plus a small margin.
-    // Without this bump the default 25 s in cacheFetch aborts the
-    // request well before the server returns Sweden's relation.
+    // Per-attempt client timeout. Was 130 s (matching the server
+    // [timeout:120] + slack), but in practice a mirror that hasn't
+    // sent headers within ~30 s is silently hung — and waiting the
+    // full 130 s blocks failover to a healthy mirror. 45 s keeps
+    // headroom for legitimate slow boundaries (Sweden ~30 s)
+    // while letting us fail over from a stuck primary in
+    // reasonable time. The chain has three mirrors now
+    // (overpass-api.de → private.coffee → kumi.systems), so worst
+    // case is 3 × 45 s = 135 s before we surface the error.
     const data = await getOverpassData(
         query,
         silent ? undefined : "Loading map data...",
         CacheType.PERMANENT_CACHE,
-        130_000,
+        45_000,
         reportProgress,
         progressLabel,
     );

@@ -193,6 +193,40 @@ export function MapLoadingOverlay() {
                         ))}
                     </ul>
                 )}
+
+                {/* Manual retry — visible after 20 s without progress.
+                    Public Overpass mirrors occasionally hang silently
+                    (no headers, no error, no timeout for ages); the
+                    retry just reloads the page so the boundary fetch
+                    starts fresh against the failover chain. This is
+                    the "force-close and reopen" recovery surfaced as
+                    a button. */}
+                {elapsed !== null && elapsed >= 20000 && downloaded === 0 && (
+                    <div className="pt-1 border-t border-border/50 space-y-1.5">
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                            Taking longer than expected — the public
+                            Overpass mirrors are sometimes overloaded.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (typeof window !== "undefined") {
+                                    window.location.reload();
+                                }
+                            }}
+                            className={cn(
+                                "w-full rounded-sm border border-primary/60",
+                                "bg-primary/10 text-primary",
+                                "text-xs font-display font-extrabold uppercase tracking-[0.08em]",
+                                "py-2",
+                                "hover:bg-primary/20",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                            )}
+                        >
+                            Try again
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
