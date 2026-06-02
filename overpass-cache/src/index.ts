@@ -35,6 +35,9 @@ export interface Env {
     ALLOWED_ORIGINS: string;
     CACHE_TTL_DAYS: string;
     PREWARM_BATCH_SIZE: string;
+    /** Bearer token guarding `/admin/*` endpoints. Set via
+     *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
+    ADMIN_SECRET?: string;
 }
 
 const OVERPASS_MIRRORS = [
@@ -76,6 +79,13 @@ export default {
                 status: 200,
                 headers: { ...cors, "Content-Type": "text/plain" },
             });
+        }
+
+        if (url.pathname === "/admin/prewarm") {
+            return handleAdminPrewarm(request, env, ctx, cors);
+        }
+        if (url.pathname === "/admin/status") {
+            return handleAdminStatus(request, env, cors);
         }
 
         if (url.pathname !== "/api/interpreter") {
@@ -268,34 +278,213 @@ async function prewarmCity(
     city: CityEntry,
     ttlMs: number,
 ): Promise<void> {
-    const query = `[out:json][timeout:120];relation(${city.relationId});out geom;`;
+    await prewarmRelation(env, ctx, city.relationId, ttlMs, city.name);
+}
+
+/** Generic prewarm by raw OSM relation id. Used by both the
+ *  weekly cron (via `prewarmCity`) and the admin bulk endpoint. */
+async function prewarmRelation(
+    env: Env,
+    _ctx: ExecutionContext,
+    relationId: number,
+    ttlMs: number,
+    sourceName?: string,
+): Promise<
+    | { status: "skipped-fresh"; ageMs: number }
+    | { status: "stored"; sizeBytes: number }
+    | { status: "upstream-failed" }
+> {
+    const query = `[out:json][timeout:120];relation(${relationId});out geom;`;
     const cacheKey = await r2KeyForQuery(query);
     const r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
     if (r2Hit) {
         const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
-        if (cachedAt && Date.now() - cachedAt < ttlMs) {
-            // Already fresh — nothing to do.
-            return;
+        const ageMs = Date.now() - cachedAt;
+        if (cachedAt && ageMs < ttlMs) {
+            return { status: "skipped-fresh", ageMs };
         }
     }
     const upstream = await fetchFromMirrorChain(query);
     if (!upstream) {
-        console.warn(`Prewarm: every mirror failed for ${city.name}`);
-        return;
+        return { status: "upstream-failed" };
     }
     const body = await upstream.text();
     await env.CACHE.put(`overpass/${cacheKey}`, body, {
         customMetadata: {
             cachedAt: String(Date.now()),
             sizeBytes: String(body.length),
-            sourceName: city.name,
-            sourceRelationId: String(city.relationId),
+            ...(sourceName ? { sourceName } : {}),
+            sourceRelationId: String(relationId),
             prewarmed: "true",
         },
     });
-    console.log(
-        `Prewarmed ${city.name} (${city.relationId}) — ${body.length} bytes`,
+    return { status: "stored", sizeBytes: body.length };
+}
+
+/* ─────────────────────── Admin endpoints ─────────────────────── */
+
+interface AdminPrewarmRequest {
+    /** OSM relation ids to fetch + store. Anything already fresh
+     *  in R2 (< CACHE_TTL_DAYS old) is skipped, not refetched. */
+    relationIds: number[];
+    /** Optional parallel names, indexed the same as relationIds.
+     *  Saved into R2 metadata for later auditing. */
+    names?: string[];
+    /** Per-id polite delay in ms. Defaults to 1500 (≈ 0.7 req/s)
+     *  to stay well under Overpass's rate-limit guidance. */
+    delayBetweenMs?: number;
+}
+
+async function handleAdminPrewarm(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: AdminPrewarmRequest;
+    try {
+        payload = (await request.json()) as AdminPrewarmRequest;
+    } catch {
+        return new Response("Invalid JSON body", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    if (
+        !payload ||
+        !Array.isArray(payload.relationIds) ||
+        payload.relationIds.length === 0
+    ) {
+        return new Response("relationIds (non-empty array) is required", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) *
+        24 *
+        60 *
+        60 *
+        1000;
+    const delay =
+        typeof payload.delayBetweenMs === "number" &&
+        payload.delayBetweenMs >= 0
+            ? Math.min(payload.delayBetweenMs, 10_000)
+            : 1500;
+    const results: Array<{
+        relationId: number;
+        name?: string;
+        status: string;
+        sizeBytes?: number;
+        ageMs?: number;
+        durationMs: number;
+    }> = [];
+    for (let i = 0; i < payload.relationIds.length; i++) {
+        const id = payload.relationIds[i];
+        const name = payload.names?.[i];
+        const t0 = Date.now();
+        try {
+            const result = await prewarmRelation(env, ctx, id, ttlMs, name);
+            results.push({
+                relationId: id,
+                name,
+                status: result.status,
+                sizeBytes:
+                    "sizeBytes" in result ? result.sizeBytes : undefined,
+                ageMs: "ageMs" in result ? result.ageMs : undefined,
+                durationMs: Date.now() - t0,
+            });
+        } catch (e) {
+            results.push({
+                relationId: id,
+                name,
+                status: "error",
+                durationMs: Date.now() - t0,
+            });
+            console.warn(`Bulk prewarm error for ${id}:`, e);
+        }
+        if (i < payload.relationIds.length - 1 && delay > 0) {
+            await new Promise((r) => setTimeout(r, delay));
+        }
+    }
+    return new Response(JSON.stringify({ results }, null, 2), {
+        status: 200,
+        headers: { ...cors, "Content-Type": "application/json" },
+    });
+}
+
+async function handleAdminStatus(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    // R2 doesn't surface a cheap "count + total size" without
+    // listing every key. Page through up to ~10k entries — fine
+    // for our scale, and aborts early on bigger ones.
+    let cursor: string | undefined = undefined;
+    let count = 0;
+    let totalBytes = 0;
+    let prewarmedCount = 0;
+    do {
+        const page: R2Objects = await env.CACHE.list({
+            prefix: "overpass/",
+            cursor,
+            limit: 1000,
+            include: ["customMetadata"],
+        });
+        for (const obj of page.objects) {
+            count++;
+            const sb = parseInt(
+                obj.customMetadata?.sizeBytes ?? String(obj.size),
+                10,
+            );
+            if (!isNaN(sb)) totalBytes += sb;
+            if (obj.customMetadata?.prewarmed === "true") prewarmedCount++;
+        }
+        cursor = page.truncated ? page.cursor : undefined;
+        if (count >= 10_000) break;
+    } while (cursor);
+    return new Response(
+        JSON.stringify(
+            {
+                cachedEntries: count,
+                totalBytes,
+                prewarmedEntries: prewarmedCount,
+                tooManyToCountExactly: count >= 10_000,
+            },
+            null,
+            2,
+        ),
+        {
+            status: 200,
+            headers: { ...cors, "Content-Type": "application/json" },
+        },
     );
+}
+
+function checkAdminAuth(request: Request, env: Env): boolean {
+    if (!env.ADMIN_SECRET) return false;
+    const got = request.headers.get("Authorization") || "";
+    const expected = `Bearer ${env.ADMIN_SECRET}`;
+    // Constant-time compare to avoid timing attacks on the secret.
+    if (got.length !== expected.length) return false;
+    let diff = 0;
+    for (let i = 0; i < got.length; i++) {
+        diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
+    }
+    return diff === 0;
 }
 
 async function writeBackThroughCaches(
