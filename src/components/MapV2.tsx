@@ -21,6 +21,7 @@ import {
     mapGeoLocation,
     planningModeEnabled,
     polyGeoJSON,
+    questionModified,
     questions,
     thunderforestApiKey,
     triggerLocalRefresh,
@@ -48,12 +49,12 @@ import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
  *   [x] flyTo equivalent when mapGeoLocation changes
  *   [x] Question-finished elimination polygons
  *   [x] Pending-question dashed outlines (category-colored)
- *   [ ] Question markers (DraggableMarkers equivalent)
+ *   [x] Question markers (display + drag-to-reposition)
+ *   [x] OpenRailwayMap overlay (raster)
+ *   [x] Thunderforest custom tiles
+ *   [ ] Marker click → opens QuestionCard dialog
  *   [ ] PolygonDraw (free-draw region elimination)
  *   [ ] ZoneSidebar hiding-zone overlay
- *   [ ] Transit lines overlay (raster)
- *   [ ] OpenRailwayMap overlay (raster)
- *   [ ] Thunderforest custom tiles
  *   [ ] Coastline GeoJSON overlay
  *   [ ] Map print / screenshot equivalent
  *   [ ] Context menu (right-click to add radius)
@@ -458,21 +459,49 @@ export function MapV2({ className }: MapV2Props) {
                     </Source>
                 )}
 
-                {/* Per-question markers — display-only for now
-                    (no drag, no click-to-edit). Each question
-                    type has its own coordinate fields; we
-                    extract them via a small per-id helper so
-                    the schema details stay localized. Drag +
-                    click ports follow once a full feature
-                    decision is made. */}
+                {/* Per-question markers. Each question type's
+                    coord shape is normalized by questionMarkers()
+                    into a flat list of (lat, lng, slot) entries
+                    where `slot` tells the drag handler which
+                    field of the question's data to write back to
+                    on drag-end. Matches the Leaflet path's
+                    "mutate in place + call questionModified()"
+                    pattern so the multiplayer / autosave bridge
+                    fires the same way. Click-to-edit dialog is
+                    next. */}
                 {$questions
                     .flatMap((q) => questionMarkers(q))
-                    .map(({ id, lat, lng, color, label }) => (
+                    .map(({ id, questionKey, slot, lat, lng, color, label }) => (
                         <Marker
                             key={id}
                             longitude={lng}
                             latitude={lat}
                             anchor="center"
+                            draggable
+                            onDragEnd={(e) => {
+                                const all = questions.get();
+                                const target = all.find(
+                                    (q) => q.key === questionKey,
+                                );
+                                if (!target) return;
+                                const newLat = e.lngLat.lat;
+                                const newLng = e.lngLat.lng;
+                                const data = target.data as Record<
+                                    string,
+                                    unknown
+                                >;
+                                if (slot === "primary") {
+                                    data.lat = newLat;
+                                    data.lng = newLng;
+                                } else if (slot === "a") {
+                                    data.latA = newLat;
+                                    data.lngA = newLng;
+                                } else {
+                                    data.latB = newLat;
+                                    data.lngB = newLng;
+                                }
+                                questionModified();
+                            }}
                         >
                             <div
                                 aria-label={label}
@@ -484,6 +513,7 @@ export function MapV2({ className }: MapV2Props) {
                                     border: "2px solid white",
                                     boxShadow:
                                         "0 1px 3px rgba(0,0,0,0.55)",
+                                    cursor: "grab",
                                 }}
                             />
                         </Marker>
@@ -536,9 +566,9 @@ export function MapV2({ className }: MapV2Props) {
  * Extract render-ready markers from a question. Different
  * question categories store coordinates under different keys
  * (radius / tentacles: data.lat/data.lng; thermometer: a/b
- * pair; matching/measuring: depends on subtype). For now this
- * just covers the common shapes; we'll fill in the rest as we
- * port click-to-edit + drag behaviour.
+ * pair; matching/measuring: depends on subtype). The `slot`
+ * tells the drag handler WHICH coord field of the question's
+ * data to update on drag-end.
  */
 function questionMarkers(q: {
     key: number;
@@ -546,6 +576,8 @@ function questionMarkers(q: {
     data: Record<string, unknown>;
 }): Array<{
     id: string;
+    questionKey: number;
+    slot: "primary" | "a" | "b";
     lat: number;
     lng: number;
     color: string;
@@ -554,6 +586,8 @@ function questionMarkers(q: {
     const cat = CATEGORIES[q.id as CategoryId] ?? CATEGORIES.matching;
     const out: Array<{
         id: string;
+        questionKey: number;
+        slot: "primary" | "a" | "b";
         lat: number;
         lng: number;
         color: string;
@@ -566,6 +600,8 @@ function questionMarkers(q: {
     ) {
         out.push({
             id: `${q.key}-primary`,
+            questionKey: q.key,
+            slot: "primary",
             lat: data.lat,
             lng: data.lng,
             color: cat.color,
@@ -578,6 +614,8 @@ function questionMarkers(q: {
     ) {
         out.push({
             id: `${q.key}-a`,
+            questionKey: q.key,
+            slot: "a",
             lat: data.latA,
             lng: data.lngA,
             color: cat.color,
@@ -593,6 +631,8 @@ function questionMarkers(q: {
     ) {
         out.push({
             id: `${q.key}-b`,
+            questionKey: q.key,
+            slot: "b",
             lat: data.latB,
             lng: data.lngB,
             color: cat.color,
