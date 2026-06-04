@@ -70,25 +70,41 @@ same list is cheap.
 
 ## Growing the list
 
-`bulk-cities.json` ships with ~160 well-known cities. To add
-more without hand-looking-up every OSM relation id, use the
+`bulk-cities.json` ships with ~170 well-known cities. A
+larger candidate set lives in `bulk-city-names.json` —
+~600 cities organized by region, ready to feed to the
 discovery script:
 
 ```bash
-# 1. Write a JSON array of "City, Country" strings
-echo '["Tampere, Finland", "Aarhus, Denmark", "Tartu, Estonia"]' > /tmp/names.json
-
-# 2. Resolve via Photon and append to bulk-cities.json
 node scripts/discover-osm-ids.mjs \
-    --input /tmp/names.json \
+    --input ./bulk-city-names.json \
     --output ./bulk-cities.json \
     --append
 ```
 
-Photon's free tier handles this fine at the default 1 req/s
-pacing. The script checkpoints every 25 resolves, so a crash
-mid-run doesn't lose work. Verify the resulting JSON before
-running `bulk-prewarm.mjs` — Photon occasionally returns a
+At Photon's default 1 req/s pacing this takes ~10 min and
+appends every new resolution into `bulk-cities.json` (which
+the bulk-prewarm step then warms into R2). The script
+checkpoints every 25 resolves, so a crash mid-run doesn't
+lose work.
+
+For a one-shot fully-cold prefill, the `prewarm:overnight`
+npm script wires both stages together:
+
+```bash
+ADMIN_SECRET=… WORKER_URL=https://jlhs-overpass-cache.<sub>.workers.dev \
+    pnpm run prewarm:overnight
+```
+
+That runs discovery against `bulk-city-names.json`, then
+bulk-prewarm against the resulting `bulk-cities.json`, with
+sensible defaults. Total wall-clock for a fresh 600-city
+prefill is about an hour.
+
+To add cities not already in `bulk-city-names.json`, edit it
+directly — entries are plain `"City, Country"` strings, no
+relation IDs to look up by hand. Verify the resulting JSON
+before running prewarm — Photon occasionally returns a
 ward or sub-district instead of the city proper.
 
 ## Status check

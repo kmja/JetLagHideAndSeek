@@ -7,7 +7,9 @@
     "scripts": {
         "deploy": "wrangler deploy --config wrangler.toml",
         "dev": "wrangler dev --config wrangler.toml",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "discover": "node scripts/discover-osm-ids.mjs --input ./bulk-city-names.json --output ./bulk-cities.json --append",
+        "prewarm:overnight": "node scripts/overnight.mjs"
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20260520.1",
