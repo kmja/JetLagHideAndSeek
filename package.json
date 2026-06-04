@@ -4,8 +4,9 @@
     "version": "0.0.1",
     "scripts": {
         "dev": "vite",
-        "build": "tsc --noEmit && vite build",
+        "build": "vite build",
         "preview": "vite preview",
+        "typecheck": "tsc --noEmit",
         "lint": "eslint --fix src && prettier . --write",
         "test": "vitest"
     },

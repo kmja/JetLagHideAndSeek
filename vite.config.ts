@@ -193,11 +193,13 @@ export default defineConfig({
         }),
     ],
     resolve: {
-        // Path alias — mirrors the existing Astro / tsconfig
-        // `@/*` → `src/*` so component imports keep working
-        // unchanged.
+        // Path aliases — mirror tsconfig so component imports
+        // keep working unchanged:
+        //   "@/*"         → src/*
+        //   "@protocol/*" → protocol/* (shared with worker/)
         alias: {
             "@": path.resolve(__dirname, "src"),
+            "@protocol": path.resolve(__dirname, "protocol"),
         },
         // React-instance hygiene under pnpm — same rationale as
         // before. Forces every `import 'react'` / `import

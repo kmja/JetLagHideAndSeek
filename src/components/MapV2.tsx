@@ -199,7 +199,12 @@ export function MapV2({ className }: MapV2Props) {
         const inner = $mapGeoJSON || $polyGeoJSON;
         if (!inner) return null;
         try {
-            return holedMask(inner) as GeoJSON.FeatureCollection;
+            const mask = holedMask(inner);
+            if (!mask) return null;
+            // holedMask returns a single Feature; MapLibre's
+            // <Source type="geojson"> expects either a Feature
+            // or a FeatureCollection — pass it directly.
+            return mask as GeoJSON.Feature;
         } catch (e) {
             console.warn("MapV2 holedMask failed:", e);
             return null;
