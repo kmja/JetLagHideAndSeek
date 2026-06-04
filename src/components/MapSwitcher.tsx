@@ -3,40 +3,40 @@ import { lazy, Suspense } from "react";
 
 import { useMapLibre } from "@/lib/featureFlags";
 
-import { Map as LeafletMap } from "./Map";
-
-// MapV2 is lazy-loaded so the heavyweight maplibre-gl bundle
-// (~600 KB minified) only ships when the user actually flips
-// the feature flag. While the flag is off this comes out as
-// dead code at build time.
+// Both map implementations are lazy-loaded so only the one the user
+// actually renders ships over the wire. Leaflet (Map.tsx) is the
+// legacy safety-net path; MapLibre (MapV2.tsx) is the default. Each
+// pulls in ~600 KB+ of map runtime so loading both would double the
+// initial JS payload for no benefit.
 const MapV2 = lazy(() =>
     import("./MapV2").then((m) => ({ default: m.MapV2 })),
+);
+const LeafletMap = lazy(() =>
+    import("./Map").then((m) => ({ default: m.Map })),
 );
 
 /**
  * Picks between the Leaflet-backed Map and the MapLibre-backed
- * MapV2 based on the `useMapLibre` feature flag. While we work
- * MapV2 to parity (see its header checklist), users on the
- * default flag value (false) see the existing Leaflet
- * implementation — nothing changes for them.
+ * MapV2 based on the `useMapLibre` feature flag. MapLibre is the
+ * default; the Leaflet path is kept around so a real-game
+ * regression can be worked around with one localStorage toggle.
  *
- * To preview MapV2 in the browser:
+ * To switch back to Leaflet:
  *
- *     localStorage.setItem('jlhs:useMapLibre', 'true');
+ *     localStorage.setItem('jlhs:useMapLibre', 'false');
  *     location.reload();
- *
- * Flip back with `false`.
  */
 export function MapSwitcher({ className }: { className?: string }) {
     const $useMapLibre = useStore(useMapLibre);
-    if ($useMapLibre) {
-        return (
-            <Suspense fallback={null}>
+    return (
+        <Suspense fallback={null}>
+            {$useMapLibre ? (
                 <MapV2 className={className} />
-            </Suspense>
-        );
-    }
-    return <LeafletMap className={className} />;
+            ) : (
+                <LeafletMap className={className} />
+            )}
+        </Suspense>
+    );
 }
 
 export default MapSwitcher;

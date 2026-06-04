@@ -241,6 +241,79 @@ export default defineConfig({
         // SPA — a single entry HTML.
         rollupOptions: {
             input: path.resolve(__dirname, "index.html"),
+            output: {
+                // Vendor splitting so the initial page-load JS
+                // payload stays small. Anything that's only used by
+                // the map runtime (maplibre, leaflet, turf, d3) is
+                // already lazy-loaded via React.lazy in MapSwitcher,
+                // so isolating those vendors lets the loader skip
+                // them when the user's flag points the other way.
+                // Other splits (react, ui, arcgis, utils) are about
+                // letting the browser cache the heavy stable vendor
+                // chunks across deploys — app code churns daily, the
+                // vendor blobs don't.
+                manualChunks(id) {
+                    if (!id.includes("node_modules")) return undefined;
+                    if (
+                        id.includes("/maplibre-gl/") ||
+                        id.includes("/react-map-gl/") ||
+                        id.includes("/@mapbox/mapbox-gl-draw/")
+                    )
+                        return "vendor-maplibre";
+                    if (
+                        id.includes("/leaflet/") ||
+                        id.includes("/react-leaflet/") ||
+                        id.includes("/leaflet-draw/") ||
+                        id.includes("/leaflet-easyprint/") ||
+                        id.includes("/leaflet-contextmenu/") ||
+                        id.includes("/react-leaflet-draw/")
+                    )
+                        return "vendor-leaflet";
+                    if (id.includes("/@turf/")) return "vendor-turf";
+                    if (id.includes("/d3-")) return "vendor-d3";
+                    if (
+                        id.includes("/@arcgis/") ||
+                        id.includes("/@terraformer/")
+                    )
+                        return "vendor-arcgis";
+                    if (
+                        id.includes("/@radix-ui/") ||
+                        id.includes("/lucide-react/") ||
+                        id.includes("/react-icons/") ||
+                        id.includes("/cmdk/") ||
+                        id.includes("/vaul/")
+                    )
+                        return "vendor-ui";
+                    if (
+                        id.includes("/nanostores/") ||
+                        id.includes("/@nanostores/")
+                    )
+                        return "vendor-nanostores";
+                    if (
+                        id.includes("/react/") ||
+                        id.includes("/react-dom/") ||
+                        id.includes("/react-router") ||
+                        id.includes("/scheduler/")
+                    )
+                        return "vendor-react";
+                    if (
+                        id.includes("/lodash/") ||
+                        id.includes("/papaparse/") ||
+                        id.includes("/osmtogeojson/") ||
+                        id.includes("/open-location-code/") ||
+                        id.includes("/zod/") ||
+                        id.includes("/qrcode.react/")
+                    )
+                        return "vendor-utils";
+                    return undefined;
+                },
+            },
         },
+        // Lifted from the default 500 KB so the maplibre chunk
+        // (~800 KB even after splitting) stops printing a warning
+        // on every build. The chunks ARE intentionally large; the
+        // wins come from cacheability + lazy-loading, not from
+        // shrinking them further.
+        chunkSizeWarningLimit: 1024,
     },
 });
