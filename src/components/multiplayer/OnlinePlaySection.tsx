@@ -70,7 +70,11 @@ export function OnlinePlaySection() {
         try {
             const newCode = await createGame();
             joinAsHost(newCode, trimmedName);
-            toast.success(`Hosting game ${newCode}.`, { autoClose: 2500 });
+            // No "Hosting game X" toast — the InvitePanel that
+            // replaces this card after a successful host already
+            // shows the code prominently, so the toast is redundant
+            // noise. (Matches the same hygiene pass that dropped the
+            // wizard's room-creation toast.)
         } catch (e) {
             toast.error(
                 e instanceof Error

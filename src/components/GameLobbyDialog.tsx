@@ -10,6 +10,7 @@ import {
     Users,
     X,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -366,24 +367,25 @@ export function GameLobbyDialog() {
                                     </span>
                                 )}
                             </div>
-                            {/* Visible share URL — readable and
-                                selectable, so the host can show their
-                                phone to a friend or paste it manually
-                                without going through the share-sheet
-                                hop. */}
-                            <div className="rounded-sm bg-background/60 border border-border/60 px-2.5 py-1.5">
-                                <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground mb-0.5">
-                                    Share link
-                                </div>
+                            {/* QR code — point a phone's camera at it to
+                                jump straight into the join lobby. White
+                                background so the dark modules read
+                                cleanly against any phone scanner. */}
+                            {shareUrl && (
                                 <div
-                                    className="text-xs font-mono break-all select-all leading-snug"
-                                    onClick={handleCopy}
-                                    role="button"
-                                    title="Tap to copy"
+                                    className="mx-auto flex items-center justify-center bg-white rounded-md p-3"
+                                    aria-label="Scan to join this game"
                                 >
-                                    {shareUrl || "—"}
+                                    <QRCodeSVG
+                                        value={shareUrl}
+                                        size={176}
+                                        level="M"
+                                        marginSize={0}
+                                        bgColor="#ffffff"
+                                        fgColor="#0f172a"
+                                    />
                                 </div>
-                            </div>
+                            )}
                             <div className="flex gap-1.5">
                                 <Button
                                     size="sm"
