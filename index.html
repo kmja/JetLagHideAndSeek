@@ -1,17 +1,3 @@
----
-import "@/styles/globals.css";
-import { ToastContainer } from "react-toastify";
-import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
-// @ts-ignore
-import { pwaInfo } from "virtual:pwa-info";
-
-export interface Props {
-    className?: string;
-}
-
-const { className } = Astro.props;
----
-
 <!doctype html>
 <html lang="en">
     <head>
@@ -56,28 +42,37 @@ const { className } = Astro.props;
         <meta name="apple-mobile-web-app-title" content="Hide+Seek" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="application-name" content="Hide+Seek" />
+
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link
             href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Inter+Tight:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,500;1,600;1,700;1,800;1,900&family=M+PLUS+Rounded+1c:wght@700;800;900&display=swap"
             rel="stylesheet"
         />
-        <script
-            type="text/partytown"
-            async
-            src="https://www.googletagmanager.com/gtag/js?id=G-RKJ9G6CNC2"
-        ></script>
-        <script type="text/partytown">
-            window.dataLayer = window.dataLayer || [];
-            function gtag() {
-                dataLayer.push(arguments);
-            }
-            gtag("js", new Date());
 
-            gtag("config", "G-RKJ9G6CNC2");
-        </script>
+        <!-- Analytics. Both run only on the deployed site (not on
+             localhost). Inline because they're one-shot and small;
+             the previous Astro setup used Partytown to defer them
+             off the main thread, but in practice the wins were
+             marginal and Partytown added a build-time wrinkle for
+             the SPA. Keep an eye on Lighthouse — if these start to
+             hurt, restore Partytown as a Vite plugin. -->
         <script type="text/javascript">
-            if (!window.location.host.includes("localhost")) {
+            (function () {
+                if (window.location.host.includes("localhost")) return;
+                var s = document.createElement("script");
+                s.async = true;
+                s.src =
+                    "https://www.googletagmanager.com/gtag/js?id=G-RKJ9G6CNC2";
+                document.head.appendChild(s);
+                window.dataLayer = window.dataLayer || [];
+                function gtag() {
+                    dataLayer.push(arguments);
+                }
+                window.gtag = gtag;
+                gtag("js", new Date());
+                gtag("config", "G-RKJ9G6CNC2");
+
                 (function (c, l, a, r, i, t, y) {
                     c[a] =
                         c[a] ||
@@ -90,20 +85,18 @@ const { className } = Astro.props;
                     y = l.getElementsByTagName(r)[0];
                     y.parentNode.insertBefore(t, y);
                 })(window, document, "clarity", "script", "sus45mfdvm");
-            }
+            })();
         </script>
-        <meta name="generator" content={Astro.generator} />
-        <!-- HTML Meta Tags -->
+
         <title>Map Generator for Jet Lag The Game: Hide and Seek</title>
         <meta
             name="description"
             content="Automatically generate maps for Jet Lag The Game: Hide and Seek with ease! Simply name the questions and watch the map eliminate hundreds of possibilities in seconds."
         />
 
-        <!-- Facebook Meta Tags -->
         <meta
             property="og:url"
-            content="https://taibeled.github.io/JetLagHideAndSeek/"
+            content="https://jetlaghideandseek.karl-mj-andersson.workers.dev/"
         />
         <meta property="og:type" content="website" />
         <meta
@@ -114,17 +107,12 @@ const { className } = Astro.props;
             property="og:description"
             content="Automatically generate maps for Jet Lag The Game: Hide and Seek with ease! Simply name the questions and watch the map eliminate hundreds of possibilities in seconds."
         />
-        <meta
-            property="og:image"
-            content="https://taibeled.github.io/JetLagHideAndSeek/JLIcon.png"
-        />
+        <meta property="og:image" content="/JLIcon.png" />
 
-        <!-- Twitter Meta Tags -->
         <meta name="twitter:card" content="summary_large_image" />
-        <meta property="twitter:domain" content="taibeled.github.io" />
         <meta
             property="twitter:url"
-            content="https://taibeled.github.io/JetLagHideAndSeek/"
+            content="https://jetlaghideandseek.karl-mj-andersson.workers.dev/"
         />
         <meta
             name="twitter:title"
@@ -134,51 +122,30 @@ const { className } = Astro.props;
             name="twitter:description"
             content="Automatically generate maps for Jet Lag The Game: Hide and Seek with ease! Simply name the questions and watch the map eliminate hundreds of possibilities in seconds."
         />
-        <meta
-            name="twitter:image"
-            content="https://taibeled.github.io/JetLagHideAndSeek/JLIcon.png"
-        />
-
-        {pwaInfo && <Fragment set:html={pwaInfo.webManifest.linkTag} />}
+        <meta name="twitter:image" content="/JLIcon.png" />
 
         <!--
           GPS spoof for local development. Lets you test GPS-dependent
-          flows (the wizard's auto-locate, thermometer live distance,
-          hider position pin) without a real device. Runs only when
-          serving from localhost AND the user has explicitly set the
+          flows without a real device. Runs only when serving from
+          localhost AND the user has explicitly set the
           `__jlhs_gpsSpoof` localStorage key. Production deploys
           never trip this.
 
-          Two schemas supported:
+          Two schemas supported (see the docs in Layout.astro before
+          this file was deleted — same shape):
 
-          (A) Single-position spoof — every call to navigator.geolocation
-              returns the same simulated walker, regardless of role:
-
+          (A) Single-position spoof — every call returns the same
+              simulated walker:
             localStorage.setItem('__jlhs_gpsSpoof', JSON.stringify({
               centerLat: 59.3293, centerLng: 18.0686,
               radiusM: 500, speedMps: 1.39,
             }));
             location.reload();
 
-          (B) Role-aware spoof — when `playerRole` is "seeker" the
-              spoof returns the seeker's simulated position, when
-              "hider" it returns the hider's. Lets you switch sides
-              via the debug panel's "→ Seeker / → Hider" buttons and
-              get the matching GPS without re-configuring:
-
-            localStorage.setItem('__jlhs_gpsSpoof', JSON.stringify({
-              seeker: { centerLat: 59.3303, centerLng: 18.0593,
-                        radiusM: 800, speedMps: 1.39 },
-              hider:  { centerLat: 59.3169, centerLng: 18.0626,
-                        radiusM: 100, speedMps: 0.5 },
-            }));
-            location.reload();
-
-          To disable either:
-            localStorage.removeItem('__jlhs_gpsSpoof');
-            location.reload();
+          (B) Role-aware spoof — seeker / hider keys; the active
+              role drives which walker is returned.
         -->
-        <script is:inline>
+        <script>
             (function () {
                 if (
                     !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(
@@ -206,10 +173,6 @@ const { className } = Astro.props;
                     )
                         return null;
                     const RADIUS_M = Number(entry.radiusM) || 500;
-                    // Speed of 0 means "stationary" — the position
-                    // stays clamped to the eastern edge of the (zero-
-                    // radius) circle. Used for "hider sitting still
-                    // at their hiding spot" scenarios.
                     const SPEED_MPS = Number.isFinite(Number(entry.speedMps))
                         ? Number(entry.speedMps)
                         : 1.39;
@@ -254,9 +217,6 @@ const { className } = Astro.props;
                     };
                 };
 
-                // Detect schema. If the config has `seeker` and/or
-                // `hider` keys, it's role-aware; otherwise treat the
-                // whole object as a single-position config.
                 const seekerWalker = cfg.seeker
                     ? buildWalker(cfg.seeker)
                     : null;
@@ -266,11 +226,6 @@ const { className } = Astro.props;
 
                 if (!seekerWalker && !hiderWalker && !singleWalker) return;
 
-                // Read the persisted role from localStorage. Default
-                // role is "seeker" so the seeker-side flows work even
-                // before the wizard has been touched. Be defensive:
-                // persistentAtom may store the value JSON-quoted or
-                // raw depending on the encode option.
                 const readRole = function () {
                     const raw = localStorage.getItem("playerRole");
                     if (!raw) return "seeker";
@@ -356,49 +311,27 @@ const { className } = Astro.props;
                 }
 
                 window.__gpsSpoof = {
-                    schema: seekerWalker || hiderWalker ? "role-aware" : "single",
+                    schema:
+                        seekerWalker || hiderWalker ? "role-aware" : "single",
                     seeker: seekerWalker,
                     hider: hiderWalker,
                     single: singleWalker,
-                    positionFor: positionFor,
-                    readRole: readRole,
                 };
-
-                console.log(
-                    "[gpsSpoof] active — schema",
-                    window.__gpsSpoof.schema,
-                    seekerWalker
-                        ? "seeker centre " + JSON.stringify(seekerWalker.center)
-                        : "",
-                    hiderWalker
-                        ? "hider centre " + JSON.stringify(hiderWalker.center)
-                        : "",
-                    singleWalker
-                        ? "single centre " + JSON.stringify(singleWalker.center)
-                        : "",
-                );
+                console.log("[gps-spoof] active", window.__gpsSpoof);
             })();
         </script>
     </head>
-    <body class:list={[className, "dark"]}>
-        <slot />
-        {/* ToastContainer defaults: top-right at 3000ms autoClose.
-            That position sits right under iOS Safari's notch and
-            covers the Hider timer / Map options chip cluster. Bumping
-            to top-center keeps it out of the way of those controls
-            on mobile, and the 4 s autoClose covers a comfortable
-            read window without lingering. `theme="dark"` matches the
-            app's hardcoded dark mode so the toasts stop flashing
-            light backgrounds. */}
-        <ToastContainer
-            client:only
-            position="top-center"
-            autoClose={4000}
-            theme="dark"
-            newestOnTop
-            pauseOnFocusLoss={false}
-            limit={4}
-        />
-        <PWAUpdatePrompt client:only="react" />
+    <!--
+        Hard-coded dark mode. The original Astro Layout applied
+        `class="dark"` on body so all the shadcn CSS variables
+        resolve to their .dark values; the SPA needs the same
+        class or every dialog renders in light theme (white
+        background, hard-to-read text). The seeker app has no
+        light-mode toggle, so this is a static class — no JS
+        needed.
+    -->
+    <body class="dark">
+        <div id="root"></div>
+        <script type="module" src="/src/main.tsx"></script>
     </body>
 </html>

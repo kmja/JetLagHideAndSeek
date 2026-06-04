@@ -573,6 +573,29 @@ function appendCacheStatus(
 
 /* ─────────────────────── CORS ─────────────────────── */
 
+/** Match an Origin against the ALLOWED_ORIGINS list. Same
+ *  glob semantics as the multiplayer worker — entries with `*`
+ *  are converted to a regex (`*` → `[^/]*`) so a single
+ *  pattern can cover both the production hostname and
+ *  Cloudflare's per-branch preview URLs. */
+function originMatches(origin: string, patterns: string[]): boolean {
+    for (const p of patterns) {
+        if (p === "*") return true;
+        if (!p.includes("*")) {
+            if (p === origin) return true;
+            continue;
+        }
+        const re =
+            "^" +
+            p
+                .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+                .replace(/\*/g, "[^/]*") +
+            "$";
+        if (new RegExp(re).test(origin)) return true;
+    }
+    return false;
+}
+
 function corsHeaders(request: Request, env: Env): HeadersInit {
     const origin = request.headers.get("Origin");
     const allowed = (env.ALLOWED_ORIGINS || "")
@@ -580,7 +603,9 @@ function corsHeaders(request: Request, env: Env): HeadersInit {
         .map((s) => s.trim())
         .filter(Boolean);
     const allow =
-        origin && allowed.includes(origin) ? origin : allowed[0] ?? "*";
+        origin && originMatches(origin, allowed)
+            ? origin
+            : allowed[0] ?? "*";
     return {
         "Access-Control-Allow-Origin": allow,
         "Vary": "Origin",
