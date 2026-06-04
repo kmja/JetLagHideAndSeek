@@ -321,7 +321,16 @@
             })();
         </script>
     </head>
-    <body>
+    <!--
+        Hard-coded dark mode. The original Astro Layout applied
+        `class="dark"` on body so all the shadcn CSS variables
+        resolve to their .dark values; the SPA needs the same
+        class or every dialog renders in light theme (white
+        background, hard-to-read text). The seeker app has no
+        light-mode toggle, so this is a static class — no JS
+        needed.
+    -->
+    <body class="dark">
         <div id="root"></div>
         <script type="module" src="/src/main.tsx"></script>
     </body>

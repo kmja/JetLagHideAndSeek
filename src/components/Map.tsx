@@ -31,7 +31,12 @@ import {
 } from "@/lib/context";
 import { seekerAddQuestion as addQuestion } from "@/lib/multiplayer/store";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { allowedTransit, satelliteView, showTransitLines } from "@/lib/gameSetup";
+import {
+    allowedTransit,
+    satelliteView,
+    setupCompleted,
+    showTransitLines,
+} from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { hiderifyQuestion } from "@/maps";
@@ -124,6 +129,7 @@ export const Map = ({ className }: { className?: string }) => {
     const $questions = useStore(questions);
     const $baseTileLayer = useStore(baseTileLayer);
     const $satelliteView = useStore(satelliteView);
+    const $setupCompleted = useStore(setupCompleted);
     const $showTransitLines = useStore(showTransitLines);
     const $allowedTransit = useStore(allowedTransit);
     // The rail overlay only applies when the game allows train/tram —
@@ -228,6 +234,18 @@ export const Map = ({ className }: { className?: string }) => {
         // Read fresh — closure-captured $isLoading can be stale if state
         // changed between renders and effects.
         if (isLoading.get()) return;
+
+        // Don't kick a boundary fetch before the user has actually
+        // picked a play area. mapGeoLocation defaults to Japan, so
+        // mounting Map.tsx on a fresh app load (Welcome / wizard not
+        // dismissed yet) would race a "load Japan" against the wizard
+        // setting Dalarna a few seconds later — and the in-flight
+        // Japan fetch can finish first, leaving the user staring at
+        // "Loading Japan / Japan queued" inside a Dalarna lobby. Wait
+        // for the wizard to commit by gating on setupCompleted.
+        if (!setupCompleted.get()) {
+            return;
+        }
 
         isLoading.set(true);
 
@@ -588,7 +606,13 @@ export const Map = ({ className }: { className?: string }) => {
         if (!map) return;
 
         refreshQuestions(true);
-    }, [$questions, $mapGeoLocation, map, $hiderMode]);
+        // setupCompleted is in the deps so the wizard's
+        // "mapGeoLocation=…, mapGeoJSON=null, setupCompleted=true"
+        // sequence triggers a fresh boundary load AFTER the gate in
+        // refreshQuestions opens (otherwise the first effect run
+        // sees setupCompleted=false and returns; the
+        // setupCompleted-flip is the one that has to re-fire it).
+    }, [$questions, $mapGeoLocation, map, $hiderMode, $setupCompleted]);
 
     // Defensive layer-cleanup watchdog. Used to run at 1 Hz forever
     // — kept the CPU alive in the background even when the user

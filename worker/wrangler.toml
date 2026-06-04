@@ -20,7 +20,17 @@
 #
 # Cloudflare Workers Builds setup for this worker:
 #   • Root directory: worker
-#   • Deploy command: npx wrangler deploy --config wrangler.toml
+#   • Deploy command: node scripts/deploy.mjs
+#
+# The wrapper is a thin shim around `wrangler deploy --config
+# wrangler.toml` that no-ops on non-master branches. Background:
+# Workers Builds re-runs the deploy command on every branch
+# push, but a preview deploy of THIS worker would either share
+# the production Durable Object state (risky for live games) or
+# need a parallel DO class with its own migration tag (complex
+# to keep aligned with prod). The shim avoids both — only
+# master pushes ship; branch pushes log "skipped" and exit 0
+# so the Workers Build check stays green.
 #
 # After first deploy you'll get a workers.dev URL like
 # `https://jlhs-multiplayer.<your-subdomain>.workers.dev`. Bake that
@@ -53,7 +63,7 @@ new_sqlite_classes = ["GameRoom"]
 # localhost during dev. The worker reads this and echoes it back as
 # Access-Control-Allow-Origin.
 [vars]
-ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,http://localhost:4321,http://localhost:3000"
+ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https://*-jetlaghideandseek.karl-mj-andersson.workers.dev,http://localhost:4321,http://localhost:3000,http://localhost:5173"
 
 # Observability — logs in the Cloudflare dashboard. Free tier limits
 # apply; safe defaults.

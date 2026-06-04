@@ -116,14 +116,41 @@ const WS_LIMIT_MAX = 30; // 30 connection attempts per minute per IP
 
 /* ────────────────── CORS ────────────────── */
 
+/**
+ * Match an Origin against the ALLOWED_ORIGINS list. Entries
+ * with `*` are treated as glob patterns (the `*` matches any
+ * run of non-`/` characters), which lets us allow Cloudflare's
+ * per-branch preview URLs (e.g.
+ * `https://migration-vite-maplibre-jetlaghideandseek.<acct>.workers.dev`)
+ * with a single entry like `https://*-jetlaghideandseek.<acct>.workers.dev`.
+ * A literal `*` on its own still means "allow everything" for
+ * dev convenience.
+ */
+function originMatches(origin: string, patterns: string[]): boolean {
+    for (const p of patterns) {
+        if (p === "*") return true;
+        if (!p.includes("*")) {
+            if (p === origin) return true;
+            continue;
+        }
+        const re =
+            "^" +
+            p
+                .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+                .replace(/\*/g, "[^/]*") +
+            "$";
+        if (new RegExp(re).test(origin)) return true;
+    }
+    return false;
+}
+
 function corsHeaders(env: Env, request: Request): Record<string, string> {
     const origin = request.headers.get("Origin") ?? "";
     const allowed = (env.ALLOWED_ORIGINS ?? "")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-    const allow =
-        allowed.includes(origin) || allowed.includes("*") ? origin : "";
+    const allow = originMatches(origin, allowed) ? origin : "";
     return {
         "Access-Control-Allow-Origin": allow,
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
