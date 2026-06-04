@@ -1,6 +1,8 @@
 import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
 
+import { displayHidingZones } from "@/lib/context";
+
 /**
  * Game setup state — the result of the 3-step onboarding flow that runs on
  * first load and via the "New game" action in the bottom nav.
@@ -131,12 +133,9 @@ export function resetMapOverlays() {
     showBusRoutes.set(false);
     showSubwayRoutes.set(false);
     showFerryRoutes.set(false);
-    // Hiding-zones analysis overlay lives in context.ts. Imported lazily
-    // inside the function so the module-load order between gameSetup and
-    // context can't matter (the binding is only read at call time).
-    import("@/lib/context").then(({ displayHidingZones }) => {
-        displayHidingZones.set(false);
-    });
+    // Hiding-zones analysis overlay lives in context.ts. Plain static
+    // import — there's no circular dep going the other way.
+    displayHidingZones.set(false);
 }
 
 /** Volatile: is the setup wizard currently shown? */
