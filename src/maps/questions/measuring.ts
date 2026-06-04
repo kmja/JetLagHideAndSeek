@@ -1,6 +1,8 @@
 import * as turf from "@turf/turf";
 import type { Feature, MultiPolygon } from "geojson";
-import _ from "lodash";
+import memoize from "lodash/memoize";
+import uniq from "lodash/uniq";
+import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
 
@@ -33,7 +35,7 @@ import type {
     MeasuringQuestion,
 } from "@/maps/schema";
 
-const highSpeedBase = _.memoize(
+const highSpeedBase = memoize(
     (features: Feature[]) => {
         const grouped = groupObjects(features);
 
@@ -142,7 +144,7 @@ export const determineMeasuringBoundary = async (
             return [
                 turf.combine(
                     turf.featureCollection(
-                        _.uniqBy(
+                        uniqBy(
                             (
                                 await findPlacesInZone(
                                     '["aeroway"="aerodrome"]["iata"]', // Only commercial airports have IATA codes,
@@ -254,7 +256,7 @@ export const determineMeasuringBoundary = async (
     }
 };
 
-const bufferedDeterminer = _.memoize(
+const bufferedDeterminer = memoize(
     async (question: MeasuringQuestion) => {
         const placeData = await determineMeasuringBoundary(question);
 

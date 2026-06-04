@@ -6,7 +6,9 @@ import type {
     Point,
     Polygon,
 } from "geojson";
-import _ from "lodash";
+import memoize from "lodash/memoize";
+import uniq from "lodash/uniq";
+import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
 
@@ -35,7 +37,7 @@ import type {
 export const findMatchingPlaces = async (question: MatchingQuestion) => {
     switch (question.type) {
         case "airport": {
-            return _.uniqBy(
+            return uniqBy(
                 (
                     await findPlacesInZone(
                         '["aeroway"="aerodrome"]["iata"]', // Only commercial airports have IATA codes,
@@ -118,7 +120,7 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
     }
 };
 
-export const determineMatchingBoundary = _.memoize(
+export const determineMatchingBoundary = memoize(
     async (question: MatchingQuestion) => {
         let boundary;
 

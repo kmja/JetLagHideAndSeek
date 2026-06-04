@@ -1,4 +1,6 @@
-import _ from "lodash";
+import memoize from "lodash/memoize";
+import uniq from "lodash/uniq";
+import uniqBy from "lodash/uniqBy";
 
 import { GEOCODER_API } from "./constants";
 import { convertToLatLong } from "./geo";
@@ -231,7 +233,7 @@ export const geocode = async (
             ? features[0].properties.country
             : null;
 
-    const deduped = _.uniqBy(
+    const deduped = uniqBy(
         features.filter((feature) => {
             if (!filter) return true;
             // Play-area search needs OSM relations (so the rest of

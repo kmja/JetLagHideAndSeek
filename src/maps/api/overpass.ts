@@ -1,6 +1,8 @@
 import * as turf from "@turf/turf";
 import type { FeatureCollection, MultiPolygon } from "geojson";
-import _ from "lodash";
+import memoize from "lodash/memoize";
+import uniq from "lodash/uniq";
+import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
 
@@ -313,7 +315,7 @@ out geom;
             nodes.push(...element.nodes);
         }
     });
-    const uniqNodes = _.uniq(nodes);
+    const uniqNodes = uniq(nodes);
     return uniqNodes;
 };
 
