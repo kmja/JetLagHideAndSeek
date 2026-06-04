@@ -134,8 +134,20 @@ export default {
 
         // Step 2 — R2. Read metadata first so we can decide fresh
         // vs stale without buffering the body. R2 returns the body
-        // as a stream which we can re-emit directly.
-        const r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+        // as a stream which we can re-emit directly. Wrapped in
+        // try/catch: if the bucket binding errors (e.g. the bucket
+        // doesn't exist yet on first-deploy accounts), don't bring
+        // down the whole request — just treat as a cache miss and
+        // fall through to upstream.
+        let r2Hit: R2ObjectBody | null = null;
+        try {
+            r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+        } catch (e) {
+            console.warn(
+                "R2 get failed (bucket missing? falling through to upstream):",
+                e,
+            );
+        }
         if (r2Hit) {
             const cachedAt = parseInt(
                 r2Hit.customMetadata?.cachedAt ?? "0",
@@ -296,7 +308,12 @@ async function prewarmRelation(
 > {
     const query = `[out:json][timeout:120];relation(${relationId});out geom;`;
     const cacheKey = await r2KeyForQuery(query);
-    const r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("R2 get failed during prewarm:", e);
+    }
     if (r2Hit) {
         const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
         const ageMs = Date.now() - cachedAt;
@@ -309,15 +326,19 @@ async function prewarmRelation(
         return { status: "upstream-failed" };
     }
     const body = await upstream.text();
-    await env.CACHE.put(`overpass/${cacheKey}`, body, {
-        customMetadata: {
-            cachedAt: String(Date.now()),
-            sizeBytes: String(body.length),
-            ...(sourceName ? { sourceName } : {}),
-            sourceRelationId: String(relationId),
-            prewarmed: "true",
-        },
-    });
+    try {
+        await env.CACHE.put(`overpass/${cacheKey}`, body, {
+            customMetadata: {
+                cachedAt: String(Date.now()),
+                sizeBytes: String(body.length),
+                ...(sourceName ? { sourceName } : {}),
+                sourceRelationId: String(relationId),
+                prewarmed: "true",
+            },
+        });
+    } catch (e) {
+        console.warn("R2 put failed during prewarm:", e);
+    }
     return { status: "stored", sizeBytes: body.length };
 }
 
@@ -438,12 +459,30 @@ async function handleAdminStatus(
     let totalBytes = 0;
     let prewarmedCount = 0;
     do {
-        const page: R2Objects = await env.CACHE.list({
-            prefix: "overpass/",
-            cursor,
-            limit: 1000,
-            include: ["customMetadata"],
-        });
+        let page: R2Objects;
+        try {
+            page = await env.CACHE.list({
+                prefix: "overpass/",
+                cursor,
+                limit: 1000,
+                include: ["customMetadata"],
+            });
+        } catch (e) {
+            return new Response(
+                JSON.stringify(
+                    {
+                        error: "R2 list failed — bucket may not exist yet.",
+                        details: e instanceof Error ? e.message : String(e),
+                    },
+                    null,
+                    2,
+                ),
+                {
+                    status: 503,
+                    headers: { ...cors, "Content-Type": "application/json" },
+                },
+            );
+        }
         for (const obj of page.objects) {
             count++;
             const sb = parseInt(
