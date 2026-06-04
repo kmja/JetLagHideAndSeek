@@ -1,10 +1,3 @@
-import * as units from "@arcgis/core/core/units.js";
-import * as geodesicBufferOperator from "@arcgis/core/geometry/operators/geodesicBufferOperator.js";
-import * as geodeticDistanceOperator from "@arcgis/core/geometry/operators/geodeticDistanceOperator.js";
-import Point from "@arcgis/core/geometry/Point.js";
-import * as geometryJsonUtils from "@arcgis/core/geometry/support/jsonUtils.js";
-import * as unionTypes from "@arcgis/core/unionTypes.js";
-import { arcgisToGeoJSON, geojsonToArcGIS } from "@terraformer/arcgis";
 import * as turf from "@turf/turf";
 import type {
     Feature,
@@ -60,46 +53,30 @@ export const modifyMapData = (
     );
 };
 
-const DEFAULT_BUFFER_UNIT = "miles";
-
-export const arcBuffer = (
-    geometry: FeatureCollection,
-    distance: number,
-    unit: units.LengthUnit & turf.Units = DEFAULT_BUFFER_UNIT,
-) => {
-    const arcgisGeometry = geometry.features.map((x) =>
-        geometryJsonUtils.fromJSON(geojsonToArcGIS(x.geometry)),
-    ) as unionTypes.GeometryUnion[];
-
-    return innateArcBuffer(arcgisGeometry, distance, unit);
+// Dynamic-import the ArcGIS-using half so the ~1.5 MB @arcgis/core
+// chunk only loads the first time a question actually needs a
+// geodesic buffer. Both call sites already await the return value.
+let arcgisModulePromise:
+    | Promise<typeof import("./arcgisOperators")>
+    | undefined;
+const loadArcgisModule = () => {
+    if (!arcgisModulePromise) {
+        arcgisModulePromise = import("./arcgisOperators");
+    }
+    return arcgisModulePromise;
 };
 
-const innateArcBuffer = async (
-    arcgisGeometry: unionTypes.GeometryUnion[],
+// Re-exported via the wrapper functions below. We keep the original
+// signatures (loose `turf.Units` accepted as the unit param) so the
+// callers in src/maps/questions/* don't need any type-import dance.
+export const arcBuffer = async (
+    geometry: FeatureCollection,
     distance: number,
-    unit: units.LengthUnit & turf.Units = DEFAULT_BUFFER_UNIT,
+    unit?: turf.Units,
 ) => {
-    await geodesicBufferOperator.load();
-
-    const bufferedGeometry = geodesicBufferOperator.executeMany(
-        arcgisGeometry,
-        Array(arcgisGeometry.length).fill(distance),
-        {
-            union: true,
-            unit: unit,
-            // Tight tolerance keeps small radii (e.g. a 500m radar circle)
-            // visibly smooth at high zoom. The math: segments ≈ π / √(2·d/r);
-            // at r=500m, d=0.15m → ~180 segments — looks like a true circle.
-            // At r=160km, ~3300 segments — still trivial for the renderer.
-            maxDeviation: turf.convertLength(0.5, "feet", unit),
-        },
-    );
-
-    return turf.combine(
-        turf.featureCollection([
-            turf.feature(arcgisToGeoJSON(bufferedGeometry[0] as any)),
-        ]) as any,
-    ).features[0] as Feature<MultiPolygon>;
+    const m = await loadArcgisModule();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return m.arcBufferImpl(geometry, distance, unit as any);
 };
 
 export const arcBufferToPoint = async (
@@ -107,22 +84,6 @@ export const arcBufferToPoint = async (
     lat: number,
     lng: number,
 ) => {
-    const point = new Point({
-        latitude: lat,
-        longitude: lng,
-    });
-
-    const arcgisGeometry = geometry.features.map((x) =>
-        geometryJsonUtils.fromJSON(geojsonToArcGIS(x.geometry)),
-    ) as unionTypes.GeometryUnion[];
-
-    await geodeticDistanceOperator.load();
-
-    const distances = arcgisGeometry.map((x) =>
-        geodeticDistanceOperator.execute(x, point, {
-            unit: DEFAULT_BUFFER_UNIT,
-        }),
-    );
-
-    return innateArcBuffer(arcgisGeometry, Math.min(...distances));
+    const m = await loadArcgisModule();
+    return m.arcBufferToPointImpl(geometry, lat, lng);
 };
