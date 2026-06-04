@@ -13,15 +13,45 @@ import type { APILocations } from "@/maps/schema";
  *      mirror. Used only if our worker is itself unreachable.
  *   3. OVERPASS_API_TERTIARY — third public mirror, same role.
  *
- * If you're running locally without the cache worker deployed,
- * swap OVERPASS_API back to `https://overpass-api.de/api/interpreter`.
+ * Each can be overridden at runtime via localStorage — useful
+ * for quick debugging if our cache worker is misbehaving:
+ *
+ *     localStorage.setItem('jlhs:overpassApi',
+ *       'https://overpass-api.de/api/interpreter');
+ *     location.reload();
+ *
+ * Clear the override with `localStorage.removeItem('jlhs:overpassApi')`.
  */
-export const OVERPASS_API =
+const DEFAULT_OVERPASS_API =
     "https://jlhs-overpass-cache.karl-mj-andersson.workers.dev/api/interpreter";
-export const OVERPASS_API_FALLBACK =
+const DEFAULT_OVERPASS_API_FALLBACK =
     "https://overpass.private.coffee/api/interpreter";
-export const OVERPASS_API_TERTIARY =
+const DEFAULT_OVERPASS_API_TERTIARY =
     "https://overpass.kumi.systems/api/interpreter";
+
+function readOverride(key: string, fallback: string): string {
+    if (typeof window === "undefined") return fallback;
+    try {
+        const v = window.localStorage.getItem(key);
+        if (v && typeof v === "string" && v.length > 0) return v;
+    } catch {
+        /* localStorage blocked — use default */
+    }
+    return fallback;
+}
+
+export const OVERPASS_API = readOverride(
+    "jlhs:overpassApi",
+    DEFAULT_OVERPASS_API,
+);
+export const OVERPASS_API_FALLBACK = readOverride(
+    "jlhs:overpassApiFallback",
+    DEFAULT_OVERPASS_API_FALLBACK,
+);
+export const OVERPASS_API_TERTIARY = readOverride(
+    "jlhs:overpassApiTertiary",
+    DEFAULT_OVERPASS_API_TERTIARY,
+);
 export const GEOCODER_API = "https://photon.komoot.io/api/";
 export const PASTEBIN_API_POST_URL =
     "https://cors-anywhere.com/https://pastebin.com/api/api_post.php";
