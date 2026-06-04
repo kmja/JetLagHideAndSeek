@@ -53,11 +53,7 @@ import {
     type TransitMode,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState } from "@/lib/hiderRole";
-import {
-    createGame,
-    hostPushSetup,
-    joinAsHost,
-} from "@/lib/multiplayer/store";
+import { hostPushSetup } from "@/lib/multiplayer/store";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -430,46 +426,30 @@ export function GameSetupDialog() {
         setupCompleted.set(true);
         setupDialogOpen.set(false);
 
-        // Auto-host an online room (unless already in one). Every
-        // new game gets a multiplayer code by default — even if the
-        // host didn't type a display name yet — so the lobby always
-        // has an invite to share and the role-balance gate (>=1
-        // seeker AND >=1 hider) is enforced from the start. The
-        // host can rename themselves later from the InvitePanel.
+        // Commit the host's display name so the lobby's self-heal
+        // autohost picks it up when it kicks createGame(). The
+        // wizard used to also create the room here in a fire-and-
+        // forget createGame().then(...) block, but that raced the
+        // lobby's autohost effect (added in v35 for crash-recovery
+        // when the wizard's host attempt fails silently). Both would
+        // fire, two rooms would get created, and the visible code
+        // would land on whichever joinAsHost ran last while the
+        // OTHER one's toast fired — the "toast says LA8Y76 but
+        // dialog says 4YSUQK" symptom. Drop the wizard's autohost
+        // entirely; the lobby is the single source of truth for
+        // creating a room.
         const trimmedName = draftDisplayName.trim() || "Host";
+        displayNameAtom.set(trimmedName);
+
         const alreadyOnline =
             multiplayerEnabled.get() && currentGameCode.get();
-        if (!alreadyOnline) {
-            displayNameAtom.set(trimmedName);
-            createGame()
-                .then((newCode) => {
-                    joinAsHost(newCode, trimmedName);
-                    // Push the just-configured setup so any peers
-                    // (current or future) get the play area, transit,
-                    // size, and hiding-period clock. Transport queues
-                    // until the socket opens, so this is safe to call
-                    // immediately after `joinAsHost`.
-                    hostPushSetup();
-                    toast.info(
-                        `Game room ${newCode} ready — share the link from the lobby.`,
-                        { autoClose: 3500 },
-                    );
-                })
-                .catch((e) => {
-                    // Failing to host doesn't block solo play; surface
-                    // a soft warning so the user knows online didn't
-                    // start (they can retry from Game settings).
-                    toast.warn(
-                        e instanceof Error
-                            ? `Game room not started: ${e.message}`
-                            : "Game room not started.",
-                        { autoClose: 3500 },
-                    );
-                });
-        } else {
-            // Already in a room: push the new setup to peers.
+        if (alreadyOnline) {
+            // Edit mode (mid-game settings change): push the new
+            // setup to peers so their lobby / map reflects it.
             hostPushSetup();
         }
+        // else: lobby's self-heal autohost effect will create a
+        //       room once the dialog mounts. No race.
 
         // Hiding-period start toast moved into GameStartWatcher —
         // it fires together with the GO GO GO banner once the map is
