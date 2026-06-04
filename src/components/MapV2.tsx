@@ -1,6 +1,8 @@
 import "maplibre-gl/dist/maplibre-gl.css";
+import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 
 import { useStore } from "@nanostores/react";
+import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import * as turf from "@turf/turf";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +20,7 @@ import Map, {
 
 import {
     baseTileLayer,
+    drawingQuestionKey,
     followMe,
     hiderMode,
     mapGeoJSON,
@@ -29,6 +32,8 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { clearCache } from "@/maps/api";
+import { CacheType } from "@/maps/api/types";
 import {
     mapLibreContext,
     mapLibreViewport,
@@ -83,7 +88,10 @@ import {
  *   [x] TransitRoutesOverlay (subway / bus / ferry, vector GeoJSON)
  *   [x] Thunderforest custom tiles
  *   [x] Marker click → opens QuestionCard dialog
- *   [ ] PolygonDraw (free-draw region elimination)
+ *   [~] PolygonDraw (free-draw region elimination): hiding-zone
+ *       case (key=-1) ported via mapbox-gl-draw; custom-tentacles
+ *       / custom-matching / custom-measuring still need Leaflet
+ *       fallback.
  *   [ ] ZoneSidebar hiding-zone overlay
  *   [ ] Coastline GeoJSON overlay
  *   [x] Follow-me pin (seeker's live position)
@@ -249,6 +257,7 @@ function buildStyle(
 }
 
 export function MapV2({ className }: MapV2Props) {
+    const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $followMe = useStore(followMe);
     const $hiderMode = useStore(hiderMode);
     const $allowedTransit = useStore(allowedTransit);
@@ -658,6 +667,79 @@ export function MapV2({ className }: MapV2Props) {
             navigator.geolocation.clearWatch(id);
         };
     }, [$followMe]);
+
+    // PolygonDraw integration. When the drawingQuestionKey
+    // atom flips to a non-null value (the user opened a draw
+    // session from the OptionDrawers / question card), we
+    // attach a mapbox-gl-draw control to the map. Currently
+    // we only handle the most common case — drawing a custom
+    // hiding-zone polygon (key === -1) — which writes the
+    // resulting FeatureCollection to mapGeoJSON + polyGeoJSON
+    // and clears the question stack + zone cache, matching
+    // the Leaflet PolygonDraw's onChange branch. Custom-
+    // tentacle / custom-matching / custom-measuring draws
+    // still fall back to the Leaflet path until ported.
+    useEffect(() => {
+        if ($drawingQuestionKey === null) return;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const draw = new MapboxDraw({
+            displayControlsDefault: false,
+            controls: {
+                polygon: true,
+                trash: true,
+            },
+            defaultMode: "draw_polygon",
+        });
+        // MapboxDraw expects a Mapbox-shaped IControl; MapLibre
+        // accepts the same shape but the types aren't a perfect
+        // match. Cast through unknown to avoid the structural
+        // mismatch — at runtime the contract is identical.
+        map.addControl(
+            draw as unknown as maplibregl.IControl,
+            "top-right",
+        );
+
+        const onFeatureChange = () => {
+            const fc = draw.getAll();
+            if (fc.features.length === 0) return;
+            if ($drawingQuestionKey === -1) {
+                const out = turf.featureCollection(
+                    fc.features.filter(
+                        (f) =>
+                            f.geometry.type === "Polygon" ||
+                            f.geometry.type === "MultiPolygon",
+                    ),
+                ) as GeoJSON.FeatureCollection<
+                    GeoJSON.Polygon | GeoJSON.MultiPolygon
+                >;
+                mapGeoJSON.set(out);
+                polyGeoJSON.set(out);
+                questions.set([]);
+                void clearCache(CacheType.ZONE_CACHE);
+            }
+            // TODO: handle custom-tentacles / custom-matching
+            // / custom-measuring cases like the Leaflet
+            // PolygonDraw's onChange branches. For now those
+            // questions still need the Leaflet fallback to
+            // edit their geometries.
+        };
+        map.on("draw.create", onFeatureChange);
+        map.on("draw.update", onFeatureChange);
+        map.on("draw.delete", onFeatureChange);
+
+        return () => {
+            map.off("draw.create", onFeatureChange);
+            map.off("draw.update", onFeatureChange);
+            map.off("draw.delete", onFeatureChange);
+            try {
+                map.removeControl(draw as unknown as maplibregl.IControl);
+            } catch {
+                /* control was already torn down (e.g. map
+                   restyled) — ignore */
+            }
+        };
+    }, [$drawingQuestionKey]);
 
     return (
         <div className={cn("relative w-full h-screen", className)}>
