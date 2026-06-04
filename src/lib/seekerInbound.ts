@@ -1,4 +1,5 @@
 import { persistentAtom } from "@nanostores/persistent";
+import type { WritableAtom } from "nanostores";
 
 import type { SharedCursePayload } from "./shareLinks";
 
@@ -36,6 +37,9 @@ if (!g[KEY]) {
     });
 }
 
-export const receivedCurses = g[KEY] as ReturnType<
-    typeof persistentAtom<ReceivedCurse[]>
->;
+// Bound to the encoded persistentAtom built above; cast to a plain
+// WritableAtom because TS can't pick the encoded overload of
+// persistentAtom<T> generically (its default overload constrains T to
+// string | undefined, which we're deliberately bypassing via JSON
+// encode/decode).
+export const receivedCurses = g[KEY] as WritableAtom<ReceivedCurse[]>;

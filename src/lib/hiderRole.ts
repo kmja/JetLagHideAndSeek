@@ -28,8 +28,14 @@ const __globalPersistent = <T>(
     decode: (v: string) => T,
 ) => {
     const g = globalThis as Record<string, unknown>;
-    if (!g[key]) g[key] = persistentAtom<T>(storageKey, initial, { encode, decode });
-    return g[key] as ReturnType<typeof persistentAtom<T>>;
+    if (!g[key])
+        g[key] = persistentAtom<T>(storageKey, initial, { encode, decode });
+    // ReturnType<typeof persistentAtom<T>> can't be expressed because
+    // the @nanostores overloads constrain T to string|undefined for
+    // the default-codec overload. The encoded overload accepts any T
+    // but TS can't pick it generically — just cast back to the atom
+    // shape we know we constructed.
+    return g[key] as ReturnType<typeof atom<T>>;
 };
 
 /* ────────────────── Role selection ────────────────── */

@@ -73,7 +73,7 @@ export const MatchingQuestionComponent = ({
     // Game rule: each (category, subtype) can only be asked once per game.
     // Build a set of types used by OTHER matching questions; the current
     // question's own type is always allowed (so its Select shows its value).
-    const usedMatchingTypes = React.useMemo(
+    const usedMatchingTypes = React.useMemo<Set<string>>(
         () =>
             new Set(
                 $questions

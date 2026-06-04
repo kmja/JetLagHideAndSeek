@@ -20,6 +20,8 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { gameSize } from "@/lib/gameSetup";
+import { cleanDescription, isSubtypeAllowed } from "@/lib/subtypes";
 import { cn, mapToObj } from "@/lib/utils";
 import { findTentacleLocations } from "@/maps/api";
 import {
@@ -53,7 +55,9 @@ export const TentacleQuestionComponent = ({
     const $gameSize = useStore(gameSize);
 
     // Game rule: each (category, subtype) can only be asked once per game.
-    const usedTentacleTypes = React.useMemo(
+    // Cast to Set<string> so we can probe with arbitrary value strings
+    // from the schema enumeration without TS narrowing complaints.
+    const usedTentacleTypes = React.useMemo<Set<string>>(
         () =>
             new Set(
                 $questions

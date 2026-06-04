@@ -367,20 +367,25 @@ export const AddQuestionDialog = ({
         // and measuring which use `type`). When the user picks a subtype in
         // step 2 we set it here so the resulting question has the right
         // place category baked in.
+        // Cast to never on each branch — the schema-side discriminated
+        // union is too narrow for TS to verify the dynamic subtype
+        // string. `addQuestion` runs the value through Zod parsing at
+        // runtime so an invalid subtype would surface as a parse error
+        // long before it could corrupt state.
         addQuestion({
             id: "tentacles",
             data: defaultCustomQuestions.get()
-                ? {
+                ? ({
                       lat: center.lat,
                       lng: center.lng,
                       locationType: subtype ?? "custom",
                       places: [],
-                  }
-                : {
+                  } as never)
+                : ({
                       lat: center.lat,
                       lng: center.lng,
                       ...(subtype ? { locationType: subtype } : {}),
-                  },
+                  } as never),
         });
         return true;
     };
@@ -392,16 +397,16 @@ export const AddQuestionDialog = ({
         addQuestion({
             id: "matching",
             data: defaultCustomQuestions.get()
-                ? {
+                ? ({
                       lat: center.lat,
                       lng: center.lng,
                       type: subtype ?? "custom-points",
-                  }
-                : {
+                  } as never)
+                : ({
                       lat: center.lat,
                       lng: center.lng,
                       ...(subtype ? { type: subtype } : {}),
-                  },
+                  } as never),
         });
         return true;
     };
@@ -413,16 +418,16 @@ export const AddQuestionDialog = ({
         addQuestion({
             id: "measuring",
             data: defaultCustomQuestions.get()
-                ? {
+                ? ({
                       lat: center.lat,
                       lng: center.lng,
                       type: subtype ?? "custom-measure",
-                  }
-                : {
+                  } as never)
+                : ({
                       lat: center.lat,
                       lng: center.lng,
                       ...(subtype ? { type: subtype } : {}),
-                  },
+                  } as never),
         });
         return true;
     };

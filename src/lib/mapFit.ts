@@ -17,15 +17,20 @@ const METERS_PER_UNIT: Record<string, number> = {
 };
 
 /**
- * Pan/zoom a Leaflet map so a circle of `radius` (in the given units)
- * centred on `(lat, lng)` is fully visible with a sensible margin.
+ * Pan/zoom a map so a circle of `radius` (in the given units) centred
+ * on `(lat, lng)` is fully visible with a sensible margin.
  *
- * Accepts the loosely-typed Leaflet Map (we keep the leaflet import
- * dynamic via the existing context.ts pattern) so the call sites
- * don't have to coerce.
+ * Map type is loose on purpose. The function is called from both the
+ * Leaflet path (where `map` is a real `L.Map`) and the MapLibre path
+ * (where it's a `maplibregl.Map`). Both expose a `fitBounds` that
+ * accepts a south-west / north-east coordinate pair, just with slightly
+ * different tuple conventions (Leaflet wants [lat,lng], MapLibre wants
+ * [lng,lat]) — we hand off whichever the caller built and rely on the
+ * caller to pass the right shape for the runtime in use.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function fitMapToRadius(
-    map: { fitBounds: (bounds: [[number, number], [number, number]], opts?: unknown) => void },
+    map: any,
     lat: number,
     lng: number,
     radius: number,

@@ -64,7 +64,7 @@ export const MeasuringQuestionComponent = ({
     const [customDialogOpen, setCustomDialogOpen] = React.useState(false);
 
     // Game rule: each (category, subtype) can only be asked once per game.
-    const usedMeasuringTypes = React.useMemo(
+    const usedMeasuringTypes = React.useMemo<Set<string>>(
         () =>
             new Set(
                 $questions
