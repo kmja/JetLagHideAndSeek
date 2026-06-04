@@ -19,6 +19,7 @@ import Map, {
 import {
     baseTileLayer,
     followMe,
+    hiderMode,
     mapGeoJSON,
     mapGeoLocation,
     planningModeEnabled,
@@ -74,7 +75,7 @@ import {
  *   [x] Follow-me pin (seeker's live position)
  *   [ ] Map print / screenshot equivalent
  *   [x] Context menu (right-click / long-press to add a question)
- *   [ ] Hider position pin (hider page)
+ *   [x] Hider-guess pin (seeker's "I think they're here" marker)
  *   [ ] Thermometer overlay
  *   [ ] Pending answer overlay
  *   [ ] Radar scan overlay
@@ -235,6 +236,7 @@ function buildStyle(
 
 export function MapV2({ className }: MapV2Props) {
     const $followMe = useStore(followMe);
+    const $hiderMode = useStore(hiderMode);
     const $tileKey = useStore(baseTileLayer);
     const $satellite = useStore(satelliteView);
     const $rail = useStore(showTransitLines);
@@ -547,6 +549,42 @@ export function MapV2({ className }: MapV2Props) {
                             }}
                         />
                     </Source>
+                )}
+
+                {/* Hider-guess pin — the seeker's "I think the
+                    hider is here" marker. Green, draggable. Same
+                    questionKey=-1 contract as the Leaflet
+                    DraggableMarkers path so the rest of the
+                    elimination pipeline + autosave bridge see
+                    consistent data shape. */}
+                {$hiderMode !== false && (
+                    <Marker
+                        longitude={$hiderMode.longitude}
+                        latitude={$hiderMode.latitude}
+                        anchor="center"
+                        draggable
+                        onDragEnd={(e) => {
+                            const next = {
+                                latitude: e.lngLat.lat,
+                                longitude: e.lngLat.lng,
+                            };
+                            hiderMode.set(next);
+                        }}
+                    >
+                        <div
+                            aria-label="Hider guess"
+                            style={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: "50%",
+                                background: "#2AAD27",
+                                border: "2px solid white",
+                                boxShadow:
+                                    "0 1px 3px rgba(0,0,0,0.55)",
+                                cursor: "grab",
+                            }}
+                        />
+                    </Marker>
                 )}
 
                 {/* Follow-me pin — seeker's live position. Gated
