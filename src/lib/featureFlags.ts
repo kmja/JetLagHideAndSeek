@@ -14,13 +14,18 @@ import type { MapRef } from "react-map-gl/maplibre";
  */
 
 /**
- * MapLibre GL parallel-implementation flag. While true, the
- * SeekerPage renders MapV2 (MapLibre GL) instead of the
- * Leaflet Map.tsx. Set to false until MapV2 reaches feature
- * parity. Migration tracking sits in a per-feature TODO list
- * in MapV2.tsx's header comment.
+ * MapLibre GL implementation flag. The seeker page renders
+ * `MapV2` (MapLibre GL) by default; flip to false to fall
+ * back to the original Leaflet `Map.tsx`. Defaulted on as of
+ * v62 — the seeker workflow has parity (drag / click-to-edit
+ * / context menu / transit routes / boundary load / question
+ * elimination) and MapLibre's GPU-accelerated rendering is
+ * noticeably smoother on phones. Remaining items
+ * (PolygonDraw, ZoneSidebar overlay, radar sweep animation,
+ * map print) are tracked in MapV2.tsx's header comment and
+ * fall back to the Leaflet path with this flag flipped off.
  */
-export const useMapLibre = persistentAtom<boolean>("jlhs:useMapLibre", false, {
+export const useMapLibre = persistentAtom<boolean>("jlhs:useMapLibre", true, {
     encode: (v) => (v ? "true" : "false"),
     decode: (v) => v === "true",
 });

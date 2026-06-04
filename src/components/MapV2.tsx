@@ -77,7 +77,7 @@ import {
  *   [x] flyTo equivalent when mapGeoLocation changes
  *   [x] Question-finished elimination polygons
  *   [x] Pending-question dashed outlines (category-colored)
- *   [x] Pending-radius static circles (sweep animation deferred)
+ *   [x] Pending-radius circles + rotating radar sweep
  *   [x] Question markers (display + drag-to-reposition)
  *   [x] OpenRailwayMap overlay (raster)
  *   [x] TransitRoutesOverlay (subway / bus / ferry, vector GeoJSON)
@@ -484,8 +484,14 @@ export function MapV2({ className }: MapV2Props) {
     // here a pending radius question would have no visual on
     // MapV2. Static turf-built circle is a clean placeholder —
     // the seeker still sees the affected area; just no sweep.
-    const pendingRadiusFeatures = useMemo(() => {
+    // Build pending-radius circles AND the underlying
+    // center/radius list in one pass. The list feeds the radar
+    // sweep animation below — same source data, different
+    // visual representations.
+    const { pendingRadiusFeatures, radarTargets } = useMemo(() => {
         const features: GeoJSON.Feature[] = [];
+        const targets: Array<{ lat: number; lng: number; radiusKm: number }> =
+            [];
         for (const q of $questions) {
             if (q.id !== "radius") continue;
             if (!q.data?.drag) continue;
@@ -522,12 +528,72 @@ export function MapV2({ className }: MapV2Props) {
                         "#f5a888",
                 };
                 features.push(circle as GeoJSON.Feature);
+                targets.push({
+                    lat: data.lat,
+                    lng: data.lng,
+                    radiusKm,
+                });
             } catch (e) {
                 console.warn("MapV2 radius circle failed:", e);
             }
         }
-        return { type: "FeatureCollection", features } as GeoJSON.FeatureCollection;
+        return {
+            pendingRadiusFeatures: {
+                type: "FeatureCollection",
+                features,
+            } as GeoJSON.FeatureCollection,
+            radarTargets: targets,
+        };
     }, [$questions]);
+
+    // Radar sweep animation — rotating wedge over each pending
+    // radius question. Builds a turf sector per target every
+    // animation frame and feeds the FeatureCollection back to
+    // MapLibre via getSource().setData(...) so re-rendering
+    // stays GPU-side instead of triggering a React re-render
+    // each frame. Loop is gated on having at least one target
+    // so an empty pending set burns no CPU.
+    const SWEEP_PERIOD_MS = 3500; // ms per full rotation
+    const SWEEP_WIDTH_DEG = 60;
+    useEffect(() => {
+        if (radarTargets.length === 0) return;
+        let raf = 0;
+        const tick = () => {
+            const map = mapRef.current?.getMap();
+            const source = map?.getSource("radar-sweep") as
+                | maplibregl.GeoJSONSource
+                | undefined;
+            if (source) {
+                const now = performance.now();
+                const headDeg =
+                    ((now % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS) * 360;
+                const features: GeoJSON.Feature[] = [];
+                for (const t of radarTargets) {
+                    try {
+                        const sector = turf.sector(
+                            [t.lng, t.lat],
+                            t.radiusKm,
+                            headDeg,
+                            (headDeg + SWEEP_WIDTH_DEG) % 360,
+                            { units: "kilometers", steps: 32 },
+                        );
+                        features.push(sector as GeoJSON.Feature);
+                    } catch {
+                        /* turf.sector occasionally fails on
+                           degenerate bearings; skip the frame
+                           rather than crash. */
+                    }
+                }
+                source.setData({
+                    type: "FeatureCollection",
+                    features,
+                });
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [radarTargets]);
 
     // Click-to-edit: tapping a marker opens the relevant
     // QuestionCard in a Dialog. Uses an isDraggingRef gate so
@@ -728,13 +794,39 @@ export function MapV2({ className }: MapV2Props) {
                     </Source>
                 )}
 
-                {/* Pending-radius circles — static placeholder
-                    for the radar sweep animation that hasn't
-                    been ported from the Leaflet
-                    RadarScanOverlay. Renders one Source per
-                    color (matching the dashed-outline approach
-                    for other pending questions) so the GPU
-                    batches draws. */}
+                {/* Radar sweep — rotating wedge over each
+                    pending radius. The Source starts with an
+                    empty FeatureCollection; the
+                    requestAnimationFrame loop above writes the
+                    current rotation directly via
+                    getSource().setData(), so this Source
+                    declaration is just there to set up the
+                    rendering pipeline. Mounted before the
+                    static fill so the sweep paints UNDER the
+                    circle stroke. */}
+                {radarTargets.length > 0 && (
+                    <Source
+                        id="radar-sweep"
+                        type="geojson"
+                        data={{ type: "FeatureCollection", features: [] }}
+                    >
+                        <Layer
+                            id="radar-sweep-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color":
+                                    CATEGORIES.radius?.color ??
+                                    "#f5a888",
+                                "fill-opacity": 0.25,
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Pending-radius circles — outline + light
+                    fill that sits over the rotating sweep so
+                    the seeker reads the radius as a clearly
+                    bounded zone. */}
                 {pendingRadiusFeatures.features.length > 0 && (
                     <Source
                         id="pending-radius"
