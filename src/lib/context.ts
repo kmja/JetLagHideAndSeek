@@ -155,6 +155,21 @@ export const questionModified = (..._: any[]) => {
 export const leafletMapContext = atom<Map | null>(null);
 
 /**
+ * Hiding-zones GeoJSON shadow atom. ZoneSidebar's `showGeoJSON`
+ * helper writes here in addition to its existing Leaflet
+ * rendering so MapV2 (which doesn't have Leaflet layers to
+ * piggyback on) can subscribe and render the same data via a
+ * MapLibre Source+Layer. Setting null clears the overlay on
+ * both paths.
+ *
+ * Lives in volatile (non-persistent) state: hiding zones get
+ * derived from `questions` + `playArea` + `displayHidingZones*`
+ * settings on every interaction, so we don't need to persist
+ * them. The atom is just an emit-channel from the sidebar.
+ */
+export const hidingZonesGeoJSON = atom<GeoJSON.FeatureCollection | null>(null);
+
+/**
  * Open-state for the mobile question drawer (the one the bottom-nav
  * "Questions" button opens). Lives here rather than inside `sidebar-l.tsx`'s
  * own atom because the upstream sidebar atom doesn't reliably cross Astro

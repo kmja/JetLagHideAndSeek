@@ -27,6 +27,7 @@ import {
     displayHidingZonesStyle,
     hidingRadius,
     hidingRadiusUnits,
+    hidingZonesGeoJSON,
     includeDefaultStations as includeDefaultStationsAtom,
     isLoading,
     leafletMapContext,
@@ -111,6 +112,10 @@ export const ZoneSidebar = () => {
     const [importUrl, setImportUrl] = useState("");
 
     const removeHidingZones = () => {
+        // Clear the MapV2 shadow first so its overlay
+        // disappears even when the Leaflet map isn't
+        // mounted (useMapLibre flag on).
+        hidingZonesGeoJSON.set(null);
         if (!map) return;
 
         map.eachLayer((layer: any) => {
@@ -126,9 +131,45 @@ export const ZoneSidebar = () => {
         nonOverlappingStations: boolean = false,
         additionalOptions: L.GeoJSONOptions = {},
     ) => {
+        // Mirror to the MapV2 shadow atom regardless of whether
+        // the Leaflet map is mounted, so the MapLibre path
+        // renders the same overlay. Normalize singletons to a
+        // FeatureCollection so the downstream Source binding
+        // always sees a consistent shape.
+        if (geoJSONData) {
+            if (geoJSONData.type === "FeatureCollection") {
+                hidingZonesGeoJSON.set(geoJSONData);
+            } else if (geoJSONData.type === "Feature") {
+                hidingZonesGeoJSON.set({
+                    type: "FeatureCollection",
+                    features: [geoJSONData],
+                });
+            } else {
+                // Raw geometry — wrap it.
+                hidingZonesGeoJSON.set({
+                    type: "FeatureCollection",
+                    features: [
+                        {
+                            type: "Feature",
+                            geometry: geoJSONData,
+                            properties: {},
+                        },
+                    ],
+                });
+            }
+        }
         if (!map) return;
 
-        removeHidingZones();
+        // The Leaflet-side teardown branch hides the existing
+        // layer before re-adding. We DON'T want to call
+        // removeHidingZones() here because that would also
+        // clear the atom we just set — race against the new
+        // value. Inline just the Leaflet-side removal.
+        map.eachLayer((layer: any) => {
+            if (layer.hidingZones) {
+                map.removeLayer(layer);
+            }
+        });
 
         const geoJsonLayer = L.geoJSON(geoJSONData, {
             // Match the "unanswered radius" visual language used for

@@ -23,6 +23,7 @@ import {
     drawingQuestionKey,
     followMe,
     hiderMode,
+    hidingZonesGeoJSON,
     mapGeoJSON,
     mapGeoLocation,
     planningModeEnabled,
@@ -86,6 +87,7 @@ import {
  *   [x] Question markers (display + drag-to-reposition)
  *   [x] OpenRailwayMap overlay (raster)
  *   [x] TransitRoutesOverlay (subway / bus / ferry, vector GeoJSON)
+ *   [x] ZoneSidebar hiding-zones overlay (atom shadow + Source/Layer)
  *   [x] Thunderforest custom tiles
  *   [x] Marker click → opens QuestionCard dialog
  *   [~] PolygonDraw (free-draw region elimination): hiding-zone
@@ -260,6 +262,7 @@ export function MapV2({ className }: MapV2Props) {
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $followMe = useStore(followMe);
     const $hiderMode = useStore(hiderMode);
+    const $hidingZones = useStore(hidingZonesGeoJSON);
     const $allowedTransit = useStore(allowedTransit);
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
@@ -822,6 +825,64 @@ export function MapV2({ className }: MapV2Props) {
                                 "line-width": 2,
                                 "line-opacity": 0.8,
                                 "line-dasharray": [4, 4],
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Hiding-zones overlay — mirrored from
+                    ZoneSidebar's showGeoJSON via the
+                    hidingZonesGeoJSON atom. Renders the same
+                    red-dashed polygon outline + low-opacity
+                    fill that the Leaflet path uses, plus
+                    circle markers for any Point features
+                    (stations) so both styles surface on
+                    MapV2. */}
+                {$hidingZones && $hidingZones.features.length > 0 && (
+                    <Source
+                        id="hiding-zones"
+                        type="geojson"
+                        data={$hidingZones}
+                    >
+                        <Layer
+                            id="hiding-zones-fill"
+                            type="fill"
+                            filter={[
+                                "any",
+                                ["==", ["geometry-type"], "Polygon"],
+                                ["==", ["geometry-type"], "MultiPolygon"],
+                            ]}
+                            paint={{
+                                "fill-color": "hsl(2, 70%, 54%)",
+                                "fill-opacity": 0.12,
+                            }}
+                        />
+                        <Layer
+                            id="hiding-zones-line"
+                            type="line"
+                            filter={[
+                                "any",
+                                ["==", ["geometry-type"], "Polygon"],
+                                ["==", ["geometry-type"], "MultiPolygon"],
+                                ["==", ["geometry-type"], "LineString"],
+                                ["==", ["geometry-type"], "MultiLineString"],
+                            ]}
+                            paint={{
+                                "line-color": "hsl(2, 70%, 54%)",
+                                "line-width": 2,
+                                "line-opacity": 0.9,
+                                "line-dasharray": [6, 5],
+                            }}
+                        />
+                        <Layer
+                            id="hiding-zones-points"
+                            type="circle"
+                            filter={["==", ["geometry-type"], "Point"]}
+                            paint={{
+                                "circle-radius": 5,
+                                "circle-color": "hsl(2, 70%, 54%)",
+                                "circle-stroke-color": "white",
+                                "circle-stroke-width": 1.5,
                             }}
                         />
                     </Source>
