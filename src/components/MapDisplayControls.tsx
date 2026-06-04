@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import {
     Bus,
+    Camera,
     Layers,
     Loader2,
     Map as MapIcon,
@@ -230,6 +231,36 @@ export function MapDisplayControls() {
                             {$isLoading && (
                                 <Loader2 className="w-3.5 h-3.5 animate-spin ml-auto" />
                             )}
+                        </button>
+                    </div>
+
+                    {/* Save image — captures the current map view as
+                        a PNG. Replaces the leaflet-easyprint control
+                        the old Leaflet map had; MapV2 listens for the
+                        custom event and snapshots its WebGL canvas. */}
+                    <div className="space-y-1.5">
+                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            Export
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                window.dispatchEvent(
+                                    new CustomEvent("jlhs:save-map-image"),
+                                );
+                            }}
+                            className={cn(
+                                "w-full rounded-md border-2 h-9",
+                                "px-3 gap-2 flex items-center transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                "bg-background border-border hover:bg-accent",
+                            )}
+                            title="Save current map view as a PNG image"
+                        >
+                            <Camera className="w-4 h-4 shrink-0" />
+                            <span className="text-xs font-poppins font-semibold">
+                                Save image
+                            </span>
                         </button>
                     </div>
 

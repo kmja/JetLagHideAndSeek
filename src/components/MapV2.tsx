@@ -96,7 +96,9 @@ import {
  *       seeded from existing feature data so users edit in place.
  *   [ ] Coastline GeoJSON overlay
  *   [x] Follow-me pin (seeker's live position)
- *   [ ] Map print / screenshot equivalent
+ *   [x] Map print / screenshot equivalent (window CustomEvent
+ *       `jlhs:save-map-image` → PNG download via
+ *       map.getCanvas().toDataURL)
  *   [x] Context menu (right-click / long-press to add a question)
  *   [x] Hider-guess pin (seeker's "I think they're here" marker)
  *   [ ] Thermometer overlay
@@ -670,6 +672,42 @@ export function MapV2({ className }: MapV2Props) {
         };
     }, [$followMe]);
 
+    // Map-screenshot trigger. The MapDisplayControls "Save image"
+    // button dispatches a `jlhs:save-map-image` CustomEvent on
+    // window; we capture the current WebGL canvas as a PNG and
+    // trigger a download. Replaces the leaflet-easyprint control
+    // that used to live on the Leaflet map.
+    useEffect(() => {
+        const handler = () => {
+            const map = mapRef.current?.getMap();
+            if (!map) return;
+            try {
+                // Force a synchronous repaint so the screenshot
+                // reflects the latest state (otherwise we get the
+                // previous frame's buffer).
+                map.triggerRepaint();
+                const dataUrl = map
+                    .getCanvas()
+                    .toDataURL("image/png");
+                const a = document.createElement("a");
+                a.href = dataUrl;
+                a.download = `jetlag-map-${new Date()
+                    .toISOString()
+                    .replace(/[:.]/g, "-")}.png`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                toast.success("Map image saved");
+            } catch (e) {
+                console.error("Map screenshot failed:", e);
+                toast.error("Couldn't save map image");
+            }
+        };
+        window.addEventListener("jlhs:save-map-image", handler);
+        return () =>
+            window.removeEventListener("jlhs:save-map-image", handler);
+    }, []);
+
     // PolygonDraw integration. When drawingQuestionKey flips to
     // a non-null value the user has opened a draw session — for
     // a brand-new custom hiding zone (-1) or to edit an existing
@@ -885,6 +923,10 @@ export function MapV2({ className }: MapV2Props) {
                 dragRotate={false}
                 pitchWithRotate={false}
                 touchPitch={false}
+                /* Required so map.getCanvas().toDataURL() works
+                   for the Save-image action (otherwise the WebGL
+                   buffer is cleared before we can read it). */
+                preserveDrawingBuffer
                 onLoad={handleLoad}
                 onMoveEnd={handleMoveEnd}
                 onContextMenu={(e) => {
