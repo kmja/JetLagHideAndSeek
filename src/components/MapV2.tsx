@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
     AttributionControl,
     Layer,
+    Marker,
     NavigationControl,
     ScaleControl,
     Source,
@@ -404,6 +405,37 @@ export function MapV2({ className }: MapV2Props) {
                     </Source>
                 )}
 
+                {/* Per-question markers — display-only for now
+                    (no drag, no click-to-edit). Each question
+                    type has its own coordinate fields; we
+                    extract them via a small per-id helper so
+                    the schema details stay localized. Drag +
+                    click ports follow once a full feature
+                    decision is made. */}
+                {$questions
+                    .flatMap((q) => questionMarkers(q))
+                    .map(({ id, lat, lng, color, label }) => (
+                        <Marker
+                            key={id}
+                            longitude={lng}
+                            latitude={lat}
+                            anchor="center"
+                        >
+                            <div
+                                aria-label={label}
+                                style={{
+                                    width: 16,
+                                    height: 16,
+                                    borderRadius: "50%",
+                                    background: color,
+                                    border: "2px solid white",
+                                    boxShadow:
+                                        "0 1px 3px rgba(0,0,0,0.55)",
+                                }}
+                            />
+                        </Marker>
+                    ))}
+
                 {/* Pending-question dashed outlines, one
                     Source+Layer pair per category color. The
                     Leaflet path does one layer per question
@@ -445,6 +477,76 @@ export function MapV2({ className }: MapV2Props) {
             </Map>
         </div>
     );
+}
+
+/**
+ * Extract render-ready markers from a question. Different
+ * question categories store coordinates under different keys
+ * (radius / tentacles: data.lat/data.lng; thermometer: a/b
+ * pair; matching/measuring: depends on subtype). For now this
+ * just covers the common shapes; we'll fill in the rest as we
+ * port click-to-edit + drag behaviour.
+ */
+function questionMarkers(q: {
+    key: number;
+    id: string;
+    data: Record<string, unknown>;
+}): Array<{
+    id: string;
+    lat: number;
+    lng: number;
+    color: string;
+    label: string;
+}> {
+    const cat = CATEGORIES[q.id as CategoryId] ?? CATEGORIES.matching;
+    const out: Array<{
+        id: string;
+        lat: number;
+        lng: number;
+        color: string;
+        label: string;
+    }> = [];
+    const data = q.data;
+    if (
+        typeof data.lat === "number" &&
+        typeof data.lng === "number"
+    ) {
+        out.push({
+            id: `${q.key}-primary`,
+            lat: data.lat,
+            lng: data.lng,
+            color: cat.color,
+            label: `${cat.label ?? q.id} marker`,
+        });
+    }
+    if (
+        typeof data.latA === "number" &&
+        typeof data.lngA === "number"
+    ) {
+        out.push({
+            id: `${q.key}-a`,
+            lat: data.latA,
+            lng: data.lngA,
+            color: cat.color,
+            label: `${cat.label ?? q.id} start`,
+        });
+    }
+    if (
+        typeof data.latB === "number" &&
+        typeof data.lngB === "number" &&
+        // Skip if same as A (thermometer "started" state has
+        // latB/lngB mirroring latA/lngA).
+        (data.latA !== data.latB || data.lngA !== data.lngB)
+    ) {
+        out.push({
+            id: `${q.key}-b`,
+            lat: data.latB,
+            lng: data.lngB,
+            color: cat.color,
+            label: `${cat.label ?? q.id} end`,
+        });
+    }
+    return out;
 }
 
 export default MapV2;
