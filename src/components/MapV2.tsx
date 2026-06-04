@@ -35,6 +35,7 @@ import {
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
+import { seekerAddQuestion } from "@/lib/multiplayer/store";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 
 import {
@@ -72,7 +73,7 @@ import {
  *   [ ] Coastline GeoJSON overlay
  *   [x] Follow-me pin (seeker's live position)
  *   [ ] Map print / screenshot equivalent
- *   [ ] Context menu (right-click to add radius)
+ *   [x] Context menu (right-click / long-press to add a question)
  *   [ ] Hider position pin (hider page)
  *   [ ] Thermometer overlay
  *   [ ] Pending answer overlay
@@ -418,6 +419,18 @@ export function MapV2({ className }: MapV2Props) {
     } | null>(null);
     const isDraggingRef = useRef(false);
 
+    // Context menu — right-click on desktop / long-press on
+    // mobile opens an "Add radius / thermometer / tentacles"
+    // mini menu at the click coordinates. Mirrors the
+    // leaflet-contextmenu plugin the Leaflet path uses, just
+    // re-rendered as a positioned div.
+    const [contextMenu, setContextMenu] = useState<{
+        screenX: number;
+        screenY: number;
+        lat: number;
+        lng: number;
+    } | null>(null);
+
     // Follow-me pin: live blue dot at the seeker's current
     // position, updated via watchPosition. Same shape as the
     // Leaflet path — gated on the followMe atom, started on
@@ -473,6 +486,15 @@ export function MapV2({ className }: MapV2Props) {
                 touchPitch={false}
                 onLoad={handleLoad}
                 onMoveEnd={handleMoveEnd}
+                onContextMenu={(e) => {
+                    setContextMenu({
+                        screenX: e.point.x,
+                        screenY: e.point.y,
+                        lat: e.lngLat.lat,
+                        lng: e.lngLat.lng,
+                    });
+                }}
+                onClick={() => setContextMenu(null)}
             >
                 <AttributionControl compact />
                 <NavigationControl position="top-right" showCompass={false} />
@@ -674,6 +696,86 @@ export function MapV2({ className }: MapV2Props) {
                     },
                 )}
             </Map>
+
+            {/* Context menu — absolutely-positioned at the
+                click point. Mirrors the leaflet-contextmenu
+                items: Add Radius / Thermometer / Tentacles at
+                the clicked coords. Closes on item-select or
+                map-click (handled via onClick on <Map />). */}
+            {contextMenu && (
+                <div
+                    role="menu"
+                    style={{
+                        position: "absolute",
+                        left: contextMenu.screenX,
+                        top: contextMenu.screenY,
+                        zIndex: 1500,
+                    }}
+                    className={cn(
+                        "min-w-[160px] rounded-md border border-border",
+                        "bg-background/95 backdrop-blur-sm shadow-xl",
+                        "py-1 text-sm",
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <button
+                        type="button"
+                        className="w-full text-left px-3 py-1.5 hover:bg-accent"
+                        onClick={() => {
+                            seekerAddQuestion({
+                                id: "radius",
+                                data: {
+                                    lat: contextMenu.lat,
+                                    lng: contextMenu.lng,
+                                },
+                            });
+                            setContextMenu(null);
+                        }}
+                    >
+                        Add Radius
+                    </button>
+                    <button
+                        type="button"
+                        className="w-full text-left px-3 py-1.5 hover:bg-accent"
+                        onClick={() => {
+                            const dest = turf.destination(
+                                [contextMenu.lng, contextMenu.lat],
+                                5,
+                                90,
+                                { units: "miles" },
+                            );
+                            seekerAddQuestion({
+                                id: "thermometer",
+                                data: {
+                                    latA: contextMenu.lat,
+                                    lngA: contextMenu.lng,
+                                    latB: dest.geometry.coordinates[1],
+                                    lngB: dest.geometry.coordinates[0],
+                                },
+                            });
+                            setContextMenu(null);
+                        }}
+                    >
+                        Add Thermometer
+                    </button>
+                    <button
+                        type="button"
+                        className="w-full text-left px-3 py-1.5 hover:bg-accent"
+                        onClick={() => {
+                            seekerAddQuestion({
+                                id: "tentacles",
+                                data: {
+                                    lat: contextMenu.lat,
+                                    lng: contextMenu.lng,
+                                },
+                            });
+                            setContextMenu(null);
+                        }}
+                    >
+                        Add Tentacles
+                    </button>
+                </div>
+            )}
 
             {/* Question-edit dialog. Same QuestionComponent
                 dispatch as the Leaflet path's DraggableMarkers
