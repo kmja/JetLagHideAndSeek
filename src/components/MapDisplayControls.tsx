@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import type { LucideIcon } from "lucide-react";
 import {
     Bus,
     Camera,
@@ -12,7 +13,6 @@ import {
     TrainTrack,
     Users,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 
 import { InvitePanel } from "@/components/multiplayer/InviteSheet";
 import {

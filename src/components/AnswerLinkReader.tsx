@@ -1,13 +1,13 @@
 import { useEffect } from "react";
 import { toast } from "react-toastify";
 
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions } from "@/lib/context";
+import { receivedCurses } from "@/lib/seekerInbound";
 import {
     decodeAnswerFromUrl,
     decodeCurseFromUrl,
 } from "@/lib/shareLinks";
-import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { receivedCurses } from "@/lib/seekerInbound";
 
 /**
  * Handles inbound payloads delivered to the seeker via URL query params:

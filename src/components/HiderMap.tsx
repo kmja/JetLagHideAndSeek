@@ -4,9 +4,9 @@ import { circle, distance, point } from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
     Layer,
+    type MapRef,
     Marker,
     Source,
-    type MapRef,
 } from "react-map-gl/maplibre";
 
 import { buildMarkerHtml, type CategoryId } from "@/lib/categories";

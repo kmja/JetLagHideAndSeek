@@ -20,10 +20,9 @@ import {
     mapGeoJSON,
     polyGeoJSON,
 } from "@/lib/context";
-import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
 import {
-    HIDING_PERIOD_MINUTES,
     gameSize,
+    HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
@@ -31,6 +30,8 @@ import {
     welcomeSeen,
 } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
+import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
+import { loadingProgress } from "@/lib/loadingProgress";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -47,7 +48,6 @@ import {
     leaveGame,
     promoteCoHider,
 } from "@/lib/multiplayer/store";
-import { loadingProgress } from "@/lib/loadingProgress";
 import { cn } from "@/lib/utils";
 
 import {

@@ -1,23 +1,28 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 
-import { useStore } from "@nanostores/react";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
+import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "react-toastify";
 import Map, {
     AttributionControl,
     Layer,
+    type MapRef,
     Marker,
     NavigationControl,
     ScaleControl,
     Source,
-    type MapRef,
     type ViewStateChangeEvent,
 } from "react-map-gl/maplibre";
+import { toast } from "react-toastify";
 
+import {
+    Dialog,
+    DialogContent,
+} from "@/components/ui/dialog";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     baseTileLayer,
     drawingQuestionKey,
@@ -33,13 +38,10 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { clearCache } from "@/maps/api";
-import { CacheType } from "@/maps/api/types";
 import {
     mapLibreContext,
     mapLibreViewport,
 } from "@/lib/featureFlags";
-import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     allowedTransit,
     satelliteView,
@@ -49,18 +51,16 @@ import {
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
-import { cn } from "@/lib/utils";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
+import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
+import { clearCache } from "@/maps/api";
 import {
     fetchTransitRoutesFeatures,
     type TransitMode,
 } from "@/maps/api/transitRoutes";
+import { CacheType } from "@/maps/api/types";
 
-import {
-    Dialog,
-    DialogContent,
-} from "@/components/ui/dialog";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -486,9 +486,15 @@ export function MapV2({ className }: MapV2Props) {
             } catch (e) {
                 console.warn(`MapV2 transit (${mode}) fetch failed`, e);
             } finally {
-                if (cancelled) return;
-                const c = transitRoutesLoading.get();
-                transitRoutesLoading.set({ ...c, [mode]: false });
+                // Don't clobber the loading flag if the effect was
+                // already torn down — we'd be writing into a stale
+                // store after the user toggled away. Skip-with-guard
+                // instead of return-from-finally so we don't swallow
+                // any in-flight exception escape.
+                if (!cancelled) {
+                    const c = transitRoutesLoading.get();
+                    transitRoutesLoading.set({ ...c, [mode]: false });
+                }
             }
         };
         fetchAndSet("subway", subwayOn);

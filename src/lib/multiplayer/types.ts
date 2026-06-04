@@ -4,13 +4,12 @@
  * in the on-the-wire protocol.
  */
 
+export type { TransportStatus } from "./transport";
 export type {
+    ClientMessage,
     GameState,
     Participant,
     Role,
-    SetupState,
-    ClientMessage,
     ServerMessage,
+    SetupState,
 } from "@protocol/index";
-
-export type { TransportStatus } from "./transport";

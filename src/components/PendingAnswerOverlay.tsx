@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import type { LucideIcon } from "lucide-react";
 import {
     Beef,
     BookOpen,
@@ -16,8 +17,8 @@ import {
     PawPrint,
     Plane,
     Ruler,
-    ShoppingBag,
     Share2,
+    ShoppingBag,
     Train,
     TrainFront,
     TrainTrack,
@@ -25,7 +26,6 @@ import {
     Trees,
     Waves,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 

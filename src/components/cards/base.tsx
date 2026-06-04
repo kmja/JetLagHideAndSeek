@@ -16,13 +16,13 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Separator } from "@/components/ui/separator";
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     SidebarGroup,
     SidebarGroupContent,
     SidebarGroupLabel,
     SidebarMenu,
 } from "@/components/ui/sidebar-l";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { isLoading, questionModified, questions } from "@/lib/context";
 import {

@@ -4,9 +4,9 @@ import { GameSetupDialog } from "@/components/GameSetupDialog";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { HiderView } from "@/components/HiderView";
+import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { RolePicker } from "@/components/RolePicker";
 import { StaleSessionPrompt } from "@/components/StaleSessionPrompt";
-import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 
 /**
  * Hider route. Direct port of the old `src/pages/h.astro` —

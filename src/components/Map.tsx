@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MapContainer, ScaleControl, TileLayer } from "react-leaflet";
 import { toast } from "react-toastify";
 
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     additionalMapGeoLocations,
     animateMapMovements,
@@ -29,14 +30,13 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { seekerAddQuestion as addQuestion } from "@/lib/multiplayer/store";
-import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     allowedTransit,
     satelliteView,
     setupCompleted,
     showTransitLines,
 } from "@/lib/gameSetup";
+import { seekerAddQuestion as addQuestion } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { hiderifyQuestion } from "@/maps";

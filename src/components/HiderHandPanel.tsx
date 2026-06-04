@@ -11,7 +11,6 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 
-import { Button } from "@/components/ui/button";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -23,7 +22,9 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { gameSize } from "@/lib/gameSetup";
+import { type Card, type CurseCard, type PowerupCard,tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
     discardCard,
     drawCards,
@@ -32,7 +33,6 @@ import {
     hiderHand,
     hiderHandLimit,
 } from "@/lib/hiderRole";
-import { tallyTimeBonusMinutes, type Card, type CurseCard, type PowerupCard } from "@/lib/hiderDeck";
 import { cn } from "@/lib/utils";
 
 import { CardTile } from "./CardTile";

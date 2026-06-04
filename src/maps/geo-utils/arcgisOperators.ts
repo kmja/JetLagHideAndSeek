@@ -56,9 +56,9 @@ const innateArcBuffer = async (
 
     return turf.combine(
         turf.featureCollection([
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             turf.feature(arcgisToGeoJSON(bufferedGeometry[0] as any)),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
         ]) as any,
     ).features[0] as Feature<MultiPolygon>;
 };

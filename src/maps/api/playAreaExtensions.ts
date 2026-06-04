@@ -29,8 +29,8 @@
 import type { TransitMode } from "@/lib/gameSetup";
 
 import { getOverpassData } from "./overpass";
-import { CacheType } from "./types";
 import type { OpenStreetMap } from "./types";
+import { CacheType } from "./types";
 
 /* ────────────────── Types ────────────────── */
 

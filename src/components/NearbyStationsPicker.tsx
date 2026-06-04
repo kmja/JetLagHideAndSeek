@@ -1,11 +1,11 @@
-import { Bus, Check, LocateFixed, Loader2, Ship, Train, TrainTrack, TramFront } from "lucide-react";
+import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
+import { Bus, Check, Loader2, LocateFixed, Ship, Train, TrainTrack, TramFront } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import { allowedTransit, type TransitMode } from "@/lib/gameSetup";
-import { useStore } from "@nanostores/react";
 import { cn } from "@/lib/utils";
 import { getOverpassData } from "@/maps/api/overpass";
 

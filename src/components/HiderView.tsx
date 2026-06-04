@@ -5,11 +5,10 @@ import { toast } from "react-toastify";
 
 import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
-import { HiderMap, distanceKm } from "@/components/HiderMap";
-import { HiderHome, ANSWER_VIEW_DISMISSED_KEY } from "@/components/HiderHome";
+import { ANSWER_VIEW_DISMISSED_KEY,HiderHome } from "@/components/HiderHome";
+import { distanceKm,HiderMap } from "@/components/HiderMap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     hiderInbox,
@@ -18,6 +17,7 @@ import {
     QUESTION_DRAW_BUDGET,
     roundFoundAt,
 } from "@/lib/hiderRole";
+import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import {
     decodeFoundFromUrl,
     decodeQuestionFromUrl,

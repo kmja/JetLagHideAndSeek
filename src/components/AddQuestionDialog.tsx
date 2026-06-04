@@ -13,9 +13,6 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { gameSize, type GameSize } from "@/lib/gameSetup";
-import { fitMapToRadius } from "@/lib/mapFit";
-import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import {
     defaultCustomQuestions,
     defaultUnit,
@@ -23,14 +20,17 @@ import {
     questionModified,
     questions,
 } from "@/lib/context";
+import { type GameSize,gameSize } from "@/lib/gameSetup";
+import { fitMapToRadius } from "@/lib/mapFit";
 import {
-    seekerAddQuestion as addQuestion,
     isHiderConnected,
+    seekerAddQuestion as addQuestion,
 } from "@/lib/multiplayer/store";
 import {
     encodeQuestionForHider,
     shareOrCopy,
 } from "@/lib/shareLinks";
+import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import { findPlacesInZone, LOCATION_FIRST_TAG } from "@/maps/api";
 

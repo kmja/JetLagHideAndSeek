@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Eye, MapPin, Users, UserRound } from "lucide-react";
+import { Eye, MapPin, UserRound,Users } from "lucide-react";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import {
     DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { welcomeSeen } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import {
@@ -19,6 +18,7 @@ import {
     selfParticipantId,
 } from "@/lib/multiplayer/session";
 import { setOnlineRole } from "@/lib/multiplayer/store";
+import { cn } from "@/lib/utils";
 
 import {
     HideSeekMark,

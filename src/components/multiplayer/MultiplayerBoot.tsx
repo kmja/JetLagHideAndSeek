@@ -2,15 +2,15 @@ import { useEffect } from "react";
 import { toast } from "react-toastify";
 
 import {
-    installMultiplayerBridge,
-    joinAsGuest,
-    tryResumeFromPersistent,
-} from "@/lib/multiplayer/store";
-import {
     currentGameCode,
     displayName as displayNameAtom,
     multiplayerEnabled,
 } from "@/lib/multiplayer/session";
+import {
+    installMultiplayerBridge,
+    joinAsGuest,
+    tryResumeFromPersistent,
+} from "@/lib/multiplayer/store";
 
 /**
  * Tiny mount-only component that wires the multiplayer transport

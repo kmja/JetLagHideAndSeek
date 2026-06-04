@@ -28,7 +28,7 @@ import { fitMapToRadius } from "@/lib/mapFit";
 import { cn } from "@/lib/utils";
 import type { RadiusQuestion, Units } from "@/maps/schema";
 
-import { QuestionCard, ManualAnswerDisclosure } from "./base";
+import { ManualAnswerDisclosure,QuestionCard } from "./base";
 
 /** Rulebook radius presets, in display order. */
 const RADIUS_PRESETS: {

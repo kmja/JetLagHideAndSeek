@@ -13,12 +13,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { additionalMapGeoLocations } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
+import { cn } from "@/lib/utils";
 import {
-    findExtensionCandidates,
     type AdjacentAreaCandidate,
+    findExtensionCandidates,
 } from "@/maps/api/playAreaExtensions";
 import type { OpenStreetMap } from "@/maps/api/types";
-import { cn } from "@/lib/utils";
 
 /**
  * "Extend with neighbouring areas" picker, shown after the user

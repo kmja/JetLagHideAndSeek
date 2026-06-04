@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
+    addQuestion,
     leafletMapContext,
     questionModified,
     questions,
-    addQuestion,
 } from "@/lib/context";
+import { type Card,shuffledDeck } from "@/lib/hiderDeck";
 import {
     hiderHand,
     hiderInbox,
@@ -16,13 +17,12 @@ import {
     presentDraw,
     QUESTION_DRAW_BUDGET,
 } from "@/lib/hiderRole";
-import { shuffledDeck, type Card } from "@/lib/hiderDeck";
-import { APP_VERSION } from "@/lib/version";
-
-import { DICE_FIZZLE } from "./CastCurseDialog";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import { APP_VERSION } from "@/lib/version";
 import type { Question } from "@/maps/schema";
+
+import { DICE_FIZZLE } from "./CastCurseDialog";
 
 /**
  * Temporary developer panel for jumping the latest question between any

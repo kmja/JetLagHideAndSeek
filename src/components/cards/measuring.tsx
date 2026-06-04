@@ -36,7 +36,7 @@ import {
     NO_GROUP,
 } from "@/maps/schema";
 
-import { QuestionCard, ManualAnswerDisclosure } from "./base";
+import { ManualAnswerDisclosure,QuestionCard } from "./base";
 
 export const MeasuringQuestionComponent = ({
     data,

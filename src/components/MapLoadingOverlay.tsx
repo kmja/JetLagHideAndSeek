@@ -49,7 +49,7 @@ export function MapLoadingOverlay() {
     const [, setNow] = useState(() => Date.now());
     const shouldTick =
         $progress !== null ||
-        (!Boolean($mapGeoJSON || $polyGeoJSON) &&
+        (!($mapGeoJSON || $polyGeoJSON) &&
             ($mapGeoLocation?.properties?.osm_id ?? 0) > 0);
     useVisibleInterval(() => setNow(Date.now()), 1000, shouldTick);
 

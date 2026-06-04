@@ -1,7 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Copy, Dice5, RotateCw, Share2, Trash2, Zap } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { renderBodyText } from "@/components/CardTile";
@@ -14,8 +14,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { gameSize } from "@/lib/gameSetup";
-import { discardCard } from "@/lib/hiderRole";
 import type { CurseCard } from "@/lib/hiderDeck";
+import { discardCard } from "@/lib/hiderRole";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 

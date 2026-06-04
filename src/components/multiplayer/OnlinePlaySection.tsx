@@ -3,20 +3,20 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
+import { InvitePanel } from "@/components/multiplayer/InviteSheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { InvitePanel } from "@/components/multiplayer/InviteSheet";
-import {
-    createGame,
-    joinAsGuest,
-    joinAsHost,
-} from "@/lib/multiplayer/store";
 import {
     currentGameCode,
     displayName as displayNameAtom,
     multiplayerError,
     transportStatus,
 } from "@/lib/multiplayer/session";
+import {
+    createGame,
+    joinAsGuest,
+    joinAsHost,
+} from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 /**

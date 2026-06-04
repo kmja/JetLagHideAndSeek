@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Rocket } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
@@ -11,7 +12,6 @@ import {
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
 
 /**
  * "GAME READY — we gotta GO, GO, GO!" — a celebration banner that

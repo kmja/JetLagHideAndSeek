@@ -2,9 +2,6 @@ import { useStore } from "@nanostores/react";
 import { Plus } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
-import { useIsMobile } from "@/hooks/use-mobile";
-import { cn } from "@/lib/utils";
-
 import {
     Sidebar,
     SidebarContent,
@@ -14,6 +11,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
     autoSave,
     isLoading,
@@ -22,9 +20,9 @@ import {
     save,
     triggerLocalRefresh,
 } from "@/lib/context";
-
 import { playerRole } from "@/lib/hiderRole";
 import { currentGameCode } from "@/lib/multiplayer/session";
+import { cn } from "@/lib/utils";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HideSeekMark, RoleChip } from "./JetLagLogo";

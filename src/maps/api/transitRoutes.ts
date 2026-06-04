@@ -6,8 +6,8 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
-import { CacheType } from "@/maps/api/types";
 import { getOverpassData } from "@/maps/api/overpass";
+import { CacheType } from "@/maps/api/types";
 
 /**
  * Library-agnostic transit-route fetcher. Issues the same

@@ -2,12 +2,11 @@ import {
     createBrowserRouter,
     RouterProvider,
 } from "react-router-dom";
-
-import { HiderPage } from "@/pages/HiderPage";
-import { SeekerPage } from "@/pages/SeekerPage";
 import { ToastContainer } from "react-toastify";
 
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { HiderPage } from "@/pages/HiderPage";
+import { SeekerPage } from "@/pages/SeekerPage";
 
 // Single React-Router root. The Astro era had two .astro pages
 // each compiled to its own HTML shell; the SPA serves a single

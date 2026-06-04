@@ -2,7 +2,7 @@ import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
 
 import type { GameSize } from "./gameSetup";
-import { shuffledDeck, type Card } from "./hiderDeck";
+import { type Card,shuffledDeck } from "./hiderDeck";
 
 /**
  * Hider-side state. Lives on the hider's device, separate from the seeker's

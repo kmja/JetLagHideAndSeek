@@ -6,8 +6,8 @@ import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     formatTimeRemaining,
     gameSize,
-    hidingPeriodEndsAt,
     HIDING_PERIOD_MINUTES,
+    hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";

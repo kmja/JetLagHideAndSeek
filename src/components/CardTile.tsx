@@ -1,5 +1,5 @@
-import { Ban, Check, Copy, Dices, Layers, MapPinned, Plus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Ban, Check, Copy, Dices, Layers, MapPinned, Plus } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { GameSize } from "@/lib/gameSetup";

@@ -19,9 +19,8 @@
  *   <SizeBadge size />   The S/M/L pill — yellow / orange / red rounded
  *                        rectangle with bold uppercase white text.
  */
-import { cn } from "@/lib/utils";
-
 import type { GameSize } from "@/lib/gameSetup";
+import { cn } from "@/lib/utils";
 
 /* ────────────────── JET LAG: THE GAME plate ────────────────── */
 

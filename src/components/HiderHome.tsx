@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import type { LucideIcon } from "lucide-react";
 import {
     AlertTriangle,
     Bus,
@@ -17,19 +18,17 @@ import {
     TramFront,
     Trophy,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
-import { startNewGame, startNewRound } from "@/lib/roundActions";
 import {
     allowedTransit,
     formatTimeRemaining,
     gameSize,
-    hidingPeriodEndsAt,
     HIDING_PERIOD_MINUTES,
+    hidingPeriodEndsAt,
     pendingHidingDurationMin,
     setupCompleted,
     setupDialogOpen,
@@ -47,6 +46,7 @@ import {
     resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
+import { startNewGame, startNewRound } from "@/lib/roundActions";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
@@ -72,16 +72,16 @@ import { seekerRotateHider } from "@/lib/multiplayer/store";
 import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
 import { HiderQuestionLog } from "./HiderQuestionLog";
-import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import {
     HideSeekMark,
     HideSeekWordmark,
     SectionPill,
     SizeBadge,
 } from "./JetLagLogo";
+import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import {
-    NearbyStationsPicker,
     type FoundStation,
+    NearbyStationsPicker,
 } from "./NearbyStationsPicker";
 
 // Lazy-load the inline picker — leaflet must stay out of the SSR graph.

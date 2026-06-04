@@ -2,12 +2,12 @@ import { useStore } from "@nanostores/react";
 import { Clock, EyeOff, Inbox, MapPin, Trophy, Users } from "lucide-react";
 import { useState } from "react";
 
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { formatTimeRemaining, hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { hiderInbox, hidingZone, roundFoundAt } from "@/lib/hiderRole";
 import { participants } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 
 /**
  * Read-only "hide team" surface for a co-hider.

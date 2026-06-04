@@ -2,10 +2,10 @@ import {
     BrainCircuit,
     Camera,
     Equal,
+    type LucideIcon,
     Radar,
     Ruler,
     Thermometer,
-    type LucideIcon,
 } from "lucide-react";
 
 /**

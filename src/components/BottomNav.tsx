@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import type { LucideIcon } from "lucide-react";
 import {
     Bus,
     Copy,
@@ -19,12 +20,7 @@ import {
     Trophy,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { LucideIcon } from "lucide-react";
-
 import { Drawer as VaulDrawer } from "vaul";
-
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
-import { startNewGame, startNewRound } from "@/lib/roundActions";
 
 import {
     Sheet,
@@ -34,6 +30,7 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { questions, questionsDrawerOpen, zoneSidebarOpen } from "@/lib/context";
 import {
     allowedTransit,
@@ -47,6 +44,7 @@ import {
     TRANSIT_LABELS,
     type TransitMode,
 } from "@/lib/gameSetup";
+import { startNewGame, startNewRound } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
 import { SizeBadge } from "./JetLagLogo";
@@ -60,24 +58,25 @@ const TRANSIT_ICONS: Record<TransitMode, LucideIcon> = {
     ferry: Ship,
 };
 
+import { toast } from "react-toastify";
+
 import {
     playerRole,
     resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
-import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
 import {
     currentGameCode,
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
-import { PresenceChip } from "./multiplayer/PresenceIndicators";
-import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
+import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
 import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
-import { toast } from "react-toastify";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
+import { PresenceChip } from "./multiplayer/PresenceIndicators";
+import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import { OfflineTilePreloader } from "./OfflineTilePreloader";
 import { OptionDrawers } from "./OptionDrawers";
 import { PWAInstallButton } from "./PWAInstallButton";

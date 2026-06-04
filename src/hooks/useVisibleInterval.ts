@@ -56,6 +56,5 @@ export function useVisibleInterval(
             document.removeEventListener("visibilitychange", onVisibility);
             stop();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [intervalMs, enabled]);
 }

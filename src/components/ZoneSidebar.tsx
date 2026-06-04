@@ -17,6 +17,7 @@ import {
     SidebarMenu,
     SidebarMenuItem,
 } from "@/components/ui/sidebar-r";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
     animateMapMovements,
     autoZoom,
@@ -62,8 +63,6 @@ import {
     mergeDuplicateStation,
     safeUnion,
 } from "@/maps/geo-utils";
-
-import { useIsMobile } from "@/hooks/use-mobile";
 
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";

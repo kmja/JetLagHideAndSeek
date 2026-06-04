@@ -75,7 +75,7 @@ export const arcBuffer = async (
     unit?: turf.Units,
 ) => {
     const m = await loadArcgisModule();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return m.arcBufferImpl(geometry, distance, unit as any);
 };
 

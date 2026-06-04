@@ -8,8 +8,9 @@ import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
-import { MapSwitcher } from "@/components/MapSwitcher";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
+import { MapSwitcher } from "@/components/MapSwitcher";
+import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
@@ -18,14 +19,13 @@ import { RolePicker } from "@/components/RolePicker";
 import { StaleSessionPrompt } from "@/components/StaleSessionPrompt";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import { TransitRoutesOverlay } from "@/components/TransitRoutesOverlay";
-import { Welcome } from "@/components/Welcome";
-import { ZoneSidebar } from "@/components/ZoneSidebar";
-import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import {
     SidebarProvider as SidebarProviderL,
     SidebarTrigger as SidebarTriggerL,
 } from "@/components/ui/sidebar-l";
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
+import { Welcome } from "@/components/Welcome";
+import { ZoneSidebar } from "@/components/ZoneSidebar";
 
 /**
  * Seeker route. Direct port of the old `src/pages/index.astro` —

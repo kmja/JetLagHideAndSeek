@@ -28,7 +28,7 @@ const METERS_PER_UNIT: Record<string, number> = {
  * [lng,lat]) — we hand off whichever the caller built and rely on the
  * caller to pass the right shape for the runtime in use.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export function fitMapToRadius(
     map: any,
     lat: number,

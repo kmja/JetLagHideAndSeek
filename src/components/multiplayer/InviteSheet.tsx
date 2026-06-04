@@ -4,13 +4,13 @@ import { useMemo } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
-import { leaveGame } from "@/lib/multiplayer/store";
 import {
     currentGameCode,
     displayName as displayNameAtom,
     participants,
     transportStatus,
 } from "@/lib/multiplayer/session";
+import { leaveGame } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 /**

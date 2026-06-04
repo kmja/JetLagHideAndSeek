@@ -1,14 +1,13 @@
+import type { LucideIcon } from "lucide-react";
 import {
     Building,
     Building2,
-    Camera,
     ChevronsLeftRightEllipsis,
     Church,
     Cloud,
     Film,
     Fish,
     Flag,
-    Footprints,
     Hospital,
     Landmark,
     Library,
@@ -26,7 +25,6 @@ import {
     Utensils,
     Waves,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 
 import type { GameSize } from "./gameSetup";
 

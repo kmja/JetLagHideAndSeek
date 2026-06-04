@@ -3,20 +3,15 @@ import { Eye, Loader2, MapPin, Users } from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-toastify";
 
+import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setupCompleted, setupDialogOpen, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
-import {
-    joinAsGuest,
-    leaveGame,
-    setOnlineRole,
-} from "@/lib/multiplayer/store";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -24,6 +19,11 @@ import {
     participants as participantsAtom,
     transportStatus,
 } from "@/lib/multiplayer/session";
+import {
+    joinAsGuest,
+    leaveGame,
+    setOnlineRole,
+} from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 import { HideSeekMark, HideSeekWordmark } from "./JetLagLogo";

@@ -8,8 +8,8 @@ import {
     Ship,
     Sparkles,
     Train,
-    TramFront,
     TrainTrack,
+    TramFront,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -38,37 +38,34 @@ import {
 } from "@/lib/context";
 import {
     allowedTransit,
+    type GameSize,
     gameSize,
-    hidingPeriodEndsAt,
     HIDING_PERIOD_MINUTES,
+    hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
     resetMapOverlays,
-    SIZE_DESCRIPTIONS,
     setupCompleted,
     setupDialogOpen,
-    welcomeSeen,
+    SIZE_DESCRIPTIONS,
     TRANSIT_LABELS,
-    type GameSize,
     type TransitMode,
+    welcomeSeen,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState } from "@/lib/hiderRole";
-import { hostPushSetup } from "@/lib/multiplayer/store";
 import {
     currentGameCode,
     displayName as displayNameAtom,
     multiplayerEnabled,
 } from "@/lib/multiplayer/session";
+import { hostPushSetup } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 import {
     determineName,
     geocode,
-    reverseGeocodeCity,
     type OpenStreetMap,
+    reverseGeocodeCity,
 } from "@/maps/api";
-
-import { OnlinePlaySection } from "./multiplayer/OnlinePlaySection";
-import { PlayAreaExtensions } from "./PlayAreaExtensions";
 
 import {
     HideSeekMark,
@@ -76,6 +73,8 @@ import {
     SectionPill,
     SizeBadge,
 } from "./JetLagLogo";
+import { OnlinePlaySection } from "./multiplayer/OnlinePlaySection";
+import { PlayAreaExtensions } from "./PlayAreaExtensions";
 
 /**
  * Three-step game setup. Auto-opens on first load (setupCompleted=false)

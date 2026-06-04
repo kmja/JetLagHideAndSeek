@@ -16,8 +16,8 @@ import {
     showSubwayRoutes,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
-import { CacheType } from "@/maps/api/types";
 import { getOverpassData } from "@/maps/api/overpass";
+import { CacheType } from "@/maps/api/types";
 
 /**
  * Renders per-mode transit-route overlays as Leaflet GeoJSON layers on
