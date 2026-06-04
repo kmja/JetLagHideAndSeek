@@ -1,8 +1,9 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
+import * as turf from "@turf/turf";
 import maplibregl from "maplibre-gl";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
     AttributionControl,
     Layer,
@@ -10,40 +11,41 @@ import Map, {
     ScaleControl,
     Source,
     type MapRef,
+    type ViewStateChangeEvent,
 } from "react-map-gl/maplibre";
 
 import {
     baseTileLayer,
     mapGeoJSON,
     mapGeoLocation,
+    planningModeEnabled,
     polyGeoJSON,
+    questions,
+    triggerLocalRefresh,
 } from "@/lib/context";
+import {
+    mapLibreContext,
+    mapLibreViewport,
+} from "@/lib/featureFlags";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { satelliteView } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
-import { holedMask } from "@/maps";
+import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 
 /**
  * MapLibre GL parallel implementation of Map.tsx. Gated behind
  * the `useMapLibre` feature flag in `lib/featureFlags.ts`.
- *
- * This is a scaffolding deliverable — it renders the base
- * tiles + the play-area boundary polygon + the elimination
- * mask, enough to validate the framework choice and the
- * raster-tile fallback works. The rest of the feature surface
- * (DraggableMarkers, PolygonDraw, MapPrint, all the overlays,
- * the question-finished elimination layers, etc.) gets ported
- * incrementally in follow-up commits. Each ported feature
- * should be flipped on here AND removed from Map.tsx, but only
- * after parity is confirmed in the live app.
  *
  * Port checklist (work through these in order):
  *   [x] Base raster tile layer with style switching
  *   [x] Satellite overlay
  *   [x] Play-area boundary polygon
  *   [x] Elimination mask (world − play area)
- *   [ ] Persist viewport in nanostores so reload restores
- *   [ ] flyTo / setView equivalent via mapRef.current.flyTo
- *   [ ] Question-finished elimination polygons
+ *   [x] mapLibreContext atom (mirror of leafletMapContext)
+ *   [x] Persist viewport in nanostores so reload restores
+ *   [x] flyTo equivalent when mapGeoLocation changes
+ *   [x] Question-finished elimination polygons
+ *   [x] Pending-question dashed outlines (category-colored)
  *   [ ] Question markers (DraggableMarkers equivalent)
  *   [ ] PolygonDraw (free-draw region elimination)
  *   [ ] ZoneSidebar hiding-zone overlay
@@ -59,16 +61,18 @@ import { holedMask } from "@/maps";
  *   [ ] Radar scan overlay
  *
  * Once everything is ticked: remove Map.tsx and leaflet from
- * package.json. Until then, keep the toggle in
- * MapDisplayControls (or set localStorage 'jlhs:useMapLibre'
- * = 'true' in the console) to test.
+ * package.json. Until then, keep the toggle via localStorage
+ * 'jlhs:useMapLibre' = 'true' in the console.
  */
 
 interface MapV2Props {
     className?: string;
 }
 
-const RASTER_SOURCES: Record<string, { tiles: string[]; attribution: string }> = {
+const RASTER_SOURCES: Record<
+    string,
+    { tiles: string[]; attribution: string }
+> = {
     light: {
         tiles: [
             "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
@@ -117,7 +121,10 @@ const SATELLITE_SOURCE = {
     attribution: "Imagery &copy; Esri",
 };
 
-function buildStyle(baseKey: string, withSatellite: boolean): maplibregl.StyleSpecification {
+function buildStyle(
+    baseKey: string,
+    withSatellite: boolean,
+): maplibregl.StyleSpecification {
     const base = RASTER_SOURCES[baseKey] ?? RASTER_SOURCES.dark;
     const style: maplibregl.StyleSpecification = {
         version: 8,
@@ -163,6 +170,9 @@ export function MapV2({ className }: MapV2Props) {
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $mapGeoLocation = useStore(mapGeoLocation);
+    const $questions = useStore(questions);
+    useStore(triggerLocalRefresh); // subscribe to manual re-render kicks
+    const $savedViewport = useStore(mapLibreViewport);
 
     const mapRef = useRef<MapRef | null>(null);
 
@@ -171,55 +181,161 @@ export function MapV2({ className }: MapV2Props) {
         [$tileKey, $satellite],
     );
 
-    // Initial centering — derive from the OSM relation's bbox
-    // when we have one, else default to a global view. For
-    // production parity we'll later persist viewport in nanostores
-    // so the Astro/Leaflet flyTo behaviour is preserved.
+    // Initial view priority: persisted viewport > OSM extent of
+    // selected play area > global default. Persisted wins so a
+    // reload doesn't snap the user away from where they were
+    // looking; if they had no prior viewport (fresh install) we
+    // derive from the play area; if neither, world.
     const initialView = useMemo(() => {
+        if ($savedViewport) return $savedViewport;
         const props = $mapGeoLocation?.properties as
             | { extent?: [number, number, number, number] }
             | undefined;
         const extent = props?.extent;
         if (extent) {
-            // extent = [maxLat, minLng, minLat, maxLng]
             const [maxLat, minLng, minLat, maxLng] = extent;
-            const centerLat = (maxLat + minLat) / 2;
-            const centerLng = (minLng + maxLng) / 2;
-            return { latitude: centerLat, longitude: centerLng, zoom: 10 };
+            return {
+                latitude: (maxLat + minLat) / 2,
+                longitude: (minLng + maxLng) / 2,
+                zoom: 10,
+            };
         }
         return { latitude: 30, longitude: 0, zoom: 2 };
-    }, [$mapGeoLocation]);
-
-    // Elimination mask — same as Leaflet path. The play area
-    // polygon is rendered as a "hole" cut into a world-spanning
-    // rectangle so everything OUTSIDE the play area appears
-    // darkened on the map. Once questions land we extend this
-    // to also subtract finished-question polygons.
-    const eliminationGeoJSON = useMemo(() => {
-        const inner = $mapGeoJSON || $polyGeoJSON;
-        if (!inner) return null;
-        try {
-            const mask = holedMask(inner);
-            if (!mask) return null;
-            // holedMask returns a single Feature; MapLibre's
-            // <Source type="geojson"> expects either a Feature
-            // or a FeatureCollection — pass it directly.
-            return mask as GeoJSON.Feature;
-        } catch (e) {
-            console.warn("MapV2 holedMask failed:", e);
-            return null;
-        }
-    }, [$mapGeoJSON, $polyGeoJSON]);
-
-    // Expose the underlying maplibre instance via a context atom
-    // that mirrors Leaflet's `leafletMapContext`. Other components
-    // can read it to call .flyTo(), addLayer, etc. — we'll wire
-    // that as the first follow-up port.
-    useEffect(() => {
-        // TODO: introduce maplibreMapContext atom and publish
-        // mapRef.current here so existing call sites that read
-        // leafletMapContext can be ported one-by-one.
+        // Intentionally compute ONCE on mount — subsequent
+        // mapGeoLocation changes are handled by the flyTo
+        // effect below.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Publish the map ref to the global atom so other
+    // components can flyTo / fitBounds when useMapLibre is on.
+    // Clean up on unmount so a stale ref doesn't outlive the
+    // map (e.g. when the user flips the flag back off).
+    const handleLoad = () => {
+        if (mapRef.current) mapLibreContext.set(mapRef.current);
+    };
+    useEffect(() => {
+        return () => mapLibreContext.set(null);
+    }, []);
+
+    // Persist viewport on move end. Debounced via MapLibre's
+    // own `moveend` (fires once per gesture, not per frame).
+    const handleMoveEnd = (e: ViewStateChangeEvent) => {
+        const { latitude, longitude, zoom } = e.viewState;
+        mapLibreViewport.set({ latitude, longitude, zoom });
+    };
+
+    // When mapGeoLocation changes (user picked a new play
+    // area), fly to its extent. Equivalent of Leaflet's
+    // map.flyTo([lat, lng], 11, {duration: 0.6}) call inside
+    // the wizard's handleFinish.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        const props = $mapGeoLocation?.properties as
+            | { extent?: [number, number, number, number] }
+            | undefined;
+        const extent = props?.extent;
+        if (!extent) return;
+        const [maxLat, minLng, minLat, maxLng] = extent;
+        try {
+            map.fitBounds(
+                [
+                    [minLng, minLat],
+                    [maxLng, maxLat],
+                ],
+                { padding: 24, duration: 600 },
+            );
+        } catch (e) {
+            console.warn("MapV2 fitBounds failed:", e);
+        }
+    }, [$mapGeoLocation?.properties]);
+
+    // Pending-question dashed outlines + post-elimination mask.
+    // applyQuestionsToMapGeoData walks each question and either
+    // (a) eliminates a region from the working polygon when
+    // answered, or (b) emits a "still-pending" geoJSON via the
+    // callback. We collect those callbacks into a per-category
+    // FeatureCollection so MapLibre can render one batched
+    // layer per category color (cheaper than one per question
+    // in GL terms; Leaflet adds one DOM layer per question).
+    //
+    // The function is async (the turf pipeline runs in
+    // microtasks for memory pressure), so we drive it from a
+    // useEffect and write into local state. Stale-result guard
+    // via a closure-captured generation counter — if the
+    // questions atom updates while a prior pass is still
+    // running, we drop the older result.
+    const [eliminationResult, setEliminationResult] = useState<{
+        mask: GeoJSON.Feature | null;
+        pendingByCategory: Record<string, GeoJSON.Feature[]>;
+    }>({ mask: null, pendingByCategory: {} });
+    const eliminationGenRef = useRef(0);
+    useEffect(() => {
+        const inner = $mapGeoJSON || $polyGeoJSON;
+        if (!inner) {
+            setEliminationResult({ mask: null, pendingByCategory: {} });
+            return;
+        }
+        const myGen = ++eliminationGenRef.current;
+        const pendingByCategory: Record<string, GeoJSON.Feature[]> = {};
+        (async () => {
+            let working: typeof inner = inner;
+            try {
+                working = (await applyQuestionsToMapGeoData(
+                    $questions,
+                    working,
+                    planningModeEnabled.get(),
+                    (geoJSONObj, question) => {
+                        if (question.id === "radius") return;
+                        const cat =
+                            CATEGORIES[question.id as CategoryId] ??
+                            CATEGORIES.matching;
+                        if (!pendingByCategory[cat.color]) {
+                            pendingByCategory[cat.color] = [];
+                        }
+                        if (geoJSONObj && typeof geoJSONObj === "object") {
+                            if ("type" in geoJSONObj) {
+                                if (
+                                    geoJSONObj.type === "FeatureCollection"
+                                ) {
+                                    for (const f of (
+                                        geoJSONObj as GeoJSON.FeatureCollection
+                                    ).features) {
+                                        pendingByCategory[cat.color].push(
+                                            f,
+                                        );
+                                    }
+                                } else if (geoJSONObj.type === "Feature") {
+                                    pendingByCategory[cat.color].push(
+                                        geoJSONObj as GeoJSON.Feature,
+                                    );
+                                } else {
+                                    pendingByCategory[cat.color].push(
+                                        turf.feature(
+                                            geoJSONObj as GeoJSON.Geometry,
+                                        ) as GeoJSON.Feature,
+                                    );
+                                }
+                            }
+                        }
+                    },
+                )) as typeof working;
+            } catch (e) {
+                console.warn("MapV2 applyQuestions failed:", e);
+            }
+            let mask: GeoJSON.Feature | null = null;
+            try {
+                mask = holedMask(
+                    working as never,
+                ) as GeoJSON.Feature | null;
+            } catch (e) {
+                console.warn("MapV2 holedMask failed:", e);
+            }
+            if (myGen !== eliminationGenRef.current) return; // stale
+            setEliminationResult({ mask, pendingByCategory });
+        })();
+    }, [$mapGeoJSON, $polyGeoJSON, $questions]);
 
     return (
         <div className={cn("relative w-full h-screen", className)}>
@@ -228,14 +344,12 @@ export function MapV2({ className }: MapV2Props) {
                 initialViewState={initialView}
                 mapStyle={style}
                 attributionControl={false}
-                // MapLibre's default canvas style covers the
-                // container; let it fill the parent.
                 style={{ width: "100%", height: "100%" }}
-                // Faster zoom/pan animations for the touch-driven
-                // game UX. The defaults feel sluggish on mobile.
                 dragRotate={false}
                 pitchWithRotate={false}
                 touchPitch={false}
+                onLoad={handleLoad}
+                onMoveEnd={handleMoveEnd}
             >
                 <AttributionControl compact />
                 <NavigationControl position="top-right" showCompass={false} />
@@ -260,25 +374,73 @@ export function MapV2({ className }: MapV2Props) {
                     );
                 })()}
 
-                {/* Elimination mask — covers the WORLD outside
-                    the play area in a translucent dark layer.
-                    This is the "everything else is excluded"
-                    visual cue. */}
-                {eliminationGeoJSON && (
+                {/* Elimination mask — everything OUTSIDE the
+                    in-play polygon (which is the play area
+                    minus eliminated regions) gets darkened.
+                    Same visual cue Leaflet's Map.tsx draws. */}
+                {eliminationResult.mask && (
                     <Source
                         id="elimination"
                         type="geojson"
-                        data={eliminationGeoJSON}
+                        data={eliminationResult.mask}
                     >
                         <Layer
                             id="elimination-fill"
                             type="fill"
                             paint={{
-                                "fill-color": "#000000",
-                                "fill-opacity": 0.55,
+                                "fill-color": "#0f172a",
+                                "fill-opacity": 0.45,
+                            }}
+                        />
+                        <Layer
+                            id="elimination-outline"
+                            type="line"
+                            paint={{
+                                "line-color": "#0f172a",
+                                "line-width": 1,
+                                "line-opacity": 0.55,
                             }}
                         />
                     </Source>
+                )}
+
+                {/* Pending-question dashed outlines, one
+                    Source+Layer pair per category color. The
+                    Leaflet path does one layer per question
+                    (cheap in DOM); for WebGL it's faster to
+                    batch by color so each style change
+                    becomes a single GL draw call. */}
+                {Object.entries(eliminationResult.pendingByCategory).map(
+                    ([color, features]) => {
+                        if (features.length === 0) return null;
+                        const fc: GeoJSON.FeatureCollection = {
+                            type: "FeatureCollection",
+                            features,
+                        };
+                        const id = `pending-${color.replace(/[^a-z0-9]/gi, "-")}`;
+                        return (
+                            <Source key={id} id={id} type="geojson" data={fc}>
+                                <Layer
+                                    id={`${id}-fill`}
+                                    type="fill"
+                                    paint={{
+                                        "fill-color": color,
+                                        "fill-opacity": 0.08,
+                                    }}
+                                />
+                                <Layer
+                                    id={`${id}-line`}
+                                    type="line"
+                                    paint={{
+                                        "line-color": color,
+                                        "line-width": 2,
+                                        "line-opacity": 0.85,
+                                        "line-dasharray": [3, 2],
+                                    }}
+                                />
+                            </Source>
+                        );
+                    },
                 )}
             </Map>
         </div>

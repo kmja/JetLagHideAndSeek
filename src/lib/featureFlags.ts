@@ -1,4 +1,6 @@
 import { persistentAtom } from "@nanostores/persistent";
+import { atom } from "nanostores";
+import type { MapRef } from "react-map-gl/maplibre";
 
 /**
  * Feature flags. Persisted in localStorage so the choice
@@ -22,3 +24,28 @@ export const useMapLibre = persistentAtom<boolean>("jlhs:useMapLibre", false, {
     encode: (v) => (v ? "true" : "false"),
     decode: (v) => v === "true",
 });
+
+/**
+ * Live MapLibre map ref, published by MapV2 once the map is
+ * mounted. Mirrors `leafletMapContext` from `@/lib/context`
+ * but for the MapLibre path. Components that need
+ * `.flyTo(...)` or `.fitBounds(...)` can read this when
+ * useMapLibre is on. Volatile (per-mount), not persisted.
+ */
+export const mapLibreContext = atom<MapRef | null>(null);
+
+/**
+ * Persisted viewport so a reload doesn't snap back to the
+ * default world view while we wait for mapGeoLocation to
+ * settle. MapV2 writes this on movestart-end; it reads it on
+ * mount to set initial view state.
+ */
+export const mapLibreViewport = persistentAtom<{
+    latitude: number;
+    longitude: number;
+    zoom: number;
+} | null>("jlhs:mapLibreViewport", null, {
+    encode: JSON.stringify,
+    decode: JSON.parse,
+});
+
