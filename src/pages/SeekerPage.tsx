@@ -7,8 +7,8 @@ import { GameSetupDialog } from "@/components/GameSetupDialog";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
-import { Map } from "@/components/Map";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
+import { MapSwitcher } from "@/components/MapSwitcher";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
@@ -78,7 +78,7 @@ export function SeekerPage() {
                                 <PendingAnswerOverlay />
                                 <TransitRoutesOverlay />
                                 <RadarScanOverlay />
-                                <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                <MapSwitcher className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
                                 <MapLoadingOverlay />
                             </div>
                         </div>
