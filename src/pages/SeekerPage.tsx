@@ -1,11 +1,7 @@
-import { AnswerLinkReader } from "@/components/AnswerLinkReader";
+import { lazy, Suspense } from "react";
+
 import { BottomNav } from "@/components/BottomNav";
-import { CurseInbox } from "@/components/CurseInbox";
-import { DebugPhaseControls } from "@/components/DebugPhaseControls";
-import { GameLobbyDialog } from "@/components/GameLobbyDialog";
-import { GameSetupDialog } from "@/components/GameSetupDialog";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
-import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
@@ -15,8 +11,6 @@ import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { RadarScanOverlay } from "@/components/RadarScanOverlay";
-import { RolePicker } from "@/components/RolePicker";
-import { StaleSessionPrompt } from "@/components/StaleSessionPrompt";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import { TransitRoutesOverlay } from "@/components/TransitRoutesOverlay";
 import {
@@ -24,8 +18,54 @@ import {
     SidebarTrigger as SidebarTriggerL,
 } from "@/components/ui/sidebar-l";
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
-import { Welcome } from "@/components/Welcome";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
+
+// Dialogs / overlays / wizards that only render once the user
+// actually triggers them — lazy so a freshly-landed seeker doesn't
+// pay for the QR-code lib (GameLobbyDialog), the welcome wizard,
+// the curse-inbox UI, etc. on first paint. Null Suspense fallback
+// because the chunks are tiny and the components stay gated by
+// state anyway — Suspense is only entered on the trigger event,
+// at which point a sub-second blank dialog is invisible.
+const AnswerLinkReader = lazy(() =>
+    import("@/components/AnswerLinkReader").then((m) => ({
+        default: m.AnswerLinkReader,
+    })),
+);
+const CurseInbox = lazy(() =>
+    import("@/components/CurseInbox").then((m) => ({ default: m.CurseInbox })),
+);
+const DebugPhaseControls = lazy(() =>
+    import("@/components/DebugPhaseControls").then((m) => ({
+        default: m.DebugPhaseControls,
+    })),
+);
+const GameLobbyDialog = lazy(() =>
+    import("@/components/GameLobbyDialog").then((m) => ({
+        default: m.GameLobbyDialog,
+    })),
+);
+const GameSetupDialog = lazy(() =>
+    import("@/components/GameSetupDialog").then((m) => ({
+        default: m.GameSetupDialog,
+    })),
+);
+const GoGoGoOverlay = lazy(() =>
+    import("@/components/GoGoGoOverlay").then((m) => ({
+        default: m.GoGoGoOverlay,
+    })),
+);
+const RolePicker = lazy(() =>
+    import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
+);
+const StaleSessionPrompt = lazy(() =>
+    import("@/components/StaleSessionPrompt").then((m) => ({
+        default: m.StaleSessionPrompt,
+    })),
+);
+const Welcome = lazy(() =>
+    import("@/components/Welcome").then((m) => ({ default: m.Welcome })),
+);
 
 /**
  * Seeker route. Direct port of the old `src/pages/index.astro` —
@@ -85,16 +125,18 @@ export function SeekerPage() {
                     </main>
                     <ZoneSidebar />
                     <BottomNav />
-                    <Welcome />
-                    <GameSetupDialog />
-                    <GameLobbyDialog />
-                    <AnswerLinkReader />
-                    <RolePicker />
-                    <CurseInbox />
-                    <DebugPhaseControls />
-                    <StaleSessionPrompt />
+                    <Suspense fallback={null}>
+                        <Welcome />
+                        <GameSetupDialog />
+                        <GameLobbyDialog />
+                        <AnswerLinkReader />
+                        <RolePicker />
+                        <CurseInbox />
+                        <DebugPhaseControls />
+                        <StaleSessionPrompt />
+                        <GoGoGoOverlay />
+                    </Suspense>
                     <GameStartWatcher />
-                    <GoGoGoOverlay />
                     <MultiplayerBoot />
                 </SidebarProviderR>
             </SidebarProviderL>
