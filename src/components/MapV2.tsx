@@ -94,20 +94,30 @@ import {
  *       custom locations, matching custom-zone, matching custom-
  *       points, measuring custom-measure — all via mapbox-gl-draw,
  *       seeded from existing feature data so users edit in place.
- *   [ ] Coastline GeoJSON overlay
  *   [x] Follow-me pin (seeker's live position)
  *   [x] Map print / screenshot equivalent (window CustomEvent
  *       `jlhs:save-map-image` → PNG download via
  *       map.getCanvas().toDataURL)
  *   [x] Context menu (right-click / long-press to add a question)
  *   [x] Hider-guess pin (seeker's "I think they're here" marker)
- *   [ ] Thermometer overlay
- *   [ ] Pending answer overlay
- *   [ ] Radar scan overlay
+ *   [x] ThermometerOverlay (sibling component, plain DOM — no
+ *       leaflet dep, renders unchanged on top of MapV2)
+ *   [x] PendingAnswerOverlay (sibling component, plain DOM — no
+ *       leaflet dep, renders unchanged on top of MapV2)
+ *   [x] RadarScanOverlay: superseded by the in-map radar sweep
+ *       above. The sibling RadarScanOverlay.tsx is a no-op when
+ *       MapV2 is active (it gates on leafletMapContext which is
+ *       only set by the Leaflet Map).
  *
- * Once everything is ticked: remove Map.tsx and leaflet from
- * package.json. Until then, keep the toggle via localStorage
- * 'jlhs:useMapLibre' = 'true' in the console.
+ * No-op for MapV2:
+ *   - HiderMap on /h was ported separately (its own file)
+ *   - "Coastline" in the codebase is a measuring-question subtype
+ *     (distance to coast), not a map overlay — nothing to port
+ *
+ * MapV2 is now at full feature parity with the Leaflet Map.tsx
+ * and is the default renderer via the `useMapLibre` flag. Map.tsx
+ * + react-leaflet can be removed once we've verified the
+ * MapLibre path in a few real games.
  */
 
 interface MapV2Props {
