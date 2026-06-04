@@ -37,6 +37,18 @@ import { satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 
+import {
+    Dialog,
+    DialogContent,
+} from "@/components/ui/dialog";
+import {
+    MatchingQuestionComponent,
+    MeasuringQuestionComponent,
+    RadiusQuestionComponent,
+    TentacleQuestionComponent,
+    ThermometerQuestionComponent,
+} from "./QuestionCards";
+
 /**
  * MapLibre GL parallel implementation of Map.tsx. Gated behind
  * the `useMapLibre` feature flag in `lib/featureFlags.ts`.
@@ -54,7 +66,7 @@ import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
  *   [x] Question markers (display + drag-to-reposition)
  *   [x] OpenRailwayMap overlay (raster)
  *   [x] Thunderforest custom tiles
- *   [ ] Marker click → opens QuestionCard dialog
+ *   [x] Marker click → opens QuestionCard dialog
  *   [ ] PolygonDraw (free-draw region elimination)
  *   [ ] ZoneSidebar hiding-zone overlay
  *   [ ] Coastline GeoJSON overlay
@@ -396,6 +408,16 @@ export function MapV2({ className }: MapV2Props) {
         })();
     }, [$mapGeoJSON, $polyGeoJSON, $questions]);
 
+    // Click-to-edit: tapping a marker opens the relevant
+    // QuestionCard in a Dialog. Uses an isDraggingRef gate so
+    // an accidental click at the end of a drag doesn't pop the
+    // dialog. The dialog itself is rendered below the Map JSX.
+    const [selectedMarker, setSelectedMarker] = useState<{
+        questionKey: number;
+        slot: "primary" | "a" | "b";
+    } | null>(null);
+    const isDraggingRef = useRef(false);
+
     // Follow-me pin: live blue dot at the seeker's current
     // position, updated via watchPosition. Same shape as the
     // Leaflet path — gated on the followMe atom, started on
@@ -548,33 +570,57 @@ export function MapV2({ className }: MapV2Props) {
                             latitude={lat}
                             anchor="center"
                             draggable
+                            onDragStart={() => {
+                                isDraggingRef.current = true;
+                            }}
                             onDragEnd={(e) => {
                                 const all = questions.get();
                                 const target = all.find(
                                     (q) => q.key === questionKey,
                                 );
-                                if (!target) return;
-                                const newLat = e.lngLat.lat;
-                                const newLng = e.lngLat.lng;
-                                const data = target.data as Record<
-                                    string,
-                                    unknown
-                                >;
-                                if (slot === "primary") {
-                                    data.lat = newLat;
-                                    data.lng = newLng;
-                                } else if (slot === "a") {
-                                    data.latA = newLat;
-                                    data.lngA = newLng;
-                                } else {
-                                    data.latB = newLat;
-                                    data.lngB = newLng;
+                                if (target) {
+                                    const newLat = e.lngLat.lat;
+                                    const newLng = e.lngLat.lng;
+                                    const data = target.data as Record<
+                                        string,
+                                        unknown
+                                    >;
+                                    if (slot === "primary") {
+                                        data.lat = newLat;
+                                        data.lng = newLng;
+                                    } else if (slot === "a") {
+                                        data.latA = newLat;
+                                        data.lngA = newLng;
+                                    } else {
+                                        data.latB = newLat;
+                                        data.lngB = newLng;
+                                    }
+                                    questionModified();
                                 }
-                                questionModified();
+                                // Give the synthesized click event
+                                // that fires immediately after
+                                // dragend a moment to bounce off the
+                                // guard before we reset. Same 100 ms
+                                // window the Leaflet path uses.
+                                setTimeout(() => {
+                                    isDraggingRef.current = false;
+                                }, 100);
                             }}
                         >
                             <div
                                 aria-label={label}
+                                onClick={(e) => {
+                                    if (isDraggingRef.current) return;
+                                    // Stop the click from also
+                                    // counting as a map-canvas click
+                                    // (which would fall through to
+                                    // any future "tap to add" handler).
+                                    e.stopPropagation();
+                                    setSelectedMarker({
+                                        questionKey,
+                                        slot,
+                                    });
+                                }}
                                 style={{
                                     width: 16,
                                     height: 16,
@@ -628,6 +674,87 @@ export function MapV2({ className }: MapV2Props) {
                     },
                 )}
             </Map>
+
+            {/* Question-edit dialog. Same QuestionComponent
+                dispatch as the Leaflet path's DraggableMarkers
+                — radius / tentacles / thermometer / matching /
+                measuring each get their full edit UI inline. The
+                `sub` prop (Start / End) is set when the user
+                tapped a thermometer A/B marker. Dialog portals to
+                <body> per shadcn defaults, so it's not trapped
+                inside MapLibre's canvas container. */}
+            <Dialog
+                open={selectedMarker !== null}
+                onOpenChange={(o) => {
+                    if (!o) setSelectedMarker(null);
+                }}
+            >
+                <DialogContent className="!bg-[hsl(var(--sidebar-background))] !text-white">
+                    {selectedMarker &&
+                        $questions
+                            .filter(
+                                (q) =>
+                                    q.key === selectedMarker.questionKey,
+                            )
+                            .map((q) => {
+                                const sub =
+                                    selectedMarker.slot === "a"
+                                        ? "Start"
+                                        : selectedMarker.slot === "b"
+                                          ? "End"
+                                          : "";
+                                switch (q.id) {
+                                    case "radius":
+                                        return (
+                                            <RadiusQuestionComponent
+                                                key={q.key}
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                sub={sub}
+                                            />
+                                        );
+                                    case "tentacles":
+                                        return (
+                                            <TentacleQuestionComponent
+                                                key={q.key}
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                sub={sub}
+                                            />
+                                        );
+                                    case "thermometer":
+                                        return (
+                                            <ThermometerQuestionComponent
+                                                key={q.key}
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                sub={sub}
+                                            />
+                                        );
+                                    case "matching":
+                                        return (
+                                            <MatchingQuestionComponent
+                                                key={q.key}
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                sub={sub}
+                                            />
+                                        );
+                                    case "measuring":
+                                        return (
+                                            <MeasuringQuestionComponent
+                                                key={q.key}
+                                                data={q.data}
+                                                questionKey={q.key}
+                                                sub={sub}
+                                            />
+                                        );
+                                    default:
+                                        return null;
+                                }
+                            })}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
