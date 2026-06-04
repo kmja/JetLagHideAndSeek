@@ -34,10 +34,22 @@ import {
     mapLibreViewport,
 } from "@/lib/featureFlags";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { satelliteView, showTransitLines } from "@/lib/gameSetup";
+import {
+    allowedTransit,
+    satelliteView,
+    showBusRoutes,
+    showFerryRoutes,
+    showSubwayRoutes,
+    showTransitLines,
+    transitRoutesLoading,
+} from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
+import {
+    fetchTransitRoutesFeatures,
+    type TransitMode,
+} from "@/maps/api/transitRoutes";
 
 import {
     Dialog,
@@ -68,6 +80,7 @@ import {
  *   [x] Pending-radius static circles (sweep animation deferred)
  *   [x] Question markers (display + drag-to-reposition)
  *   [x] OpenRailwayMap overlay (raster)
+ *   [x] TransitRoutesOverlay (subway / bus / ferry, vector GeoJSON)
  *   [x] Thunderforest custom tiles
  *   [x] Marker click → opens QuestionCard dialog
  *   [ ] PolygonDraw (free-draw region elimination)
@@ -238,6 +251,10 @@ function buildStyle(
 export function MapV2({ className }: MapV2Props) {
     const $followMe = useStore(followMe);
     const $hiderMode = useStore(hiderMode);
+    const $allowedTransit = useStore(allowedTransit);
+    const $subway = useStore(showSubwayRoutes);
+    const $bus = useStore(showBusRoutes);
+    const $ferry = useStore(showFerryRoutes);
     const $tileKey = useStore(baseTileLayer);
     const $satellite = useStore(satelliteView);
     const $rail = useStore(showTransitLines);
@@ -412,6 +429,54 @@ export function MapV2({ className }: MapV2Props) {
         })();
     }, [$mapGeoJSON, $polyGeoJSON, $questions]);
 
+    // Transit-route overlays per mode. Each toggle (subway /
+    // bus / ferry) gates an Overpass fetch via
+    // fetchTransitRoutesFeatures. Results live in state as
+    // FeatureCollections; the JSX renders one Source+Layer per
+    // mode. Re-fetch when the play area changes
+    // ($mapGeoLocation) so cached results from a previous area
+    // get replaced. Loading flag mirrored into
+    // transitRoutesLoading so MapDisplayControls' spinner shows
+    // during fetch.
+    const subwayOn = $subway && $allowedTransit.includes("subway");
+    const busOn = $bus && $allowedTransit.includes("bus");
+    const ferryOn = $ferry && $allowedTransit.includes("ferry");
+    const [transitFC, setTransitFC] = useState<
+        Record<TransitMode, GeoJSON.FeatureCollection | null>
+    >({ subway: null, bus: null, ferry: null });
+    const areaKey =
+        $mapGeoLocation?.properties?.osm_id ??
+        ($polyGeoJSON ? "custom-poly" : "none");
+    useEffect(() => {
+        let cancelled = false;
+        const fetchAndSet = async (mode: TransitMode, on: boolean) => {
+            if (!on) {
+                setTransitFC((curr) => ({ ...curr, [mode]: null }));
+                return;
+            }
+            const curr = transitRoutesLoading.get();
+            transitRoutesLoading.set({ ...curr, [mode]: true });
+            try {
+                const fc = await fetchTransitRoutesFeatures(mode);
+                if (cancelled) return;
+                setTransitFC((c) => ({ ...c, [mode]: fc }));
+            } catch (e) {
+                console.warn(`MapV2 transit (${mode}) fetch failed`, e);
+            } finally {
+                if (cancelled) return;
+                const c = transitRoutesLoading.get();
+                transitRoutesLoading.set({ ...c, [mode]: false });
+            }
+        };
+        fetchAndSet("subway", subwayOn);
+        fetchAndSet("bus", busOn);
+        fetchAndSet("ferry", ferryOn);
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [subwayOn, busOn, ferryOn, areaKey]);
+
     // Pending-radius circles. The "elimination" pipeline above
     // deliberately skips radius questions so the Leaflet
     // RadarScanOverlay can render a rotating sweep instead. We
@@ -554,6 +619,65 @@ export function MapV2({ className }: MapV2Props) {
                 <AttributionControl compact />
                 <NavigationControl position="top-right" showCompass={false} />
                 <ScaleControl />
+
+                {/* Transit-route overlays — one Source+Layer per
+                    mode. Colors match the Leaflet
+                    TransitRoutesOverlay's MODE_CONFIG (subway
+                    purple, bus orange, ferry blue dashed) so
+                    operators see consistent visuals across the
+                    two map paths. */}
+                {transitFC.subway && (
+                    <Source
+                        id="transit-subway"
+                        type="geojson"
+                        data={transitFC.subway}
+                    >
+                        <Layer
+                            id="transit-subway-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(280, 60%, 60%)",
+                                "line-width": 2,
+                                "line-opacity": 0.8,
+                            }}
+                        />
+                    </Source>
+                )}
+                {transitFC.bus && (
+                    <Source
+                        id="transit-bus"
+                        type="geojson"
+                        data={transitFC.bus}
+                    >
+                        <Layer
+                            id="transit-bus-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(35, 90%, 55%)",
+                                "line-width": 2,
+                                "line-opacity": 0.8,
+                            }}
+                        />
+                    </Source>
+                )}
+                {transitFC.ferry && (
+                    <Source
+                        id="transit-ferry"
+                        type="geojson"
+                        data={transitFC.ferry}
+                    >
+                        <Layer
+                            id="transit-ferry-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(200, 85%, 55%)",
+                                "line-width": 2,
+                                "line-opacity": 0.8,
+                                "line-dasharray": [4, 4],
+                            }}
+                        />
+                    </Source>
+                )}
 
                 {/* Play-area boundary stroke. */}
                 {(() => {
