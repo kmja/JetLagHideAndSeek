@@ -46,9 +46,13 @@ const OVERPASS_MIRRORS = [
     "https://overpass.kumi.systems/api/interpreter",
 ];
 
-/** Per-attempt client-side timeout. Matches the in-browser
- *  default; keeps a hung mirror from pinning the whole chain. */
-const UPSTREAM_TIMEOUT_MS = 45_000;
+/** Per-attempt client-side timeout. Was 45 s (matching the
+ *  browser-side default), but the Workers Free plan caps a
+ *  single request at ~30 s wall clock, and we now race all
+ *  three mirrors in parallel — so each individual attempt
+ *  doesn't need a generous timeout. 20 s gets the fastest
+ *  mirror's headers in well under the worker cap. */
+const UPSTREAM_TIMEOUT_MS = 20_000;
 
 const CACHE_API_TTL_SECS = 24 * 60 * 60; // 24 h at the edge
 
@@ -254,34 +258,67 @@ export default {
 
 /* ─────────────────────── Fetch helpers ─────────────────────── */
 
+/** Race all upstream mirrors in parallel. First mirror to
+ *  return a 200 wins; all others get aborted so we don't waste
+ *  upstream resources finishing their downloads. Falls back to
+ *  null if every mirror errors or times out.
+ *
+ *  Why race instead of serial? The Workers Free plan caps each
+ *  request at ~30 s wall clock. Serial (3 × 20 s = 60 s worst
+ *  case) blows past that. Parallel resolves in max(per-mirror
+ *  RTT) — typically 2–10 s when at least one mirror is healthy. */
 async function fetchFromMirrorChain(query: string): Promise<Response | null> {
     const encoded = encodeURIComponent(query);
-    for (const base of OVERPASS_MIRRORS) {
-        const url = `${base}?data=${encoded}`;
-        try {
-            const controller = new AbortController();
-            const timer = setTimeout(
-                () => controller.abort(),
-                UPSTREAM_TIMEOUT_MS,
-            );
-            const resp = await fetch(url, {
-                method: "GET",
-                signal: controller.signal,
-                // No `cf.cacheTtl` here — we manage caching
-                // ourselves via R2 / Cache API so the client gets
-                // consistent X-Cache headers regardless of edge
-                // pop state.
+    const controllers = OVERPASS_MIRRORS.map(() => new AbortController());
+    const timers: ReturnType<typeof setTimeout>[] = controllers.map((c) =>
+        setTimeout(() => c.abort(), UPSTREAM_TIMEOUT_MS),
+    );
+
+    const attempts = OVERPASS_MIRRORS.map((base, i) =>
+        fetch(`${base}?data=${encoded}`, {
+            method: "GET",
+            signal: controllers[i].signal,
+        })
+            .then((resp) => ({ idx: i, base, resp }))
+            .catch((e) => {
+                console.warn(`Upstream ${base} threw:`, e);
+                return null as null;
+            }),
+    );
+
+    return new Promise<Response | null>((resolve) => {
+        let pending = attempts.length;
+        let resolved = false;
+        const finishWith = (winnerIdx: number | null, winner: Response | null) => {
+            if (resolved) return;
+            resolved = true;
+            // Abort the LOSERS so they stop streaming, but leave
+            // the winner's controller alone — we still need to
+            // read its body downstream.
+            for (let i = 0; i < controllers.length; i++) {
+                if (i !== winnerIdx) controllers[i].abort();
+            }
+            for (let i = 0; i < timers.length; i++) {
+                clearTimeout(timers[i]);
+            }
+            resolve(winner);
+        };
+        for (const a of attempts) {
+            a.then((r) => {
+                if (resolved) return;
+                if (r && r.resp.ok) {
+                    finishWith(r.idx, r.resp);
+                } else {
+                    if (r) {
+                        console.warn(
+                            `Upstream ${r.base} returned ${r.resp.status} ${r.resp.statusText}`,
+                        );
+                    }
+                    if (--pending === 0) finishWith(null, null);
+                }
             });
-            clearTimeout(timer);
-            if (resp.ok) return resp;
-            console.warn(
-                `Upstream ${base} returned ${resp.status} ${resp.statusText}`,
-            );
-        } catch (e) {
-            console.warn(`Upstream ${base} threw:`, e);
         }
-    }
-    return null;
+    });
 }
 
 async function prewarmCity(
