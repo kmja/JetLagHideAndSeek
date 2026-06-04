@@ -90,11 +90,10 @@ import {
  *   [x] ZoneSidebar hiding-zones overlay (atom shadow + Source/Layer)
  *   [x] Thunderforest custom tiles
  *   [x] Marker click → opens QuestionCard dialog
- *   [~] PolygonDraw (free-draw region elimination): hiding-zone
- *       case (key=-1) ported via mapbox-gl-draw; custom-tentacles
- *       / custom-matching / custom-measuring still need Leaflet
- *       fallback.
- *   [ ] ZoneSidebar hiding-zone overlay
+ *   [x] PolygonDraw (free-draw): hiding zone (key=-1), tentacles
+ *       custom locations, matching custom-zone, matching custom-
+ *       points, measuring custom-measure — all via mapbox-gl-draw,
+ *       seeded from existing feature data so users edit in place.
  *   [ ] Coastline GeoJSON overlay
  *   [x] Follow-me pin (seeker's live position)
  *   [ ] Map print / screenshot equivalent
@@ -671,61 +670,192 @@ export function MapV2({ className }: MapV2Props) {
         };
     }, [$followMe]);
 
-    // PolygonDraw integration. When the drawingQuestionKey
-    // atom flips to a non-null value (the user opened a draw
-    // session from the OptionDrawers / question card), we
-    // attach a mapbox-gl-draw control to the map. Currently
-    // we only handle the most common case — drawing a custom
-    // hiding-zone polygon (key === -1) — which writes the
-    // resulting FeatureCollection to mapGeoJSON + polyGeoJSON
-    // and clears the question stack + zone cache, matching
-    // the Leaflet PolygonDraw's onChange branch. Custom-
-    // tentacle / custom-matching / custom-measuring draws
-    // still fall back to the Leaflet path until ported.
+    // PolygonDraw integration. When drawingQuestionKey flips to
+    // a non-null value the user has opened a draw session — for
+    // a brand-new custom hiding zone (-1) or to edit an existing
+    // custom-typed question (matching custom-zone / custom-
+    // points; measuring custom-measure; tentacles custom). We
+    // attach a mapbox-gl-draw control configured for the right
+    // mode and wire the draw events to the same atom writes the
+    // Leaflet PolygonDraw does.
     useEffect(() => {
         if ($drawingQuestionKey === null) return;
         const map = mapRef.current?.getMap();
         if (!map) return;
+        const targetQ =
+            $drawingQuestionKey === -1
+                ? null
+                : questions
+                      .get()
+                      .find((q) => q.key === $drawingQuestionKey);
+
+        // Pick the draw mode + initial features based on what
+        // the user is editing. Polygons for zones / hiding
+        // zones, points for tentacle locations / matching
+        // points / measuring points.
+        let mode: "draw_polygon" | "draw_point" = "draw_polygon";
+        let initialFeatures: GeoJSON.Feature[] = [];
+        if ($drawingQuestionKey === -1) {
+            mode = "draw_polygon";
+            // Hiding-zone editing reads back the existing
+            // polyGeoJSON so the user can refine, not just
+            // start over.
+            const existing = polyGeoJSON.get();
+            if (existing) {
+                initialFeatures = existing.features as GeoJSON.Feature[];
+            }
+        } else if (
+            targetQ?.id === "tentacles" &&
+            (targetQ.data as { locationType?: string }).locationType ===
+                "custom"
+        ) {
+            mode = "draw_point";
+            const places =
+                (targetQ.data as { places?: GeoJSON.Feature[] }).places ?? [];
+            initialFeatures = places as GeoJSON.Feature[];
+        } else if (
+            targetQ?.id === "matching" &&
+            (targetQ.data as { type?: string }).type === "custom-zone"
+        ) {
+            mode = "draw_polygon";
+            const geo = (targetQ.data as { geo?: GeoJSON.Feature }).geo;
+            if (geo) initialFeatures = [geo];
+        } else if (
+            targetQ?.id === "matching" &&
+            (targetQ.data as { type?: string }).type === "custom-points"
+        ) {
+            mode = "draw_point";
+            const geo = (targetQ.data as { geo?: GeoJSON.FeatureCollection })
+                .geo;
+            if (geo?.features) initialFeatures = geo.features;
+        } else if (
+            targetQ?.id === "measuring" &&
+            (targetQ.data as { type?: string }).type === "custom-measure"
+        ) {
+            mode = "draw_point";
+            const geo = (targetQ.data as { geo?: GeoJSON.FeatureCollection })
+                .geo;
+            if (geo?.features) initialFeatures = geo.features;
+        }
+
         const draw = new MapboxDraw({
             displayControlsDefault: false,
             controls: {
-                polygon: true,
+                polygon: mode === "draw_polygon",
+                point: mode === "draw_point",
                 trash: true,
             },
-            defaultMode: "draw_polygon",
+            defaultMode: mode,
         });
-        // MapboxDraw expects a Mapbox-shaped IControl; MapLibre
-        // accepts the same shape but the types aren't a perfect
-        // match. Cast through unknown to avoid the structural
-        // mismatch — at runtime the contract is identical.
         map.addControl(
             draw as unknown as maplibregl.IControl,
             "top-right",
         );
 
+        // Load existing features so the user edits in place
+        // instead of starting from a blank canvas.
+        if (initialFeatures.length > 0) {
+            try {
+                draw.set({
+                    type: "FeatureCollection",
+                    features: initialFeatures.filter(
+                        (f) => f?.type === "Feature" && f.geometry,
+                    ) as GeoJSON.Feature[],
+                });
+            } catch (e) {
+                console.warn("MapV2 draw.set seed failed:", e);
+            }
+        }
+
         const onFeatureChange = () => {
             const fc = draw.getAll();
-            if (fc.features.length === 0) return;
+            // Hiding-zone case.
             if ($drawingQuestionKey === -1) {
-                const out = turf.featureCollection(
-                    fc.features.filter(
-                        (f) =>
-                            f.geometry.type === "Polygon" ||
-                            f.geometry.type === "MultiPolygon",
-                    ),
-                ) as GeoJSON.FeatureCollection<
-                    GeoJSON.Polygon | GeoJSON.MultiPolygon
-                >;
+                const polys = fc.features.filter(
+                    (f) =>
+                        f.geometry.type === "Polygon" ||
+                        f.geometry.type === "MultiPolygon",
+                );
+                if (polys.length === 0) return;
+                const out = turf.featureCollection(polys) as
+                    GeoJSON.FeatureCollection<
+                        GeoJSON.Polygon | GeoJSON.MultiPolygon
+                    >;
                 mapGeoJSON.set(out);
                 polyGeoJSON.set(out);
                 questions.set([]);
                 void clearCache(CacheType.ZONE_CACHE);
+                return;
             }
-            // TODO: handle custom-tentacles / custom-matching
-            // / custom-measuring cases like the Leaflet
-            // PolygonDraw's onChange branches. For now those
-            // questions still need the Leaflet fallback to
-            // edit their geometries.
+            if (!targetQ) return;
+            const data = targetQ.data as Record<string, unknown>;
+            if (
+                targetQ.id === "tentacles" &&
+                data.locationType === "custom"
+            ) {
+                // Points — write to data.places, dedup by coord
+                // signature.
+                const points = fc.features.filter(
+                    (f) => f.geometry.type === "Point",
+                );
+                const dedup: Record<string, GeoJSON.Feature> = {};
+                for (const p of points) {
+                    const c = (p.geometry as GeoJSON.Point).coordinates;
+                    dedup[`${c[0]},${c[1]}`] = p;
+                }
+                data.places = Object.values(dedup);
+                questionModified();
+            } else if (
+                targetQ.id === "matching" &&
+                data.type === "custom-zone"
+            ) {
+                const polys = fc.features.filter(
+                    (f) =>
+                        f.geometry.type === "Polygon" ||
+                        f.geometry.type === "MultiPolygon",
+                );
+                if (polys.length === 0) {
+                    data.geo = undefined;
+                } else {
+                    // Combine into a single feature so the
+                    // downstream elimination pipeline sees one
+                    // shape.
+                    const combined = turf.combine(
+                        turf.featureCollection(polys as never),
+                    ).features[0];
+                    data.geo = combined;
+                }
+                questionModified();
+            } else if (
+                targetQ.id === "matching" &&
+                data.type === "custom-points"
+            ) {
+                const points = fc.features.filter(
+                    (f) => f.geometry.type === "Point",
+                );
+                const dedup: Record<string, GeoJSON.Feature> = {};
+                for (const p of points) {
+                    const c = (p.geometry as GeoJSON.Point).coordinates;
+                    dedup[`${c[0]},${c[1]}`] = p;
+                }
+                data.geo = {
+                    type: "FeatureCollection",
+                    features: Object.values(dedup),
+                };
+                questionModified();
+            } else if (
+                targetQ.id === "measuring" &&
+                data.type === "custom-measure"
+            ) {
+                const points = fc.features.filter(
+                    (f) => f.geometry.type === "Point",
+                );
+                data.geo = {
+                    type: "FeatureCollection",
+                    features: points,
+                };
+                questionModified();
+            }
         };
         map.on("draw.create", onFeatureChange);
         map.on("draw.update", onFeatureChange);
