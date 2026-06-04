@@ -252,30 +252,29 @@ export default defineConfig({
                 // letting the browser cache the heavy stable vendor
                 // chunks across deploys — app code churns daily, the
                 // vendor blobs don't.
+                // IMPORTANT: only name-chunk EAGER vendors here.
+                //
+                // Vite's __vitePreload helper (used by every dynamic
+                // import in the app) gets hoisted by Rollup into
+                // whichever chunk most-often references it. If we
+                // explicitly name a LAZY vendor chunk (maplibre,
+                // leaflet, arcgis) it becomes the most-frequent
+                // dynamic-import target, the helper lands inside
+                // it, and main.js's static 'import { __vitePreload }
+                // from "./vendor-XXX.js"' drags the entire lazy
+                // bundle into the initial page load — the exact
+                // opposite of the intended lazy behaviour.
+                //
+                // For lazy deps (maplibre, leaflet, arcgis,
+                // @terraformer) we return undefined so Rollup
+                // chunks them naturally alongside their importing
+                // chunk (Map.tsx / MapV2.tsx / arcgisOperators.ts),
+                // and the __vitePreload helper stays in one of the
+                // already-eager vendor chunks where it belongs.
                 manualChunks(id) {
                     if (!id.includes("node_modules")) return undefined;
-                    if (
-                        id.includes("/maplibre-gl/") ||
-                        id.includes("/react-map-gl/") ||
-                        id.includes("/@mapbox/mapbox-gl-draw/")
-                    )
-                        return "vendor-maplibre";
-                    if (
-                        id.includes("/leaflet/") ||
-                        id.includes("/react-leaflet/") ||
-                        id.includes("/leaflet-draw/") ||
-                        id.includes("/leaflet-easyprint/") ||
-                        id.includes("/leaflet-contextmenu/") ||
-                        id.includes("/react-leaflet-draw/")
-                    )
-                        return "vendor-leaflet";
                     if (id.includes("/@turf/")) return "vendor-turf";
                     if (id.includes("/d3-")) return "vendor-d3";
-                    if (
-                        id.includes("/@arcgis/") ||
-                        id.includes("/@terraformer/")
-                    )
-                        return "vendor-arcgis";
                     if (
                         id.includes("/@radix-ui/") ||
                         id.includes("/lucide-react/") ||
