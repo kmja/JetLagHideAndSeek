@@ -1,7 +1,7 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import type { Feature, FeatureCollection } from "geojson";
-import * as L from "leaflet";
+import type * as L from "leaflet";
 import _ from "lodash";
 import { SidebarCloseIcon } from "lucide-react";
 import osmtogeojson from "osmtogeojson";
@@ -85,6 +85,19 @@ function _previewText(count: number) {
     return `${count} custom station${count === 1 ? "" : "s"} imported`;
 }
 
+// Lazy-cached leaflet module. The hiding-zone overlay needs L.geoJSON
+// / L.marker / L.divIcon to render zones onto the Leaflet map, but
+// only the Leaflet path actually mounts a Leaflet map — the MapLibre
+// path's `showGeoJSON` returns early before reaching any L.* call.
+// Keeping the import dynamic stops the static graph from pulling
+// leaflet into the main bundle, which would otherwise re-include the
+// ~265 KB leaflet runtime even when MapV2 is the renderer.
+let _leafletMod: typeof import("leaflet") | null = null;
+async function loadLeaflet() {
+    if (!_leafletMod) _leafletMod = await import("leaflet");
+    return _leafletMod;
+}
+
 let buttonJustClicked = false;
 
 export const ZoneSidebar = () => {
@@ -125,7 +138,7 @@ export const ZoneSidebar = () => {
         });
     };
 
-    const showGeoJSON = (
+    const showGeoJSON = async (
         geoJSONData: any,
         nonOverlappingStations: boolean = false,
         additionalOptions: L.GeoJSONOptions = {},
@@ -170,6 +183,11 @@ export const ZoneSidebar = () => {
             }
         });
 
+        // Leaflet only loads here, after the early-return for the
+        // MapLibre-no-map path. ZoneSidebar still mounts on the
+        // MapLibre path (for the shadow-atom mirroring above), but
+        // it never reaches this branch there.
+        const L = await loadLeaflet();
         const geoJsonLayer = L.geoJSON(geoJSONData, {
             // Match the "unanswered radius" visual language used for
             // provisional question circles in Map.tsx — dashed border
@@ -1232,7 +1250,10 @@ async function selectionProcess(
     station: any,
     map: L.Map,
     stations: any[],
-    showGeoJSON: (geoJSONData: any) => void,
+    // showGeoJSON went async when its leaflet load became dynamic —
+    // accept either signature so call sites don't need to await
+    // (we don't depend on the return value).
+    showGeoJSON: (geoJSONData: any) => void | Promise<void>,
     $questionFinishedMapData: any,
     $hidingRadius: number,
 ) {
