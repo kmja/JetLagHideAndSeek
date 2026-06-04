@@ -22,6 +22,7 @@ import {
     planningModeEnabled,
     polyGeoJSON,
     questions,
+    thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
 import {
@@ -29,7 +30,7 @@ import {
     mapLibreViewport,
 } from "@/lib/featureFlags";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { satelliteView } from "@/lib/gameSetup";
+import { satelliteView, showTransitLines } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 
@@ -122,52 +123,104 @@ const SATELLITE_SOURCE = {
     attribution: "Imagery &copy; Esri",
 };
 
+const RAIL_OVERLAY_SOURCE = {
+    tiles: [
+        "https://a.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
+        "https://b.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
+        "https://c.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
+    ],
+    attribution:
+        '&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>',
+};
+
+function thunderforestSource(
+    flavor: "transport" | "neighbourhood",
+    key: string,
+) {
+    return {
+        tiles: [
+            `https://tile.thunderforest.com/${flavor}/{z}/{x}/{y}.png?apikey=${key}`,
+        ],
+        attribution:
+            '&copy; <a href="http://www.thunderforest.com/">Thunderforest</a>',
+    };
+}
+
 function buildStyle(
     baseKey: string,
     withSatellite: boolean,
+    withRail: boolean,
+    thunderforestKey: string,
 ): maplibregl.StyleSpecification {
-    const base = RASTER_SOURCES[baseKey] ?? RASTER_SOURCES.dark;
-    const style: maplibregl.StyleSpecification = {
-        version: 8,
-        sources: {
-            base: {
-                type: "raster",
-                tiles: base.tiles,
-                tileSize: 256,
-                attribution: base.attribution,
-            },
-            ...(withSatellite
-                ? {
-                      satellite: {
-                          type: "raster",
-                          tiles: SATELLITE_SOURCE.tiles,
-                          tileSize: 256,
-                          attribution: SATELLITE_SOURCE.attribution,
-                      },
-                  }
-                : {}),
+    // Resolve the base layer. Thunderforest needs an API key
+    // — fall back to dark if the user hasn't entered one yet
+    // (matches the Leaflet branch's behaviour).
+    let base: { tiles: string[]; attribution: string };
+    if (baseKey === "transport" || baseKey === "neighbourhood") {
+        if (thunderforestKey) {
+            base = thunderforestSource(baseKey, thunderforestKey);
+        } else {
+            base = RASTER_SOURCES.dark;
+        }
+    } else {
+        base = RASTER_SOURCES[baseKey] ?? RASTER_SOURCES.dark;
+    }
+
+    const sources: maplibregl.StyleSpecification["sources"] = {
+        base: {
+            type: "raster",
+            tiles: base.tiles,
+            tileSize: 256,
+            attribution: base.attribution,
         },
-        layers: [
-            { id: "base", type: "raster", source: "base" },
-            ...(withSatellite
-                ? [
-                      {
-                          id: "satellite",
-                          type: "raster" as const,
-                          source: "satellite",
-                          paint: { "raster-opacity": 0.7 },
-                      },
-                  ]
-                : []),
-        ],
+    };
+    const layers: maplibregl.LayerSpecification[] = [
+        { id: "base", type: "raster", source: "base" },
+    ];
+
+    if (withSatellite) {
+        sources.satellite = {
+            type: "raster",
+            tiles: SATELLITE_SOURCE.tiles,
+            tileSize: 256,
+            attribution: SATELLITE_SOURCE.attribution,
+        };
+        layers.push({
+            id: "satellite",
+            type: "raster",
+            source: "satellite",
+            paint: { "raster-opacity": 0.7 },
+        });
+    }
+
+    if (withRail) {
+        sources.rail = {
+            type: "raster",
+            tiles: RAIL_OVERLAY_SOURCE.tiles,
+            tileSize: 256,
+            attribution: RAIL_OVERLAY_SOURCE.attribution,
+        };
+        layers.push({
+            id: "rail",
+            type: "raster",
+            source: "rail",
+            paint: { "raster-opacity": 0.85 },
+        });
+    }
+
+    return {
+        version: 8,
+        sources,
+        layers,
         glyphs: undefined,
     };
-    return style;
 }
 
 export function MapV2({ className }: MapV2Props) {
     const $tileKey = useStore(baseTileLayer);
     const $satellite = useStore(satelliteView);
+    const $rail = useStore(showTransitLines);
+    const $tfKey = useStore(thunderforestApiKey);
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $mapGeoLocation = useStore(mapGeoLocation);
@@ -178,8 +231,8 @@ export function MapV2({ className }: MapV2Props) {
     const mapRef = useRef<MapRef | null>(null);
 
     const style = useMemo(
-        () => buildStyle($tileKey, $satellite),
-        [$tileKey, $satellite],
+        () => buildStyle($tileKey, $satellite, $rail, $tfKey ?? ""),
+        [$tileKey, $satellite, $rail, $tfKey],
     );
 
     // Initial view priority: persisted viewport > OSM extent of
