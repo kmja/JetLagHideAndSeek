@@ -4,6 +4,7 @@ import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "react-toastify";
 import Map, {
     AttributionControl,
     Layer,
@@ -17,6 +18,7 @@ import Map, {
 
 import {
     baseTileLayer,
+    followMe,
     mapGeoJSON,
     mapGeoLocation,
     planningModeEnabled,
@@ -56,9 +58,10 @@ import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
  *   [ ] PolygonDraw (free-draw region elimination)
  *   [ ] ZoneSidebar hiding-zone overlay
  *   [ ] Coastline GeoJSON overlay
+ *   [x] Follow-me pin (seeker's live position)
  *   [ ] Map print / screenshot equivalent
  *   [ ] Context menu (right-click to add radius)
- *   [ ] Hider position pin
+ *   [ ] Hider position pin (hider page)
  *   [ ] Thermometer overlay
  *   [ ] Pending answer overlay
  *   [ ] Radar scan overlay
@@ -218,6 +221,7 @@ function buildStyle(
 }
 
 export function MapV2({ className }: MapV2Props) {
+    const $followMe = useStore(followMe);
     const $tileKey = useStore(baseTileLayer);
     const $satellite = useStore(satelliteView);
     const $rail = useStore(showTransitLines);
@@ -392,6 +396,48 @@ export function MapV2({ className }: MapV2Props) {
         })();
     }, [$mapGeoJSON, $polyGeoJSON, $questions]);
 
+    // Follow-me pin: live blue dot at the seeker's current
+    // position, updated via watchPosition. Same shape as the
+    // Leaflet path — gated on the followMe atom, started on
+    // flip-true, cleaned up on flip-false or unmount. The
+    // marker is rendered in JSX below; we keep just the
+    // position in state here.
+    const [selfPosition, setSelfPosition] = useState<
+        | {
+              lat: number;
+              lng: number;
+          }
+        | null
+    >(null);
+    useEffect(() => {
+        if (!$followMe) {
+            setSelfPosition(null);
+            return;
+        }
+        if (
+            typeof navigator === "undefined" ||
+            !navigator.geolocation
+        ) {
+            return;
+        }
+        const id = navigator.geolocation.watchPosition(
+            (pos) => {
+                setSelfPosition({
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                });
+            },
+            () => {
+                toast.error("Unable to access your location.");
+                followMe.set(false);
+            },
+            { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
+        );
+        return () => {
+            navigator.geolocation.clearWatch(id);
+        };
+    }, [$followMe]);
+
     return (
         <div className={cn("relative w-full h-screen", className)}>
             <Map
@@ -457,6 +503,30 @@ export function MapV2({ className }: MapV2Props) {
                             }}
                         />
                     </Source>
+                )}
+
+                {/* Follow-me pin — seeker's live position. Gated
+                    on the followMe atom; the watch-position
+                    effect above keeps `selfPosition` current. */}
+                {selfPosition && (
+                    <Marker
+                        longitude={selfPosition.lng}
+                        latitude={selfPosition.lat}
+                        anchor="center"
+                    >
+                        <div
+                            aria-label="Your position"
+                            style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: "50%",
+                                background: "#2A81CB",
+                                border: "3px solid white",
+                                boxShadow:
+                                    "0 0 0 1px #2A81CB, 0 1px 4px rgba(0,0,0,0.5)",
+                            }}
+                        />
+                    </Marker>
                 )}
 
                 {/* Per-question markers. Each question type's
