@@ -65,6 +65,7 @@ import {
  *   [x] flyTo equivalent when mapGeoLocation changes
  *   [x] Question-finished elimination polygons
  *   [x] Pending-question dashed outlines (category-colored)
+ *   [x] Pending-radius static circles (sweep animation deferred)
  *   [x] Question markers (display + drag-to-reposition)
  *   [x] OpenRailwayMap overlay (raster)
  *   [x] Thunderforest custom tiles
@@ -411,6 +412,58 @@ export function MapV2({ className }: MapV2Props) {
         })();
     }, [$mapGeoJSON, $polyGeoJSON, $questions]);
 
+    // Pending-radius circles. The "elimination" pipeline above
+    // deliberately skips radius questions so the Leaflet
+    // RadarScanOverlay can render a rotating sweep instead. We
+    // haven't ported that animation yet, so without something
+    // here a pending radius question would have no visual on
+    // MapV2. Static turf-built circle is a clean placeholder —
+    // the seeker still sees the affected area; just no sweep.
+    const pendingRadiusFeatures = useMemo(() => {
+        const features: GeoJSON.Feature[] = [];
+        for (const q of $questions) {
+            if (q.id !== "radius") continue;
+            if (!q.data?.drag) continue;
+            const data = q.data as {
+                lat?: number;
+                lng?: number;
+                radius?: number;
+                unit?: "miles" | "kilometers" | "meters";
+                color?: string;
+            };
+            if (
+                typeof data.lat !== "number" ||
+                typeof data.lng !== "number" ||
+                typeof data.radius !== "number"
+            ) {
+                continue;
+            }
+            const radiusKm = turf.convertLength(
+                data.radius,
+                (data.unit as turf.Units | undefined) ?? "kilometers",
+                "kilometers",
+            );
+            try {
+                const circle = turf.circle(
+                    [data.lng, data.lat],
+                    radiusKm,
+                    { units: "kilometers", steps: 64 },
+                );
+                circle.properties = {
+                    color:
+                        (data.color &&
+                            CATEGORIES.radius?.color) ??
+                        CATEGORIES.radius?.color ??
+                        "#f5a888",
+                };
+                features.push(circle as GeoJSON.Feature);
+            } catch (e) {
+                console.warn("MapV2 radius circle failed:", e);
+            }
+        }
+        return { type: "FeatureCollection", features } as GeoJSON.FeatureCollection;
+    }, [$questions]);
+
     // Click-to-edit: tapping a marker opens the relevant
     // QuestionCard in a Dialog. Uses an isDraggingRef gate so
     // an accidental click at the end of a drag doesn't pop the
@@ -546,6 +599,44 @@ export function MapV2({ className }: MapV2Props) {
                                 "line-color": "#0f172a",
                                 "line-width": 1,
                                 "line-opacity": 0.55,
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Pending-radius circles — static placeholder
+                    for the radar sweep animation that hasn't
+                    been ported from the Leaflet
+                    RadarScanOverlay. Renders one Source per
+                    color (matching the dashed-outline approach
+                    for other pending questions) so the GPU
+                    batches draws. */}
+                {pendingRadiusFeatures.features.length > 0 && (
+                    <Source
+                        id="pending-radius"
+                        type="geojson"
+                        data={pendingRadiusFeatures}
+                    >
+                        <Layer
+                            id="pending-radius-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color":
+                                    CATEGORIES.radius?.color ??
+                                    "#f5a888",
+                                "fill-opacity": 0.08,
+                            }}
+                        />
+                        <Layer
+                            id="pending-radius-line"
+                            type="line"
+                            paint={{
+                                "line-color":
+                                    CATEGORIES.radius?.color ??
+                                    "#f5a888",
+                                "line-width": 2,
+                                "line-opacity": 0.85,
+                                "line-dasharray": [3, 2],
                             }}
                         />
                     </Source>
