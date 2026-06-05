@@ -6,7 +6,7 @@ import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
-import Map, {
+import MapGL, {
     AttributionControl,
     Layer,
     type MapRef,
@@ -29,7 +29,7 @@ import {
     followMe,
     hiderMode,
     hidingZonesGeoJSON,
-    leafletMapContext,
+    mapContext,
     mapGeoJSON,
     mapGeoLocation,
     planningModeEnabled,
@@ -74,24 +74,26 @@ import {
 /**
  * The seeker's map. MapLibre GL renderer.
  *
- * History: this was originally the parallel "MapV2" implementation
- * behind a `useMapLibre` feature flag, with a Leaflet renderer
- * (Map.tsx) as the default. The Leaflet path was retired in v80
- * once MapLibre had full parity — boundary loading, elimination
- * mask, pending/answered question overlays, drag-to-reposition
- * markers, radar sweep, free-draw via mapbox-gl-draw, transit
- * overlays, hider-guess pin, screenshot export, context menu,
- * follow-me GPS pin, ZoneSidebar shadow-atom hiding-zones overlay.
+ * History: this lived as `MapV2.tsx` through v79 while the
+ * Leaflet renderer (the original `Map.tsx`) was kept around
+ * behind a `useMapLibre` feature flag. Leaflet was retired in
+ * v80 once MapLibre had full parity (boundary loading,
+ * elimination mask, pending/answered question overlays, drag-
+ * to-reposition markers, radar sweep, free-draw via
+ * mapbox-gl-draw, transit overlays, hider-guess pin, screenshot
+ * export, context menu, follow-me GPS pin, ZoneSidebar shadow-
+ * atom hiding-zones overlay). v81 renamed `MapV2` → `Map` to
+ * reclaim the canonical name.
  *
- * The file kept its v-numbered name (MapV2.tsx) rather than being
- * renamed to Map.tsx because that's a lot of git history to
- * rewrite for purely cosmetic gain. `leafletMapContext` is also
- * still its old name — every question card and dialog reads from
- * it, and the value is now a small shim wrapping the maplibregl
- * Map so those call sites kept working unchanged (see lib/mapShim.ts).
+ * `mapContext` (in lib/context.ts) holds a Leaflet-shaped shim
+ * wrapping the maplibregl Map — see lib/mapShim.ts. The shim
+ * exists so every question card / dialog / OptionDrawers call
+ * site that used to read the old Leaflet map context keeps
+ * working without touching its `getCenter / fitBounds / flyTo`
+ * call shape.
  */
 
-interface MapV2Props {
+interface MapProps {
     className?: string;
 }
 
@@ -240,7 +242,7 @@ function buildStyle(
     };
 }
 
-export function MapV2({ className }: MapV2Props) {
+export function Map({ className }: MapProps) {
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $followMe = useStore(followMe);
     const $hiderMode = useStore(hiderMode);
@@ -294,8 +296,8 @@ export function MapV2({ className }: MapV2Props) {
     }, []);
 
     // Publish the map ref to two global atoms:
-    //   - mapLibreContext: the raw MapRef, for MapV2's own use.
-    //   - leafletMapContext: a Leaflet-shaped shim, for the rest
+    //   - mapLibreContext: the raw MapRef, for the seeker map's own use.
+    //   - mapContext: a Leaflet-shaped shim, for the rest
     //     of the codebase (question cards, dialogs, etc.) which
     //     was originally written against Leaflet's Map API and
     //     calls map.getCenter() / fitBounds() / flyTo(). See
@@ -304,12 +306,12 @@ export function MapV2({ className }: MapV2Props) {
         if (!mapRef.current) return;
         mapLibreContext.set(mapRef.current);
         const inner = mapRef.current.getMap();
-        if (inner) leafletMapContext.set(createMapShim(inner));
+        if (inner) mapContext.set(createMapShim(inner));
     };
     useEffect(() => {
         return () => {
             mapLibreContext.set(null);
-            leafletMapContext.set(null);
+            mapContext.set(null);
         };
     }, []);
 
@@ -342,7 +344,7 @@ export function MapV2({ className }: MapV2Props) {
                 { padding: 24, duration: 600 },
             );
         } catch (e) {
-            console.warn("MapV2 fitBounds failed:", e);
+            console.warn("Map fitBounds failed:", e);
         }
     }, [$mapGeoLocation?.properties]);
 
@@ -417,7 +419,7 @@ export function MapV2({ className }: MapV2Props) {
                     },
                 )) as typeof working;
             } catch (e) {
-                console.warn("MapV2 applyQuestions failed:", e);
+                console.warn("Map applyQuestions failed:", e);
             }
             let mask: GeoJSON.Feature | null = null;
             try {
@@ -425,7 +427,7 @@ export function MapV2({ className }: MapV2Props) {
                     working as never,
                 ) as GeoJSON.Feature | null;
             } catch (e) {
-                console.warn("MapV2 holedMask failed:", e);
+                console.warn("Map holedMask failed:", e);
             }
             if (myGen !== eliminationGenRef.current) return; // stale
             setEliminationResult({ mask, pendingByCategory });
@@ -464,7 +466,7 @@ export function MapV2({ className }: MapV2Props) {
                 if (cancelled) return;
                 setTransitFC((c) => ({ ...c, [mode]: fc }));
             } catch (e) {
-                console.warn(`MapV2 transit (${mode}) fetch failed`, e);
+                console.warn(`Map transit (${mode}) fetch failed`, e);
             } finally {
                 // Don't clobber the loading flag if the effect was
                 // already torn down — we'd be writing into a stale
@@ -491,7 +493,7 @@ export function MapV2({ className }: MapV2Props) {
     // RadarScanOverlay can render a rotating sweep instead. We
     // haven't ported that animation yet, so without something
     // here a pending radius question would have no visual on
-    // MapV2. Static turf-built circle is a clean placeholder —
+    // Map. Static turf-built circle is a clean placeholder —
     // the seeker still sees the affected area; just no sweep.
     // Build pending-radius circles AND the underlying
     // center/radius list in one pass. The list feeds the radar
@@ -543,7 +545,7 @@ export function MapV2({ className }: MapV2Props) {
                     radiusKm,
                 });
             } catch (e) {
-                console.warn("MapV2 radius circle failed:", e);
+                console.warn("Map radius circle failed:", e);
             }
         }
         return {
@@ -797,7 +799,7 @@ export function MapV2({ className }: MapV2Props) {
                     ) as GeoJSON.Feature[],
                 });
             } catch (e) {
-                console.warn("MapV2 draw.set seed failed:", e);
+                console.warn("Map draw.set seed failed:", e);
             }
         }
 
@@ -910,7 +912,7 @@ export function MapV2({ className }: MapV2Props) {
 
     return (
         <div className={cn("relative w-full h-screen", className)}>
-            <Map
+            <MapGL
                 ref={mapRef}
                 initialViewState={initialView}
                 mapStyle={style}
@@ -1005,7 +1007,7 @@ export function MapV2({ className }: MapV2Props) {
                     fill that the Leaflet path uses, plus
                     circle markers for any Point features
                     (stations) so both styles surface on
-                    MapV2. */}
+                    Map. */}
                 {$hidingZones && $hidingZones.features.length > 0 && (
                     <Source
                         id="hiding-zones"
@@ -1351,13 +1353,13 @@ export function MapV2({ className }: MapV2Props) {
                         );
                     },
                 )}
-            </Map>
+            </MapGL>
 
             {/* Context menu — absolutely-positioned at the
                 click point. Mirrors the leaflet-contextmenu
                 items: Add Radius / Thermometer / Tentacles at
                 the clicked coords. Closes on item-select or
-                map-click (handled via onClick on <Map />). */}
+                map-click (handled via onClick on <MapGL />). */}
             {contextMenu && (
                 <div
                     role="menu"
@@ -1597,4 +1599,4 @@ function questionMarkers(q: {
     return out;
 }
 
-export default MapV2;
+export default Map;

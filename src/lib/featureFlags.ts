@@ -6,7 +6,7 @@ import type { MapRef } from "react-map-gl/maplibre";
  * Live MapLibre map ref, published by MapV2 once the map is
  * mounted. Volatile (per-mount), not persisted. The Leaflet-
  * shaped facade most call sites use lives at
- * `leafletMapContext` in @/lib/context — same value, different
+ * `mapContext` in @/lib/context — same value, different
  * surface (see lib/mapShim.ts).
  */
 export const mapLibreContext = atom<MapRef | null>(null);

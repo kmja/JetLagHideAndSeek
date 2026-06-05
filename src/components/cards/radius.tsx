@@ -19,7 +19,7 @@ import { UnitSelect } from "@/components/UnitSelect";
 import {
     hiderMode,
     isLoading,
-    leafletMapContext,
+    mapContext,
     questionModified,
     questions,
     triggerLocalRefresh,
@@ -153,7 +153,7 @@ export const RadiusQuestionComponent = ({
                         // circle stays visible — picking 10 km from a
                         // 500 m starting view would otherwise leave most
                         // of the question off-screen.
-                        const map = leafletMapContext.get();
+                        const map = mapContext.get();
                         if (map) {
                             fitMapToRadius(
                                 map,

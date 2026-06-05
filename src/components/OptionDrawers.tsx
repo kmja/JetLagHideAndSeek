@@ -31,7 +31,7 @@ import {
     hidingRadiusUnits,
     hidingZone,
     includeDefaultStations,
-    leafletMapContext,
+    mapContext,
     mapGeoJSON,
     mapGeoLocation,
     pastebinApiKey,
@@ -581,7 +581,7 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
                                     checked={$planningMode}
                                     onCheckedChange={() => {
                                         if ($planningMode === true) {
-                                            const map = leafletMapContext.get();
+                                            const map = mapContext.get();
 
                                             if (map) {
                                                 map.eachLayer((layer: any) => {
@@ -668,12 +668,12 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
                                     checked={!!$hiderMode}
                                     onCheckedChange={() => {
                                         if ($hiderMode === false) {
-                                            const $leafletMapContext =
-                                                leafletMapContext.get();
+                                            const $mapContext =
+                                                mapContext.get();
 
-                                            if ($leafletMapContext) {
+                                            if ($mapContext) {
                                                 const center =
-                                                    $leafletMapContext.getCenter();
+                                                    $mapContext.getCenter();
                                                 hiderMode.set({
                                                     latitude: center.lat,
                                                     longitude: center.lng,

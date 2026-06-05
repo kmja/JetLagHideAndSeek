@@ -29,7 +29,7 @@ import {
     disabledStations,
     displayHidingZones,
     hiderMode,
-    leafletMapContext,
+    mapContext,
     mapGeoJSON,
     mapGeoLocation,
     permanentOverlay,
@@ -346,7 +346,7 @@ export function GameSetupDialog() {
             polyGeoJSON.set(null);
             disabledStations.set([]);
             permanentOverlay.set(null);
-            const map = leafletMapContext.get();
+            const map = mapContext.get();
             map?.flyTo([lat, lng], 11, { duration: 0.6 });
             toast.info("Play area updated — questions cleared.", {
                 autoClose: 3000,
@@ -416,7 +416,7 @@ export function GameSetupDialog() {
             // on from the map controls is near-instant.
             displayHidingZones.set(false);
 
-            const map = leafletMapContext.get();
+            const map = mapContext.get();
             map?.flyTo([lat, lng], 11, { duration: 0.6 });
         } else {
             playArea.set(null);

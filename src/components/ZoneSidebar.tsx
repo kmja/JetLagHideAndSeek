@@ -33,7 +33,7 @@ import {
     hidingZonesGeoJSON,
     includeDefaultStations as includeDefaultStationsAtom,
     isLoading,
-    leafletMapContext,
+    mapContext,
     mergeDuplicates as mergeDuplicatesAtom,
     planningModeEnabled,
     questionFinishedMapData,
@@ -97,7 +97,7 @@ export const ZoneSidebar = () => {
     const $hidingRadius = useStore(hidingRadius);
     const $hidingRadiusUnits = useStore(hidingRadiusUnits);
     const $isLoading = useStore(isLoading);
-    const map = useStore(leafletMapContext);
+    const map = useStore(mapContext);
     const stations = useStore(trainStations);
     const $disabledStations = useStore(disabledStations);
     const useCustomStations = useStore(useCustomStationsAtom);

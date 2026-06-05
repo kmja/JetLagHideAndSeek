@@ -161,7 +161,7 @@ export const questionModified = (..._: any[]) => {
  * that translates Leaflet-style getCenter / fitBounds / flyTo /
  * etc. into the MapLibre equivalents. See `lib/mapShim.ts`.
  */
-export const leafletMapContext = atom<MapShim | null>(null);
+export const mapContext = atom<MapShim | null>(null);
 
 /**
  * Hiding-zones GeoJSON shadow atom. ZoneSidebar's `showGeoJSON`

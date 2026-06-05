@@ -21,9 +21,10 @@ import { ZoneSidebar } from "@/components/ZoneSidebar";
 // downloads when we render the seeker page (and so the hider
 // route never pays for it). Was wrapped in a feature-flag
 // 'MapSwitcher' until v80 — the Leaflet alternative is gone now
-// and this is the sole renderer.
-const MapV2 = lazy(() =>
-    import("@/components/MapV2").then((m) => ({ default: m.MapV2 })),
+// and this is the sole renderer. v81 renamed the file + export
+// from MapV2 → Map.
+const Map = lazy(() =>
+    import("@/components/Map").then((m) => ({ default: m.Map })),
 );
 
 // Dialogs / overlays / wizards that only render once the user
@@ -123,13 +124,13 @@ export function SeekerPage() {
                                 <ThermometerOverlay />
                                 <PendingAnswerOverlay />
                                 {/* Transit overlays + radar sweep are
-                                    now built into MapV2 directly as
+                                    now built into Map directly as
                                     Source/Layer pairs; the old
                                     sibling components have been
                                     deleted along with the Leaflet
                                     renderer. */}
                                 <Suspense fallback={null}>
-                                    <MapV2 className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                    <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
                                 </Suspense>
                                 <MapLoadingOverlay />
                             </div>

@@ -16,7 +16,7 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     defaultCustomQuestions,
     defaultUnit,
-    leafletMapContext,
+    mapContext,
     questionModified,
     questions,
 } from "@/lib/context";
@@ -306,7 +306,7 @@ export const AddQuestionDialog = ({
     // hider. `handleConfirm` (configure dialog) and the per-question share
     // button (questions panel) are the two paths that stamp it post-share.
     const runAddRadius = () => {
-        const map = leafletMapContext.get();
+        const map = mapContext.get();
         if (!map) return false;
         const center = map.getCenter();
         addQuestion({
@@ -331,7 +331,7 @@ export const AddQuestionDialog = ({
     };
 
     const runAddThermometer = () => {
-        const map = leafletMapContext.get();
+        const map = mapContext.get();
         if (!map) return false;
         const center = map.getCenter();
         // Thermometer per rulebook: capture the seeker's current location
@@ -360,7 +360,7 @@ export const AddQuestionDialog = ({
     };
 
     const runAddTentacles = (subtype?: string) => {
-        const map = leafletMapContext.get();
+        const map = mapContext.get();
         if (!map) return false;
         const center = map.getCenter();
         // Tentacles uses `locationType` as the type field (unlike matching
@@ -391,7 +391,7 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMatching = (subtype?: string) => {
-        const map = leafletMapContext.get();
+        const map = mapContext.get();
         if (!map) return false;
         const center = map.getCenter();
         addQuestion({
@@ -412,7 +412,7 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMeasuring = (subtype?: string) => {
-        const map = leafletMapContext.get();
+        const map = mapContext.get();
         if (!map) return false;
         const center = map.getCenter();
         addQuestion({

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 
 import {
     addQuestion,
-    leafletMapContext,
+    mapContext,
     questionModified,
     questions,
 } from "@/lib/context";
@@ -53,7 +53,7 @@ export function DebugPhaseControls() {
     const [open, setOpen] = useState(false);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
-    const $map = useStore(leafletMapContext);
+    const $map = useStore(mapContext);
     const $role = useStore(playerRole);
 
     /* ─────── seeker actions ─────── */

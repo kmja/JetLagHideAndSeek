@@ -5,7 +5,7 @@
  * removeLayer which only the deleted Leaflet path needed).
  *
  * Why this exists: the seeker app started life as a Leaflet
- * codebase. `leafletMapContext` was the source of truth for
+ * codebase. `mapContext` was the source of truth for
  * "the map is mounted; here it is." Many call sites — question
  * cards, AddQuestionDialog, OptionDrawers, the radius preset
  * picker — read it to pull a map.getCenter() or schedule a
@@ -19,7 +19,7 @@
  * Rather than touch every one of those call sites, we publish a
  * shim that translates the Leaflet-shaped calls into MapLibre-
  * shaped ones on the way through, and have MapV2 set
- * `leafletMapContext` to that shim instead of a real Leaflet Map.
+ * `mapContext` to that shim instead of a real Leaflet Map.
  *
  * eachLayer / removeLayer become no-ops: those existed for the
  * Leaflet path to imperatively add/remove rendered question

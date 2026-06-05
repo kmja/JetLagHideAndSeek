@@ -8,7 +8,7 @@ import { LatitudeLongitude } from "@/components/LatLngPicker";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { defaultUnit, leafletMapContext } from "@/lib/context";
+import { defaultUnit, mapContext } from "@/lib/context";
 import {
     hiderMode,
     isLoading,
@@ -347,7 +347,7 @@ function StartedBody({
     // Current effective position — GPS if we have it, otherwise the map's
     // visible center as a graceful fallback. The seeker can pan the map
     // to where they actually are when GPS isn't available.
-    const map = leafletMapContext.get();
+    const map = mapContext.get();
     const fallbackCenter = map?.getCenter();
     const currentLat = pos?.lat ?? fallbackCenter?.lat ?? startLat;
     const currentLng = pos?.lng ?? fallbackCenter?.lng ?? startLng;
