@@ -5,20 +5,26 @@ import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
-import { MapSwitcher } from "@/components/MapSwitcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
-import { RadarScanOverlay } from "@/components/RadarScanOverlay";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
-import { TransitRoutesOverlay } from "@/components/TransitRoutesOverlay";
 import {
     SidebarProvider as SidebarProviderL,
     SidebarTrigger as SidebarTriggerL,
 } from "@/components/ui/sidebar-l";
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
+
+// The map itself. Lazy so the ~880 KB maplibre-gl chunk only
+// downloads when we render the seeker page (and so the hider
+// route never pays for it). Was wrapped in a feature-flag
+// 'MapSwitcher' until v80 — the Leaflet alternative is gone now
+// and this is the sole renderer.
+const MapV2 = lazy(() =>
+    import("@/components/MapV2").then((m) => ({ default: m.MapV2 })),
+);
 
 // Dialogs / overlays / wizards that only render once the user
 // actually triggers them — lazy so a freshly-landed seeker doesn't
@@ -116,9 +122,15 @@ export function SeekerPage() {
                                 </div>
                                 <ThermometerOverlay />
                                 <PendingAnswerOverlay />
-                                <TransitRoutesOverlay />
-                                <RadarScanOverlay />
-                                <MapSwitcher className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                {/* Transit overlays + radar sweep are
+                                    now built into MapV2 directly as
+                                    Source/Layer pairs; the old
+                                    sibling components have been
+                                    deleted along with the Leaflet
+                                    renderer. */}
+                                <Suspense fallback={null}>
+                                    <MapV2 className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                </Suspense>
                                 <MapLoadingOverlay />
                             </div>
                         </div>

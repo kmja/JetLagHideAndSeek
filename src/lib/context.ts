@@ -1,6 +1,6 @@
 import { persistentAtom } from "@nanostores/persistent";
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import type { Map } from "leaflet";
+import type { MapShim } from "@/lib/mapShim";
 import { atom, computed, onSet } from "nanostores";
 
 import type {
@@ -152,7 +152,16 @@ export const questionModified = (..._: any[]) => {
     }
 };
 
-export const leafletMapContext = atom<Map | null>(null);
+/**
+ * The mounted map, exposed through a Leaflet-shaped facade.
+ *
+ * Name preserved for backward-compat — every question card,
+ * dialog, and side panel reads from it. The renderer is actually
+ * MapLibre GL (see MapV2.tsx); the value here is a small shim
+ * that translates Leaflet-style getCenter / fitBounds / flyTo /
+ * etc. into the MapLibre equivalents. See `lib/mapShim.ts`.
+ */
+export const leafletMapContext = atom<MapShim | null>(null);
 
 /**
  * Hiding-zones GeoJSON shadow atom. ZoneSidebar's `showGeoJSON`

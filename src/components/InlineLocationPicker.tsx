@@ -1,19 +1,17 @@
-import "leaflet/dist/leaflet.css";
+import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
+import { circle as turfCircle } from "@turf/turf";
 import { Circle as CircleIcon, LocateFixed, LocateOff } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import {
-    Circle,
-    GeoJSON,
-    MapContainer,
+import { useEffect, useMemo, useRef, useState } from "react";
+import Map, {
+    Layer,
+    type MapLayerMouseEvent,
+    type MapRef,
     Marker,
-    Polyline,
-    TileLayer,
-    Tooltip,
-    useMap,
-    useMapEvents,
-} from "react-leaflet";
+    Popup,
+    Source,
+} from "react-map-gl/maplibre";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -25,12 +23,11 @@ import {
 import { satelliteView } from "@/lib/gameSetup";
 import { getTileLayerConfig } from "@/lib/mapTiles";
 import { cn } from "@/lib/utils";
-import type { Units } from "@/maps/schema";
 
 /**
  * Always-visible inline location picker for the question configure flow.
  *
- *   - Mounts a Leaflet map immediately (no "Pick on map" button gate)
+ *   - Mounts a MapLibre GL map immediately (no "Pick on map" gate)
  *   - On first mount, tries to grab the user's GPS. If granted, centers
  *     there and updates the parent's coords; if denied/unavailable,
  *     falls back to the play-area center and shows a GPS-unavailable
@@ -41,8 +38,8 @@ import type { Units } from "@/maps/schema";
  *     primary-colored circle around the pin so the radius preview is
  *     visible while the user is moving things around.
  *
- * Lazy-loaded by `LatLngPicker.tsx` so that leaflet's window-touching
- * module body never enters Astro's SSR import graph.
+ * Public API is unchanged from the Leaflet version that lived here
+ * through v79 — same props, same behaviour, MapLibre GL underneath.
  */
 export function InlineLocationPicker({
     latitude,
@@ -55,45 +52,27 @@ export function InlineLocationPicker({
     latitude: number;
     longitude: number;
     onChange: (lat: number, lng: number) => void;
-    /** Optional radius (in meters) — when present, draws a preview circle
-     *  around the pin. Used by radar questions. */
     radiusMeters?: number;
-    /** Optional named reference point — drawn as a smaller secondary
-     *  marker with a dashed line back to the primary pin. Used by
-     *  matching/measuring configure dialogs to surface the seeker's
-     *  actual nearest reference. */
     referencePoint?: {
         lat: number;
         lng: number;
         name?: string;
     };
-    /** Tailwind height class for the map canvas. */
     height?: string;
 }) {
+    const mapRef = useRef<MapRef | null>(null);
     const $maskData = useStore(questionFinishedMapData);
     const $playArea = useStore(mapGeoLocation);
     const $baseTileLayer = useStore(baseTileLayer);
     const $thunderforestApiKey = useStore(thunderforestApiKey);
     const $satellite = useStore(satelliteView);
 
-    // Match the main map view: respect the seeker's base-style choice and
-    // mirror satellite + transit overlays. Keeps the configure-dialog map
-    // visually identical to the page background so the seeker doesn't have
-    // to recalibrate when they look at a question's location preview.
     const tile = getTileLayerConfig($baseTileLayer, $thunderforestApiKey);
 
-    // Track GPS permission/availability state for the helper text.
-    // `unknown` → still polling on mount.
-    // `granted` → got coordinates; pin already moved.
-    // `denied`  → user said no, OR the browser doesn't expose geolocation.
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",
     );
 
-    // Try GPS exactly once on mount. We don't watch position — the user
-    // can still drag/tap to override. If GPS is unavailable or denied,
-    // we fall back to whatever coords were passed in (typically the
-    // play-area center).
     const didGpsRef = useRef(false);
     useEffect(() => {
         if (didGpsRef.current) return;
@@ -123,6 +102,88 @@ export function InlineLocationPicker({
             ? longitude
             : ($playArea?.geometry?.coordinates?.[1] as number) ?? 0;
 
+    // Recenter only on GPS-flip-to-granted (not on hand-drag).
+    const lastGpsRef = useRef(gpsState);
+    useEffect(() => {
+        if (lastGpsRef.current !== gpsState && gpsState === "granted") {
+            const map = mapRef.current?.getMap();
+            if (map) {
+                map.flyTo({
+                    center: [safeLng, safeLat],
+                    zoom: Math.max(map.getZoom(), 13),
+                    duration: 400,
+                });
+            }
+        }
+        lastGpsRef.current = gpsState;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [gpsState]);
+
+    // One-shot fit: when a reference point first appears (or moves to a
+    // different location), pan/zoom the map so both the seeker pin and
+    // the reference fit comfortably in view.
+    const lastFitRef = useRef<string>("");
+    useEffect(() => {
+        if (!referencePoint) return;
+        if (
+            !Number.isFinite(referencePoint.lat) ||
+            !Number.isFinite(referencePoint.lng)
+        )
+            return;
+        const key = `${safeLat.toFixed(4)},${safeLng.toFixed(4)},${referencePoint.lat.toFixed(4)},${referencePoint.lng.toFixed(4)}`;
+        if (lastFitRef.current === key) return;
+        lastFitRef.current = key;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const minLng = Math.min(safeLng, referencePoint.lng);
+        const maxLng = Math.max(safeLng, referencePoint.lng);
+        const minLat = Math.min(safeLat, referencePoint.lat);
+        const maxLat = Math.max(safeLat, referencePoint.lat);
+        map.fitBounds(
+            [
+                [minLng, minLat],
+                [maxLng, maxLat],
+            ],
+            { padding: 40, maxZoom: 14, duration: 400 },
+        );
+    }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
+
+    // Pre-compute the radius circle as a turf polygon when the
+    // radius prop is set; cheaper than re-running on every render.
+    const radiusCircle = useMemo(() => {
+        if (radiusMeters == null || radiusMeters <= 0) return null;
+        return turfCircle([safeLng, safeLat], radiusMeters / 1000, {
+            steps: 64,
+            units: "kilometers",
+        });
+    }, [safeLat, safeLng, radiusMeters]);
+
+    // The dashed reference line from seeker to nearest-reference,
+    // shaped as a GeoJSON LineString for the line layer.
+    const referenceLine = useMemo(() => {
+        if (
+            !referencePoint ||
+            !Number.isFinite(referencePoint.lat) ||
+            !Number.isFinite(referencePoint.lng)
+        )
+            return null;
+        return {
+            type: "Feature" as const,
+            properties: {},
+            geometry: {
+                type: "LineString" as const,
+                coordinates: [
+                    [safeLng, safeLat],
+                    [referencePoint.lng, referencePoint.lat],
+                ],
+            },
+        };
+    }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
+
+    const handleClick = (e: MapLayerMouseEvent) => {
+        onChange(e.lngLat.lat, e.lngLat.lng);
+    };
+
     return (
         <div className="space-y-2">
             <div
@@ -131,106 +192,179 @@ export function InlineLocationPicker({
                     height,
                 )}
             >
-                <MapContainer
-                    center={[safeLat, safeLng]}
-                    zoom={radiusMeters ? zoomForRadius(radiusMeters) : 13}
-                    scrollWheelZoom
-                    style={{ height: "100%", width: "100%" }}
+                <Map
+                    ref={mapRef}
+                    initialViewState={{
+                        longitude: safeLng,
+                        latitude: safeLat,
+                        zoom: radiusMeters ? zoomForRadius(radiusMeters) : 13,
+                    }}
+                    style={{ width: "100%", height: "100%" }}
+                    attributionControl={false}
+                    onClick={handleClick}
+                    mapStyle={{
+                        version: 8,
+                        sources: {
+                            base: {
+                                type: "raster",
+                                tiles: rasterTilesFromTileConfig(tile),
+                                tileSize: 256,
+                                attribution: tile.attribution,
+                                maxzoom: tile.maxZoom ?? 19,
+                                minzoom: tile.minZoom ?? 0,
+                            },
+                        },
+                        layers: [
+                            {
+                                id: "base-tiles",
+                                type: "raster",
+                                source: "base",
+                            },
+                        ],
+                    }}
                 >
-                    <TileLayer
-                        url={tile.url}
-                        attribution={tile.attribution}
-                        subdomains={tile.subdomains}
-                        maxZoom={tile.maxZoom}
-                        minZoom={tile.minZoom}
-                        noWrap={tile.noWrap}
-                    />
                     {$satellite && (
-                        <TileLayer
-                            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                            attribution="Esri, Maxar, Earthstar Geographics"
-                            maxZoom={19}
-                            opacity={1}
-                        />
+                        <Source
+                            id="satellite"
+                            type="raster"
+                            tiles={[
+                                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                            ]}
+                            tileSize={256}
+                        >
+                            <Layer
+                                id="satellite-layer"
+                                type="raster"
+                                paint={{ "raster-opacity": 1 }}
+                            />
+                        </Source>
                     )}
-                    {/* Intentionally no transit (OpenRailwayMap) layer
-                        here — the configure-dialog preview should stay
-                        clean. Rail lines on top of the place pin would
-                        compete with the dashed reference line we draw
-                        between the seeker pin and the nearest-place
-                        marker, so they're scoped to the main map only. */}
+                    {/* Elimination mask. Same dark cover as the
+                        Leaflet version (#0f172a, ~55% opacity). */}
                     {$maskData && (
-                        <GeoJSON
-                            key={`mask-${
-                                ($maskData as any)?.features?.[0]?.geometry
-                                    ?.coordinates?.length ?? 0
-                            }`}
-                            data={$maskData}
-                            interactive={false}
-                            style={{
-                                color: "#0f172a",
-                                weight: 1,
-                                opacity: 0.55,
-                                fillColor: "#0f172a",
-                                fillOpacity: 0.55,
-                            }}
-                        />
+                        <Source
+                            id="mask"
+                            type="geojson"
+                            data={$maskData as GeoJSON.FeatureCollection}
+                        >
+                            <Layer
+                                id="mask-fill"
+                                type="fill"
+                                paint={{
+                                    "fill-color": "#0f172a",
+                                    "fill-opacity": 0.55,
+                                }}
+                            />
+                            <Layer
+                                id="mask-outline"
+                                type="line"
+                                paint={{
+                                    "line-color": "#0f172a",
+                                    "line-width": 1,
+                                    "line-opacity": 0.55,
+                                }}
+                            />
+                        </Source>
                     )}
-                    {radiusMeters !== undefined && radiusMeters > 0 && (
-                        <Circle
-                            center={[safeLat, safeLng]}
-                            radius={radiusMeters}
-                            pathOptions={{
-                                color: "hsl(var(--primary))",
-                                weight: 2,
-                                fillColor: "hsl(var(--primary))",
-                                fillOpacity: 0.12,
-                            }}
-                            interactive={false}
-                        />
+                    {/* Radius preview — primary brand color, 12 %
+                        opacity fill so the mask underneath stays
+                        readable. */}
+                    {radiusCircle && (
+                        <Source
+                            id="radius"
+                            type="geojson"
+                            data={radiusCircle as GeoJSON.Feature}
+                        >
+                            <Layer
+                                id="radius-fill"
+                                type="fill"
+                                paint={{
+                                    "fill-color": "hsl(2, 70%, 54%)",
+                                    "fill-opacity": 0.12,
+                                }}
+                            />
+                            <Layer
+                                id="radius-line"
+                                type="line"
+                                paint={{
+                                    "line-color": "hsl(2, 70%, 54%)",
+                                    "line-width": 2,
+                                }}
+                            />
+                        </Source>
                     )}
+                    {/* Dashed line from seeker pin to nearest-
+                        reference. */}
+                    {referenceLine && (
+                        <Source
+                            id="ref-line"
+                            type="geojson"
+                            data={referenceLine}
+                        >
+                            <Layer
+                                id="ref-line-stroke"
+                                type="line"
+                                paint={{
+                                    "line-color": "hsl(2, 70%, 54%)",
+                                    "line-width": 2,
+                                    "line-opacity": 0.7,
+                                    "line-dasharray": [3, 3],
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {/* Seeker pin — draggable so the user can
+                        nudge it without re-tapping. */}
+                    <Marker
+                        longitude={safeLng}
+                        latitude={safeLat}
+                        anchor="bottom"
+                        draggable
+                        onDragEnd={(e) =>
+                            onChange(e.lngLat.lat, e.lngLat.lng)
+                        }
+                    >
+                        <div
+                            className="jl-picker-pin"
+                            style={{ width: 28, height: 38, cursor: "grab" }}
+                            dangerouslySetInnerHTML={{ __html: PIN_SVG }}
+                        />
+                    </Marker>
+                    {/* Reference marker + permanent popup label. */}
                     {referencePoint &&
                         Number.isFinite(referencePoint.lat) &&
                         Number.isFinite(referencePoint.lng) && (
                             <>
-                                {/* Dashed line from the seeker's pin to
-                                    the resolved nearest reference. Same
-                                    primary color but lower opacity so
-                                    it reads as auxiliary information. */}
-                                <Polyline
-                                    positions={[
-                                        [safeLat, safeLng],
-                                        [referencePoint.lat, referencePoint.lng],
-                                    ]}
-                                    pathOptions={{
-                                        color: "hsl(var(--primary))",
-                                        weight: 2,
-                                        opacity: 0.7,
-                                        dashArray: "6 5",
-                                    }}
-                                    interactive={false}
-                                />
-                                <ReferenceMarker
-                                    lat={referencePoint.lat}
-                                    lng={referencePoint.lng}
-                                    name={referencePoint.name}
-                                />
+                                <Marker
+                                    longitude={referencePoint.lng}
+                                    latitude={referencePoint.lat}
+                                    anchor="center"
+                                >
+                                    <div
+                                        className="jl-ref-marker"
+                                        style={{ width: 18, height: 18 }}
+                                        dangerouslySetInnerHTML={{
+                                            __html: REF_SVG,
+                                        }}
+                                    />
+                                </Marker>
+                                {referencePoint.name && (
+                                    <Popup
+                                        longitude={referencePoint.lng}
+                                        latitude={referencePoint.lat}
+                                        anchor="bottom"
+                                        offset={12}
+                                        closeButton={false}
+                                        closeOnClick={false}
+                                        closeOnMove={false}
+                                        className="jl-ref-tooltip"
+                                    >
+                                        {referencePoint.name}
+                                    </Popup>
+                                )}
                             </>
                         )}
-                    <ClickToPlace onPlace={onChange} />
-                    <PickedPin lat={safeLat} lng={safeLng} />
-                    <RecenterOnGps lat={safeLat} lng={safeLng} gps={gpsState} />
-                    {referencePoint &&
-                        Number.isFinite(referencePoint.lat) &&
-                        Number.isFinite(referencePoint.lng) && (
-                            <FitToReference
-                                seekerLat={safeLat}
-                                seekerLng={safeLng}
-                                refLat={referencePoint.lat}
-                                refLng={referencePoint.lng}
-                            />
-                        )}
-                </MapContainer>
+                </Map>
             </div>
             <div className="flex items-center justify-between gap-2 text-xs">
                 <div
@@ -309,10 +443,24 @@ export function InlineLocationPicker({
     );
 }
 
-/** Bigger radii deserve a wider zoom so the whole circle fits in view. */
+/** The TileLayerConfig used by Leaflet expands `{s}` to a subdomain
+ *  via Leaflet's TileLayer; MapLibre takes an explicit array. Build
+ *  that array here from the subdomains list. */
+function rasterTilesFromTileConfig(tile: {
+    url: string;
+    subdomains?: string | string[];
+}): string[] {
+    const subs = tile.subdomains
+        ? Array.isArray(tile.subdomains)
+            ? tile.subdomains
+            : tile.subdomains.split("")
+        : [""];
+    if (!tile.url.includes("{s}")) return [tile.url];
+    return subs.map((s) => tile.url.replace("{s}", s));
+}
+
+/** Bigger radii deserve a wider zoom so the whole circle fits. */
 function zoomForRadius(radiusMeters: number): number {
-    // Rough heuristic: ~doubling radius → zoom out by 1 step.
-    // 500m ≈ 14, 1km ≈ 13, 5km ≈ 11, 10km ≈ 10, 80km ≈ 7, 160km ≈ 6.
     const km = radiusMeters / 1000;
     if (km <= 0.6) return 14;
     if (km <= 1.2) return 13;
@@ -331,178 +479,18 @@ function formatMeters(m: number): string {
     return `${(m / 1000).toFixed(m % 1000 === 0 ? 0 : 1)} km`;
 }
 
-/** Captures map clicks/taps and bubbles them up as a pick event. */
-function ClickToPlace({
-    onPlace,
-}: {
-    onPlace: (lat: number, lng: number) => void;
-}) {
-    useMapEvents({
-        click: (e) => {
-            onPlace(e.latlng.lat, e.latlng.lng);
-        },
-    });
-    return null;
-}
+const PIN_SVG = `
+<svg width="28" height="38" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">
+  <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24s14-13.5 14-24C28 6.27 21.73 0 14 0z" fill="hsl(2, 70%, 54%)" stroke="white" stroke-width="2"/>
+  <circle cx="14" cy="14" r="5" fill="white"/>
+</svg>
+`.trim();
 
-/** Recenters the map only when the GPS state flips (we just resolved
- *  the user's location) — not when they hand-drag the pin. */
-function RecenterOnGps({
-    lat,
-    lng,
-    gps,
-}: {
-    lat: number;
-    lng: number;
-    gps: "unknown" | "granted" | "denied";
-}) {
-    const map = useMap();
-    const lastGpsRef = useRef(gps);
-    useEffect(() => {
-        if (lastGpsRef.current !== gps && gps === "granted") {
-            map.flyTo([lat, lng], Math.max(map.getZoom(), 13), {
-                duration: 0.4,
-            });
-        }
-        lastGpsRef.current = gps;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [gps]);
-    return null;
-}
-
-/** Visible pin — same SVG teardrop as MapPickerDialog. */
-function PickedPin({ lat, lng }: { lat: number; lng: number }) {
-    const [icon, setIcon] = useState<ReturnType<
-        typeof buildPinIcon
-    > | null>(null);
-    useEffect(() => {
-        let cancelled = false;
-        import("leaflet").then((L) => {
-            if (!cancelled) setIcon(buildPinIcon(L));
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-    if (!icon) return null;
-    return <Marker position={[lat, lng]} icon={icon} />;
-}
-
-/**
- * Smaller secondary marker for the nearest-reference point on the
- * matching / measuring configure map. Uses a hollow ring + dot in the
- * primary brand color, distinct from the filled teardrop pin used for
- * the seeker's own location. A Tooltip rides the marker showing the
- * resolved name (e.g. "Stockholm Aquarium") so the seeker doesn't have
- * to cross-reference with the text preview above.
- */
-function ReferenceMarker({
-    lat,
-    lng,
-    name,
-}: {
-    lat: number;
-    lng: number;
-    name?: string;
-}) {
-    const [icon, setIcon] = useState<ReturnType<
-        typeof buildReferenceIcon
-    > | null>(null);
-    useEffect(() => {
-        let cancelled = false;
-        import("leaflet").then((L) => {
-            if (!cancelled) setIcon(buildReferenceIcon(L));
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-    if (!icon) return null;
-    return (
-        <Marker position={[lat, lng]} icon={icon} interactive={Boolean(name)}>
-            {name && (
-                <Tooltip
-                    direction="top"
-                    offset={[0, -12]}
-                    opacity={1}
-                    className="jl-ref-tooltip"
-                    permanent
-                >
-                    {name}
-                </Tooltip>
-            )}
-        </Marker>
-    );
-}
-
-function buildReferenceIcon(L: typeof import("leaflet")) {
-    return new L.DivIcon({
-        html: `
-<div class="jl-ref-marker">
-  <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="9" cy="9" r="7" fill="white" stroke="hsl(var(--primary))" stroke-width="2.5"/>
-    <circle cx="9" cy="9" r="3" fill="hsl(var(--primary))"/>
-  </svg>
-</div>`.trim(),
-        className: "jl-ref-marker-wrap",
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
-    });
-}
-
-/**
- * One-shot fit: when a reference point first appears (or moves to a
- * different location), pan/zoom the map so both the seeker pin and the
- * reference fit comfortably in view. Avoids the case where the
- * reference is just off-screen and the seeker can't see the dashed
- * line at all.
- */
-function FitToReference({
-    seekerLat,
-    seekerLng,
-    refLat,
-    refLng,
-}: {
-    seekerLat: number;
-    seekerLng: number;
-    refLat: number;
-    refLng: number;
-}) {
-    const map = useMap();
-    const lastFitRef = useRef<string>("");
-    useEffect(() => {
-        const key = `${seekerLat.toFixed(4)},${seekerLng.toFixed(4)},${refLat.toFixed(4)},${refLng.toFixed(4)}`;
-        if (lastFitRef.current === key) return;
-        lastFitRef.current = key;
-        import("leaflet").then((L) => {
-            const bounds = L.latLngBounds(
-                [seekerLat, seekerLng],
-                [refLat, refLng],
-            );
-            map.fitBounds(bounds, {
-                padding: [40, 40],
-                maxZoom: 14,
-                animate: true,
-                duration: 0.4,
-            });
-        });
-    }, [seekerLat, seekerLng, refLat, refLng, map]);
-    return null;
-}
-
-function buildPinIcon(L: typeof import("leaflet")) {
-    return new L.DivIcon({
-        html: `
-<div class="jl-picker-pin">
-  <svg width="28" height="38" viewBox="0 0 28 38" xmlns="http://www.w3.org/2000/svg">
-    <path d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 24 14 24s14-13.5 14-24C28 6.27 21.73 0 14 0z" fill="hsl(var(--primary))" stroke="white" stroke-width="2"/>
-    <circle cx="14" cy="14" r="5" fill="white"/>
-  </svg>
-</div>`.trim(),
-        className: "jl-picker-pin-wrap",
-        iconSize: [28, 38],
-        iconAnchor: [14, 36],
-    });
-}
+const REF_SVG = `
+<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="9" cy="9" r="7" fill="white" stroke="hsl(2, 70%, 54%)" stroke-width="2.5"/>
+  <circle cx="9" cy="9" r="3" fill="hsl(2, 70%, 54%)"/>
+</svg>
+`.trim();
 
 export default InlineLocationPicker;

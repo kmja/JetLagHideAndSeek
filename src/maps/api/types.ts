@@ -1,7 +1,10 @@
 import type { Feature, Point, Polygon } from "geojson";
-import type { LatLngTuple } from "leaflet";
 
 import type { Question } from "@/maps/schema";
+
+/** Leaflet-flavoured tuple kept as a local type so the leaflet
+ *  dep can be dropped entirely. The wire shape is unchanged. */
+export type LatLngTuple = [number, number];
 
 export interface OpenStreetMap {
     type: string;

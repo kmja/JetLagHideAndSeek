@@ -1,7 +1,7 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import type { Feature, FeatureCollection } from "geojson";
-import type * as L from "leaflet";
+import type { MapShim } from "@/lib/mapShim";
 import find from "lodash/find";
 import isEqual from "lodash/isEqual";
 import minBy from "lodash/minBy";
@@ -87,19 +87,6 @@ function _previewText(count: number) {
     return `${count} custom station${count === 1 ? "" : "s"} imported`;
 }
 
-// Lazy-cached leaflet module. The hiding-zone overlay needs L.geoJSON
-// / L.marker / L.divIcon to render zones onto the Leaflet map, but
-// only the Leaflet path actually mounts a Leaflet map — the MapLibre
-// path's `showGeoJSON` returns early before reaching any L.* call.
-// Keeping the import dynamic stops the static graph from pulling
-// leaflet into the main bundle, which would otherwise re-include the
-// ~265 KB leaflet runtime even when MapV2 is the renderer.
-let _leafletMod: typeof import("leaflet") | null = null;
-async function loadLeaflet() {
-    if (!_leafletMod) _leafletMod = await import("leaflet");
-    return _leafletMod;
-}
-
 let buttonJustClicked = false;
 
 export const ZoneSidebar = () => {
@@ -126,124 +113,47 @@ export const ZoneSidebar = () => {
     const [importUrl, setImportUrl] = useState("");
 
     const removeHidingZones = () => {
-        // Clear the MapV2 shadow first so its overlay
-        // disappears even when the Leaflet map isn't
-        // mounted (useMapLibre flag on).
+        // Single source of truth: clear the shadow atom and MapV2
+        // re-renders without the overlay. The old Leaflet
+        // map.eachLayer(...).removeLayer(...) dance is gone with
+        // the Leaflet renderer (v80).
         hidingZonesGeoJSON.set(null);
-        if (!map) return;
-
-        map.eachLayer((layer: any) => {
-            if (layer.hidingZones) {
-                // Hopefully only geoJSON layers
-                map.removeLayer(layer);
-            }
-        });
     };
 
-    const showGeoJSON = async (
+    const showGeoJSON = (
         geoJSONData: any,
-        nonOverlappingStations: boolean = false,
-        additionalOptions: L.GeoJSONOptions = {},
+        // The two parameters below are vestigial from the Leaflet
+        // path's L.geoJSON options object — kept in the signature
+        // so the half-dozen call sites don't all need rewrites,
+        // but ignored on MapLibre. The MapV2 Source/Layer pair
+        // styles the overlay declaratively from the shadow atom
+        // (see MapV2.tsx for the paint config).
+        _nonOverlappingStations: boolean = false,
+        _additionalOptions: unknown = {},
     ) => {
-        // Mirror to the MapV2 shadow atom regardless of whether
-        // the Leaflet map is mounted, so the MapLibre path
-        // renders the same overlay. Normalize singletons to a
-        // FeatureCollection so the downstream Source binding
-        // always sees a consistent shape.
-        if (geoJSONData) {
-            if (geoJSONData.type === "FeatureCollection") {
-                hidingZonesGeoJSON.set(geoJSONData);
-            } else if (geoJSONData.type === "Feature") {
-                hidingZonesGeoJSON.set({
-                    type: "FeatureCollection",
-                    features: [geoJSONData],
-                });
-            } else {
-                // Raw geometry — wrap it.
-                hidingZonesGeoJSON.set({
-                    type: "FeatureCollection",
-                    features: [
-                        {
-                            type: "Feature",
-                            geometry: geoJSONData,
-                            properties: {},
-                        },
-                    ],
-                });
-            }
+        if (!geoJSONData) return;
+        // Normalize whatever the caller passed (FeatureCollection,
+        // single Feature, or bare Geometry) into a FeatureCollection
+        // so MapV2's Source binding sees a consistent shape.
+        if (geoJSONData.type === "FeatureCollection") {
+            hidingZonesGeoJSON.set(geoJSONData);
+        } else if (geoJSONData.type === "Feature") {
+            hidingZonesGeoJSON.set({
+                type: "FeatureCollection",
+                features: [geoJSONData],
+            });
+        } else {
+            hidingZonesGeoJSON.set({
+                type: "FeatureCollection",
+                features: [
+                    {
+                        type: "Feature",
+                        geometry: geoJSONData,
+                        properties: {},
+                    },
+                ],
+            });
         }
-        if (!map) return;
-
-        // The Leaflet-side teardown branch hides the existing
-        // layer before re-adding. We DON'T want to call
-        // removeHidingZones() here because that would also
-        // clear the atom we just set — race against the new
-        // value. Inline just the Leaflet-side removal.
-        map.eachLayer((layer: any) => {
-            if (layer.hidingZones) {
-                map.removeLayer(layer);
-            }
-        });
-
-        // Leaflet only loads here, after the early-return for the
-        // MapLibre-no-map path. ZoneSidebar still mounts on the
-        // MapLibre path (for the shadow-atom mirroring above), but
-        // it never reaches this branch there.
-        const L = await loadLeaflet();
-        const geoJsonLayer = L.geoJSON(geoJSONData, {
-            // Match the "unanswered radius" visual language used for
-            // provisional question circles in Map.tsx — dashed border
-            // + low-opacity fill — so the hiding-zone overlay reads
-            // as a "possible hiding spot" hint rather than a committed
-            // region. Uses the app's primary brand red (the same
-            // `hsl(2 70% 54%)` = #DC3D38 the `--primary` CSS variable
-            // resolves to) so the overlay matches the brand. Leaflet
-            // styles can't reference CSS vars directly, hence the
-            // literal HSL value.
-            style: {
-                color: "hsl(2, 70%, 54%)",
-                weight: 2,
-                opacity: 0.9,
-                dashArray: "6 5",
-                fillColor: "hsl(2, 70%, 54%)",
-                fillOpacity: 0.12,
-            },
-            onEachFeature: nonOverlappingStations
-                ? (feature, layer) => {
-                      layer.on("click", async () => {
-                          if (!map) return;
-
-                          setHidingZoneModeStationID(
-                              feature.properties.properties.id,
-                          );
-                      });
-                  }
-                : undefined,
-            pointToLayer(geoJsonPoint, latlng) {
-                const marker = L.marker(latlng, {
-                    icon: L.divIcon({
-                        html: `<div class="text-black bg-opacity-0"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 448 512" width="1em" height="1em" xmlns="http://www.w3.org/2000/svg"><path d="M96 0C43 0 0 43 0 96L0 352c0 48 35.2 87.7 81.1 94.9l-46 46C28.1 499.9 33.1 512 43 512l39.7 0c8.5 0 16.6-3.4 22.6-9.4L160 448l128 0 54.6 54.6c6 6 14.1 9.4 22.6 9.4l39.7 0c10 0 15-12.1 7.9-19.1l-46-46c46-7.1 81.1-46.9 81.1-94.9l0-256c0-53-43-96-96-96L96 0zM64 96c0-17.7 14.3-32 32-32l256 0c17.7 0 32 14.3 32 32l0 96c0 17.7-14.3 32-32 32L96 224c-17.7 0-32-14.3-32-32l0-96zM224 288a48 48 0 1 1 0 96 48 48 0 1 1 0-96z"></path></svg></div>`,
-                        className: "",
-                    }),
-                });
-
-                marker.bindPopup(
-                    `<b>${
-                        extractStationName(geoJsonPoint) || "No Name Found"
-                    } (${lngLatToText(
-                        geoJsonPoint.geometry.coordinates as [number, number],
-                    )})</b>`,
-                );
-
-                return marker;
-            },
-            ...additionalOptions,
-        });
-
-        // @ts-expect-error This is intentionally added as a check
-        geoJsonLayer.hidingZones = true;
-
-        geoJsonLayer.addTo(map);
     };
 
     useEffect(() => {
@@ -1250,12 +1160,9 @@ function styleStations(
 
 async function selectionProcess(
     station: any,
-    map: L.Map,
+    map: MapShim,
     stations: any[],
-    // showGeoJSON went async when its leaflet load became dynamic —
-    // accept either signature so call sites don't need to await
-    // (we don't depend on the return value).
-    showGeoJSON: (geoJSONData: any) => void | Promise<void>,
+    showGeoJSON: (geoJSONData: any) => void,
     $questionFinishedMapData: any,
     $hidingRadius: number,
 ) {
@@ -1527,11 +1434,12 @@ steps: 256,
     showGeoJSON(mapData);
 
     if (autoZoom.get()) {
-        if (animateMapMovements.get()) {
-            map?.flyToBounds(bounds);
-        } else {
-            map?.fitBounds(bounds);
-        }
+        // MapShim's fitBounds takes an optional duration (seconds);
+        // pass one when animating to match the old flyToBounds feel,
+        // and 0 when not.
+        map?.fitBounds(bounds, {
+            duration: animateMapMovements.get() ? 0.6 : 0,
+        });
     }
 
     const element: HTMLDivElement | null = document.querySelector(

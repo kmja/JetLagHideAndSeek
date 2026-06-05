@@ -29,6 +29,7 @@ import {
     followMe,
     hiderMode,
     hidingZonesGeoJSON,
+    leafletMapContext,
     mapGeoJSON,
     mapGeoLocation,
     planningModeEnabled,
@@ -42,6 +43,7 @@ import {
     mapLibreContext,
     mapLibreViewport,
 } from "@/lib/featureFlags";
+import { createMapShim } from "@/lib/mapShim";
 import {
     allowedTransit,
     satelliteView,
@@ -70,54 +72,23 @@ import {
 } from "./QuestionCards";
 
 /**
- * MapLibre GL parallel implementation of Map.tsx. Gated behind
- * the `useMapLibre` feature flag in `lib/featureFlags.ts`.
+ * The seeker's map. MapLibre GL renderer.
  *
- * Port checklist (work through these in order):
- *   [x] Base raster tile layer with style switching
- *   [x] Satellite overlay
- *   [x] Play-area boundary polygon
- *   [x] Elimination mask (world − play area)
- *   [x] mapLibreContext atom (mirror of leafletMapContext)
- *   [x] Persist viewport in nanostores so reload restores
- *   [x] flyTo equivalent when mapGeoLocation changes
- *   [x] Question-finished elimination polygons
- *   [x] Pending-question dashed outlines (category-colored)
- *   [x] Pending-radius circles + rotating radar sweep
- *   [x] Question markers (display + drag-to-reposition)
- *   [x] OpenRailwayMap overlay (raster)
- *   [x] TransitRoutesOverlay (subway / bus / ferry, vector GeoJSON)
- *   [x] ZoneSidebar hiding-zones overlay (atom shadow + Source/Layer)
- *   [x] Thunderforest custom tiles
- *   [x] Marker click → opens QuestionCard dialog
- *   [x] PolygonDraw (free-draw): hiding zone (key=-1), tentacles
- *       custom locations, matching custom-zone, matching custom-
- *       points, measuring custom-measure — all via mapbox-gl-draw,
- *       seeded from existing feature data so users edit in place.
- *   [x] Follow-me pin (seeker's live position)
- *   [x] Map print / screenshot equivalent (window CustomEvent
- *       `jlhs:save-map-image` → PNG download via
- *       map.getCanvas().toDataURL)
- *   [x] Context menu (right-click / long-press to add a question)
- *   [x] Hider-guess pin (seeker's "I think they're here" marker)
- *   [x] ThermometerOverlay (sibling component, plain DOM — no
- *       leaflet dep, renders unchanged on top of MapV2)
- *   [x] PendingAnswerOverlay (sibling component, plain DOM — no
- *       leaflet dep, renders unchanged on top of MapV2)
- *   [x] RadarScanOverlay: superseded by the in-map radar sweep
- *       above. The sibling RadarScanOverlay.tsx is a no-op when
- *       MapV2 is active (it gates on leafletMapContext which is
- *       only set by the Leaflet Map).
+ * History: this was originally the parallel "MapV2" implementation
+ * behind a `useMapLibre` feature flag, with a Leaflet renderer
+ * (Map.tsx) as the default. The Leaflet path was retired in v80
+ * once MapLibre had full parity — boundary loading, elimination
+ * mask, pending/answered question overlays, drag-to-reposition
+ * markers, radar sweep, free-draw via mapbox-gl-draw, transit
+ * overlays, hider-guess pin, screenshot export, context menu,
+ * follow-me GPS pin, ZoneSidebar shadow-atom hiding-zones overlay.
  *
- * No-op for MapV2:
- *   - HiderMap on /h was ported separately (its own file)
- *   - "Coastline" in the codebase is a measuring-question subtype
- *     (distance to coast), not a map overlay — nothing to port
- *
- * MapV2 is now at full feature parity with the Leaflet Map.tsx
- * and is the default renderer via the `useMapLibre` flag. Map.tsx
- * + react-leaflet can be removed once we've verified the
- * MapLibre path in a few real games.
+ * The file kept its v-numbered name (MapV2.tsx) rather than being
+ * renamed to Map.tsx because that's a lot of git history to
+ * rewrite for purely cosmetic gain. `leafletMapContext` is also
+ * still its old name — every question card and dialog reads from
+ * it, and the value is now a small shim wrapping the maplibregl
+ * Map so those call sites kept working unchanged (see lib/mapShim.ts).
  */
 
 interface MapV2Props {
@@ -322,15 +293,24 @@ export function MapV2({ className }: MapV2Props) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Publish the map ref to the global atom so other
-    // components can flyTo / fitBounds when useMapLibre is on.
-    // Clean up on unmount so a stale ref doesn't outlive the
-    // map (e.g. when the user flips the flag back off).
+    // Publish the map ref to two global atoms:
+    //   - mapLibreContext: the raw MapRef, for MapV2's own use.
+    //   - leafletMapContext: a Leaflet-shaped shim, for the rest
+    //     of the codebase (question cards, dialogs, etc.) which
+    //     was originally written against Leaflet's Map API and
+    //     calls map.getCenter() / fitBounds() / flyTo(). See
+    //     lib/mapShim.ts for the translation layer.
     const handleLoad = () => {
-        if (mapRef.current) mapLibreContext.set(mapRef.current);
+        if (!mapRef.current) return;
+        mapLibreContext.set(mapRef.current);
+        const inner = mapRef.current.getMap();
+        if (inner) leafletMapContext.set(createMapShim(inner));
     };
     useEffect(() => {
-        return () => mapLibreContext.set(null);
+        return () => {
+            mapLibreContext.set(null);
+            leafletMapContext.set(null);
+        };
     }, []);
 
     // Persist viewport on move end. Debounced via MapLibre's
