@@ -1,9 +1,10 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 
 import { BottomNav } from "@/components/BottomNav";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
+import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/sidebar-l";
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // The map itself. Lazy so the ~880 KB maplibre-gl chunk only
 // downloads when we render the seeker page (and so the hider
@@ -23,7 +25,7 @@ import { ZoneSidebar } from "@/components/ZoneSidebar";
 // 'MapSwitcher' until v80 — the Leaflet alternative is gone now
 // and this is the sole renderer. v81 renamed the file + export
 // from MapV2 → Map.
-const Map = lazy(() =>
+const Map = lazyWithRetry(() =>
     import("@/components/Map").then((m) => ({ default: m.Map })),
 );
 
@@ -34,43 +36,43 @@ const Map = lazy(() =>
 // because the chunks are tiny and the components stay gated by
 // state anyway — Suspense is only entered on the trigger event,
 // at which point a sub-second blank dialog is invisible.
-const AnswerLinkReader = lazy(() =>
+const AnswerLinkReader = lazyWithRetry(() =>
     import("@/components/AnswerLinkReader").then((m) => ({
         default: m.AnswerLinkReader,
     })),
 );
-const CurseInbox = lazy(() =>
+const CurseInbox = lazyWithRetry(() =>
     import("@/components/CurseInbox").then((m) => ({ default: m.CurseInbox })),
 );
-const DebugPhaseControls = lazy(() =>
+const DebugPhaseControls = lazyWithRetry(() =>
     import("@/components/DebugPhaseControls").then((m) => ({
         default: m.DebugPhaseControls,
     })),
 );
-const GameLobbyDialog = lazy(() =>
+const GameLobbyDialog = lazyWithRetry(() =>
     import("@/components/GameLobbyDialog").then((m) => ({
         default: m.GameLobbyDialog,
     })),
 );
-const GameSetupDialog = lazy(() =>
+const GameSetupDialog = lazyWithRetry(() =>
     import("@/components/GameSetupDialog").then((m) => ({
         default: m.GameSetupDialog,
     })),
 );
-const GoGoGoOverlay = lazy(() =>
+const GoGoGoOverlay = lazyWithRetry(() =>
     import("@/components/GoGoGoOverlay").then((m) => ({
         default: m.GoGoGoOverlay,
     })),
 );
-const RolePicker = lazy(() =>
+const RolePicker = lazyWithRetry(() =>
     import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
 );
-const StaleSessionPrompt = lazy(() =>
+const StaleSessionPrompt = lazyWithRetry(() =>
     import("@/components/StaleSessionPrompt").then((m) => ({
         default: m.StaleSessionPrompt,
     })),
 );
-const Welcome = lazy(() =>
+const Welcome = lazyWithRetry(() =>
     import("@/components/Welcome").then((m) => ({ default: m.Welcome })),
 );
 
@@ -128,10 +130,23 @@ export function SeekerPage() {
                                     Source/Layer pairs; the old
                                     sibling components have been
                                     deleted along with the Leaflet
-                                    renderer. */}
-                                <Suspense fallback={null}>
-                                    <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
-                                </Suspense>
+                                    renderer.
+                                    Error boundary catches the case
+                                    where the lazy chunk 404s after
+                                    a redeploy (stale SW cache); see
+                                    MapErrorBoundary for the recovery
+                                    flow. */}
+                                <MapErrorBoundary>
+                                    <Suspense
+                                        fallback={
+                                            <div className="absolute inset-0 flex items-center justify-center bg-background/30">
+                                                <div className="h-8 w-8 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin" />
+                                            </div>
+                                        }
+                                    >
+                                        <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                    </Suspense>
+                                </MapErrorBoundary>
                                 <MapLoadingOverlay />
                             </div>
                         </div>

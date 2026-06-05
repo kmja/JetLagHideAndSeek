@@ -82,12 +82,32 @@ export default defineConfig({
                 // SPA fallback: an unknown deep link should land on
                 // the React Router shell, which routes client-side.
                 navigateFallback: "/index.html",
-                // /h, /h/, and /h?... all need to land on the SPA
-                // shell too — the React Router will pick the hider
-                // route. The Astro version had a separate /h.html
-                // page; the SPA has a single shell.
                 navigateFallbackDenylist: [],
                 maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+                // Critical for a chunky lazy-loaded SPA that's
+                // redeployed often:
+                //   - skipWaiting + clientsClaim: a new SW takes
+                //     over IMMEDIATELY on activation instead of
+                //     waiting until every existing tab closes.
+                //     Without this, an open tab keeps serving the
+                //     PREVIOUS deploy's index.html — which
+                //     references chunk hashes (Map-XXXX.js,
+                //     SeekerPage-XXXX.js) that no longer exist on
+                //     the server because the new deploy overwrote
+                //     them. Result: the lazy Map chunk 404s and
+                //     the user sees a blank map area. Forcing the
+                //     handover means the next navigation gets the
+                //     fresh index.html with valid chunk hashes.
+                //   - cleanupOutdatedCaches: drop precache entries
+                //     from previous deploys so the storage budget
+                //     doesn't balloon over time AND stale chunks
+                //     can't be accidentally served.
+                //   - directoryIndex + cleanURLs: explicit so
+                //     SPA-fallback maps unknown deep links to
+                //     index.html cleanly.
+                skipWaiting: true,
+                clientsClaim: true,
+                cleanupOutdatedCaches: true,
                 runtimeCaching: [
                     {
                         urlPattern:

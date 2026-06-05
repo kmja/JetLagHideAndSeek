@@ -1,37 +1,38 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderView } from "@/components/HiderView";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Same lazy-dialog pattern SeekerPage uses — these are all
 // state-gated and only render once the hider triggers them
 // (settings sheet, role swap, lobby host action, post-hiding
 // celebration). Suspense entry is rare in practice.
-const DebugPhaseControls = lazy(() =>
+const DebugPhaseControls = lazyWithRetry(() =>
     import("@/components/DebugPhaseControls").then((m) => ({
         default: m.DebugPhaseControls,
     })),
 );
-const GameLobbyDialog = lazy(() =>
+const GameLobbyDialog = lazyWithRetry(() =>
     import("@/components/GameLobbyDialog").then((m) => ({
         default: m.GameLobbyDialog,
     })),
 );
-const GameSetupDialog = lazy(() =>
+const GameSetupDialog = lazyWithRetry(() =>
     import("@/components/GameSetupDialog").then((m) => ({
         default: m.GameSetupDialog,
     })),
 );
-const GoGoGoOverlay = lazy(() =>
+const GoGoGoOverlay = lazyWithRetry(() =>
     import("@/components/GoGoGoOverlay").then((m) => ({
         default: m.GoGoGoOverlay,
     })),
 );
-const RolePicker = lazy(() =>
+const RolePicker = lazyWithRetry(() =>
     import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
 );
-const StaleSessionPrompt = lazy(() =>
+const StaleSessionPrompt = lazyWithRetry(() =>
     import("@/components/StaleSessionPrompt").then((m) => ({
         default: m.StaleSessionPrompt,
     })),
