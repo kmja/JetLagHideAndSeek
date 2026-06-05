@@ -167,6 +167,26 @@ export default defineConfig({
                         },
                     },
                     {
+                        // polygons.openstreetmap.fr — fast-path
+                        // pre-computed admin-boundary polygons.
+                        // CacheFirst because the underlying OSM
+                        // relations only change on the order of
+                        // months and we'd rather serve a slightly
+                        // stale boundary instantly than block the
+                        // play-area load on a fresh fetch.
+                        urlPattern:
+                            /^https:\/\/polygons\.openstreetmap\.fr\/get_geojson\.py/i,
+                        handler: "CacheFirst",
+                        options: {
+                            cacheName: "api-polygons-osm-fr",
+                            expiration: {
+                                maxEntries: 500,
+                                maxAgeSeconds: 90 * 24 * 60 * 60,
+                            },
+                            cacheableResponse: { statuses: [0, 200] },
+                        },
+                    },
+                    {
                         urlPattern: /\/coastline50\.geojson$/i,
                         handler: "CacheFirst",
                         options: {
