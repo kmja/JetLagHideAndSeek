@@ -22,11 +22,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { displayHidingZones, isLoading } from "@/lib/context";
-import { activeJourneyProvider } from "@/lib/journey/registry";
-import {
-    showTravelTimes,
-    trafiklabApiKey,
-} from "@/lib/journey/state";
+import { showTravelTimes } from "@/lib/journey/state";
 import {
     allowedTransit,
     satelliteView,
@@ -67,11 +63,6 @@ export function MapDisplayControls() {
     const $transitLoading = useStore(transitRoutesLoading);
     const $gameCode = useStore(currentGameCode);
     const $showTravelTimes = useStore(showTravelTimes);
-    // Subscribe to the key atom so the disabled state updates the
-    // moment the user pastes a key in Options without a reload.
-    useStore(trafiklabApiKey);
-    const $journeyProviderAvailable =
-        activeJourneyProvider() !== null;
 
     // Only render transit buttons for modes that are actually
     // allowed in this session's game settings — no point cluttering
@@ -249,32 +240,26 @@ export function MapDisplayControls() {
                             the hider's last-known location by
                             default; from the seeker's own GPS
                             via journeyAnchorMode for personal
-                            travel planning). Greyed out when no
-                            journey provider has its API key
-                            configured. */}
+                            travel planning). Powered server-side
+                            by the overpass-cache worker's
+                            /api/journey/arrivals proxy, which
+                            holds the Trafiklab API key as a
+                            secret — players don't need their own. */}
                         <button
                             type="button"
-                            onClick={() => {
-                                if (!$journeyProviderAvailable) return;
-                                showTravelTimes.set(!$showTravelTimes);
-                            }}
+                            onClick={() =>
+                                showTravelTimes.set(!$showTravelTimes)
+                            }
                             aria-pressed={$showTravelTimes}
-                            disabled={!$journeyProviderAvailable}
                             className={cn(
                                 "w-full rounded-md border-2 h-9",
                                 "px-3 gap-2 flex items-center transition-colors",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                $showTravelTimes && $journeyProviderAvailable
+                                $showTravelTimes
                                     ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
                                     : "bg-background border-border hover:bg-accent",
-                                !$journeyProviderAvailable &&
-                                    "opacity-50 cursor-not-allowed",
                             )}
-                            title={
-                                $journeyProviderAvailable
-                                    ? "Show earliest arrival times at each station (requires Hiding zones)"
-                                    : "Add a Trafiklab API key in Options to enable"
-                            }
+                            title="Show earliest arrival times at each station (requires Hiding zones)"
                         >
                             <Clock className="w-4 h-4 shrink-0" />
                             <span className="text-xs font-poppins font-semibold">

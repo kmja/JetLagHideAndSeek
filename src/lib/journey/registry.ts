@@ -12,12 +12,12 @@
  */
 
 import { createResRobotProvider } from "./resrobot";
-import { trafiklabApiKey } from "./state";
 import type { JourneyProvider } from "./types";
 
-// One module-level instance per provider; the constructors close
-// over their respective API-key atoms so calls just read fresh.
-const RESROBOT = createResRobotProvider(() => trafiklabApiKey.get());
+// One module-level instance per provider. The Trafiklab key is
+// server-side now (held by the overpass-cache worker as a
+// wrangler secret) so the constructor takes no client config.
+const RESROBOT = createResRobotProvider();
 
 const PROVIDERS: JourneyProvider[] = [RESROBOT];
 

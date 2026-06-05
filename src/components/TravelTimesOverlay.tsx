@@ -6,7 +6,6 @@ import { activeJourneyProvider } from "@/lib/journey/registry";
 import {
     journeyAnchorMode,
     showTravelTimes,
-    trafiklabApiKey,
     travelTimesFC,
 } from "@/lib/journey/state";
 import type { JourneyAnchor, JourneyStop } from "@/lib/journey/types";
@@ -40,9 +39,6 @@ export function TravelTimesOverlay() {
     const anchorMode = useStore(journeyAnchorMode);
     const zones = useStore(hidingZonesGeoJSON);
     const $questions = useStore(questions);
-    // Subscribe so the effect re-runs when the user enters or
-    // clears their API key without a page reload.
-    useStore(trafiklabApiKey);
 
     // Seeker GPS for the "seeker-anchor" mode. One-shot per render —
     // we don't continuously re-fetch; a manual toggle of the

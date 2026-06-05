@@ -5,13 +5,30 @@
  *
  * Docs: https://www.trafiklab.se/api/our-apis/resrobot-v21/
  *
- * The provider exposes a one-to-one trip endpoint, not a many-to-one
- * batch — so for N stops we make N requests. That's fine for casual
- * play with the cache layer in front (typical refresh: 20-60 stops
- * after the cache warms once per game), but a play area with hundreds
- * of visible stops would burn through the 10k/month free tier
- * quickly. Concurrency-limited and rate-paced to be polite.
+ * Architectural note: the API key NEVER lives in the browser. The
+ * client posts the (anchor, stops) batch to the JOURNEY_API
+ * endpoint exposed by the overpass-cache worker; that worker reads
+ * its TRAFIKLAB_API_KEY secret and fans out the per-stop ResRobot
+ * trip calls server-side. Reasons:
+ *
+ *   1. Players don't need to register for a Trafiklab account and
+ *      paste a key into settings before the Travel Times overlay
+ *      works — it works out of the box.
+ *   2. The free-tier quota is shared and cached across all
+ *      players, so heavy use by one player doesn't burn the
+ *      quota for others.
+ *   3. The proxy caches arrivals in Cloudflare's edge cache and
+ *      R2 keyed by (anchor, dest, 5-min departure bucket) so the
+ *      common "toggle overlay off and on again" case is fully
+ *      free server-side too.
+ *
+ * Provider remains its own module so adding Norway (Entur),
+ * Finland (Digitransit), etc. is just a new file + a registry
+ * line. Each future provider would have its own server proxy with
+ * its own region-specific cache.
  */
+
+import { JOURNEY_API } from "@/maps/api/constants";
 
 import type {
     JourneyAnchor,
@@ -20,157 +37,90 @@ import type {
     JourneyStop,
 } from "./types";
 
-const TRIP_ENDPOINT = "https://api.resrobot.se/v2.1/trip";
+/** Hard cap on a single proxy round-trip. The proxy itself caps
+ *  per-upstream calls at 8 s and parallelizes them, so its
+ *  worst-case wall clock is roughly that — leave a slack budget
+ *  on top of that for the round trip + payload. */
+const PROXY_TIMEOUT_MS = 20_000;
 
-/** Per-request hard cap. Trip planning shouldn't take this long even
- *  cold — if it does, the api or network is sad and the user is
- *  better off seeing "no time" than a stuck spinner. */
-const REQUEST_TIMEOUT_MS = 8_000;
-
-/** Concurrency cap. ResRobot's free tier doesn't publish a hard
- *  per-second rate, but 4 in flight is polite and keeps the burst
- *  under typical service tier thresholds. */
-const PARALLEL = 4;
-
-/** YYYY-MM-DD in the user's local time. ResRobot uses local civil
- *  time so we don't need to do anything UTC-clever here. */
-function dateParam(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** HH:MM in the user's local time. */
-function timeParam(d: Date): string {
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/** Parse ResRobot's "YYYY-MM-DD" + "HH:MM:SS" string pair into a
- *  Unix ms timestamp in the user's local zone. ResRobot returns
- *  local civil time without a TZ offset; the seeker app is by
- *  definition in the same zone, so we treat the strings as local
- *  and let Date do the heavy lifting. */
-function parseArrival(date: string, time: string): number | null {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-    const tm = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(time);
-    if (!m || !tm) return null;
-    const t = new Date(
-        Number(m[1]),
-        Number(m[2]) - 1,
-        Number(m[3]),
-        Number(tm[1]),
-        Number(tm[2]),
-        Number(tm[3] ?? "0"),
-    ).getTime();
-    return Number.isFinite(t) ? t : null;
-}
-
-async function fetchOneArrival(
-    anchor: JourneyAnchor,
-    stop: JourneyStop,
-    apiKey: string,
-    signal: AbortSignal,
-): Promise<number | null> {
-    const depart = new Date(anchor.departAt);
-    const url = new URL(TRIP_ENDPOINT);
-    url.searchParams.set("accessId", apiKey);
-    url.searchParams.set("format", "json");
-    url.searchParams.set("originCoordLat", String(anchor.lat));
-    url.searchParams.set("originCoordLong", String(anchor.lng));
-    url.searchParams.set("destCoordLat", String(stop.lat));
-    url.searchParams.set("destCoordLong", String(stop.lng));
-    url.searchParams.set("date", dateParam(depart));
-    url.searchParams.set("time", timeParam(depart));
-    url.searchParams.set("numF", "1");
-    url.searchParams.set("passlist", "0");
-    url.searchParams.set("rtMode", "OFF");
-
-    const ctrl = new AbortController();
-    const onAbort = () => ctrl.abort();
-    signal.addEventListener("abort", onAbort, { once: true });
-    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
-    let resp: Response;
-    try {
-        resp = await fetch(url.toString(), {
-            signal: ctrl.signal,
-            headers: { Accept: "application/json" },
-        });
-    } catch {
-        return null;
-    } finally {
-        clearTimeout(timer);
-        signal.removeEventListener("abort", onAbort);
-    }
-    if (!resp.ok) return null;
-    let json: unknown;
-    try {
-        json = await resp.json();
-    } catch {
-        return null;
-    }
-    // Response shape (abbreviated):
-    //   { Trip: [{ LegList: { Leg: [{ Origin: {...}, Destination: { date, time, ... } }, ...] }, ... }] }
-    // We want the last Leg's Destination time of the FIRST trip.
-    const trips = (json as { Trip?: unknown[] }).Trip;
-    if (!Array.isArray(trips) || trips.length === 0) return null;
-    const first = trips[0] as {
-        LegList?: { Leg?: Array<{ Destination?: { date?: string; time?: string } }> };
-    };
-    const legs = first.LegList?.Leg;
-    if (!Array.isArray(legs) || legs.length === 0) return null;
-    const lastDest = legs[legs.length - 1].Destination;
-    if (!lastDest?.date || !lastDest?.time) return null;
-    return parseArrival(lastDest.date, lastDest.time);
-}
-
-/** Concurrency-limited fan-out. Aborts in-flight requests if the
- *  caller-provided signal is aborted. */
-async function withConcurrency<T, R>(
-    items: T[],
-    limit: number,
-    worker: (item: T, index: number) => Promise<R>,
-    signal: AbortSignal,
-): Promise<R[]> {
-    const results = new Array<R>(items.length);
-    let next = 0;
-    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-        while (true) {
-            if (signal.aborted) return;
-            const i = next++;
-            if (i >= items.length) return;
-            results[i] = await worker(items[i], i);
-        }
-    });
-    await Promise.all(runners);
-    return results;
-}
-
-export function createResRobotProvider(getApiKey: () => string): JourneyProvider {
+export function createResRobotProvider(): JourneyProvider {
     return {
         id: "resrobot",
         displayName: "ResRobot (Sweden — SL, SJ, Västtrafik …)",
-        apiKeyUrl: "https://www.trafiklab.se/api/our-apis/resrobot-v21/",
         isAvailable() {
-            return getApiKey().trim().length > 0;
+            // Always available — the API key is server-side. The
+            // proxy itself may return 503 if the operator hasn't
+            // configured the secret yet, but that's a runtime
+            // condition we surface as empty arrivals, not a UI gate.
+            return true;
         },
         async fetchArrivals(
-            anchor,
-            stops,
-            signal = new AbortController().signal,
+            anchor: JourneyAnchor,
+            stops: JourneyStop[],
+            signal?: AbortSignal,
         ): Promise<JourneyResult[]> {
-            const key = getApiKey().trim();
-            if (!key) {
-                // No key — empty arrivals so the caller can still
-                // distribute results 1:1 with the stops list.
+            if (stops.length === 0) return [];
+
+            const ctrl = new AbortController();
+            const onAbort = () => ctrl.abort();
+            signal?.addEventListener("abort", onAbort, { once: true });
+            const timer = setTimeout(
+                () => ctrl.abort(),
+                PROXY_TIMEOUT_MS,
+            );
+
+            let resp: Response;
+            try {
+                resp = await fetch(JOURNEY_API, {
+                    method: "POST",
+                    signal: ctrl.signal,
+                    headers: {
+                        "Content-Type": "application/json",
+                        Accept: "application/json",
+                    },
+                    body: JSON.stringify({ anchor, stops }),
+                });
+            } catch {
+                // Network / abort. Treat as a full miss so the UI
+                // shows pins-without-labels rather than throwing.
+                return stops.map((s) => ({ stopId: s.id, arrivalAt: null }));
+            } finally {
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", onAbort);
+            }
+            if (!resp.ok) {
+                // 503: operator hasn't set TRAFIKLAB_API_KEY.
+                // 400: malformed input (shouldn't happen from this
+                // adapter; logged for debugging).
+                if (resp.status !== 503) {
+                    console.warn(
+                        "Journey proxy returned",
+                        resp.status,
+                        resp.statusText,
+                    );
+                }
                 return stops.map((s) => ({ stopId: s.id, arrivalAt: null }));
             }
-            const arrivals = await withConcurrency(
-                stops,
-                PARALLEL,
-                (s) => fetchOneArrival(anchor, s, key, signal),
-                signal,
-            );
-            return stops.map((s, i) => ({
+            let body: { results?: JourneyResult[] };
+            try {
+                body = (await resp.json()) as { results?: JourneyResult[] };
+            } catch {
+                return stops.map((s) => ({ stopId: s.id, arrivalAt: null }));
+            }
+            if (!Array.isArray(body.results)) {
+                return stops.map((s) => ({ stopId: s.id, arrivalAt: null }));
+            }
+            // The proxy guarantees same-order, same-length output —
+            // but be defensive against a misbehaving deploy by
+            // re-keying by stopId and merging back into the
+            // request order.
+            const byId = new Map<string, number | null>();
+            for (const r of body.results) {
+                byId.set(r.stopId, r.arrivalAt ?? null);
+            }
+            return stops.map((s) => ({
                 stopId: s.id,
-                arrivalAt: arrivals[i] ?? null,
+                arrivalAt: byId.get(s.id) ?? null,
             }));
         },
     };

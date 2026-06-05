@@ -40,6 +40,17 @@
 #
 # The bucket can be created from the Cloudflare dashboard too —
 # just match the `bucket_name` below.
+#
+# Secrets (configure via `wrangler secret put NAME` from this
+# directory, NOT committed):
+#     ADMIN_SECRET        — Bearer token for /admin/* endpoints.
+#     TRAFIKLAB_API_KEY   — ResRobot 2.1 key for /api/journey/
+#                           arrivals. Free signup at:
+#                           https://www.trafiklab.se/api/our-apis/resrobot-v21/
+#                           Optional — without it the journey
+#                           endpoint returns 503 and the seeker
+#                           app silently hides the Travel Times
+#                           overlay labels.
 
 name = "jlhs-overpass-cache"
 main = "src/index.ts"

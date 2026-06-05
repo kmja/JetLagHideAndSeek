@@ -29,16 +29,8 @@
  */
 
 import { POPULAR_CITIES, type CityEntry } from "./cities";
-
-export interface Env {
-    CACHE: R2Bucket;
-    ALLOWED_ORIGINS: string;
-    CACHE_TTL_DAYS: string;
-    PREWARM_BATCH_SIZE: string;
-    /** Bearer token guarding `/admin/*` endpoints. Set via
-     *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
-    ADMIN_SECRET?: string;
-}
+import type { Env } from "./envTypes";
+import { handleJourneyArrivals } from "./journey";
 
 const OVERPASS_MIRRORS = [
     "https://overpass-api.de/api/interpreter",
@@ -90,6 +82,9 @@ export default {
         }
         if (url.pathname === "/admin/status") {
             return handleAdminStatus(request, env, cors);
+        }
+        if (url.pathname === "/api/journey/arrivals") {
+            return handleJourneyArrivals(request, env, ctx, cors);
         }
 
         if (url.pathname !== "/api/interpreter") {

@@ -22,8 +22,13 @@ import type { APILocations } from "@/maps/schema";
  *
  * Clear the override with `localStorage.removeItem('jlhs:overpassApi')`.
  */
-const DEFAULT_OVERPASS_API =
-    "https://jlhs-overpass-cache.karl-mj-andersson.workers.dev/api/interpreter";
+const JLHS_WORKER_BASE =
+    "https://jlhs-overpass-cache.karl-mj-andersson.workers.dev";
+const DEFAULT_OVERPASS_API = `${JLHS_WORKER_BASE}/api/interpreter`;
+/** Journey-time arrival proxy. Server holds the Trafiklab key as
+ *  a secret so the seeker app doesn't need to ask each player to
+ *  sign up. See overpass-cache/src/journey.ts for the impl. */
+const DEFAULT_JOURNEY_API = `${JLHS_WORKER_BASE}/api/journey/arrivals`;
 const DEFAULT_OVERPASS_API_FALLBACK =
     "https://overpass.private.coffee/api/interpreter";
 const DEFAULT_OVERPASS_API_TERTIARY =
@@ -47,6 +52,10 @@ export const OVERPASS_API = readOverride(
 export const OVERPASS_API_FALLBACK = readOverride(
     "jlhs:overpassApiFallback",
     DEFAULT_OVERPASS_API_FALLBACK,
+);
+export const JOURNEY_API = readOverride(
+    "jlhs:journeyApi",
+    DEFAULT_JOURNEY_API,
 );
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",

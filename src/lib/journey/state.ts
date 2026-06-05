@@ -6,18 +6,6 @@
 import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
 
-/** Trafiklab.se API key for the ResRobot v2.1 endpoint. Sign up
- *  at https://www.trafiklab.se/api/our-apis/resrobot-v21/. The
- *  free tier covers ~10k requests/month — enough for casual play. */
-export const trafiklabApiKey = persistentAtom<string>(
-    "jlhs:trafiklabApiKey",
-    "",
-    {
-        encode: (v) => v,
-        decode: (v) => v,
-    },
-);
-
 /** Whether the Travel Times overlay is currently rendered. */
 export const showTravelTimes = persistentAtom<boolean>(
     "jlhs:showTravelTimes",
