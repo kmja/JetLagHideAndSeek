@@ -11,6 +11,7 @@ import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
+import { TravelTimesOverlay } from "@/components/TravelTimesOverlay";
 import {
     SidebarProvider as SidebarProviderL,
     SidebarTrigger as SidebarTriggerL,
@@ -125,6 +126,7 @@ export function SeekerPage() {
                                 </div>
                                 <ThermometerOverlay />
                                 <PendingAnswerOverlay />
+                                <TravelTimesOverlay />
                                 {/* Transit overlays + radar sweep are
                                     now built into Map directly as
                                     Source/Layer pairs; the old

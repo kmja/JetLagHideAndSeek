@@ -43,6 +43,7 @@ import {
     mapLibreContext,
     mapLibreViewport,
 } from "@/lib/featureFlags";
+import { travelTimesFC } from "@/lib/journey/state";
 import { createMapShim } from "@/lib/mapShim";
 import {
     allowedTransit,
@@ -247,6 +248,7 @@ export function Map({ className }: MapProps) {
     const $followMe = useStore(followMe);
     const $hiderMode = useStore(hiderMode);
     const $hidingZones = useStore(hidingZonesGeoJSON);
+    const $travelTimes = useStore(travelTimesFC);
     const $allowedTransit = useStore(allowedTransit);
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
@@ -1053,6 +1055,47 @@ export function Map({ className }: MapProps) {
                                 "circle-color": "hsl(2, 70%, 54%)",
                                 "circle-stroke-color": "white",
                                 "circle-stroke-width": 1.5,
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Travel-times overlay — populated by
+                    TravelTimesOverlay (mounted as a sibling in
+                    SeekerPage) from journey-planner API
+                    responses. Symbol layer with a text-field
+                    bound to the per-feature arrivalLabel ("HH:MM"
+                    or empty when unknown). Color flips to a
+                    warning red when the arrival is in the past
+                    relative to now — i.e. the hider could already
+                    be standing at that stop. */}
+                {$travelTimes && $travelTimes.features.length > 0 && (
+                    <Source
+                        id="travel-times"
+                        type="geojson"
+                        data={$travelTimes}
+                    >
+                        <Layer
+                            id="travel-times-labels"
+                            type="symbol"
+                            layout={{
+                                "text-field": ["get", "arrivalLabel"],
+                                "text-size": 12,
+                                "text-font": ["Open Sans Regular"],
+                                "text-anchor": "left",
+                                "text-offset": [0.8, 0],
+                                "text-allow-overlap": false,
+                                "text-ignore-placement": false,
+                            }}
+                            paint={{
+                                "text-color": [
+                                    "case",
+                                    ["==", ["get", "reached"], true],
+                                    "hsl(2, 70%, 54%)",
+                                    "white",
+                                ],
+                                "text-halo-color": "rgba(0,0,0,0.85)",
+                                "text-halo-width": 1.5,
                             }}
                         />
                     </Source>

@@ -46,6 +46,7 @@ import {
     useCustomStations,
     zoneSidebarOpen,
 } from "@/lib/context";
+import { trafiklabApiKey } from "@/lib/journey/state";
 import {
     cn,
     compress,
@@ -87,6 +88,7 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
     const $planningMode = useStore(planningModeEnabled);
     const $baseTileLayer = useStore(baseTileLayer);
     const $thunderforestApiKey = useStore(thunderforestApiKey);
+    const $trafiklabApiKey = useStore(trafiklabApiKey);
     const $pastebinApiKey = useStore(pastebinApiKey);
     const $alwaysUsePastebin = useStore(alwaysUsePastebin);
     const $followMe = useStore(followMe);
@@ -487,6 +489,34 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
                                         here.
                                     </a>{" "}
                                     Don&apos;t worry, it&apos;s free.
+                                </p>
+                            </div>
+                            <Separator className="bg-slate-300 w-[280px]" />
+                            <div className="flex flex-col items-center gap-2">
+                                <Label>Trafiklab API Key</Label>
+                                <Input
+                                    type="text"
+                                    value={$trafiklabApiKey}
+                                    id="trafiklabApiKey"
+                                    onChange={(e) =>
+                                        trafiklabApiKey.set(e.target.value)
+                                    }
+                                    placeholder="Enter your Trafiklab ResRobot 2.1 key"
+                                />
+                                <p className="text-xs text-gray-500">
+                                    Powers the &quot;Travel times&quot;
+                                    overlay — Sweden / Nordic transit
+                                    arrival times via ResRobot (SL, SJ,
+                                    Västtrafik, etc.). Get a free key{" "}
+                                    <a
+                                        href="https://www.trafiklab.se/api/our-apis/resrobot-v21/"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-500 cursor-pointer"
+                                    >
+                                        here
+                                    </a>{" "}
+                                    (10k requests/month).
                                 </p>
                             </div>
                             <Separator className="bg-slate-300 w-[280px]" />
