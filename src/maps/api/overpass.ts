@@ -38,35 +38,29 @@ export const getOverpassData = async (
     query: string,
     loadingText?: string,
     cacheType: CacheType = CacheType.CACHE,
-    /** Client-side fetch timeout in ms. Defaults to whatever
-     *  `cacheFetch` uses (25 s at time of writing). Pass a higher value
-     *  when the Overpass query itself has a long server timeout (e.g.
-     *  `[timeout:180]` on a city-wide bus-route fetch) — otherwise the
-     *  client aborts before the server replies and we silently get
-     *  `{ elements: [] }`. */
+    /** Per-mirror fetch timeout in ms. Defaults to whatever
+     *  `cacheFetch` uses (25 s at time of writing). Pass higher
+     *  for queries with long server-side timeouts. */
     fetchTimeoutMs?: number,
     /** When true, the network read streams through the global
      *  loadingProgress atom so the LoadingOverlay can show byte
      *  counts. The caller still owns startLoading/finishLoading. */
     reportProgress: boolean = false,
     /** User-visible label for THIS query's piece row in the loading
-     *  overlay (e.g. "Stockholm Municipality"). Only meaningful when
-     *  `reportProgress` is true. The same label is reused for both
-     *  primary and fallback mirror attempts so the row updates in
-     *  place if we fail over. */
+     *  overlay. */
     progressLabel?: string,
 ) => {
     const encodedQuery = encodeURIComponent(query);
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
     const fallbackUrl = `${OVERPASS_API_FALLBACK}?data=${encodedQuery}`;
     const tertiaryUrl = `${OVERPASS_API_TERTIARY}?data=${encodedQuery}`;
+    const allUrls = [primaryUrl, fallbackUrl, tertiaryUrl];
 
-    // Try a mirror. Returns Response on success, null if the request
-    // threw (timeout, network error, CORS). Non-ok responses are
-    // returned as-is so the caller can distinguish them.
+    // Wrap a cacheFetch in a Promise that resolves to either a
+    // successful Response or null. Never throws.
     const tryFetch = async (url: string): Promise<Response | null> => {
         try {
-            return await cacheFetch(
+            const r = await cacheFetch(
                 url,
                 loadingText,
                 cacheType,
@@ -74,65 +68,91 @@ export const getOverpassData = async (
                 reportProgress,
                 progressLabel,
             );
+            return r && r.ok ? r : null;
         } catch (e) {
             console.warn(`Overpass fetch failed for ${url}:`, e);
             return null;
         }
     };
 
-    // Failover chain: primary → private.coffee → kumi.systems. We
-    // keep the toast pending so the user sees one continuous
-    // "Loading map data..." rather than a stop-and-start. Each
-    // mirror gets a fresh per-attempt timeout (see fetchTimeoutMs
-    // override below — lowered from the original 130s to 45s so a
-    // silent mirror doesn't pin the whole pipeline waiting for a
-    // response that never comes).
-    let response = await tryFetch(primaryUrl);
-    if (!response || !response.ok) {
-        const fallbackResponse = await tryFetch(fallbackUrl);
-        if (fallbackResponse && fallbackResponse.ok) {
-            // Cache the successful fallback body under the primary URL
-            // so subsequent identical requests don't repeat the failover.
+    // Race all three mirrors in parallel. First 200-OK wins. The
+    // previous strategy was strictly serial — wait for primary to
+    // time out (45 s on big boundaries) before even kicking off
+    // the fallback. With three mirrors that's up to 135 s for the
+    // user to see "Fetching boundary…" with no progress before
+    // anything happens. Worse, an unresponsive primary mirror
+    // (e.g. our R2 cache worker if it's mid-deploy or
+    // mis-configured) consumed the FULL primary timeout every
+    // time, dominating the wall clock even when the public mirrors
+    // would respond in 2 seconds.
+    //
+    // Racing means the fastest healthy mirror sets the user-
+    // visible response time, and a broken primary doesn't stall
+    // the whole flow. Cost: we briefly hold three concurrent
+    // upstream connections per query. Overpass mirrors don't
+    // mind being asked nicely, and we only race for boundary
+    // fetches that the user is actively waiting on.
+    const winner = await raceUntilFirstSuccess(allUrls, tryFetch);
+
+    if (winner) {
+        // Best-effort: warm the cache key for the primary URL so
+        // a subsequent identical fetch shortcuts even if the
+        // winning mirror wasn't primary.
+        if (winner.url !== primaryUrl) {
             try {
                 const cache = await determineCache(cacheType);
-                await cache.put(primaryUrl, fallbackResponse.clone());
-            } catch {
-                /* Cache API not available — non-fatal. */
-            }
-            response = fallbackResponse;
-        } else if (fallbackResponse) {
-            response = fallbackResponse;
-        }
-    }
-    if (!response || !response.ok) {
-        const tertiaryResponse = await tryFetch(tertiaryUrl);
-        if (tertiaryResponse && tertiaryResponse.ok) {
-            try {
-                const cache = await determineCache(cacheType);
-                await cache.put(primaryUrl, tertiaryResponse.clone());
+                await cache.put(primaryUrl, winner.response.clone());
             } catch {
                 /* no-op */
             }
-            response = tertiaryResponse;
-        } else if (tertiaryResponse) {
-            response = tertiaryResponse;
         }
+        return await winner.response.json();
     }
 
-    if (!response || !response.ok) {
-        const statusInfo = response
-            ? `${response.status} ${response.statusText}`
-            : "network timeout or error";
-        toast.error(
-            `Could not load data from Overpass (${statusInfo}). Try again in a minute — the public mirrors are sometimes overloaded.`,
-            { toastId: "overpass-error" },
-        );
-        return { elements: [] };
-    }
-
-    const data = await response.json();
-    return data;
+    toast.error(
+        "Could not load data from Overpass (all mirrors timed out or rate-limited). Try again in a minute.",
+        { toastId: "overpass-error" },
+    );
+    return { elements: [] };
 };
+
+/**
+ * Mirror race: invoke `worker` for every URL in parallel and
+ * resolve as soon as the FIRST one returns a non-null Response.
+ * If every worker resolves to null, resolves to null. Never
+ * throws.
+ *
+ * Why not Promise.race? Promise.race resolves to the FIRST
+ * settled promise — including failures. That would short-
+ * circuit on the fastest 503 / network error and miss a slower
+ * mirror that's actually working. We need first-SUCCESS-wins.
+ */
+async function raceUntilFirstSuccess(
+    urls: string[],
+    worker: (url: string) => Promise<Response | null>,
+): Promise<{ url: string; response: Response } | null> {
+    return new Promise((resolve) => {
+        let pending = urls.length;
+        let resolved = false;
+        urls.forEach((url) => {
+            worker(url).then(
+                (r) => {
+                    if (resolved) return;
+                    if (r) {
+                        resolved = true;
+                        resolve({ url, response: r });
+                        return;
+                    }
+                    if (--pending === 0) resolve(null);
+                },
+                () => {
+                    if (resolved) return;
+                    if (--pending === 0) resolve(null);
+                },
+            );
+        });
+    });
+}
 
 export const determineGeoJSON = async (
     osmId: string,
@@ -184,7 +204,15 @@ export const determineGeoJSON = async (
         query,
         silent ? undefined : "Loading map data...",
         CacheType.PERMANENT_CACHE,
-        45_000,
+        // 15 s per mirror. Used to be 45 s, but with the race
+        // (all three mirrors fire in parallel — see
+        // getOverpassData) the timeout governs how long a
+        // genuinely-hung mirror keeps a connection slot before
+        // we give up and let the others compete. 15 s comfortably
+        // covers Overpass's server-side compute for normal-sized
+        // boundaries (Stockholm Län, etc.) without making the
+        // user wait minutes on an unresponsive mirror.
+        15_000,
         reportProgress,
         progressLabel,
     );
