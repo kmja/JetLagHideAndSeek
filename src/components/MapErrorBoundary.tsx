@@ -1,30 +1,26 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 /**
- * Visible error boundary for the lazy-loaded map.
+ * Visible error boundary around the map subtree.
  *
- * Why this exists: the map ships as a separate ~880 KB chunk
- * (`Map-XXXXX.js` + `maplibre-gl-XXXXX.js`) lazy-loaded behind a
- * React.Suspense. Every deploy rotates those chunk hashes. If a
- * stale service worker keeps a previous deploy's index.html in
- * the precache (referencing the OLD chunk hashes), the lazy
- * import 404s when the new deploy has already overwritten the
- * old assets. Suspense alone has no opinion about errors —
- * without this boundary the result is a blank map area with no
- * recovery path. The user has to hard-refresh and isn't told
- * why.
+ * Catches EVERY error the map throws (render-time, lazy chunk
+ * load, MapLibre WebGL init, style-parse, etc.) and shows a
+ * 'Map couldn't load' card with the message + a Reload button.
+ * Without this boundary those errors bubble up to the root and
+ * the whole page blanks with no recovery path — which is the
+ * worst possible failure mode for the headline feature.
  *
- * Catches the chunk-load failure, surfaces a "the map couldn't
- * load" card with a Reload button (which unregisters any active
- * service worker before reloading so the fresh page hits the
- * network, not a stale cache). After the reload the user lands
- * on the new deploy's index.html and the map loads correctly.
+ * The Reload button does a hard wipe: unregisters any active
+ * service worker AND deletes every Cache Storage bucket before
+ * reloading the page. That handles the historically-common
+ * 'stale SW serves an index.html referencing chunk hashes that
+ * the latest deploy already overwrote' case, but it's correct
+ * for the other failure modes too — there's never a downside to
+ * starting fresh when the map didn't render.
  *
- * Doesn't catch in-map runtime errors that fire AFTER the
- * component has mounted — those would still bubble up unhandled.
- * That's intentional: we want chunk-load failures to be
- * recoverable from the UI, but a true rendering bug should crash
- * loud so it's reported.
+ * The error message is exposed in the card so the user (or
+ * we) can see what actually broke instead of staring at a
+ * cosmetic 'something went wrong'.
  */
 interface State {
     error: Error | null;
@@ -37,28 +33,25 @@ export class MapErrorBoundary extends Component<
     state: State = { error: null };
 
     static getDerivedStateFromError(error: Error): State {
-        // Only catch the kinds of errors that look like a chunk-
-        // load failure. A real runtime bug in the map should
-        // still bubble.
-        const looksLikeChunkError =
-            error.name === "ChunkLoadError" ||
-            /Loading chunk \d+ failed/i.test(error.message) ||
-            /Failed to fetch dynamically imported module/i.test(error.message) ||
-            /Importing a module script failed/i.test(error.message);
-        return looksLikeChunkError ? { error } : { error: null };
+        // Catch everything. A silent map area is the worst
+        // possible failure for this feature; loudly explaining
+        // what went wrong is strictly better than the previous
+        // behaviour of 'render nothing and hope the user
+        // refreshes'.
+        return { error };
     }
 
     componentDidCatch(error: Error, info: ErrorInfo) {
-        // Surface to the console so the cause is visible in
-        // dev / when the user reports the issue.
-        console.warn("Map chunk failed to load:", error, info);
+        // Surface to the console so the cause is visible in dev
+        // and when the user reports the issue (it'll show up in
+        // their browser DevTools too).
+        console.error("Map subtree crashed:", error, info);
     }
 
     private handleReload = async () => {
-        // Best-effort: unregister the SW and clear its caches so
-        // a hard reload actually hits the network and pulls the
-        // fresh index.html. Without this the same stale precache
-        // would just serve the same dead chunk reference again.
+        // Best-effort SW + Cache Storage wipe so the reload
+        // actually hits the network, not a stale precache that
+        // would just serve the same dead asset reference.
         try {
             if ("serviceWorker" in navigator) {
                 const regs =
@@ -76,7 +69,19 @@ export class MapErrorBoundary extends Component<
     };
 
     render() {
-        if (!this.state.error) return this.props.children;
+        const err = this.state.error;
+        if (!err) return this.props.children;
+        // ChunkLoadError gets a friendlier message; everything
+        // else surfaces the raw error message so a future bug
+        // doesn't hide.
+        const looksLikeChunkError =
+            err.name === "ChunkLoadError" ||
+            /Loading chunk \d+ failed/i.test(err.message) ||
+            /Failed to fetch dynamically imported module/i.test(err.message) ||
+            /Importing a module script failed/i.test(err.message);
+        const blurb = looksLikeChunkError
+            ? "A cached part of the app is pointing at an asset that the latest deploy already replaced. Reloading clears the cache and pulls the fresh version."
+            : "Something went wrong while rendering the map. Reloading usually fixes it.";
         return (
             <div className="absolute inset-0 flex items-center justify-center z-[1040] bg-background/95">
                 <div className="max-w-sm w-[90%] rounded-md border-2 border-border bg-card shadow-xl p-5 space-y-3">
@@ -84,12 +89,13 @@ export class MapErrorBoundary extends Component<
                         Map couldn't load
                     </div>
                     <p className="text-xs text-muted-foreground leading-snug">
-                        The map chunk failed to download. This usually
-                        means a stale cached copy of the app is pointing
-                        at an asset that the latest deploy has already
-                        replaced. Reloading clears the cache and pulls
-                        the fresh version.
+                        {blurb}
                     </p>
+                    {!looksLikeChunkError && (
+                        <pre className="text-[10px] text-muted-foreground/80 leading-snug bg-secondary/30 rounded-sm p-2 overflow-auto max-h-24 whitespace-pre-wrap break-all">
+                            {err.name}: {err.message}
+                        </pre>
+                    )}
                     <button
                         type="button"
                         onClick={this.handleReload}

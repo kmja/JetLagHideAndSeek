@@ -3,6 +3,18 @@ import { Suspense } from "react";
 import { BottomNav } from "@/components/BottomNav";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
+// Eager-import the map itself. It's a ~880 KB chunk on its own
+// (maplibre-gl) and was historically wrapped in React.lazy +
+// MapErrorBoundary + lazyWithRetry to handle the deploy-race
+// case where the chunk hash on disk no longer matched the one
+// in the stale-SW-served index.html. That layered lazy stack
+// turned a chunk-load failure (rare, transient) into a
+// 'map literally never appears' failure (common, persistent).
+// Shipping the map in the eager bundle eliminates the entire
+// failure mode at the cost of one larger initial download.
+// The map IS the app — there is no version of this page that
+// works without it, so deferring it never made product sense.
+import { Map } from "@/components/Map";
 import { MapDisplayControls } from "@/components/MapDisplayControls";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
@@ -19,16 +31,6 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
-
-// The map itself. Lazy so the ~880 KB maplibre-gl chunk only
-// downloads when we render the seeker page (and so the hider
-// route never pays for it). Was wrapped in a feature-flag
-// 'MapSwitcher' until v80 — the Leaflet alternative is gone now
-// and this is the sole renderer. v81 renamed the file + export
-// from MapV2 → Map.
-const Map = lazyWithRetry(() =>
-    import("@/components/Map").then((m) => ({ default: m.Map })),
-);
 
 // Dialogs / overlays / wizards that only render once the user
 // actually triggers them — lazy so a freshly-landed seeker doesn't
@@ -133,21 +135,15 @@ export function SeekerPage() {
                                     sibling components have been
                                     deleted along with the Leaflet
                                     renderer.
-                                    Error boundary catches the case
-                                    where the lazy chunk 404s after
-                                    a redeploy (stale SW cache); see
-                                    MapErrorBoundary for the recovery
-                                    flow. */}
+                                    Error boundary catches any render-
+                                    time error the map might raise
+                                    (style parse, WebGL init, etc.)
+                                    and surfaces a recover-and-reload
+                                    card. Without it those errors
+                                    bubble up to the root and the
+                                    whole app blanks. */}
                                 <MapErrorBoundary>
-                                    <Suspense
-                                        fallback={
-                                            <div className="absolute inset-0 flex items-center justify-center bg-background/30">
-                                                <div className="h-8 w-8 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin" />
-                                            </div>
-                                        }
-                                    >
-                                        <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
-                                    </Suspense>
+                                    <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
                                 </MapErrorBoundary>
                                 <MapLoadingOverlay />
                             </div>
