@@ -198,8 +198,14 @@ export function GameLobbyDialog() {
     // questions until the boundary is in (the MapLoadingOverlay
     // covers it), but the hiding-period clock is ticking — which
     // is what the host actually wants when they press Start.
+    //
+    // Role-independent: a hider host can start the same way a
+    // seeker host can. The seeker-page boundary stream is for
+    // seeker GAMEPLAY, not for the clock kickoff, so there's no
+    // technical reason to bounce a hider host to /. The hiding
+    // period countdown is identical on both routes.
     const canStart =
-        hasRoleBalance && isHost && !isHiderRole && $playerRole !== null;
+        hasRoleBalance && isHost && $playerRole !== null;
 
     const minutes =
         $pending && $pending > 0
@@ -527,38 +533,10 @@ export function GameLobbyDialog() {
                     )}
                 </div>
 
-                {/* Start button */}
+                {/* Start button. Role-independent: a hider host
+                    sees the same Start UI a seeker host does. */}
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
-                    {isHiderRole ? (
-                        isHost ? (
-                            // Edge case: the host picked the hider role
-                            // for themselves. The boundary load lives
-                            // on the seeker page so they need to open
-                            // it to actually start the clock.
-                            <Button
-                                size="lg"
-                                variant="outline"
-                                className="w-full h-12 gap-2 font-display font-extrabold uppercase tracking-[0.02em]"
-                                onClick={() => {
-                                    if (typeof window !== "undefined") {
-                                        window.location.assign("/");
-                                    }
-                                }}
-                            >
-                                Open seeker page to start
-                            </Button>
-                        ) : (
-                            <div className="text-center py-3 space-y-1">
-                                <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
-                                <div className="text-sm text-slate-300">
-                                    Waiting for the host to start the game…
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    Pick your hiding spot in the meantime.
-                                </div>
-                            </div>
-                        )
-                    ) : isHost ? (
+                    {isHost ? (
                         <>
                             <Button
                                 size="lg"
@@ -588,10 +566,15 @@ export function GameLobbyDialog() {
                                     </span>
                                 )}
                             </Button>
-                            {/* Map still streaming? The host can start
-                                anyway — let them know the seeker side
-                                will catch up once the boundary lands. */}
-                            {!mapReady && canStart && (
+                            {/* Map still streaming on the seeker side?
+                                Heads-up that pressing Start now ticks
+                                the clock while the boundary keeps
+                                downloading in the background. Only
+                                surfaced to seeker hosts since the
+                                hider page has no boundary stream of
+                                its own — a hider host can start
+                                immediately. */}
+                            {!isHiderRole && !mapReady && canStart && (
                                 <p className="text-[11px] text-muted-foreground leading-snug text-center">
                                     Map is still loading — you can start
                                     the clock now; seekers will see the
@@ -599,10 +582,23 @@ export function GameLobbyDialog() {
                                     finishes streaming.
                                 </p>
                             )}
+                            {isHiderRole && canStart && (
+                                <p className="text-[11px] text-muted-foreground leading-snug text-center">
+                                    Pick your hiding spot in the meantime.
+                                </p>
+                            )}
                         </>
                     ) : (
-                        <div className="text-center text-sm text-slate-300 py-2">
-                            Waiting for the host to start the game…
+                        <div className="text-center py-3 space-y-1">
+                            <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+                            <div className="text-sm text-slate-300">
+                                Waiting for the host to start the game…
+                            </div>
+                            {isHiderRole && (
+                                <div className="text-xs text-muted-foreground">
+                                    Pick your hiding spot in the meantime.
+                                </div>
+                            )}
                         </div>
                     )}
                     {$mp && $code && (
