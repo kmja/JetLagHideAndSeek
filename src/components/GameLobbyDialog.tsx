@@ -10,6 +10,7 @@ import {
     Loader2,
     LogOut,
     MapPin,
+    QrCode,
     Share2,
     X,
 } from "lucide-react";
@@ -432,23 +433,21 @@ export function GameLobbyDialog() {
                         />
                     )}
 
-                    {/* Share / room code card. The room code now
-                        lives here (out of the header) so it sits
-                        next to the share affordances it's part of.
-                        Tap anywhere on the card to open the QR
-                        dialog. */}
+                    {/* Share / room code card. Room code top, an
+                        explainer line, then the two primary
+                        actions (Copy + Share) directly in the
+                        main dialog so an OS share sheet is one
+                        tap away — no nested dialog detour. The
+                        QR icon next to them opens the small
+                        QR-only dialog for in-person scanning. */}
                     {$mp && $code && (
-                        <button
-                            type="button"
-                            onClick={() => setShareDialogOpen(true)}
+                        <div
                             className={cn(
-                                "w-full text-left rounded-md border border-border bg-secondary/40",
-                                "px-3 py-2.5 flex items-center gap-3",
-                                "hover:bg-secondary/60 transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                "rounded-md border border-border bg-secondary/40",
+                                "px-3 py-2.5 space-y-2",
                             )}
                         >
-                            <div className="flex-1 min-w-0">
+                            <div>
                                 <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground leading-none">
                                     Room code
                                 </div>
@@ -456,11 +455,44 @@ export function GameLobbyDialog() {
                                     {$code}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                                    Tap to show a QR or share the link.
+                                    Share the code or link to invite
+                                    friends.
                                 </div>
                             </div>
-                            <Share2 className="w-5 h-5 text-muted-foreground shrink-0" />
-                        </button>
+                            <div className="flex gap-1.5">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleCopy}
+                                    className="flex-1 gap-1.5"
+                                >
+                                    {copied ? (
+                                        <Check className="w-3.5 h-3.5" />
+                                    ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                    Copy link
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleShare}
+                                    className="flex-1 gap-1.5"
+                                >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    Share
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setShareDialogOpen(true)}
+                                    className="px-2.5"
+                                    title="Show QR code"
+                                    aria-label="Show QR code"
+                                >
+                                    <QrCode className="w-3.5 h-3.5" />
+                                </Button>
+                            </div>
+                        </div>
                     )}
 
                     {/* Compact map-load status — seeker hosts only.
@@ -623,11 +655,11 @@ export function GameLobbyDialog() {
                 </div>
             </DialogContent>
 
-            {/* Nested share-invite dialog. Opens from the
-                'Share invite' button above; holds the QR code,
-                copy-link, and OS share button. Lives at this
-                level (not the body) so its overlay sits on top
-                of the lobby's at the same z-index ladder. */}
+            {/* Nested QR dialog. Now scoped to JUST the QR code —
+                Copy + Share are exposed directly in the main
+                lobby card so the share action is one tap, not
+                two. The QR is the only thing that actually needs
+                space the lobby can't spare. */}
             <Dialog
                 open={shareDialogOpen}
                 onOpenChange={setShareDialogOpen}
@@ -640,7 +672,7 @@ export function GameLobbyDialog() {
                 >
                     <div className="px-5 pt-4 pb-3 border-b border-border">
                         <DialogTitle className="font-display font-black uppercase text-base tracking-wide">
-                            Share invite
+                            Scan to join
                         </DialogTitle>
                         <div className="text-xs text-muted-foreground mt-0.5">
                             Room code{" "}
@@ -649,7 +681,7 @@ export function GameLobbyDialog() {
                             </span>
                         </div>
                     </div>
-                    <div className="px-5 pt-4 pb-5 space-y-3">
+                    <div className="px-5 pt-4 pb-5">
                         {shareUrl && (
                             <div
                                 className="mx-auto flex items-center justify-center bg-white rounded-md p-3"
@@ -657,7 +689,7 @@ export function GameLobbyDialog() {
                             >
                                 <QRCodeSVG
                                     value={shareUrl}
-                                    size={208}
+                                    size={232}
                                     level="M"
                                     marginSize={0}
                                     bgColor="#ffffff"
@@ -665,29 +697,6 @@ export function GameLobbyDialog() {
                                 />
                             </div>
                         )}
-                        <div className="flex gap-1.5">
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={handleCopy}
-                                className="flex-1 gap-1.5"
-                            >
-                                {copied ? (
-                                    <Check className="w-3.5 h-3.5" />
-                                ) : (
-                                    <Copy className="w-3.5 h-3.5" />
-                                )}
-                                Copy link
-                            </Button>
-                            <Button
-                                size="sm"
-                                onClick={handleShare}
-                                className="flex-1 gap-1.5"
-                            >
-                                <Share2 className="w-3.5 h-3.5" />
-                                Share
-                            </Button>
-                        </div>
                     </div>
                 </DialogContent>
             </Dialog>
