@@ -159,6 +159,33 @@ div.leaflet-control-attribution.leaflet-control {
     background: transparent !important;
     border: none !important;
 }
+
+/* Animated 3-dot ellipsis used inside disabled button labels
+ * ('Loading map…', 'Waiting for players…') so the user reads
+ * the dialog as active-but-waiting rather than 'stuck'. Each
+ * dot fades in/out on a 1.4 s loop, staggered 0.2 s apart, so
+ * they read as a left-to-right wave. */
+.animated-ellipsis > span {
+    display: inline-block;
+    animation: jlEllipsisFade 1.4s infinite;
+    opacity: 0.3;
+}
+.animated-ellipsis > span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+.animated-ellipsis > span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+@keyframes jlEllipsisFade {
+    0%,
+    60%,
+    100% {
+        opacity: 0.3;
+    }
+    30% {
+        opacity: 1;
+    }
+}
 .leaflet-tooltip.jl-ref-tooltip {
     background: hsl(var(--background) / 0.95);
     color: hsl(var(--foreground));

@@ -209,6 +209,14 @@ export function GameLobbyDialog() {
     // period countdown is identical on both routes.
     const canStart =
         hasRoleBalance && isHost && $playerRole !== null;
+    // Tighter version that additionally requires the boundary
+    // to be in for seeker hosts. Hider hosts skip the map-load
+    // requirement because they have no boundary stream of their
+    // own — they only ever gate on player count. The Start
+    // button cycles through two animated disabled labels in
+    // priority order ('Loading map…', 'Waiting for players…')
+    // and only goes live when startReady is true.
+    const startReady = canStart && (isHiderRole || mapReady);
 
     const minutes =
         $pending && $pending > 0
@@ -480,19 +488,38 @@ export function GameLobbyDialog() {
                                     "font-display uppercase",
                                 )}
                                 onClick={handleStartGame}
-                                disabled={!canStart}
+                                disabled={!startReady}
                             >
                                 <span
                                     className="text-base font-extrabold leading-none"
                                     style={{ letterSpacing: "0.02em" }}
                                 >
-                                    {canStart
-                                        ? "Start game"
-                                        : !hasRoleBalance
-                                          ? "Waiting for players…"
-                                          : "Start game"}
+                                    {/* Two ordered disabled states +
+                                        ready state. Map first because
+                                        without the boundary the seeker
+                                        side can't actually play; if
+                                        someone presses Start before
+                                        the map is in, the clock starts
+                                        ticking against the host. Hider
+                                        host has no boundary stream of
+                                        its own, so they skip the
+                                        loading state and only ever
+                                        gate on player count. */}
+                                    {!isHiderRole && !mapReady ? (
+                                        <>
+                                            Loading map
+                                            <AnimatedEllipsis />
+                                        </>
+                                    ) : !hasRoleBalance ? (
+                                        <>
+                                            Waiting for players
+                                            <AnimatedEllipsis />
+                                        </>
+                                    ) : (
+                                        "Start game"
+                                    )}
                                 </span>
-                                {canStart && (
+                                {startReady && (
                                     <span
                                         className="text-[10px] font-semibold opacity-80 leading-none mt-1"
                                         style={{ letterSpacing: "0.14em" }}
@@ -501,23 +528,7 @@ export function GameLobbyDialog() {
                                     </span>
                                 )}
                             </Button>
-                            {/* Map still streaming on the seeker side?
-                                Heads-up that pressing Start now ticks
-                                the clock while the boundary keeps
-                                downloading in the background. Only
-                                surfaced to seeker hosts since the
-                                hider page has no boundary stream of
-                                its own — a hider host can start
-                                immediately. */}
-                            {!isHiderRole && !mapReady && canStart && (
-                                <p className="text-[11px] text-muted-foreground leading-snug text-center">
-                                    Map is still loading — you can start
-                                    the clock now; seekers will see the
-                                    play area as soon as the boundary
-                                    finishes streaming.
-                                </p>
-                            )}
-                            {isHiderRole && canStart && (
+                            {isHiderRole && startReady && (
                                 <p className="text-[11px] text-muted-foreground leading-snug text-center">
                                     Pick your hiding spot in the meantime.
                                 </p>
@@ -654,6 +665,20 @@ export function GameLobbyDialog() {
                 </DialogContent>
             </Dialog>
         </Dialog>
+    );
+}
+
+/** Three-dot ellipsis with a left-to-right fade animation. Used
+ *  in disabled Start-button labels so 'Loading map…' /
+ *  'Waiting for players…' read as active-but-waiting rather
+ *  than 'stuck'. CSS lives in globals.css under .animated-ellipsis. */
+function AnimatedEllipsis() {
+    return (
+        <span className="animated-ellipsis inline-block ml-0.5">
+            <span>.</span>
+            <span>.</span>
+            <span>.</span>
+        </span>
     );
 }
 
