@@ -26,7 +26,6 @@ import {
     OVERPASS_API_FALLBACK,
     OVERPASS_API_TERTIARY,
 } from "./constants";
-import { fetchBoundaryFromPolygonsOsmFr } from "./polygonsOsmFr";
 import type {
     EncompassingTentacleQuestionSchema,
     HomeGameMatchingQuestions,
@@ -157,31 +156,6 @@ export const determineGeoJSON = async (
         N: "node",
     };
     const osmType = osmTypeMap[osmTypeLetter];
-
-    // Fast path: polygons.openstreetmap.fr maintains pre-computed
-    // GeoJSON polygons for every OSM relation. For the common case
-    // (boundary fetches by relation id) we try that first — it
-    // returns the polygon directly in milliseconds when cached on
-    // their side, vs the 2–15 s Overpass round-trip + osmtogeojson
-    // assembly we'd otherwise do. On any failure (404, timeout,
-    // polygon-not-yet-computed) we fall straight through to the
-    // Overpass path below; the user-visible flow is unchanged.
-    if (osmTypeLetter === "R") {
-        const fast = await fetchBoundaryFromPolygonsOsmFr(osmId, (loaded) => {
-            // Mirror progress reporting into the loading overlay
-            // when the caller asked for it, so the user sees the
-            // same "downloading..." UX for both the fast path and
-            // the Overpass fallback.
-            if (!reportProgress) return;
-            // We don't get a total reliably from polygons.osm.fr
-            // (chunked transfer for large boundaries), so just
-            // surface the streamed byte count.
-            void loaded;
-        });
-        if (fast) {
-            return fast;
-        }
-    }
 
     // `out geom` (with tags) — `osmtogeojson` relies on the
     // relation's `type=boundary` / `boundary=administrative`

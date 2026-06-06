@@ -29,16 +29,19 @@ import {
     followMe,
     hiderMode,
     hidingZonesGeoJSON,
+    isLoading,
     mapContext,
     mapGeoJSON,
     mapGeoLocation,
     planningModeEnabled,
     polyGeoJSON,
+    polyGeoJSONHydrated,
     questionModified,
     questions,
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { setupCompleted } from "@/lib/gameSetup";
 import {
     mapLibreContext,
     mapLibreViewport,
@@ -57,7 +60,7 @@ import {
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
-import { clearCache } from "@/maps/api";
+import { clearCache, determineMapBoundaries } from "@/maps/api";
 import {
     fetchTransitRoutesFeatures,
     type TransitMode,
@@ -349,6 +352,74 @@ export function Map({ className }: MapProps) {
             console.warn("Map fitBounds failed:", e);
         }
     }, [$mapGeoLocation?.properties]);
+
+    // Boundary fetch trigger. The old Leaflet Map.tsx owned this
+    // flow inside a `refreshQuestions()` helper; when v80 retired
+    // that file the call site was lost and the seeker would land
+    // on a play area with no one actually fetching the boundary
+    // GeoJSON — the MapLoadingOverlay sat on 'Fetching boundary…'
+    // forever (v85 user report). Restored as a focused effect
+    // here. Gates:
+    //   - setupCompleted: don't kick off before the wizard
+    //     commits a play area. Otherwise the default
+    //     mapGeoLocation (Japan) races the wizard's actual pick
+    //     and we end up loading the wrong region.
+    //   - polyGeoJSONHydrated: the polyGeoJSON atom is
+    //     async-hydrated from Cache API on boot; reading too
+    //     early gives null and we mistakenly re-fetch a boundary
+    //     we already have on disk. Wait for the hydration flag.
+    //   - mapGeoJSON / polyGeoJSON: skip when we already have
+    //     a boundary loaded.
+    //   - isLoading: skip when another fetch is in flight.
+    useEffect(() => {
+        const props = $mapGeoLocation?.properties as
+            | { osm_id?: number }
+            | undefined;
+        if (!($mapGeoLocation && (props?.osm_id ?? 0) > 0)) return;
+        if ($mapGeoJSON || $polyGeoJSON) return;
+
+        let cancelled = false;
+        (async () => {
+            if (!setupCompleted.get()) return;
+            // Wait for the persistent-cache hydration before
+            // deciding we have no boundary on disk.
+            if (!polyGeoJSONHydrated.get()) {
+                await new Promise<void>((resolve) => {
+                    const unsub = polyGeoJSONHydrated.subscribe((v) => {
+                        if (v) {
+                            unsub();
+                            resolve();
+                        }
+                    });
+                });
+                if (cancelled) return;
+                // Re-check after hydration — Cache API may have
+                // produced a value we should use as-is.
+                if (mapGeoJSON.get() || polyGeoJSON.get()) return;
+            }
+            if (isLoading.get()) return;
+            isLoading.set(true);
+            try {
+                const boundary = await determineMapBoundaries();
+                if (cancelled) return;
+                if (boundary) {
+                    mapGeoJSON.set(boundary);
+                    // Mirror to polyGeoJSON so the persistent-
+                    // cache layer in context.ts picks up the
+                    // value and stashes it for next session.
+                    polyGeoJSON.set(boundary);
+                }
+            } catch (e) {
+                console.warn("determineMapBoundaries failed:", e);
+            } finally {
+                if (!cancelled) isLoading.set(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON]);
 
     // Pending-question dashed outlines + post-elimination mask.
     // applyQuestionsToMapGeoData walks each question and either
