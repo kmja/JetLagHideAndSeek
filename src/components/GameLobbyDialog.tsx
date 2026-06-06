@@ -21,12 +21,14 @@ import {
     polyGeoJSON,
 } from "@/lib/context";
 import {
+    allowedTransit,
     gameSize,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
     setupCompleted,
+    TRANSIT_LABELS,
     welcomeSeen,
 } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
@@ -87,6 +89,7 @@ export function GameLobbyDialog() {
     const $welcomeSeen = useStore(welcomeSeen);
     const $playerRole = useStore(playerRole);
     const $playArea = useStore(playArea);
+    const $allowedTransit = useStore(allowedTransit);
     const $code = useStore(currentGameCode);
     const $participants = useStore(participants);
     const $self = useStore(selfParticipantId);
@@ -218,6 +221,7 @@ export function GameLobbyDialog() {
     }, [$code]);
 
     const [copied, setCopied] = useState(false);
+    const [shareDialogOpen, setShareDialogOpen] = useState(false);
     const handleCopy = async () => {
         if (!shareUrl) return;
         try {
@@ -272,163 +276,101 @@ export function GameLobbyDialog() {
                     "flex flex-col p-0 gap-0 sm:max-w-md",
                 )}
             >
-                {/* Compact header — same shape the wizard uses: small
-                    peak mark + wordmark on one row, role chip + room
-                    code floated right. The big box-cover lockup
-                    belongs to the welcome screen (the start of the
-                    flow); by the time we're in the lobby the user
-                    knows what app they're in and the screen real
-                    estate is better spent on invite + participants. */}
-                <div className="px-6 pt-5 pb-4 shrink-0 border-b border-border">
-                    <div className="flex items-center gap-3">
-                        <HideSeekMark size={32} onDark />
+                {/* Compact header — one row only. Drops the big
+                    'Ready to play' title (the whole dialog already
+                    says that contextually) and the duplicate play-
+                    area text below it. Mark + wordmark + room code
+                    + role chip on one line; the body owns the
+                    actually-actionable content. */}
+                <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border">
+                    <div className="flex items-center gap-2">
+                        <HideSeekMark size={26} onDark />
                         <HideSeekWordmark />
+                        {$code && (
+                            <span className="ml-2 font-display font-black uppercase tabular-nums tracking-[0.12em] text-base text-primary leading-none">
+                                {$code}
+                            </span>
+                        )}
                         {$playerRole && (
                             <div className="ml-auto">
-                                <RoleChip
-                                    role={$playerRole}
-                                    tag={$code ?? undefined}
-                                />
+                                <RoleChip role={$playerRole} />
                             </div>
                         )}
                     </div>
-                    <DialogTitle
-                        className="font-display font-black uppercase text-2xl leading-tight mt-3"
-                        style={{ letterSpacing: "-0.02em" }}
-                    >
-                        Ready to play
-                    </DialogTitle>
-                </div>
-
-                <div className="px-6 pb-2 flex-1 overflow-y-auto space-y-5">
-                    {/* Play area */}
+                    {/* Single one-liner recap. Replaces three
+                        separate places where these settings were
+                        repeated (header title, body text, map
+                        loader title). */}
                     {$playArea && (
-                        <div className="text-center text-sm text-slate-300">
-                            Playing in{" "}
+                        <div className="mt-2 text-xs text-muted-foreground leading-snug">
                             <span className="font-semibold text-white">
                                 {$playArea.displayName.split(",")[0]}
-                            </span>{" "}
-                            · {minutes}-min hiding period
+                            </span>
+                            <span className="text-muted-foreground/60">
+                                {" · "}
+                            </span>
+                            {minutes}-min hide
+                            {$allowedTransit.length > 0 && (
+                                <>
+                                    <span className="text-muted-foreground/60">
+                                        {" · "}
+                                    </span>
+                                    {$allowedTransit
+                                        .map((m) => TRANSIT_LABELS[m])
+                                        .join(", ")}
+                                </>
+                            )}
                         </div>
                     )}
+                </div>
 
-                    {/* Autohost status — only visible until we have a
-                        room code. Creating shows a spinner; failed
-                        shows a retry button so the user can recover
-                        without leaving the lobby. */}
+                <div className="px-5 py-3 flex-1 overflow-y-auto space-y-3">
+                    {/* For accessibility — visually hidden but read
+                        out by screen readers. Replaces the deleted
+                        on-screen 'Ready to play' title. */}
+                    <DialogTitle className="sr-only">
+                        Game lobby
+                    </DialogTitle>
+
+                    {/* Autohost status — only visible until we have
+                        a room code. */}
                     {!isHiderRole && !$code && hostingState === "creating" && (
-                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 flex items-center gap-3">
-                            <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
-                            <div className="text-sm">
+                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2.5">
+                            <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
+                            <div className="text-xs">
                                 Creating game room…
                             </div>
                         </div>
                     )}
                     {!isHiderRole && !$code && hostingState === "failed" && (
-                        <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2.5 space-y-2">
-                            <div className="text-sm font-medium text-destructive">
+                        <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2 space-y-1.5">
+                            <div className="text-xs font-medium text-destructive">
                                 Couldn't create a game room.
                             </div>
-                            <div className="text-xs text-muted-foreground leading-snug">
-                                Check your connection — without a room
-                                there's no way to invite players or
-                                start the game.
+                            <div className="text-[11px] text-muted-foreground leading-snug">
+                                Check your connection — without a
+                                room there's no way to invite players
+                                or start the game.
                             </div>
                             <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => setHostingState("idle")}
-                                className="w-full mt-1"
+                                className="w-full"
                             >
                                 Retry
                             </Button>
                         </div>
                     )}
 
-                    {/* Invite + share. When mapReady AND we're still
-                        waiting for players, this is the ONLY thing
-                        the host can act on — emphasize it so the
-                        share link is the obvious next step. */}
-                    {$mp && $code && (
-                        <div
-                            className={cn(
-                                "rounded-md border bg-secondary/40 p-3 space-y-3 transition-colors",
-                                mapReady && !hasRoleBalance
-                                    ? "border-primary/60 shadow-[0_0_0_1px_hsl(var(--primary)/0.25)]"
-                                    : "border-border",
-                            )}
-                        >
-                            <div className="flex items-baseline justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
-                                        Room code
-                                    </div>
-                                    <div className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.04em] leading-none mt-0.5">
-                                        {$code}
-                                    </div>
-                                </div>
-                                {mapReady && !hasRoleBalance && (
-                                    <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-primary shrink-0">
-                                        Invite to start
-                                    </span>
-                                )}
-                            </div>
-                            {/* QR code — point a phone's camera at it to
-                                jump straight into the join lobby. White
-                                background so the dark modules read
-                                cleanly against any phone scanner. */}
-                            {shareUrl && (
-                                <div
-                                    className="mx-auto flex items-center justify-center bg-white rounded-md p-3"
-                                    aria-label="Scan to join this game"
-                                >
-                                    <QRCodeSVG
-                                        value={shareUrl}
-                                        size={176}
-                                        level="M"
-                                        marginSize={0}
-                                        bgColor="#ffffff"
-                                        fgColor="#0f172a"
-                                    />
-                                </div>
-                            )}
-                            <div className="flex gap-1.5">
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleCopy}
-                                    className="flex-1 gap-1.5"
-                                >
-                                    {copied ? (
-                                        <Check className="w-3.5 h-3.5" />
-                                    ) : (
-                                        <Copy className="w-3.5 h-3.5" />
-                                    )}
-                                    Copy link
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    onClick={handleShare}
-                                    className="flex-1 gap-1.5"
-                                >
-                                    <Share2 className="w-3.5 h-3.5" />
-                                    Share
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Participants — grouped into Seekers and
-                        Team Hiders. Hider + co-hiders share the
-                        team since they share the same view; only
-                        the main hider answers questions and plays
-                        the deck. Marked with a yellow MAIN badge.
-                        If the local player is currently the main
-                        hider, each co-hider gets a "Promote" button
-                        that hands off the seat (sender → coHider,
-                        target → hider) via promoteCoHider. */}
+                    {/* Participants side-by-side. Drops the inline
+                        QR + share card (moved to a separate dialog
+                        triggered by the button below) so the
+                        seekers / hiders rosters can dominate the
+                        lobby surface — what's actually changing
+                        moment-to-moment as people join. */}
                     {$mp && $participants.length > 0 && (
-                        <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
                             <RosterCard
                                 label={`Seekers · ${seekers.length}`}
                                 tone="seeker"
@@ -437,7 +379,7 @@ export function GameLobbyDialog() {
                                 hostId={hostId}
                             />
                             <RosterCard
-                                label={`Team Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
+                                label={`Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
                                 tone="hider"
                                 participants={[
                                     ...(hider ? [hider] : []),
@@ -446,11 +388,6 @@ export function GameLobbyDialog() {
                                 mainHiderId={hider?.id ?? null}
                                 selfId={$self}
                                 hostId={hostId}
-                                // Promote affordance is shown when
-                                // the LOCAL player is currently the
-                                // main hider AND the row is a
-                                // co-hider. The server enforces both
-                                // again; this is just UI gating.
                                 showPromote={
                                     $playerRole === "hider" &&
                                     !!hider &&
@@ -458,77 +395,75 @@ export function GameLobbyDialog() {
                                 }
                                 onPromote={(id) => promoteCoHider(id)}
                             />
-                            {!hasRoleBalance && (
-                                <p className="text-xs text-muted-foreground leading-snug pt-1">
-                                    Need at least one <b>seeker</b> and one{" "}
-                                    <b>hider</b> in the room before the game
-                                    can start. Share the link above to invite
-                                    friends.
-                                </p>
-                            )}
                         </div>
+                    )}
+                    {$mp && !hasRoleBalance && $participants.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                            Need at least one <b>seeker</b> and one{" "}
+                            <b>hider</b> before the game can start.
+                            Share the invite to bring more in.
+                        </p>
                     )}
 
-                    {/* Map loading status — seeker only. Hider device
-                        doesn't load the boundary so this section would
-                        sit on "Preparing map…" forever. Once the
-                        boundary is in, collapse this to a one-liner
-                        so the share + participant rows can dominate
-                        the lobby for the "waiting for players" state. */}
-                    {!isHiderRole && !mapReady && (
-                        <div className="space-y-1.5">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground">
-                                Map
-                            </div>
-                            <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 space-y-2">
-                                <div className="flex items-center gap-3">
-                                    <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
-                                    <div className="text-sm min-w-0 flex-1">
-                                        <div className="truncate">
-                                            {$loading?.title ??
-                                                "Loading play area"}
-                                        </div>
-                                        <div className="text-xs text-muted-foreground truncate">
-                                            {$loading?.phase ??
-                                                "Fetching boundary…"}
-                                        </div>
-                                    </div>
-                                </div>
-                                {$pieces.length > 0 && (
-                                    <ul className="flex flex-col gap-1 max-h-48 overflow-y-auto pt-1 border-t border-border/50">
-                                        {$pieces.map((p) => (
-                                            <li
-                                                key={p.id}
-                                                className="flex items-center justify-between gap-2 text-[11px]"
-                                            >
-                                                <span className="flex items-center gap-1.5 min-w-0">
-                                                    <PieceIcon state={p.state} />
-                                                    <span
-                                                        className={cn(
-                                                            "truncate",
-                                                            p.state === "done" &&
-                                                                "text-muted-foreground line-through decoration-muted-foreground/40",
-                                                            p.state === "failed" &&
-                                                                "text-destructive",
-                                                        )}
-                                                    >
-                                                        {p.label}
-                                                    </span>
-                                                </span>
-                                                <span className="tabular-nums text-muted-foreground shrink-0">
-                                                    {pieceStatusLabel(p)}
-                                                </span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
-                        </div>
+                    {/* Share row — single button. Tap opens a
+                        nested dialog with the QR code + copy link.
+                        Keeps the lobby height in check and pushes
+                        the actionable surface (Start button)
+                        further up the screen. */}
+                    {$mp && $code && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShareDialogOpen(true)}
+                            className="w-full gap-1.5 h-9"
+                        >
+                            <Share2 className="w-3.5 h-3.5" />
+                            Share invite
+                        </Button>
                     )}
-                    {!isHiderRole && mapReady && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Check className="w-3.5 h-3.5 text-primary shrink-0" />
-                            <span>Map ready</span>
+
+                    {/* Compact map-load status — seeker hosts only.
+                        Drops the redundant 'Loading play area' title
+                        (the recap above already names it) and the
+                        outer card; just the spinner + phase + the
+                        per-piece list so the user can see progress
+                        without it dominating the screen. */}
+                    {!isHiderRole && !mapReady && (
+                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                                <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
+                                <div className="text-xs truncate flex-1">
+                                    {$loading?.phase ?? "Fetching boundary…"}
+                                </div>
+                            </div>
+                            {$pieces.length > 0 && (
+                                <ul className="flex flex-col gap-0.5 max-h-32 overflow-y-auto pt-1 border-t border-border/50">
+                                    {$pieces.map((p) => (
+                                        <li
+                                            key={p.id}
+                                            className="flex items-center justify-between gap-2 text-[11px]"
+                                        >
+                                            <span className="flex items-center gap-1.5 min-w-0">
+                                                <PieceIcon state={p.state} />
+                                                <span
+                                                    className={cn(
+                                                        "truncate",
+                                                        p.state === "done" &&
+                                                            "text-muted-foreground line-through decoration-muted-foreground/40",
+                                                        p.state === "failed" &&
+                                                            "text-destructive",
+                                                    )}
+                                                >
+                                                    {p.label}
+                                                </span>
+                                            </span>
+                                            <span className="tabular-nums text-muted-foreground shrink-0">
+                                                {pieceStatusLabel(p)}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
                     )}
                 </div>
@@ -649,6 +584,75 @@ export function GameLobbyDialog() {
                     )}
                 </div>
             </DialogContent>
+
+            {/* Nested share-invite dialog. Opens from the
+                'Share invite' button above; holds the QR code,
+                copy-link, and OS share button. Lives at this
+                level (not the body) so its overlay sits on top
+                of the lobby's at the same z-index ladder. */}
+            <Dialog
+                open={shareDialogOpen}
+                onOpenChange={setShareDialogOpen}
+            >
+                <DialogContent
+                    className={cn(
+                        "!bg-[hsl(var(--sidebar-background))] !text-white",
+                        "flex flex-col p-0 gap-0 sm:max-w-sm",
+                    )}
+                >
+                    <div className="px-5 pt-4 pb-3 border-b border-border">
+                        <DialogTitle className="font-display font-black uppercase text-base tracking-wide">
+                            Share invite
+                        </DialogTitle>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                            Room code{" "}
+                            <span className="font-display font-black uppercase text-primary tracking-[0.12em]">
+                                {$code}
+                            </span>
+                        </div>
+                    </div>
+                    <div className="px-5 pt-4 pb-5 space-y-3">
+                        {shareUrl && (
+                            <div
+                                className="mx-auto flex items-center justify-center bg-white rounded-md p-3"
+                                aria-label="Scan to join this game"
+                            >
+                                <QRCodeSVG
+                                    value={shareUrl}
+                                    size={208}
+                                    level="M"
+                                    marginSize={0}
+                                    bgColor="#ffffff"
+                                    fgColor="#0f172a"
+                                />
+                            </div>
+                        )}
+                        <div className="flex gap-1.5">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleCopy}
+                                className="flex-1 gap-1.5"
+                            >
+                                {copied ? (
+                                    <Check className="w-3.5 h-3.5" />
+                                ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                )}
+                                Copy link
+                            </Button>
+                            <Button
+                                size="sm"
+                                onClick={handleShare}
+                                className="flex-1 gap-1.5"
+                            >
+                                <Share2 className="w-3.5 h-3.5" />
+                                Share
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </Dialog>
     );
 }
