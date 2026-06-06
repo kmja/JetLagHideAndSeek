@@ -24,6 +24,7 @@ import {
     LOCATION_FIRST_TAG,
     OVERPASS_API,
     OVERPASS_API_FALLBACK,
+    OVERPASS_API_QUATERNARY,
     OVERPASS_API_TERTIARY,
 } from "./constants";
 import type {
@@ -54,11 +55,18 @@ export const getOverpassData = async (
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
     const fallbackUrl = `${OVERPASS_API_FALLBACK}?data=${encodedQuery}`;
     const tertiaryUrl = `${OVERPASS_API_TERTIARY}?data=${encodedQuery}`;
-    const allUrls = [primaryUrl, fallbackUrl, tertiaryUrl];
+    const quaternaryUrl = `${OVERPASS_API_QUATERNARY}?data=${encodedQuery}`;
+    const allUrls = [primaryUrl, fallbackUrl, tertiaryUrl, quaternaryUrl];
 
     // Wrap a cacheFetch in a Promise that resolves to either a
-    // successful Response or null. Never throws.
+    // successful Response or null. Never throws. Each branch
+    // logs to console so DevTools shows which mirror beat or
+    // failed which — invaluable when 'all mirrors timed out'
+    // and the user needs to know if it's their network, their
+    // Cloudflare worker, or the public mirrors that are sad.
     const tryFetch = async (url: string): Promise<Response | null> => {
+        const t0 = Date.now();
+        const shortName = url.replace(/^https?:\/\//, "").split("/")[0];
         try {
             const r = await cacheFetch(
                 url,
@@ -68,9 +76,25 @@ export const getOverpassData = async (
                 reportProgress,
                 progressLabel,
             );
-            return r && r.ok ? r : null;
+            const ms = Date.now() - t0;
+            if (r && r.ok) {
+                console.log(
+                    `[overpass] ${shortName} OK (${ms}ms)`,
+                );
+                return r;
+            }
+            console.warn(
+                `[overpass] ${shortName} returned`,
+                r ? `${r.status} ${r.statusText}` : "no response",
+                `(${ms}ms)`,
+            );
+            return null;
         } catch (e) {
-            console.warn(`Overpass fetch failed for ${url}:`, e);
+            const ms = Date.now() - t0;
+            console.warn(
+                `[overpass] ${shortName} threw (${ms}ms):`,
+                e instanceof Error ? e.message : e,
+            );
             return null;
         }
     };

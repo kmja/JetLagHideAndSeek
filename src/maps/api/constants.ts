@@ -30,8 +30,10 @@ const DEFAULT_OVERPASS_API = `${JLHS_WORKER_BASE}/api/interpreter`;
  *  sign up. See overpass-cache/src/journey.ts for the impl. */
 const DEFAULT_JOURNEY_API = `${JLHS_WORKER_BASE}/api/journey/arrivals`;
 const DEFAULT_OVERPASS_API_FALLBACK =
-    "https://overpass.private.coffee/api/interpreter";
+    "https://overpass-api.de/api/interpreter";
 const DEFAULT_OVERPASS_API_TERTIARY =
+    "https://overpass.private.coffee/api/interpreter";
+const DEFAULT_OVERPASS_API_QUATERNARY =
     "https://overpass.kumi.systems/api/interpreter";
 
 function readOverride(key: string, fallback: string): string {
@@ -60,6 +62,10 @@ export const JOURNEY_API = readOverride(
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",
     DEFAULT_OVERPASS_API_TERTIARY,
+);
+export const OVERPASS_API_QUATERNARY = readOverride(
+    "jlhs:overpassApiQuaternary",
+    DEFAULT_OVERPASS_API_QUATERNARY,
 );
 export const GEOCODER_API = "https://photon.komoot.io/api/";
 export const PASTEBIN_API_POST_URL =
