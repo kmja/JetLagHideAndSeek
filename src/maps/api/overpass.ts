@@ -27,6 +27,10 @@ import {
     OVERPASS_API_QUATERNARY,
     OVERPASS_API_TERTIARY,
 } from "./constants";
+import {
+    extractBoundaryRelationId,
+    fetchBoundaryAsOverpassShape,
+} from "./polygonsOsmFr";
 import type {
     EncompassingTentacleQuestionSchema,
     HomeGameMatchingQuestions,
@@ -57,6 +61,16 @@ export const getOverpassData = async (
     const tertiaryUrl = `${OVERPASS_API_TERTIARY}?data=${encodedQuery}`;
     const quaternaryUrl = `${OVERPASS_API_QUATERNARY}?data=${encodedQuery}`;
     const allUrls = [primaryUrl, fallbackUrl, tertiaryUrl, quaternaryUrl];
+
+    // Fast-path racer: if this is a simple relation-boundary
+    // fetch (the heavy hitter for play-area loading), also race
+    // polygons.openstreetmap.fr in parallel. Their pre-computed
+    // polygons return in 1-5 s even for monsters like Shanghai
+    // / Tokyo that bring Overpass to its knees AND blow past
+    // the per-IP rate limit. Returns null silently if the
+    // relation isn't a boundary or the query is anything more
+    // complex; in that case only the four Overpass mirrors race.
+    const fastPathRelationId = extractBoundaryRelationId(query);
 
     // Wrap a cacheFetch in a Promise that resolves to either a
     // successful Response or null. Never throws. Each branch
@@ -116,21 +130,57 @@ export const getOverpassData = async (
     // upstream connections per query. Overpass mirrors don't
     // mind being asked nicely, and we only race for boundary
     // fetches that the user is actively waiting on.
-    const winner = await raceUntilFirstSuccess(allUrls, tryFetch);
+    // Build the racers. Each is a thunk that resolves to a
+    // Response (or null on failure). The Overpass racers go
+    // through cacheFetch (cache-aware, timeout-managed); the
+    // polygons.osm.fr racer wraps its JSON in a Response so the
+    // downstream code path doesn't care which mirror won.
+    type Racer = () => Promise<Response | null>;
+    const racers: Array<{ name: string; run: Racer }> = allUrls.map(
+        (url) => ({
+            name: url.replace(/^https?:\/\//, "").split("/")[0],
+            run: () => tryFetch(url),
+        }),
+    );
+    if (fastPathRelationId !== null) {
+        racers.unshift({
+            name: "polygons.osm.fr",
+            run: async () => {
+                const t0 = Date.now();
+                const json = await fetchBoundaryAsOverpassShape(
+                    fastPathRelationId,
+                );
+                const ms = Date.now() - t0;
+                if (!json) {
+                    console.warn(
+                        `[overpass] polygons.osm.fr no-data (${ms}ms)`,
+                    );
+                    return null;
+                }
+                console.log(
+                    `[overpass] polygons.osm.fr OK (${ms}ms)`,
+                );
+                return new Response(JSON.stringify(json), {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                });
+            },
+        });
+    }
+
+    const winner = await raceUntilFirstSuccessGeneric(racers);
 
     if (winner) {
         // Best-effort: warm the cache key for the primary URL so
         // a subsequent identical fetch shortcuts even if the
         // winning mirror wasn't primary.
-        if (winner.url !== primaryUrl) {
-            try {
-                const cache = await determineCache(cacheType);
-                await cache.put(primaryUrl, winner.response.clone());
-            } catch {
-                /* no-op */
-            }
+        try {
+            const cache = await determineCache(cacheType);
+            await cache.put(primaryUrl, winner.clone());
+        } catch {
+            /* no-op */
         }
-        return await winner.response.json();
+        return await winner.json();
     }
 
     toast.error(
@@ -151,20 +201,19 @@ export const getOverpassData = async (
  * circuit on the fastest 503 / network error and miss a slower
  * mirror that's actually working. We need first-SUCCESS-wins.
  */
-async function raceUntilFirstSuccess(
-    urls: string[],
-    worker: (url: string) => Promise<Response | null>,
-): Promise<{ url: string; response: Response } | null> {
+async function raceUntilFirstSuccessGeneric(
+    racers: Array<{ name: string; run: () => Promise<Response | null> }>,
+): Promise<Response | null> {
     return new Promise((resolve) => {
-        let pending = urls.length;
+        let pending = racers.length;
         let resolved = false;
-        urls.forEach((url) => {
-            worker(url).then(
+        racers.forEach(({ run }) => {
+            run().then(
                 (r) => {
                     if (resolved) return;
                     if (r) {
                         resolved = true;
-                        resolve({ url, response: r });
+                        resolve(r);
                         return;
                     }
                     if (--pending === 0) resolve(null);
@@ -228,15 +277,16 @@ export const determineGeoJSON = async (
         query,
         silent ? undefined : "Loading map data...",
         CacheType.PERMANENT_CACHE,
-        // 15 s per mirror. Used to be 45 s, but with the race
-        // (all three mirrors fire in parallel — see
-        // getOverpassData) the timeout governs how long a
-        // genuinely-hung mirror keeps a connection slot before
-        // we give up and let the others compete. 15 s comfortably
-        // covers Overpass's server-side compute for normal-sized
-        // boundaries (Stockholm Län, etc.) without making the
-        // user wait minutes on an unresponsive mirror.
-        15_000,
+        // 30 s per mirror. With the race (all four Overpass
+        // mirrors plus polygons.openstreetmap.fr fire in parallel
+        // — see getOverpassData) the fastest healthy mirror wins
+        // anyway; this timeout governs how long a genuinely-hung
+        // one keeps its connection slot. 30 s gives Shanghai-
+        // scale relations on the public mirrors a fighting
+        // chance — those routinely take 20-25 s of server compute
+        // even on a fresh slot. polygons.osm.fr usually beats
+        // them all to 1-3 s when it has data.
+        30_000,
         reportProgress,
         progressLabel,
     );
