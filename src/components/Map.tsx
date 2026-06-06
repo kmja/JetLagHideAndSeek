@@ -266,6 +266,7 @@ export function Map({ className }: MapProps) {
     const $questions = useStore(questions);
     useStore(triggerLocalRefresh); // subscribe to manual re-render kicks
     const $savedViewport = useStore(mapLibreViewport);
+    const $setupCompleted = useStore(setupCompleted);
 
     const mapRef = useRef<MapRef | null>(null);
 
@@ -419,7 +420,19 @@ export function Map({ className }: MapProps) {
         return () => {
             cancelled = true;
         };
-    }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON]);
+        // setupCompleted MUST be in the deps so the wizard's
+        // typical write order (mapGeoLocation set first, then
+        // setupCompleted flipped to true a tick later) re-fires
+        // this effect on the second write. Without that dep the
+        // first invocation early-bails because the gate is still
+        // false, and the second write never wakes us up — which
+        // was the v86 'still stalls at fetching boundary' bug.
+    }, [
+        $mapGeoLocation?.properties,
+        $mapGeoJSON,
+        $polyGeoJSON,
+        $setupCompleted,
+    ]);
 
     // Pending-question dashed outlines + post-elimination mask.
     // applyQuestionsToMapGeoData walks each question and either
