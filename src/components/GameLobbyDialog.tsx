@@ -1,17 +1,21 @@
 import { useStore } from "@nanostores/react";
+import { bbox } from "@turf/turf";
 import {
+    ArrowRight,
     Check,
+    Clock,
     Copy,
     Eye,
+    EyeOff,
     Loader2,
     LogOut,
     MapPin,
     Share2,
-    Users,
     X,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
+import MapGL, { Layer, Source } from "react-map-gl/maplibre";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
@@ -55,7 +59,6 @@ import { cn } from "@/lib/utils";
 import {
     HideSeekMark,
     HideSeekWordmark,
-    RoleChip,
 } from "./JetLagLogo";
 
 /**
@@ -284,32 +287,20 @@ export function GameLobbyDialog() {
                     "flex flex-col p-0 gap-0 sm:max-w-md",
                 )}
             >
-                {/* Compact header — one row only. Drops the big
-                    'Ready to play' title (the whole dialog already
-                    says that contextually) and the duplicate play-
-                    area text below it. Mark + wordmark + room code
-                    + role chip on one line; the body owns the
-                    actually-actionable content. */}
+                {/* Minimal header — just the brand mark + wordmark.
+                    No role chip (the icons in the roster carry the
+                    role identity now) and no room code chip (it's
+                    moved down into the share section so it sits
+                    next to the QR + 'share to invite' affordances).
+                    A text recap only appears while the map is still
+                    loading — once the boundary is in, the mini-map
+                    below carries the settings visually. */}
                 <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border">
                     <div className="flex items-center gap-2">
                         <HideSeekMark size={26} onDark />
                         <HideSeekWordmark />
-                        {$code && (
-                            <span className="ml-2 font-display font-black uppercase tabular-nums tracking-[0.12em] text-base text-primary leading-none">
-                                {$code}
-                            </span>
-                        )}
-                        {$playerRole && (
-                            <div className="ml-auto">
-                                <RoleChip role={$playerRole} />
-                            </div>
-                        )}
                     </div>
-                    {/* Single one-liner recap. Replaces three
-                        separate places where these settings were
-                        repeated (header title, body text, map
-                        loader title). */}
-                    {$playArea && (
+                    {$playArea && (!mapReady || isHiderRole) && (
                         <div className="mt-2 text-xs text-muted-foreground leading-snug">
                             <span className="font-semibold text-white">
                                 {$playArea.displayName.split(",")[0]}
@@ -385,6 +376,10 @@ export function GameLobbyDialog() {
                                 participants={seekers}
                                 selfId={$self}
                                 hostId={hostId}
+                                selfRole={$playerRole}
+                                onSwitchRole={() =>
+                                    rolePickerOpen.set(true)
+                                }
                             />
                             <RosterCard
                                 label={`Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
@@ -396,6 +391,10 @@ export function GameLobbyDialog() {
                                 mainHiderId={hider?.id ?? null}
                                 selfId={$self}
                                 hostId={hostId}
+                                selfRole={$playerRole}
+                                onSwitchRole={() =>
+                                    rolePickerOpen.set(true)
+                                }
                                 showPromote={
                                     $playerRole === "hider" &&
                                     !!hider &&
@@ -413,21 +412,55 @@ export function GameLobbyDialog() {
                         </p>
                     )}
 
-                    {/* Share row — single button. Tap opens a
-                        nested dialog with the QR code + copy link.
-                        Keeps the lobby height in check and pushes
-                        the actionable surface (Start button)
-                        further up the screen. */}
+                    {/* Mini map — once the boundary's in, swap the
+                        loader for a tiny preview of the play area.
+                        Doubles as the visual home for the rest of
+                        the settings (location pin, hide-period
+                        chip, transit chips) which were previously
+                        repeated three times across the dialog. The
+                        text recap at the top is hidden once this
+                        appears so we don't say the same things
+                        twice. */}
+                    {!isHiderRole && mapReady && $playArea && (
+                        <LobbyMiniMap
+                            boundary={$mapGeoJSON || $polyGeoJSON}
+                            areaName={
+                                $playArea.displayName.split(",")[0]
+                            }
+                            minutes={minutes}
+                            transits={$allowedTransit}
+                        />
+                    )}
+
+                    {/* Share / room code card. The room code now
+                        lives here (out of the header) so it sits
+                        next to the share affordances it's part of.
+                        Tap anywhere on the card to open the QR
+                        dialog. */}
                     {$mp && $code && (
-                        <Button
-                            variant="outline"
-                            size="sm"
+                        <button
+                            type="button"
                             onClick={() => setShareDialogOpen(true)}
-                            className="w-full gap-1.5 h-9"
+                            className={cn(
+                                "w-full text-left rounded-md border border-border bg-secondary/40",
+                                "px-3 py-2.5 flex items-center gap-3",
+                                "hover:bg-secondary/60 transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                            )}
                         >
-                            <Share2 className="w-3.5 h-3.5" />
-                            Share invite
-                        </Button>
+                            <div className="flex-1 min-w-0">
+                                <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground leading-none">
+                                    Room code
+                                </div>
+                                <div className="font-display font-black uppercase text-xl tabular-nums tracking-[0.10em] leading-none mt-1 text-primary">
+                                    {$code}
+                                </div>
+                                <div className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                                    Tap to show a QR or share the link.
+                                </div>
+                            </div>
+                            <Share2 className="w-5 h-5 text-muted-foreground shrink-0" />
+                        </button>
                     )}
 
                     {/* Compact map-load status — seeker hosts only.
@@ -547,16 +580,10 @@ export function GameLobbyDialog() {
                             )}
                         </div>
                     )}
-                    {$mp && $code && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => rolePickerOpen.set(true)}
-                            className="w-full gap-1.5 text-muted-foreground"
-                        >
-                            Switch role
-                        </Button>
-                    )}
+                    {/* Switch role moved inline into the roster row
+                        next to '(you)' — see RosterCard's SwitchRoleButton.
+                        Keeps the lobby's footer clean and the affordance
+                        co-located with the user's own name. */}
                     {$mp && $code && (
                         <Button
                             variant="ghost"
@@ -668,6 +695,135 @@ export function GameLobbyDialog() {
     );
 }
 
+/** Mini play-area preview shown in the lobby once the boundary
+ *  is loaded. The map itself is the home for the rest of the
+ *  game settings (location name top-left, hide-duration top-
+ *  right, transit chips along the bottom) — replaces the
+ *  separate text recap above. Non-interactive: dragging /
+ *  zooming would only confuse the lobby state. */
+function LobbyMiniMap({
+    boundary,
+    areaName,
+    minutes,
+    transits,
+}: {
+    boundary: GeoJSON.FeatureCollection | null;
+    areaName: string;
+    minutes: number;
+    transits: import("@/lib/gameSetup").TransitMode[];
+}) {
+    const bounds = useMemo(() => {
+        if (!boundary || !boundary.features?.length) return null;
+        try {
+            const b = bbox(boundary);
+            // bbox returns [minLng, minLat, maxLng, maxLat]. Pad
+            // a few percent so the polygon outline isn't pressed
+            // against the edges.
+            const padLng = (b[2] - b[0]) * 0.08;
+            const padLat = (b[3] - b[1]) * 0.08;
+            return {
+                minLng: b[0] - padLng,
+                minLat: b[1] - padLat,
+                maxLng: b[2] + padLng,
+                maxLat: b[3] + padLat,
+            };
+        } catch {
+            return null;
+        }
+    }, [boundary]);
+    return (
+        <div className="relative h-32 rounded-md overflow-hidden border border-border">
+            {bounds && boundary && (
+                <MapGL
+                    initialViewState={{
+                        bounds: [
+                            [bounds.minLng, bounds.minLat],
+                            [bounds.maxLng, bounds.maxLat],
+                        ],
+                        fitBoundsOptions: { padding: 8 },
+                    }}
+                    style={{ width: "100%", height: "100%" }}
+                    interactive={false}
+                    attributionControl={false}
+                    dragRotate={false}
+                    pitchWithRotate={false}
+                    mapStyle={{
+                        version: 8,
+                        sources: {
+                            base: {
+                                type: "raster",
+                                tiles: [
+                                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                                    "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                                ],
+                                tileSize: 256,
+                            },
+                        },
+                        layers: [
+                            {
+                                id: "base",
+                                type: "raster",
+                                source: "base",
+                            },
+                        ],
+                    }}
+                >
+                    <Source
+                        id="lobby-boundary"
+                        type="geojson"
+                        data={boundary}
+                    >
+                        <Layer
+                            id="lobby-boundary-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color": "hsl(2, 70%, 54%)",
+                                "fill-opacity": 0.14,
+                            }}
+                        />
+                        <Layer
+                            id="lobby-boundary-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(2, 70%, 54%)",
+                                "line-width": 2,
+                                "line-opacity": 0.9,
+                            }}
+                        />
+                    </Source>
+                </MapGL>
+            )}
+            {/* Setting chips, overlaid on the map. Each pill has
+                its own translucent dark background so it stays
+                legible regardless of what tiles are under it. */}
+            <div className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-[3px] bg-black/60 backdrop-blur-sm px-1.5 py-0.5 text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-white leading-none">
+                <MapPin className="w-2.5 h-2.5 shrink-0" />
+                <span className="truncate max-w-[140px]">
+                    {areaName}
+                </span>
+            </div>
+            <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-[3px] bg-black/60 backdrop-blur-sm px-1.5 py-0.5 text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-white leading-none">
+                <Clock className="w-2.5 h-2.5 shrink-0" />
+                <span>{minutes}-min hide</span>
+            </div>
+            {transits.length > 0 && (
+                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex flex-wrap gap-1">
+                    {transits.map((m) => (
+                        <span
+                            key={m}
+                            className="rounded-[3px] bg-black/60 backdrop-blur-sm px-1.5 py-0.5 text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-white leading-none"
+                        >
+                            {TRANSIT_LABELS[m]}
+                        </span>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 /** Three-dot ellipsis with a left-to-right fade animation. Used
  *  in disabled Start-button labels so 'Loading map…' /
  *  'Waiting for players…' read as active-but-waiting rather
@@ -724,6 +880,8 @@ function RosterCard({
     selfId,
     hostId,
     mainHiderId,
+    selfRole,
+    onSwitchRole,
     showPromote = false,
     onPromote,
 }: {
@@ -739,26 +897,52 @@ function RosterCard({
     hostId: string | null;
     /** When set, the row matching this id wears the MAIN badge. */
     mainHiderId?: string | null;
+    /** The local player's current role — used by the inline
+     *  switch-role affordance to decide what the button means
+     *  (only shown on the row that IS the local player). */
+    selfRole?: "seeker" | "hider" | "coHider" | null;
+    /** Open the role picker. Wired so the switch-role button can
+     *  live inline next to the local player's own name. */
+    onSwitchRole?: () => void;
     /** Show a "Promote" button next to co-hiders (gated on the
      *  caller already confirming the local player can act). */
     showPromote?: boolean;
     onPromote?: (id: string) => void;
 }) {
-    const dotColor =
+    // Identity is carried by icon + (for hiders) a subtle dim,
+    // not a brand-coloured dot — the role colors were colliding
+    // with the question-category palette downstream. Hiders get
+    // a slightly more muted card background + a darker EyeOff
+    // icon to read as 'in the shadows'.
+    const RoleIcon = tone === "seeker" ? Eye : EyeOff;
+    const cardCls =
         tone === "seeker"
-            ? "bg-primary"
-            : "bg-[hsl(var(--accent-yellow))]";
+            ? "bg-secondary/40 border-border"
+            : "bg-secondary/20 border-border/70";
+    const iconCls =
+        tone === "seeker"
+            ? "text-muted-foreground"
+            : "text-muted-foreground/60";
     return (
-        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 space-y-1.5">
+        <div
+            className={cn(
+                "rounded-md border px-3 py-2 space-y-1.5",
+                cardCls,
+            )}
+        >
             <div className="flex items-center gap-1.5">
-                <span
-                    className={cn(
-                        "inline-block w-2 h-2 rounded-full shrink-0",
-                        dotColor,
-                    )}
+                <RoleIcon
+                    className={cn("w-3.5 h-3.5 shrink-0", iconCls)}
                     aria-hidden
                 />
-                <span className="text-[10px] uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
+                <span
+                    className={cn(
+                        "text-[10px] uppercase tracking-[0.12em] font-display font-extrabold",
+                        tone === "seeker"
+                            ? "text-muted-foreground"
+                            : "text-muted-foreground/80",
+                    )}
+                >
                     {label}
                 </span>
             </div>
@@ -813,6 +997,41 @@ function RosterCard({
                                             (you)
                                         </span>
                                     )}
+                                    {/* Inline switch-role affordance.
+                                        Only on the local player's
+                                        row. The label hints the
+                                        destination team, the arrow
+                                        sells it as 'jump across'. */}
+                                    {isMe &&
+                                        onSwitchRole &&
+                                        (() => {
+                                            const goingToHider =
+                                                selfRole === "seeker";
+                                            const DestIcon = goingToHider
+                                                ? EyeOff
+                                                : Eye;
+                                            const destLabel = goingToHider
+                                                ? "Hiders"
+                                                : "Seekers";
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    onClick={onSwitchRole}
+                                                    className={cn(
+                                                        "ml-1 inline-flex items-center gap-1 rounded-[3px]",
+                                                        "px-1.5 py-[1px] text-[10px] uppercase tracking-[0.1em]",
+                                                        "font-display font-extrabold leading-none",
+                                                        "text-muted-foreground hover:text-white",
+                                                        "border border-border/60 hover:border-border",
+                                                        "transition-colors",
+                                                    )}
+                                                    title={`Switch to ${destLabel}`}
+                                                >
+                                                    <ArrowRight className="w-2.5 h-2.5" />
+                                                    <DestIcon className="w-2.5 h-2.5" />
+                                                </button>
+                                            );
+                                        })()}
                                 </span>
                                 {showPromote &&
                                     isCoHider &&
