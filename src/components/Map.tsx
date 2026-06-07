@@ -339,20 +339,46 @@ export function Map({ className }: MapProps) {
             | { extent?: [number, number, number, number] }
             | undefined;
         const extent = props?.extent;
-        if (!extent) return;
-        const [maxLat, minLng, minLat, maxLng] = extent;
+        let bounds:
+            | [[number, number], [number, number]]
+            | null = null;
+        if (extent) {
+            const [maxLat, minLng, minLat, maxLng] = extent;
+            bounds = [
+                [minLng, minLat],
+                [maxLng, maxLat],
+            ];
+        } else if ($mapGeoJSON || $polyGeoJSON) {
+            // Fallback: if mapGeoLocation didn't carry an extent
+            // (e.g. a guest-joined session where the host's push
+            // only included playArea / displayName + coords),
+            // center on the boundary's own bbox once it loads.
+            // Without this the map sat at the default world view
+            // zoom 2 and the user saw a uniform blue — the
+            // tile-layer's pacific ocean — instead of the play
+            // area they joined (v98 user report).
+            try {
+                const fc = ($mapGeoJSON || $polyGeoJSON) as
+                    | GeoJSON.FeatureCollection
+                    | null;
+                if (fc) {
+                    const b = turf.bbox(fc);
+                    bounds = [
+                        [b[0], b[1]],
+                        [b[2], b[3]],
+                    ];
+                }
+            } catch (e) {
+                console.warn("Map bbox fallback failed:", e);
+            }
+        }
+        if (!bounds) return;
         try {
-            map.fitBounds(
-                [
-                    [minLng, minLat],
-                    [maxLng, maxLat],
-                ],
-                { padding: 24, duration: 600 },
-            );
+            map.fitBounds(bounds, { padding: 24, duration: 600 });
         } catch (e) {
             console.warn("Map fitBounds failed:", e);
         }
-    }, [$mapGeoLocation?.properties]);
+    }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON]);
 
     // Boundary fetch trigger. The old Leaflet Map.tsx owned this
     // flow inside a `refreshQuestions()` helper; when v80 retired

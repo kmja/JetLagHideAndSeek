@@ -93,9 +93,14 @@ ${relationBlocks}
 out skel geom;
 `;
     }
+    // No loadingText: the toggle button in MapDisplayControls
+    // already renders a spinner for the in-flight mode (driven
+    // by transitRoutesLoading). A toast on top of that just
+    // double-counts the loading state and competes for the
+    // notification area.
     return await getOverpassData(
         query,
-        `Loading ${routeType} routes…`,
+        undefined,
         CacheType.ZONE_CACHE,
         190_000,
     );
