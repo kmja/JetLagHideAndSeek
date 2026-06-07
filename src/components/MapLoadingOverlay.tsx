@@ -8,6 +8,7 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import { setupCompleted } from "@/lib/gameSetup";
 import {
     estimateEtaMs,
     formatBytes,
@@ -27,9 +28,14 @@ import { cn } from "@/lib/utils";
  *      / ETA (e.g. determineMapBoundaries).
  *
  *   2. Implicit fallback: `mapGeoJSON` is null AND `polyGeoJSON`
- *      is null AND `mapGeoLocation` points at a real OSM relation.
- *      Covers the cold-start case where the boundary load hasn't
- *      called startLoading yet.
+ *      is null AND `mapGeoLocation` points at a real OSM relation
+ *      AND the wizard has been completed. Covers the cold-start
+ *      case where the boundary load hasn't called startLoading
+ *      yet. The setupCompleted gate matters: mapGeoLocation
+ *      defaults to Japan (the persistent atom's initial value)
+ *      on a fresh load, so without it the overlay would flash
+ *      'Loading Japan' for a frame between mount and the welcome
+ *      dialog rendering on top of it.
  *
  * In the explicit case we render byte progress + ETA where
  * available; in the implicit case we fall back to the old "Loading
@@ -41,6 +47,7 @@ export function MapLoadingOverlay() {
     const $mapGeoLocation = useStore(mapGeoLocation);
     const $progress = useStore(loadingProgress);
     const $pieces = useStore(loadingPieces);
+    const $setupCompleted = useStore(setupCompleted);
 
     // 1 Hz tick so the elapsed + ETA labels update while we sit on
     // the overlay. Gated on the overlay being meaningful + the tab
@@ -50,7 +57,8 @@ export function MapLoadingOverlay() {
     const shouldTick =
         $progress !== null ||
         (!($mapGeoJSON || $polyGeoJSON) &&
-            ($mapGeoLocation?.properties?.osm_id ?? 0) > 0);
+            ($mapGeoLocation?.properties?.osm_id ?? 0) > 0 &&
+            $setupCompleted);
     useVisibleInterval(() => setNow(Date.now()), 1000, shouldTick);
 
     const haveBoundary = Boolean($mapGeoJSON || $polyGeoJSON);
@@ -58,9 +66,14 @@ export function MapLoadingOverlay() {
         ($mapGeoLocation?.properties?.osm_id ?? 0) > 0;
 
     // Show overlay when EITHER explicit progress is reported OR
-    // we're cold-loading a boundary.
+    // we're cold-loading a boundary AFTER the wizard has been
+    // committed. Without setupCompleted, the implicit branch
+    // would fire on the default mapGeoLocation (Japan) during
+    // first paint and flash a 'Loading Japan' veil before the
+    // welcome dialog rendered on top.
     const shouldShow =
-        $progress !== null || (!haveBoundary && haveValidLocation);
+        $progress !== null ||
+        (!haveBoundary && haveValidLocation && $setupCompleted);
 
     if (!shouldShow) return null;
 
