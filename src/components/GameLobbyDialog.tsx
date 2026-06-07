@@ -8,7 +8,6 @@ import {
     Loader2,
     LogOut,
     MapPin,
-    QrCode,
     Search,
     Share2,
     VenetianMask,
@@ -233,7 +232,6 @@ export function GameLobbyDialog() {
     }, [$code]);
 
     const [copied, setCopied] = useState(false);
-    const [shareDialogOpen, setShareDialogOpen] = useState(false);
     const handleCopy = async () => {
         if (!shareUrl) return;
         try {
@@ -490,13 +488,13 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Share / room code card. Room code top, an
-                        explainer line, then the two primary
-                        actions (Copy + Share) directly in the
-                        main dialog so an OS share sheet is one
-                        tap away — no nested dialog detour. The
-                        QR icon next to them opens the small
-                        QR-only dialog for in-person scanning. */}
+                    {/* Share / room code card. Room code + an
+                        inline QR on the far right form the header
+                        row; Copy + Share live directly underneath.
+                        The QR is always visible (no nested dialog
+                        detour) — small enough to keep the lobby
+                        compact, large enough to scan from a phone
+                        held a few inches away. */}
                     {$mp && $code && (
                         <div
                             className={cn(
@@ -504,17 +502,34 @@ export function GameLobbyDialog() {
                                 "px-3 py-2.5 space-y-2",
                             )}
                         >
-                            <div>
-                                <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground leading-none">
-                                    Room code
+                            <div className="flex items-start gap-3">
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground leading-none">
+                                        Room code
+                                    </div>
+                                    <div className="font-display font-black uppercase text-xl tabular-nums tracking-[0.10em] leading-none mt-1 text-primary">
+                                        {$code}
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground mt-1 leading-snug">
+                                        Share the code or link to
+                                        invite friends.
+                                    </div>
                                 </div>
-                                <div className="font-display font-black uppercase text-xl tabular-nums tracking-[0.10em] leading-none mt-1 text-primary">
-                                    {$code}
-                                </div>
-                                <div className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                                    Share the code or link to invite
-                                    friends.
-                                </div>
+                                {shareUrl && (
+                                    <div
+                                        className="bg-white rounded-[3px] p-1 shrink-0"
+                                        aria-label="Scan to join this game"
+                                    >
+                                        <QRCodeSVG
+                                            value={shareUrl}
+                                            size={76}
+                                            level="M"
+                                            marginSize={0}
+                                            bgColor="#ffffff"
+                                            fgColor="#0f172a"
+                                        />
+                                    </div>
+                                )}
                             </div>
                             <div className="flex gap-1.5">
                                 <Button
@@ -537,16 +552,6 @@ export function GameLobbyDialog() {
                                 >
                                     <Share2 className="w-3.5 h-3.5" />
                                     Share
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => setShareDialogOpen(true)}
-                                    className="px-2.5"
-                                    title="Show QR code"
-                                    aria-label="Show QR code"
-                                >
-                                    <QrCode className="w-3.5 h-3.5" />
                                 </Button>
                             </div>
                         </div>
@@ -672,51 +677,9 @@ export function GameLobbyDialog() {
                 </div>
             </DialogContent>
 
-            {/* Nested QR dialog. Now scoped to JUST the QR code —
-                Copy + Share are exposed directly in the main
-                lobby card so the share action is one tap, not
-                two. The QR is the only thing that actually needs
-                space the lobby can't spare. */}
-            <Dialog
-                open={shareDialogOpen}
-                onOpenChange={setShareDialogOpen}
-            >
-                <DialogContent
-                    className={cn(
-                        "!bg-[hsl(var(--sidebar-background))] !text-white",
-                        "flex flex-col p-0 gap-0 sm:max-w-sm",
-                    )}
-                >
-                    <div className="px-5 pt-4 pb-3 border-b border-border">
-                        <DialogTitle className="font-display font-black uppercase text-base tracking-wide">
-                            Scan to join
-                        </DialogTitle>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                            Room code{" "}
-                            <span className="font-display font-black uppercase text-primary tracking-[0.12em]">
-                                {$code}
-                            </span>
-                        </div>
-                    </div>
-                    <div className="px-5 pt-4 pb-5">
-                        {shareUrl && (
-                            <div
-                                className="mx-auto flex items-center justify-center bg-white rounded-md p-3"
-                                aria-label="Scan to join this game"
-                            >
-                                <QRCodeSVG
-                                    value={shareUrl}
-                                    size={232}
-                                    level="M"
-                                    marginSize={0}
-                                    bgColor="#ffffff"
-                                    fgColor="#0f172a"
-                                />
-                            </div>
-                        )}
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {/* QR-only nested dialog deleted in v99 — the QR
+                now lives inline in the room-code card so opening
+                a sub-dialog to see it would be a regression. */}
         </Dialog>
     );
 }
