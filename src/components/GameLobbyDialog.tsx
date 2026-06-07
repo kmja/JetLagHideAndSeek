@@ -5,13 +5,13 @@ import {
     Check,
     Clock,
     Copy,
-    Eye,
-    EyeOff,
     Loader2,
     LogOut,
     MapPin,
     QrCode,
+    Search,
     Share2,
+    VenetianMask,
     X,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -422,15 +422,72 @@ export function GameLobbyDialog() {
                         text recap at the top is hidden once this
                         appears so we don't say the same things
                         twice. */}
-                    {!isHiderRole && mapReady && $playArea && (
-                        <LobbyMiniMap
-                            boundary={$mapGeoJSON || $polyGeoJSON}
-                            areaName={
-                                $playArea.displayName.split(",")[0]
-                            }
-                            minutes={minutes}
-                            transits={$allowedTransit}
-                        />
+                    {/* Map slot — fixed-size square area that holds
+                        the loading state first and the mini-map
+                        result second. Same width × height in both
+                        states so the surrounding content never
+                        jumps as the boundary lands. Hider hosts
+                        skip the slot entirely since their page
+                        doesn't load the boundary. */}
+                    {!isHiderRole && (
+                        <div className="aspect-square w-full max-w-[260px] mx-auto rounded-md overflow-hidden border border-border bg-secondary/40 relative">
+                            {mapReady && $playArea ? (
+                                <LobbyMiniMap
+                                    boundary={
+                                        $mapGeoJSON || $polyGeoJSON
+                                    }
+                                    areaName={
+                                        $playArea.displayName.split(
+                                            ",",
+                                        )[0]
+                                    }
+                                    minutes={minutes}
+                                    transits={$allowedTransit}
+                                />
+                            ) : (
+                                <div className="absolute inset-0 flex flex-col px-3 py-2.5 gap-2 overflow-hidden">
+                                    <div className="flex items-center gap-2">
+                                        <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
+                                        <div className="text-xs truncate flex-1">
+                                            {$loading?.phase ??
+                                                "Fetching boundary…"}
+                                        </div>
+                                    </div>
+                                    {$pieces.length > 0 && (
+                                        <ul className="flex flex-col gap-0.5 overflow-y-auto pt-1 border-t border-border/50 flex-1 min-h-0">
+                                            {$pieces.map((p) => (
+                                                <li
+                                                    key={p.id}
+                                                    className="flex items-center justify-between gap-2 text-[11px]"
+                                                >
+                                                    <span className="flex items-center gap-1.5 min-w-0">
+                                                        <PieceIcon
+                                                            state={p.state}
+                                                        />
+                                                        <span
+                                                            className={cn(
+                                                                "truncate",
+                                                                p.state ===
+                                                                    "done" &&
+                                                                    "text-muted-foreground line-through decoration-muted-foreground/40",
+                                                                p.state ===
+                                                                    "failed" &&
+                                                                    "text-destructive",
+                                                            )}
+                                                        >
+                                                            {p.label}
+                                                        </span>
+                                                    </span>
+                                                    <span className="tabular-nums text-muted-foreground shrink-0">
+                                                        {pieceStatusLabel(p)}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     {/* Share / room code card. Room code top, an
@@ -495,50 +552,10 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Compact map-load status — seeker hosts only.
-                        Drops the redundant 'Loading play area' title
-                        (the recap above already names it) and the
-                        outer card; just the spinner + phase + the
-                        per-piece list so the user can see progress
-                        without it dominating the screen. */}
-                    {!isHiderRole && !mapReady && (
-                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 space-y-1.5">
-                            <div className="flex items-center gap-2">
-                                <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
-                                <div className="text-xs truncate flex-1">
-                                    {$loading?.phase ?? "Fetching boundary…"}
-                                </div>
-                            </div>
-                            {$pieces.length > 0 && (
-                                <ul className="flex flex-col gap-0.5 max-h-32 overflow-y-auto pt-1 border-t border-border/50">
-                                    {$pieces.map((p) => (
-                                        <li
-                                            key={p.id}
-                                            className="flex items-center justify-between gap-2 text-[11px]"
-                                        >
-                                            <span className="flex items-center gap-1.5 min-w-0">
-                                                <PieceIcon state={p.state} />
-                                                <span
-                                                    className={cn(
-                                                        "truncate",
-                                                        p.state === "done" &&
-                                                            "text-muted-foreground line-through decoration-muted-foreground/40",
-                                                        p.state === "failed" &&
-                                                            "text-destructive",
-                                                    )}
-                                                >
-                                                    {p.label}
-                                                </span>
-                                            </span>
-                                            <span className="tabular-nums text-muted-foreground shrink-0">
-                                                {pieceStatusLabel(p)}
-                                            </span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                    )}
+                    {/* Standalone loading block removed in v97 —
+                        the loading state now lives inside the
+                        fixed-size map slot above, so the dialog
+                        doesn't reflow when the boundary lands. */}
                 </div>
 
                 {/* Start button. Role-independent: a hider host
@@ -741,7 +758,9 @@ function LobbyMiniMap({
         }
     }, [boundary]);
     return (
-        <div className="relative h-32 rounded-md overflow-hidden border border-border">
+        // No outer wrapper — the parent map-slot already provides
+        // fixed-size, border, rounded, overflow. We just fill it.
+        <div className="absolute inset-0">
             {bounds && boundary && (
                 <MapGL
                     initialViewState={{
@@ -920,10 +939,11 @@ function RosterCard({
 }) {
     // Identity is carried by icon + (for hiders) a subtle dim,
     // not a brand-coloured dot — the role colors were colliding
-    // with the question-category palette downstream. Hiders get
-    // a slightly more muted card background + a darker EyeOff
-    // icon to read as 'in the shadows'.
-    const RoleIcon = tone === "seeker" ? Eye : EyeOff;
+    // with the question-category palette downstream. Seeker gets
+    // a magnifying glass; hider gets a venetian half-mask, with
+    // a slightly more muted card background + a dimmer icon
+    // colour to read as 'in the shadows'.
+    const RoleIcon = tone === "seeker" ? Search : VenetianMask;
     const cardCls =
         tone === "seeker"
             ? "bg-secondary/40 border-border"
@@ -1017,8 +1037,8 @@ function RosterCard({
                                             const goingToHider =
                                                 selfRole === "seeker";
                                             const DestIcon = goingToHider
-                                                ? EyeOff
-                                                : Eye;
+                                                ? VenetianMask
+                                                : Search;
                                             const destLabel = goingToHider
                                                 ? "Hiders"
                                                 : "Seekers";

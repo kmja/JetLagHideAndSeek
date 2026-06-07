@@ -8,7 +8,7 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
-import { setupCompleted } from "@/lib/gameSetup";
+import { playArea } from "@/lib/gameSetup";
 import {
     estimateEtaMs,
     formatBytes,
@@ -47,7 +47,7 @@ export function MapLoadingOverlay() {
     const $mapGeoLocation = useStore(mapGeoLocation);
     const $progress = useStore(loadingProgress);
     const $pieces = useStore(loadingPieces);
-    const $setupCompleted = useStore(setupCompleted);
+    const $playArea = useStore(playArea);
 
     // 1 Hz tick so the elapsed + ETA labels update while we sit on
     // the overlay. Gated on the overlay being meaningful + the tab
@@ -58,7 +58,7 @@ export function MapLoadingOverlay() {
         $progress !== null ||
         (!($mapGeoJSON || $polyGeoJSON) &&
             ($mapGeoLocation?.properties?.osm_id ?? 0) > 0 &&
-            $setupCompleted);
+            $playArea !== null);
     useVisibleInterval(() => setNow(Date.now()), 1000, shouldTick);
 
     const haveBoundary = Boolean($mapGeoJSON || $polyGeoJSON);
@@ -73,7 +73,7 @@ export function MapLoadingOverlay() {
     // welcome dialog rendered on top.
     const shouldShow =
         $progress !== null ||
-        (!haveBoundary && haveValidLocation && $setupCompleted);
+        (!haveBoundary && haveValidLocation && $playArea !== null);
 
     if (!shouldShow) return null;
 

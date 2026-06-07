@@ -41,7 +41,7 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { setupCompleted } from "@/lib/gameSetup";
+import { playArea } from "@/lib/gameSetup";
 import {
     mapLibreContext,
     mapLibreViewport,
@@ -266,7 +266,7 @@ export function Map({ className }: MapProps) {
     const $questions = useStore(questions);
     useStore(triggerLocalRefresh); // subscribe to manual re-render kicks
     const $savedViewport = useStore(mapLibreViewport);
-    const $setupCompleted = useStore(setupCompleted);
+    const $playArea = useStore(playArea);
 
     const mapRef = useRef<MapRef | null>(null);
 
@@ -361,10 +361,13 @@ export function Map({ className }: MapProps) {
     // GeoJSON — the MapLoadingOverlay sat on 'Fetching boundary…'
     // forever (v85 user report). Restored as a focused effect
     // here. Gates:
-    //   - setupCompleted: don't kick off before the wizard
-    //     commits a play area. Otherwise the default
-    //     mapGeoLocation (Japan) races the wizard's actual pick
-    //     and we end up loading the wrong region.
+    //   - playArea !== null: the user has explicitly picked an
+    //     area. mapGeoLocation defaults to Japan on a fresh load
+    //     (persistent atom seed); gating on playArea (which
+    //     defaults to null) means we only fetch once the wizard
+    //     has actually committed something — and we fetch as
+    //     soon as it does, not waiting for the user to finish
+    //     the rest of the wizard.
     //   - polyGeoJSONHydrated: the polyGeoJSON atom is
     //     async-hydrated from Cache API on boot; reading too
     //     early gives null and we mistakenly re-fetch a boundary
@@ -378,10 +381,10 @@ export function Map({ className }: MapProps) {
             | undefined;
         if (!($mapGeoLocation && (props?.osm_id ?? 0) > 0)) return;
         if ($mapGeoJSON || $polyGeoJSON) return;
+        if (!$playArea) return;
 
         let cancelled = false;
         (async () => {
-            if (!setupCompleted.get()) return;
             // Wait for the persistent-cache hydration before
             // deciding we have no boundary on disk.
             if (!polyGeoJSONHydrated.get()) {
@@ -420,18 +423,16 @@ export function Map({ className }: MapProps) {
         return () => {
             cancelled = true;
         };
-        // setupCompleted MUST be in the deps so the wizard's
-        // typical write order (mapGeoLocation set first, then
-        // setupCompleted flipped to true a tick later) re-fires
-        // this effect on the second write. Without that dep the
-        // first invocation early-bails because the gate is still
-        // false, and the second write never wakes us up — which
-        // was the v86 'still stalls at fetching boundary' bug.
+        // $playArea is in the deps so the wizard's set-then-set
+        // write order wakes the effect on the playArea-commit
+        // tick rather than the mapGeoLocation-commit tick. Same
+        // logic as v87's $setupCompleted dep, just on the new
+        // gate.
     }, [
         $mapGeoLocation?.properties,
         $mapGeoJSON,
         $polyGeoJSON,
-        $setupCompleted,
+        $playArea,
     ]);
 
     // Pending-question dashed outlines + post-elimination mask.
