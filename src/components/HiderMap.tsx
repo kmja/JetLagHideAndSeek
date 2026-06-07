@@ -106,13 +106,28 @@ export function HiderMap({
         return { lat: 0, lng: 0 };
     }, [question]);
 
-    // Build the GeoJSON for everything that needs to be rendered as a
-    // layer (circle fill, polylines). Markers are rendered as <Marker>
-    // children since react-map-gl handles them outside the GL layer
-    // stack and they're easier to style with raw HTML.
-    const overlay = useMemo(
-        () => buildOverlay(question, hiderPos),
+    // Build the GeoJSON for everything that needs to be rendered as
+    // a layer (circle fill, polylines). Split into two memos so the
+    // question-only pieces (radius circle, thermometer line/arrow,
+    // seeker pins) don't recompute on every GPS tick — which was
+    // forcing the radius circle's Source/Layer pair to rebuild
+    // each watchPosition update, producing a visible flicker on
+    // the hider's view even though the polygon was identical. Now
+    // only the hider-connection lines (which legitimately follow
+    // the hider's pin) re-derive on hiderPos change. Markers are
+    // rendered as <Marker> children since react-map-gl handles
+    // them outside the GL layer stack.
+    const questionGeometry = useMemo(
+        () => buildQuestionGeometry(question),
+        [question],
+    );
+    const hiderConnections = useMemo(
+        () => buildHiderConnections(question, hiderPos),
         [question, hiderPos],
+    );
+    const overlay = useMemo<Overlay>(
+        () => ({ ...questionGeometry, hiderConnections }),
+        [questionGeometry, hiderConnections],
     );
 
     // Fit the camera to contain question geometry + hider pin whenever
@@ -324,15 +339,17 @@ interface Overlay {
     seekerPins: [number, number][];
 }
 
-function buildOverlay(
+/** Question-only geometry — no hider input. Memoised on
+ *  `question` alone so GPS ticks (which only change hiderPos)
+ *  can't force the radius circle / thermometer line to
+ *  recompute and rebuild their GL Source/Layer pair. */
+function buildQuestionGeometry(
     question: Question,
-    hiderPos: { lat: number; lng: number } | null,
-): Overlay {
-    const out: Overlay = {
+): Omit<Overlay, "hiderConnections"> {
+    const out: Omit<Overlay, "hiderConnections"> = {
         radiusCircle: null,
         thermometerLine: null,
         thermometerArrow: null,
-        hiderConnections: null,
         seekerPins: [],
     };
     const d = question.data as Record<string, unknown>;
@@ -349,14 +366,6 @@ function buildOverlay(
             { steps: 64, units: "kilometers" },
         ) as GeoJSON.Feature<GeoJSON.Polygon>;
         out.seekerPins.push([lng, lat]);
-        if (hiderPos) {
-            out.hiderConnections = lineFc([
-                [
-                    [hiderPos.lng, hiderPos.lat],
-                    [lng, lat],
-                ],
-            ]);
-        }
         return out;
     }
 
@@ -382,18 +391,6 @@ function buildOverlay(
             bearing: bearingDeg(latA, lngA, latB, lngB),
         };
         out.seekerPins.push([lngA, latA], [lngB, latB]);
-        if (hiderPos) {
-            out.hiderConnections = lineFc([
-                [
-                    [hiderPos.lng, hiderPos.lat],
-                    [lngA, latA],
-                ],
-                [
-                    [hiderPos.lng, hiderPos.lat],
-                    [lngB, latB],
-                ],
-            ]);
-        }
         return out;
     }
 
@@ -405,17 +402,67 @@ function buildOverlay(
         const lat = d.lat as number;
         const lng = d.lng as number;
         out.seekerPins.push([lng, lat]);
-        if (hiderPos) {
-            out.hiderConnections = lineFc([
-                [
-                    [hiderPos.lng, hiderPos.lat],
-                    [lng, lat],
-                ],
-            ]);
-        }
+        return out;
     }
 
     return out;
+}
+
+/** Hider-only piece — the dashed lines from the hider's pin to
+ *  whichever seeker point(s) the active question references. Re-
+ *  derives on hiderPos change, which is exactly what we want
+ *  here. */
+function buildHiderConnections(
+    question: Question,
+    hiderPos: { lat: number; lng: number } | null,
+): GeoJSON.FeatureCollection<GeoJSON.LineString> | null {
+    if (!hiderPos) return null;
+    const d = question.data as Record<string, unknown>;
+
+    if (question.id === "radius") {
+        const lat = d.lat as number;
+        const lng = d.lng as number;
+        return lineFc([
+            [
+                [hiderPos.lng, hiderPos.lat],
+                [lng, lat],
+            ],
+        ]);
+    }
+
+    if (question.id === "thermometer") {
+        const latA = d.latA as number;
+        const lngA = d.lngA as number;
+        const latB = d.latB as number;
+        const lngB = d.lngB as number;
+        return lineFc([
+            [
+                [hiderPos.lng, hiderPos.lat],
+                [lngA, latA],
+            ],
+            [
+                [hiderPos.lng, hiderPos.lat],
+                [lngB, latB],
+            ],
+        ]);
+    }
+
+    if (
+        question.id === "matching" ||
+        question.id === "measuring" ||
+        question.id === "tentacles"
+    ) {
+        const lat = d.lat as number;
+        const lng = d.lng as number;
+        return lineFc([
+            [
+                [hiderPos.lng, hiderPos.lat],
+                [lng, lat],
+            ],
+        ]);
+    }
+
+    return null;
 }
 
 function lineFc(
