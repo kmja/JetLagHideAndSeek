@@ -124,6 +124,43 @@ export const multiplayerError = atom<{
  */
 export const lobbyManualOpen = atom<boolean>(false);
 
+/**
+ * Latest seeker GPS positions, keyed by participantId. Populated on
+ * the hide-team device when the server fans out `loc` messages from
+ * each seeker (rulebook p5 — seekers share location with the hider).
+ * Transient + per-round; cleared on round-started and on
+ * resetMultiplayerSession.
+ *
+ * `accuracy` is the device-reported GPS accuracy in meters (lower is
+ * better). `ts` is the seeker's local clock at the moment of the fix
+ * so the hider can render "last seen N s ago" without relying on a
+ * round-trip clock.
+ */
+export interface SeekerLocation {
+    lat: number;
+    lng: number;
+    accuracy: number;
+    ts: number;
+}
+
+export const seekerLocations = atom<Record<string, SeekerLocation>>({});
+
+/**
+ * Whether the local device should broadcast its GPS to the hide team
+ * while it's holding the seeker role. Defaults on (the rulebook makes
+ * it expected behaviour) but a privacy escape hatch lives in the
+ * lobby / settings sheet so a player can opt out — e.g. for a
+ * spectator running a debug session on the seeker side.
+ */
+export const seekerLocationSharing = persistentAtom<boolean>(
+    "seekerLocationSharing",
+    true,
+    {
+        encode: (v) => (v ? "1" : "0"),
+        decode: (v) => v !== "0",
+    },
+);
+
 /* ────────────────── Reset helper ────────────────── */
 
 /**
@@ -141,4 +178,5 @@ export function resetMultiplayerSession() {
     transportStatus.set("idle");
     participants.set([]);
     multiplayerError.set(null);
+    seekerLocations.set({});
 }

@@ -8,6 +8,8 @@ import {
     List,
     MoreHorizontal,
     Plus,
+    Radio,
+    RadioReceiver,
     Settings,
     Share2,
     Ship,
@@ -73,6 +75,7 @@ import {
     lobbyManualOpen,
     multiplayerEnabled,
     participants,
+    seekerLocationSharing,
 } from "@/lib/multiplayer/session";
 import {
     hostPushSetup,
@@ -110,6 +113,7 @@ export const BottomNav = () => {
     const [moreOpen, setMoreOpen] = useState(false);
     const $currentGameCode = useStore(currentGameCode);
     const $multiplayerEnabled = useStore(multiplayerEnabled);
+    const $sharing = useStore(seekerLocationSharing);
     const $participants = useStore(participants);
     const [gameSheetOpen, setGameSheetOpen] = useState(false);
     // "Start new round" → rotation dialog gate. Only meaningful in
@@ -481,6 +485,55 @@ export const BottomNav = () => {
                                                     Trigger endgame
                                                 </Button>
                                             )}
+                                        </div>
+                                    )}
+
+                                {/* Location sharing — per rulebook p5 every
+                                    seeker shares their GPS with the hider for
+                                    the round. Default on; toggle off only
+                                    for privacy/debugging. Visible state with
+                                    a Wifi-style chip so the seeker knows
+                                    they're broadcasting. */}
+                                {!hiding &&
+                                    $setupCompleted &&
+                                    $hidingEndsAt !== null &&
+                                    !$foundAt &&
+                                    $multiplayerEnabled && (
+                                        <div className="mt-4">
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    seekerLocationSharing.set(
+                                                        !$sharing,
+                                                    )
+                                                }
+                                                className={cn(
+                                                    "w-full flex items-center gap-2.5",
+                                                    "rounded-md border-2 px-3 py-2.5",
+                                                    "transition-colors text-left",
+                                                    $sharing
+                                                        ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
+                                                        : "border-border bg-secondary/40 text-muted-foreground",
+                                                )}
+                                            >
+                                                {$sharing ? (
+                                                    <Radio className="w-4 h-4 shrink-0 text-emerald-400" />
+                                                ) : (
+                                                    <RadioReceiver className="w-4 h-4 shrink-0" />
+                                                )}
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-[9px] uppercase tracking-[0.18em] font-poppins font-bold">
+                                                        {$sharing
+                                                            ? "Sharing GPS with hider"
+                                                            : "GPS sharing off"}
+                                                    </div>
+                                                    <div className="text-[11px] leading-snug text-muted-foreground">
+                                                        {$sharing
+                                                            ? "The hider sees your live position (rulebook p5). Tap to pause."
+                                                            : "The hider can't see your position. Tap to resume."}
+                                                    </div>
+                                                </div>
+                                            </button>
                                         </div>
                                     )}
 

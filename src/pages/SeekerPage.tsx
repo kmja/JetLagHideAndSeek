@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BottomNav } from "@/components/BottomNav";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
+import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
 // Eager-import the map itself. It's a ~880 KB chunk on its own
 // (maplibre-gl) and was historically wrapped in React.lazy +
 // MapErrorBoundary + lazyWithRetry to handle the deploy-race
@@ -89,6 +90,10 @@ const Welcome = lazyWithRetry(() =>
  * without ceremony.
  */
 export function SeekerPage() {
+    // Stream the local seeker's GPS to the hide team (rulebook p5).
+    // The hook gates on role + multiplayer + sharing toggle + live
+    // game state, so it's a no-op outside an active seeker session.
+    useSeekerLocationBroadcast();
     return (
         <div className="bg-jetlag">
             <SidebarProviderL>

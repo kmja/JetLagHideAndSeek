@@ -306,6 +306,14 @@ export class GameRoom {
                 return this.handleSetHideZone(socket, msg.zone);
             case "startEndgame":
                 return this.handleStartEndgame(socket, msg.at);
+            case "loc":
+                return this.handleSeekerLocation(
+                    socket,
+                    msg.lat,
+                    msg.lng,
+                    msg.accuracy,
+                    msg.ts,
+                );
             case "ping":
                 return this.sendTo(socket, { t: "pong", ts: msg.ts });
             default: {
@@ -670,6 +678,71 @@ export class GameRoom {
     }
 
     /**
+     * Forward a seeker's live GPS to the hide team only. Per rulebook
+     * p5, every seeker shares their location with the hider for the
+     * duration of the round. Seekers don't see each other's locations
+     * through this path (they coordinate out-of-band), so this is a
+     * tightly-scoped fan-out: hider + coHiders only.
+     *
+     * Transient: not stored in GameState, so a hide-team member who
+     * joins after the fact only sees the next position broadcast (not
+     * a backfill). That matches the "live" intent — a several-minutes-
+     * old "last seen" pin from before they connected would be
+     * misleading. A 30 s heartbeat on the seeker side bounds the gap.
+     *
+     * Lightweight rate limit: drop messages whose ts isn't strictly
+     * after the participant's last accepted ts. Combined with the
+     * client-side throttle this caps fan-out at ~1 msg / 5 s / seeker.
+     */
+    private lastLocTs: Map<string, number> = new Map();
+    private handleSeekerLocation(
+        socket: WebSocket,
+        lat: number,
+        lng: number,
+        accuracy: number,
+        ts: number,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        if (
+            typeof lat !== "number" ||
+            typeof lng !== "number" ||
+            typeof accuracy !== "number" ||
+            typeof ts !== "number" ||
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lng) ||
+            !Number.isFinite(accuracy) ||
+            !Number.isFinite(ts)
+        ) {
+            return;
+        }
+        // Drop out-of-order updates (the client may have ticked a new
+        // fix in parallel with a queued one).
+        const prev = this.lastLocTs.get(conn.participantId) ?? 0;
+        if (ts <= prev) return;
+        this.lastLocTs.set(conn.participantId, ts);
+        const msg: ServerMessage = {
+            t: "loc",
+            participantId: conn.participantId,
+            lat,
+            lng,
+            accuracy,
+            ts,
+        };
+        const payload = JSON.stringify(msg);
+        for (const p of this.game.participants) {
+            if (p.role !== "hider" && p.role !== "coHider") continue;
+            const c = this.conns.get(p.id);
+            if (!c) continue;
+            try {
+                c.socket.send(payload);
+            } catch {
+                /* ignore */
+            }
+        }
+    }
+
+    /**
      * Round-rotation: assign the hider role to a different
      * participant. Any participant in the room can trigger this —
      * the UI restricts the call site to the "Start new round"
@@ -718,6 +791,11 @@ export class GameRoom {
         // New round, new hide — drop the old zone secret. The new
         // hider will push a fresh one once they commit it.
         this.hidingZone = null;
+        // Per-participant location-update timestamps are per-round
+        // (the next round's clocks restart). Without clearing, a
+        // stale prev > new ts could swallow the new round's first
+        // GPS broadcast.
+        this.lastLocTs.clear();
         // Announce the new round. Clients apply the roster (role
         // swaps) AND wipe round-scoped local state on this event —
         // see SMsgRoundStarted. A plain snapshot wouldn't do: it also

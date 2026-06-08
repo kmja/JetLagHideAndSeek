@@ -90,6 +90,7 @@ import {
     type FoundStation,
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
+import { SeekerLivePositions } from "./SeekerLivePositions";
 
 // Lazy-load the inline picker — leaflet must stay out of the SSR graph.
 const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
@@ -695,6 +696,11 @@ function SeekingPhaseView({
                 size={size}
             />
 
+            {/* Live seeker positions (rulebook p5). Renders nothing
+                until at least one seeker has broadcast, so it doesn't
+                add an empty placeholder pre-game. */}
+            <SeekerLivePositions />
+
             {/* Hiding zone — locked at this phase; tap "Change" only
                 in rule-bending emergencies. */}
             <HidingZoneSection
@@ -739,6 +745,8 @@ function EndgamePhaseView({
     radiusMeters: number;
     spot: NonNullable<ReturnType<typeof hidingSpot.get>>;
 }) {
+    void zone;
+    void radiusMeters;
     return (
         <>
             {/* Tense elapsed banner — same numbers, different framing */}
@@ -791,19 +799,11 @@ function EndgamePhaseView({
                 </div>
             </section>
 
-            {/* Seeker-position placeholder. Multiplayer live-location
-                isn't wired yet, so we tell the hider what to expect
-                when it is. */}
-            <section className="mt-4 rounded-md border border-dashed border-border px-3 py-3 text-xs text-muted-foreground leading-snug">
-                <span className="font-bold text-foreground">
-                    Seeker position:
-                </span>{" "}
-                not connected yet. When live-share is wired, the
-                seeker&apos;s last reported location will appear on
-                the map above so you can feel the close-in.
-                <br />
-                Zone radius: {(radiusMeters / 1000).toFixed(1)} km.
-            </section>
+            {/* Live seeker positions. Now that the hider is locked
+                to one spot, this panel is the only situational
+                awareness they have for closing distance — surfaces
+                each seeker's last fix and metres-to-zone. */}
+            <SeekerLivePositions />
 
             {/* Question log + hand stay available but quieter */}
             <HiderQuestionLog />

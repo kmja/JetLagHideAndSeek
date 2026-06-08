@@ -57,6 +57,7 @@ import {
     multiplayerEnabled,
     multiplayerError,
     participants,
+    seekerLocations,
     selfParticipantId,
     sessionToken,
     transportStatus,
@@ -290,6 +291,32 @@ export function seekerStartEndgame() {
     getTransport().send({ t: "startEndgame", at });
 }
 
+/**
+ * Push the local seeker's GPS fix to the room. Per rulebook p5 the
+ * hider sees every seeker's live location for the round; this is the
+ * outbound side of that. The server forwards only to hide-team
+ * participants. Fire-and-forget — no ack needed and a missed
+ * broadcast just costs one stale "last seen" tick on the receiver.
+ *
+ * Caller is expected to be the seeker side (the `useSeekerLocation
+ * Broadcast` hook checks `playerRole` and the user-facing share
+ * toggle before invoking).
+ */
+export function seekerPushLocation(
+    lat: number,
+    lng: number,
+    accuracy: number,
+) {
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({
+        t: "loc",
+        lat,
+        lng,
+        accuracy,
+        ts: Date.now(),
+    });
+}
+
 /** Pick a role for *this* device within the current room. */
 export function setOnlineRole(role: "seeker" | "hider" | null) {
     if (!multiplayerEnabled.get()) return;
@@ -471,6 +498,9 @@ function applyRoundStarted(roster: GameState["participants"]) {
     // Endgame flag is per-round — clear it so the new round doesn't
     // open with last round's lockdown banner stuck on.
     endgameStartedAt.set(null);
+    // Per-seeker live positions are scoped to the previous round —
+    // the new round restarts the broadcast.
+    seekerLocations.set({});
     // Apply the new roster + role assignments. Role-changers get
     // navigated to the right surface; same-role players are no-ops
     // here (we already reset their round state above).
@@ -586,6 +616,21 @@ function handleServerMessage(msg: ServerMessage) {
             hidingPeriodEndsAt.set(msg.setup.hidingPeriodEndsAt);
             endgameStartedAt.set(msg.setup.endgameStartedAt);
             return;
+        case "loc": {
+            // Per-seeker GPS update fanned out by the server. Hide
+            // team only — the server gates this, so we just trust it.
+            const curr = seekerLocations.get();
+            seekerLocations.set({
+                ...curr,
+                [msg.participantId]: {
+                    lat: msg.lat,
+                    lng: msg.lng,
+                    accuracy: msg.accuracy,
+                    ts: msg.ts,
+                },
+            });
+            return;
+        }
         case "error":
             console.warn("[multiplayer] server error", msg);
             multiplayerError.set({ code: msg.code, message: msg.message });

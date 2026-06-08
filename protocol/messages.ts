@@ -179,6 +179,28 @@ export interface CMsgStartEndgame {
 }
 
 /**
+ * Seeker → server: live location update. Per rulebook p5, every
+ * seeker is expected to share their location with the hider for the
+ * duration of the round. The app broadcasts the seeker's watchPosition
+ * stream rather than punting to Apple "Find My" / Google live-share.
+ * The server forwards only to the hide team (hider + co-hiders);
+ * other seekers never receive their teammates' locations through
+ * this path (they coordinate out-of-band).
+ *
+ * `ts` is the seeker's local clock at the moment of the GPS fix so
+ * the receiver can show a meaningful "last seen N s ago". Coords are
+ * lat / lng in WGS-84. `accuracy` is the GPS reported accuracy in
+ * meters (lower is better).
+ */
+export interface CMsgSeekerLocation {
+    t: "loc";
+    lat: number;
+    lng: number;
+    accuracy: number;
+    ts: number;
+}
+
+/**
  * Keep-alive — sent periodically by the client. Server responds with
  * `pong`. Used to detect dead connections behind NATs that don't
  * close them cleanly.
@@ -202,6 +224,7 @@ export type ClientMessage =
     | CMsgPromoteCoHider
     | CMsgSetHideZone
     | CMsgStartEndgame
+    | CMsgSeekerLocation
     | CMsgPing;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -311,6 +334,21 @@ export interface SMsgHideZone {
     zone: HidingZoneShare | null;
 }
 
+/**
+ * Server → hide team: a seeker's live location. Forwarded only to
+ * participants whose role is hider or coHider — other seekers don't
+ * see their teammates this way. The `participantId` lets the hider
+ * disambiguate when multiple seekers are pinned on the map.
+ */
+export interface SMsgSeekerLocation {
+    t: "loc";
+    participantId: string;
+    lat: number;
+    lng: number;
+    accuracy: number;
+    ts: number;
+}
+
 /** Keep-alive response. */
 export interface SMsgPong {
     t: "pong";
@@ -328,6 +366,7 @@ export type ServerMessage =
     | SMsgPresence
     | SMsgSetupChanged
     | SMsgHideZone
+    | SMsgSeekerLocation
     | SMsgError
     | SMsgPong;
 
