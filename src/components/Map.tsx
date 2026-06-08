@@ -371,13 +371,36 @@ export function Map({ className }: MapProps) {
                 console.warn("Map bbox fallback failed:", e);
             }
         }
-        if (!bounds) return;
+        if (!bounds) {
+            // No extent, no boundary geometry yet. Last-resort
+            // fallback: fly to the play-area centroid at city zoom
+            // so the seeker sees their join-target instead of the
+            // global ocean view. Applies mainly to guests who only
+            // got the host's `playArea` displayName+coords in the
+            // SetupState push but haven't received / loaded the
+            // boundary yet — without this the map stays uniformly
+            // dark blue (the dark cartocdn tile colour at zoom 2),
+            // matching the "map not visible" report.
+            const pa = $playArea;
+            if (pa) {
+                try {
+                    map.flyTo({
+                        center: [pa.lng, pa.lat],
+                        zoom: 11,
+                        duration: 600,
+                    });
+                } catch (e) {
+                    console.warn("Map play-area flyTo failed:", e);
+                }
+            }
+            return;
+        }
         try {
             map.fitBounds(bounds, { padding: 24, duration: 600 });
         } catch (e) {
             console.warn("Map fitBounds failed:", e);
         }
-    }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON]);
+    }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON, $playArea]);
 
     // Boundary fetch trigger. The old Leaflet Map.tsx owned this
     // flow inside a `refreshQuestions()` helper; when v80 retired

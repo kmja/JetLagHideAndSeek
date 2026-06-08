@@ -923,25 +923,51 @@ function HidingZoneSection({
                 )}
             </div>
             {zone && !editing ? (
-                <div className="rounded-sm border border-border bg-secondary/40 p-3 flex items-start gap-3">
-                    <Lock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                        <div className="font-inter-tight font-bold uppercase tracking-wide text-sm">
-                            {zone.stationName}
+                <div className="space-y-2">
+                    <div className="rounded-sm border border-border bg-secondary/40 p-3 flex items-start gap-3">
+                        <Lock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                            <div className="font-inter-tight font-bold uppercase tracking-wide text-sm">
+                                {zone.stationName}
+                            </div>
+                            <div className="text-xs text-muted-foreground tabular-nums">
+                                {zone.stationLat.toFixed(5)},{" "}
+                                {zone.stationLng.toFixed(5)}
+                            </div>
                         </div>
-                        <div className="text-xs text-muted-foreground tabular-nums">
-                            {zone.stationLat.toFixed(5)},{" "}
-                            {zone.stationLng.toFixed(5)}
-                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditing(true)}
+                            disabled={disabled}
+                        >
+                            Change
+                        </Button>
                     </div>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setEditing(true)}
-                        disabled={disabled}
+                    {/* Read-only preview of the committed zone with
+                        its radius drawn — gives the hider a real
+                        map to look at instead of just lat/lng
+                        coordinates, so they can see at a glance
+                        where their boundary runs. The picker stays
+                        draggable underneath but onChange is a no-op
+                        so the zone can't be edited from here. */}
+                    <Suspense
+                        fallback={
+                            <div className="w-full h-[30vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                                Loading map…
+                            </div>
+                        }
                     >
-                        Change
-                    </Button>
+                        <InlineLocationPicker
+                            latitude={zone.stationLat}
+                            longitude={zone.stationLng}
+                            onChange={() => {
+                                /* read-only preview */
+                            }}
+                            radiusMeters={radiusMeters}
+                            height="h-[30vh]"
+                        />
+                    </Suspense>
                 </div>
             ) : (
                 <div className="space-y-3">
