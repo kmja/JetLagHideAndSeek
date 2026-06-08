@@ -17,6 +17,7 @@ import {
     QUESTION_DRAW_BUDGET,
     roundFoundAt,
 } from "@/lib/hiderRole";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import {
     decodeFoundFromUrl,
@@ -595,18 +596,8 @@ function ShareBackRow({
     shareText: string;
 }) {
     const [sent, setSent] = useState(false);
-    /**
-     * Tracks "share/copy attempted but failed" so the UI can show a
-     * manual fallback. Triggers when:
-     *   - Web Share API is unavailable AND clipboard.writeText fails
-     *     (the most common case is an iframe / unfocused document /
-     *     a browser without the modern clipboard API).
-     *   - Plain copy button also fails.
-     * The fallback exposes the URL inline + a "Mark as sent" button
-     * that runs `markRepliedInInbox` directly so the test loop can
-     * proceed.
-     */
     const [shareFailed, setShareFailed] = useState(false);
+    const $multiplayer = useStore(multiplayerEnabled);
     const url = useMemo(
         () => encodeAnswerForSeeker(question.key, answer),
         [question.key, answer],
@@ -713,54 +704,69 @@ function ShareBackRow({
 
     return (
         <div className="space-y-2">
-            <Button
-                onClick={handleShare}
-                className="w-full gap-2 py-7 text-base font-semibold"
-                size="lg"
-            >
-                <Share2 className="w-5 h-5" />
-                {sent ? "Share answer again" : "Share answer"}
-            </Button>
-            <Button
-                onClick={handleCopy}
-                variant="outline"
-                className="w-full gap-2 py-5 text-sm"
-            >
-                <Copy className="w-4 h-4" />
-                Copy answer link
-            </Button>
-            {/* Manual fallback row — appears when neither the Web
-                Share API nor the Clipboard API worked (preview
-                iframes, older browsers, unfocused documents). The
-                hider can read the URL straight from the textarea
-                and confirm sent. */}
-            {shareFailed && !sent && (
-                <div className="space-y-2 pt-2 border-t border-border/40">
-                    <p className="text-[11px] text-muted-foreground leading-snug">
-                        Your browser blocked auto-copy. Select the link
-                        below to copy it manually, then tap{" "}
-                        <span className="font-semibold">Mark as sent</span> to
-                        finish.
-                    </p>
-                    <textarea
-                        readOnly
-                        value={url}
-                        onFocus={(e) => e.currentTarget.select()}
-                        className={cn(
-                            "w-full px-2 py-1.5 rounded-sm border border-border",
-                            "bg-secondary/40 text-[11px] font-mono break-all",
-                            "resize-none",
-                        )}
-                        rows={3}
-                    />
+            {$multiplayer ? (
+                /* Multiplayer: answer goes over the wire — no URL sharing needed. */
+                !sent && (
                     <Button
-                        onClick={handleManualConfirm}
-                        className="w-full gap-2 py-4 text-sm"
+                        onClick={() => {
+                            markRepliedInInbox();
+                            setSent(true);
+                        }}
+                        className="w-full gap-2 py-7 text-base font-semibold"
+                        size="lg"
                     >
-                        <Check className="w-4 h-4" />
-                        Mark as sent
+                        <Check className="w-5 h-5" />
+                        Send answer
                     </Button>
-                </div>
+                )
+            ) : (
+                /* Offline / solo: share or copy the answer URL to the seeker. */
+                <>
+                    <Button
+                        onClick={handleShare}
+                        className="w-full gap-2 py-7 text-base font-semibold"
+                        size="lg"
+                    >
+                        <Share2 className="w-5 h-5" />
+                        {sent ? "Share answer again" : "Share answer"}
+                    </Button>
+                    <Button
+                        onClick={handleCopy}
+                        variant="outline"
+                        className="w-full gap-2 py-5 text-sm"
+                    >
+                        <Copy className="w-4 h-4" />
+                        Copy answer link
+                    </Button>
+                    {shareFailed && !sent && (
+                        <div className="space-y-2 pt-2 border-t border-border/40">
+                            <p className="text-[11px] text-muted-foreground leading-snug">
+                                Your browser blocked auto-copy. Select the link
+                                below to copy it manually, then tap{" "}
+                                <span className="font-semibold">Mark as sent</span> to
+                                finish.
+                            </p>
+                            <textarea
+                                readOnly
+                                value={url}
+                                onFocus={(e) => e.currentTarget.select()}
+                                className={cn(
+                                    "w-full px-2 py-1.5 rounded-sm border border-border",
+                                    "bg-secondary/40 text-[11px] font-mono break-all",
+                                    "resize-none",
+                                )}
+                                rows={3}
+                            />
+                            <Button
+                                onClick={handleManualConfirm}
+                                className="w-full gap-2 py-4 text-sm"
+                            >
+                                <Check className="w-4 h-4" />
+                                Mark as sent
+                            </Button>
+                        </div>
+                    )}
+                </>
             )}
             {sent && (
                 <div className="space-y-2 pt-2">
@@ -774,12 +780,6 @@ function ShareBackRow({
                         <Home className="w-4 h-4" />
                         Back to hider home
                     </Button>
-                    <p className="text-[10px] text-muted-foreground text-center leading-snug px-1">
-                        Your deck draw is waiting on the hider home —
-                        the rulebook normally has you confirm the
-                        seeker received the answer before drawing, but
-                        for testing here we draw immediately on share.
-                    </p>
                 </div>
             )}
         </div>
