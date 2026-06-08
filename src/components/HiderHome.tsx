@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
     AlertTriangle,
+    Ban,
     Bus,
     Crosshair,
     Eye,
@@ -40,6 +41,7 @@ import {
 } from "@/lib/gameSetup";
 import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
+    hiderForfeited,
     hiderHand,
     hiderInbox,
     hidingSpot,
@@ -48,6 +50,7 @@ import {
     radiusForGameSize,
     resetHiderRoundState,
     roundFoundAt,
+    ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
 import { startNewGame, startNewRound } from "@/lib/roundActions";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
@@ -71,7 +74,7 @@ import {
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
-import { seekerRotateHider } from "@/lib/multiplayer/store";
+import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
 
 import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
@@ -118,7 +121,14 @@ const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
  *   • `over`    — `roundFoundAt` is set. Final score banner on top;
  *                 everything else collapsed.
  */
-type HiderPhase = "hiding" | "seeking" | "endgame" | "over" | "pre-game";
+type HiderPhase =
+    | "hiding"
+    | "grace"
+    | "forfeit"
+    | "seeking"
+    | "endgame"
+    | "over"
+    | "pre-game";
 
 export function HiderHome() {
     const $role = useStore(playerRole);
@@ -130,6 +140,7 @@ export function HiderHome() {
     const $hand = useStore(hiderHand);
     const $foundAt = useStore(roundFoundAt);
     const $endgameStartedAt = useStore(endgameStartedAt);
+    const $forfeited = useStore(hiderForfeited);
 
     // 1-Hz tick — drives the countdown / elapsed timers.
     // Visibility-aware so the locked-phone case doesn't keep
@@ -155,10 +166,48 @@ export function HiderHome() {
         [$hand, $gameSize],
     );
 
+    // Zone-grace window: if the hiding period has ended and the hider
+    // never committed a zone, they get ZONE_GRACE_MS to pick one from
+    // their current location before the round is forfeit.
+    const graceEndsAt = $hidingEndsAt ? $hidingEndsAt + ZONE_GRACE_MS : null;
+    const inGraceWindow =
+        $hidingEndsAt !== null &&
+        !inHidingPeriod &&
+        $hidingZone === null &&
+        graceEndsAt !== null &&
+        now < graceEndsAt;
+    const graceRemainingMs = graceEndsAt
+        ? Math.max(0, graceEndsAt - now)
+        : 0;
+    // Forfeit fires once the grace window closes with still no zone.
+    // Latch it into the persistent atom so peers / reloads agree, and
+    // so the round can't be silently un-lost by a late zone commit.
+    const shouldForfeit =
+        $hidingEndsAt !== null &&
+        !inHidingPeriod &&
+        $hidingZone === null &&
+        graceEndsAt !== null &&
+        now >= graceEndsAt &&
+        !roundOver;
+    useEffect(() => {
+        if (shouldForfeit && !$forfeited) {
+            hiderForfeited.set(true);
+            // End the round so scoring + any online seekers close out.
+            // foundAt anchors at the grace deadline; the forfeit flag is
+            // what distinguishes a loss-by-no-zone from a normal catch.
+            if (roundFoundAt.get() === null && graceEndsAt !== null) {
+                roundFoundAt.set(graceEndsAt);
+                seekerMarkFound(graceEndsAt);
+            }
+        }
+    }, [shouldForfeit, $forfeited, graceEndsAt]);
+
     const phase: HiderPhase = (() => {
         if (!$hidingEndsAt) return "pre-game";
+        if ($forfeited) return "forfeit";
         if (roundOver) return "over";
         if (inHidingPeriod) return "hiding";
+        if (inGraceWindow) return "grace";
         if ($hidingSpot) return "endgame";
         return "seeking";
     })();
@@ -366,6 +415,19 @@ export function HiderHome() {
                 />
             )}
 
+            {phase === "grace" && (
+                <GracePhaseView
+                    graceRemainingMs={graceRemainingMs}
+                    radiusMeters={radiusForGameSize($gameSize)}
+                />
+            )}
+
+            {phase === "forfeit" && (
+                <ForfeitView
+                    onNewGame={startNewGame}
+                />
+            )}
+
             {phase === "seeking" && (
                 <SeekingPhaseView
                     hiddenElapsedMs={hiddenElapsedMs}
@@ -518,6 +580,14 @@ function HidingPhaseView({
                     Once you arrive, tell the seekers — or let the
                     countdown run out if you want more strategy time.
                 </p>
+                {zone === null && (
+                    <p className="text-[11px] leading-snug text-destructive border border-destructive/40 bg-destructive/5 rounded-md px-2.5 py-2">
+                        Lock in a zone before the clock hits zero. If you
+                        don&apos;t, the game locks for a 5-minute grace
+                        period to pick a station from where you are — miss
+                        that too and you forfeit the round.
+                    </p>
+                )}
             </section>
 
             {/* Zone picker — GPS-based station suggest + inline map */}
@@ -527,6 +597,79 @@ function HidingPhaseView({
                 showStationSuggest
             />
         </>
+    );
+}
+
+/* ────────────────── Phase 1b: GRACE (no zone at deadline) ────────────────── */
+
+/**
+ * Shown when the hiding clock ran out and the hider never committed a
+ * zone. The game is locked for ZONE_GRACE_MS; the hider must pick a
+ * station from their current GPS location before the countdown hits
+ * zero, or they forfeit (handled by the parent's effect).
+ */
+function GracePhaseView({
+    graceRemainingMs,
+    radiusMeters,
+}: {
+    graceRemainingMs: number;
+    radiusMeters: number;
+}) {
+    return (
+        <>
+            <section className="rounded-md border-2 border-destructive bg-destructive/10 px-4 py-5 mb-4 text-center">
+                <div className="flex items-center justify-center gap-2 mb-1.5">
+                    <Lock className="w-4 h-4 text-destructive" />
+                    <div className="text-[10px] uppercase tracking-[0.2em] font-poppins font-bold text-destructive">
+                        Game locked — pick a zone now
+                    </div>
+                </div>
+                <div className="font-inter-tight italic font-black tabular-nums text-5xl text-destructive leading-none">
+                    {formatTimeRemaining(graceRemainingMs)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2 leading-snug">
+                    The hiding period ended before you locked in a zone.
+                    Pick a transit station from your current location
+                    before this timer runs out, or you forfeit the round.
+                </p>
+            </section>
+
+            <HidingZoneSection
+                zone={null}
+                radiusMeters={radiusMeters}
+                showStationSuggest
+                lockToStations
+            />
+        </>
+    );
+}
+
+/* ────────────────── Phase 1c: FORFEIT ────────────────── */
+
+function ForfeitView({ onNewGame }: { onNewGame: () => void }) {
+    return (
+        <section className="rounded-md border-2 border-destructive bg-destructive/10 px-4 py-5 mb-4">
+            <div className="flex items-start gap-3">
+                <Ban className="w-6 h-6 shrink-0 text-destructive mt-0.5" />
+                <div className="flex-1 space-y-1.5">
+                    <div className="text-sm uppercase tracking-[0.16em] font-poppins font-black text-destructive">
+                        Round forfeited
+                    </div>
+                    <p className="text-sm text-foreground leading-snug">
+                        You didn&apos;t lock in a hiding zone before the
+                        grace period ran out, so this round is lost. The
+                        zone has to be centered on a transit station and
+                        chosen before time expires.
+                    </p>
+                </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-2">
+                <Button onClick={onNewGame} variant="outline" className="gap-1.5">
+                    <Sparkles className="w-4 h-4" />
+                    New game
+                </Button>
+            </div>
+        </section>
     );
 }
 
@@ -890,6 +1033,7 @@ function HidingZoneSection({
     radiusMeters,
     disabled,
     showStationSuggest,
+    lockToStations,
 }: {
     zone: ReturnType<typeof hidingZone.get>;
     radiusMeters: number;
@@ -897,10 +1041,14 @@ function HidingZoneSection({
     /** When true (phase 1), surface the GPS-based station-suggest list
      *  as the primary path. Otherwise just the inline map. */
     showStationSuggest?: boolean;
+    /** When true (grace window), force the nearby-stations picker and
+     *  hide the "Pick on map" toggle — the house rule requires the
+     *  hider choose a station from their *current* GPS location. */
+    lockToStations?: boolean;
 }) {
     const [editing, setEditing] = useState(zone === null);
     const [mode, setMode] = useState<"stations" | "map">(
-        showStationSuggest ? "stations" : "map",
+        showStationSuggest || lockToStations ? "stations" : "map",
     );
     const [draftLat, setDraftLat] = useState<number>(zone?.stationLat ?? 0);
     const [draftLng, setDraftLng] = useState<number>(zone?.stationLng ?? 0);
@@ -1000,35 +1148,39 @@ function HidingZoneSection({
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {/* Mode switcher: GPS station list vs. inline map */}
-                    <div className="flex items-center gap-1 text-xs">
-                        <button
-                            type="button"
-                            onClick={() => setMode("stations")}
-                            className={cn(
-                                "px-2.5 py-1 rounded-sm font-poppins font-semibold",
-                                "transition-colors",
-                                mode === "stations"
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-secondary text-foreground hover:bg-accent",
-                            )}
-                        >
-                            Nearby stations
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setMode("map")}
-                            className={cn(
-                                "px-2.5 py-1 rounded-sm font-poppins font-semibold",
-                                "transition-colors",
-                                mode === "map"
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-secondary text-foreground hover:bg-accent",
-                            )}
-                        >
-                            Pick on map
-                        </button>
-                    </div>
+                    {/* Mode switcher: GPS station list vs. inline map.
+                        Hidden during the grace window — the rule forces a
+                        current-location station pick, no free map choice. */}
+                    {!lockToStations && (
+                        <div className="flex items-center gap-1 text-xs">
+                            <button
+                                type="button"
+                                onClick={() => setMode("stations")}
+                                className={cn(
+                                    "px-2.5 py-1 rounded-sm font-poppins font-semibold",
+                                    "transition-colors",
+                                    mode === "stations"
+                                        ? "bg-primary text-primary-foreground"
+                                        : "bg-secondary text-foreground hover:bg-accent",
+                                )}
+                            >
+                                Nearby stations
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setMode("map")}
+                                className={cn(
+                                    "px-2.5 py-1 rounded-sm font-poppins font-semibold",
+                                    "transition-colors",
+                                    mode === "map"
+                                        ? "bg-primary text-primary-foreground"
+                                        : "bg-secondary text-foreground hover:bg-accent",
+                                )}
+                            >
+                                Pick on map
+                            </button>
+                        </div>
+                    )}
 
                     {mode === "stations" ? (
                         <NearbyStationsPicker

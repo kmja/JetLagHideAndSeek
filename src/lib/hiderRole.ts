@@ -101,6 +101,31 @@ export function radiusForGameSize(size: GameSize): number {
     return size === "large" ? 1000 : 500;
 }
 
+/**
+ * Grace window after the hiding period ends for a hider who hasn't
+ * committed a zone yet. House rule (per the user's table ruling):
+ * if the hiding clock runs out with no zone chosen, the game is
+ * paused and locked for 5 minutes, during which the hider MUST pick
+ * a station from their *current* location. If they still haven't
+ * picked when the grace window closes, they forfeit the round.
+ */
+export const ZONE_GRACE_MS = 5 * 60 * 1000;
+
+/**
+ * Set true when a hider lets the grace window close without ever
+ * committing a hiding zone — they lose the round (rulebook requires
+ * the zone be centered on a station before play begins; this is the
+ * enforcement of that). Persistent so a reload during the forfeit
+ * screen doesn't resurrect the round. Cleared on every new round.
+ */
+export const hiderForfeited = __globalPersistent<boolean>(
+    "__jlhs_hiderForfeited",
+    "hiderForfeited",
+    false,
+    (v) => (v ? "1" : ""),
+    (v) => v === "1",
+);
+
 /* ────────────────── Round end / score ────────────────── */
 
 /**
@@ -327,6 +352,7 @@ export function resetHiderRoundState() {
     hiderHandLimit.set(6);
     pendingDraw.set(null);
     roundFoundAt.set(null);
+    hiderForfeited.set(false);
 }
 
 /**
