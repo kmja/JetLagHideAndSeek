@@ -451,6 +451,15 @@ const photoQuestionSchema = z.object({
     photoUri: z.string().optional(),
     /** Optional note the hider left alongside the photo. */
     note: z.string().optional(),
+    /**
+     * Hider declined the question with "I cannot answer" (rulebook p32).
+     * Valid when the subject doesn't exist in the hiding zone, or — most
+     * commonly — during the end game, when the hider is locked to their
+     * final spot and can't move to where the photo would be taken
+     * (rulebook p7, "The End Game"). The hider still pulls a card for a
+     * declined photo, so this resolves the question without a photoUri.
+     */
+    declined: z.boolean().optional(),
     /** Question lifecycle — same semantics as the other categories. */
     drag: z.boolean().default(true),
     collapsed: z.boolean().default(true),

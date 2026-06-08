@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Camera, Check, ImagePlus, Trash2 } from "lucide-react";
+import { Ban, Camera, Check, ImagePlus, Trash2 } from "lucide-react";
 import { useRef } from "react";
 import { toast } from "react-toastify";
 
@@ -14,8 +14,9 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { endgameStartedAt } from "@/lib/gameSetup";
 import { gameSize } from "@/lib/gameSetup";
-import { playerRole } from "@/lib/hiderRole";
+import { playerRole, recordPhotoAnswerDraw } from "@/lib/hiderRole";
 import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
@@ -82,7 +83,9 @@ export const PhotoQuestionComponent = ({
     const $isLoading = useStore(isLoading);
     const $gameSize = useStore(gameSize);
     const $role = useStore(playerRole);
+    const $endgame = useStore(endgameStartedAt);
     const isHideTeam = $role === "hider" || $role === "coHider";
+    const inEndgame = $endgame !== null;
 
     const label = `Photo ${
         $questions
@@ -100,9 +103,11 @@ export const PhotoQuestionComponent = ({
 
     const summary = data.drag
         ? `${subtypeLabel} · awaiting photo`
-        : data.photoUri
-          ? `${subtypeLabel} · photo received`
-          : `${subtypeLabel} · marked answered`;
+        : data.declined
+          ? `${subtypeLabel} · couldn't answer`
+          : data.photoUri
+            ? `${subtypeLabel} · photo received`
+            : `${subtypeLabel} · marked answered`;
 
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -110,7 +115,9 @@ export const PhotoQuestionComponent = ({
         if (!file) return;
         try {
             const dataUri = await fileToCompressedDataUri(file);
+            const wasUnanswered = data.drag;
             data.photoUri = dataUri;
+            data.declined = false;
             data.drag = false;
             questionModified();
             // When the hide team attaches the photo, also push it
@@ -120,8 +127,14 @@ export const PhotoQuestionComponent = ({
             if (isHideTeam) {
                 hiderAnswerQuestion(questionKey, {
                     photoUri: dataUri,
+                    declined: false,
                     drag: false,
                 });
+                // Award the photo card-draw on first resolution
+                // (rulebook p32, draw 1 keep 1). Idempotent + guarded
+                // by `wasUnanswered` so replacing a photo doesn't farm
+                // extra cards.
+                if (wasUnanswered) recordPhotoAnswerDraw(questionKey);
             }
             toast.success("Photo attached. Question committed.", {
                 autoClose: 2500,
@@ -130,6 +143,28 @@ export const PhotoQuestionComponent = ({
             console.warn("photo compression failed", e);
             toast.error("Couldn't process that photo. Try another one.");
         }
+    };
+
+    // "I cannot answer the question" (rulebook p32). Valid when the
+    // subject doesn't exist in the zone, and — the headline endgame
+    // rule — when the hider is locked to their final spot and can't
+    // travel to take the shot (rulebook p7). The hider still draws a
+    // card.
+    const onDecline = () => {
+        const wasUnanswered = data.drag;
+        data.declined = true;
+        data.drag = false;
+        questionModified();
+        if (isHideTeam) {
+            hiderAnswerQuestion(questionKey, {
+                declined: true,
+                drag: false,
+            });
+            if (wasUnanswered) recordPhotoAnswerDraw(questionKey);
+        }
+        toast.info('Answered "I cannot answer the question."', {
+            autoClose: 2500,
+        });
     };
 
     return (
@@ -192,6 +227,21 @@ export const PhotoQuestionComponent = ({
                                 <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                         </div>
+                    ) : data.declined ? (
+                        <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 p-3 flex items-start gap-2.5">
+                            <Ban className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+                            <div className="min-w-0">
+                                <div className="text-xs font-poppins font-bold uppercase tracking-wide text-yellow-400">
+                                    Couldn&apos;t answer
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-snug mt-0.5">
+                                    The hider answered &quot;I cannot answer
+                                    the question&quot; — the subject
+                                    isn&apos;t reachable from their locked
+                                    spot. A card was still drawn.
+                                </p>
+                            </div>
+                        </div>
                     ) : (
                         <div className="rounded-md border border-dashed border-border bg-secondary/30 p-3 flex flex-col items-center gap-2 text-center">
                             <ImagePlus className="w-7 h-7 text-muted-foreground" />
@@ -201,6 +251,18 @@ export const PhotoQuestionComponent = ({
                                 answered without uploading.
                             </p>
                         </div>
+                    )}
+
+                    {/* Endgame hint — the rulebook's headline endgame
+                        rule: a locked-down hider may legitimately
+                        decline location-bound photos. Surface it so the
+                        hide team knows the option is on the table. */}
+                    {data.drag && isHideTeam && inEndgame && (
+                        <p className="text-[11px] leading-snug text-yellow-400/90 border border-yellow-500/40 bg-yellow-500/5 rounded-md px-2.5 py-2">
+                            Endgame: if this photo would mean leaving your
+                            hiding spot, you can answer &quot;I cannot
+                            answer&quot; and still draw a card.
+                        </p>
                     )}
 
                     <input
@@ -235,7 +297,9 @@ export const PhotoQuestionComponent = ({
                                 size="sm"
                                 className="flex-1 gap-1.5"
                                 onClick={() => {
+                                    const wasUnanswered = data.drag;
                                     data.drag = false;
+                                    data.declined = false;
                                     questionModified();
                                     // Same mp-sync as onFile — hide
                                     // team marking the question done
@@ -243,8 +307,13 @@ export const PhotoQuestionComponent = ({
                                     // drag on the seeker too.
                                     if (isHideTeam) {
                                         hiderAnswerQuestion(questionKey, {
+                                            declined: false,
                                             drag: false,
                                         });
+                                        if (wasUnanswered)
+                                            recordPhotoAnswerDraw(
+                                                questionKey,
+                                            );
                                     }
                                 }}
                                 disabled={$isLoading}
@@ -254,6 +323,28 @@ export const PhotoQuestionComponent = ({
                             </Button>
                         )}
                     </div>
+
+                    {/* "I cannot answer" — rulebook-valid response,
+                        only meaningful for the hide team while the
+                        question is still open. */}
+                    {data.drag && isHideTeam && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                                "w-full gap-1.5",
+                                inEndgame
+                                    ? "text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10"
+                                    : "text-muted-foreground",
+                            )}
+                            onClick={onDecline}
+                            disabled={$isLoading}
+                        >
+                            <Ban className="w-3.5 h-3.5" />
+                            I cannot answer this
+                        </Button>
+                    )}
                 </div>
             </SidebarMenuItem>
         </QuestionCard>

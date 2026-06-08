@@ -457,3 +457,36 @@ export const QUESTION_DRAW_BUDGET: Record<
     photo: { draw: 1, keep: 1 },
     tentacles: { draw: 4, keep: 2 },
 };
+
+/**
+ * Resolve a photo question from the photo card (the hider's answer
+ * surface for photos — the dedicated `/h?q=` answer view doesn't
+ * handle photos). Stamps the inbox entry's `repliedAt` so
+ * HiderHome's "waiting" filter clears and scoring sees the question
+ * as answered, then awards the photo card-draw (1/1, auto-resolves
+ * into the hand). Per the rulebook the hider draws a card even when
+ * they answer "I cannot answer the question" during the end game
+ * (p7), so this fires for both attach and decline.
+ *
+ * Idempotent: if the inbox entry is already `repliedAt`, it skips the
+ * draw so re-attaching / replacing a photo can't farm extra cards.
+ * Returns true if a card was newly drawn.
+ */
+export function recordPhotoAnswerDraw(
+    key: number,
+    reply?: Record<string, unknown>,
+): boolean {
+    const inbox = hiderInbox.get();
+    const existing = inbox.find((e) => e.key === key);
+    if (existing?.repliedAt) return false; // already answered — no double draw
+    hiderInbox.set(
+        inbox.map((e) =>
+            e.key === key
+                ? { ...e, repliedAt: Date.now(), reply: reply ?? e.reply }
+                : e,
+        ),
+    );
+    const budget = QUESTION_DRAW_BUDGET.photo;
+    presentDraw(budget.draw, budget.keep, "photo", key);
+    return true;
+}
