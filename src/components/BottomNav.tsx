@@ -92,6 +92,7 @@ import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
 import { PresenceChip } from "./multiplayer/PresenceIndicators";
 import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
+import { NotificationsToggle } from "./NotificationsToggle";
 import { OfflineTilePreloader } from "./OfflineTilePreloader";
 import { OptionDrawers } from "./OptionDrawers";
 import { PWAInstallButton } from "./PWAInstallButton";
@@ -835,6 +836,7 @@ export const BottomNav = () => {
                                 so the seeker can preload offline maps
                                 for the chosen play area. */}
                             <PWAInstallButton />
+                            <NotificationsToggle />
                             <div
                                 className={cn(
                                     "w-full px-3 py-3 rounded-md",

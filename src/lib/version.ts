@@ -6,4 +6,4 @@
  * Bump this on every meaningful change/deploy. Continues the `vNN`
  * batch sequence tracked in CLAUDE.md.
  */
-export const APP_VERSION = "v124";
+export const APP_VERSION = "v125";

@@ -22,6 +22,7 @@
 
 import { PROTOCOL_VERSION } from "@protocol/index";
 
+import { CATEGORIES } from "@/lib/categories";
 import {
     addQuestion as localAddQuestion,
     disabledStations,
@@ -31,6 +32,7 @@ import {
     questions,
 } from "@/lib/context";
 import type { OpenStreetMap } from "@/maps/api";
+import { notify } from "@/lib/notifications";
 import {
     allowedTransit,
     gameSize,
@@ -597,11 +599,46 @@ function handleServerMessage(msg: ServerMessage) {
             return;
         case "qAdded":
         case "qUpdated":
-        case "qAnswered":
+        case "qAnswered": {
             mergeIncomingQuestion(msg.question);
+            // Heads-up to the user when something they care about
+            // happened off-screen. `notify` self-gates on document
+            // visibility, permission state, and the user opt-in,
+            // so the calls below are safe even when the tab is
+            // focused — they just no-op.
+            const role = playerRole.get();
+            const q = msg.question as { id?: string } | null;
+            const label =
+                (q && q.id && CATEGORIES[q.id as keyof typeof CATEGORIES]?.label) ||
+                "question";
+            if (msg.t === "qAdded" && (role === "hider" || role === "coHider")) {
+                notify({
+                    title: "New question",
+                    body: `The seeker asked a ${label.toLowerCase()} question.`,
+                    tag: "q-added",
+                });
+            } else if (msg.t === "qAnswered" && role === "seeker") {
+                notify({
+                    title: "Hider answered",
+                    body: `Your ${label.toLowerCase()} question got an answer.`,
+                    tag: "q-answered",
+                });
+            }
             return;
+        }
         case "ended":
-            if (roundFoundAt.get() === null) roundFoundAt.set(msg.foundAt);
+            if (roundFoundAt.get() === null) {
+                roundFoundAt.set(msg.foundAt);
+                notify({
+                    title: "Round over",
+                    body:
+                        playerRole.get() === "hider" ||
+                        playerRole.get() === "coHider"
+                            ? "The seeker marked you as found."
+                            : "The hider was found.",
+                    tag: "round-ended",
+                });
+            }
             return;
         case "roundStarted":
             applyRoundStarted(msg.participants);
@@ -621,18 +658,56 @@ function handleServerMessage(msg: ServerMessage) {
             // so this only ever lands on a co-hider.
             hidingZone.set(msg.zone);
             return;
-        case "setupChanged":
+        case "setupChanged": {
             if (msg.setup.playArea) playArea.set(msg.setup.playArea);
             allowedTransit.set(msg.setup.allowedTransit);
             gameSize.set(msg.setup.gameSize);
+            const prevHidingEndsAt = hidingPeriodEndsAt.get();
             hidingPeriodEndsAt.set(msg.setup.hidingPeriodEndsAt);
+            const prevEndgameAt = endgameStartedAt.get();
             endgameStartedAt.set(msg.setup.endgameStartedAt);
             if (msg.setup.mapGeoLocation) {
                 mapGeoLocation.set(
                     msg.setup.mapGeoLocation as OpenStreetMap,
                 );
             }
+            // Endgame just got armed (null → number). Hider needs to
+            // know immediately — rulebook p43 says they lock down to
+            // a final spot the instant this fires.
+            if (
+                prevEndgameAt === null &&
+                msg.setup.endgameStartedAt !== null
+            ) {
+                const role = playerRole.get();
+                if (role === "hider" || role === "coHider") {
+                    notify({
+                        title: "Endgame — lock down",
+                        body: "The seeker is closing in. Commit to a stationary spot.",
+                        tag: "endgame",
+                    });
+                }
+            }
+            // Hiding period just ended via host action (snap to now /
+            // past). Only the hider cares — for seekers the timer
+            // ending IS the trigger to start asking questions and they
+            // were probably the ones who tapped it.
+            if (
+                prevHidingEndsAt !== null &&
+                msg.setup.hidingPeriodEndsAt !== null &&
+                prevHidingEndsAt > Date.now() &&
+                msg.setup.hidingPeriodEndsAt <= Date.now()
+            ) {
+                const role = playerRole.get();
+                if (role === "hider" || role === "coHider") {
+                    notify({
+                        title: "Hiding period over",
+                        body: "The seeker can start asking questions now.",
+                        tag: "hiding-ended",
+                    });
+                }
+            }
             return;
+        }
         case "loc": {
             // Per-seeker GPS update fanned out by the server. Hide
             // team only — the server gates this, so we just trust it.

@@ -61,6 +61,7 @@ import {
     HideSeekMark,
     HideSeekWordmark,
 } from "./JetLagLogo";
+import { NotificationsToggle } from "./NotificationsToggle";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -663,6 +664,11 @@ export function GameLobbyDialog() {
                             )}
                         </div>
                     )}
+                    {/* Notifications enable / mute. Shown in the lobby so
+                        a hider who landed here via a join link (never
+                        seeing the seeker More sheet) can still grant
+                        permission before the game starts. */}
+                    <NotificationsToggle />
                     {/* Switch role moved inline into the roster row
                         next to '(you)' — see RosterCard's SwitchRoleButton.
                         Keeps the lobby's footer clean and the affordance

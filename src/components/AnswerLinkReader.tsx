@@ -3,6 +3,7 @@ import { toast } from "react-toastify";
 
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions } from "@/lib/context";
+import { notify } from "@/lib/notifications";
 import { receivedCurses } from "@/lib/seekerInbound";
 import {
     decodeAnswerFromUrl,
@@ -45,6 +46,11 @@ export function AnswerLinkReader() {
                 toast.error(`${cursePayload.name} cast on you!`, {
                     autoClose: 5000,
                     toastId: `curse-${cursePayload.name}`,
+                });
+                notify({
+                    title: "Curse received",
+                    body: cursePayload.name,
+                    tag: `curse-${cursePayload.name}`,
                 });
             }
         } catch (e) {
