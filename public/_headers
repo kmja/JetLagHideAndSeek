@@ -1,0 +1,48 @@
+# Cloudflare Workers Static Assets headers.
+#
+# Vite copies this verbatim from public/ to dist/, where Cloudflare
+# reads it. The Cache-Control rules below stop the browser from
+# serving a stale entry HTML or service worker — without them, a
+# normal (non-incognito) tab can sit on yesterday's deploy for hours
+# because the browser HTTP-cache holds onto sw.js + index.html
+# under its default heuristic freshness.
+#
+# Format: path on first line, headers indented (2 spaces) below.
+# Paths support * wildcards; rules merge across all matches.
+#
+# Why these specific paths:
+#
+#   sw.js          — the service worker file itself. If this is
+#                    cached, the new SW never gets a chance to
+#                    install + take over even with skipWaiting +
+#                    clientsClaim set.
+#   index.html, /  — the entry HTML for the seeker route. The
+#                    bundled JS filenames are hashed, so the only
+#                    thing that needs to refresh is this file
+#                    pointing at the new hashes.
+#   /h, /h/...     — same story for the hider route.
+#
+# Hashed assets under /assets/* are deliberately left at Cloudflare
+# defaults — they're content-addressed (Vite emits files like
+# index-abc123.js) so long-cache is safe and desirable.
+
+/sw.js
+  Cache-Control: no-cache, must-revalidate
+
+/
+  Cache-Control: no-cache, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/h
+  Cache-Control: no-cache, must-revalidate
+
+/h/
+  Cache-Control: no-cache, must-revalidate
+
+/h/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: no-cache, must-revalidate
