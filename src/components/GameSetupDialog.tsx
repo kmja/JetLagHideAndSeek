@@ -5,8 +5,9 @@ import {
     ChevronLeft,
     Footprints,
     MapPin,
+    Pencil,
+    Plus,
     Ship,
-    Sparkles,
     Train,
     TrainTrack,
     TramFront,
@@ -229,7 +230,7 @@ export function GameSetupDialog() {
         if (!setupCompleted.get()) setupDialogOpen.set(true);
     }, [$welcomeSeen]);
 
-    const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+    const [step, setStep] = useState<1 | 2 | 3>(1);
     const [draftFeature, setDraftFeature] = useState<OpenStreetMap | null>(
         null,
     );
@@ -244,12 +245,10 @@ export function GameSetupDialog() {
     // as they tap a size tile, we stop auto-inferring from the play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
 
-    // Adjacent-areas opt-in (wizard step 2). null = not asked yet,
-    // true = show the neighbour picker, false = skip it. Reset whenever
-    // the dialog re-opens or the chosen play area changes.
-    const [includeAdjacent, setIncludeAdjacent] = useState<boolean | null>(
-        null,
-    );
+    // Adjacent areas now live as an inline Dialog inside the play-
+    // area step, so the wizard doesn't need a dedicated step or an
+    // opt-in flag. The PlayAreaStep manages the modal locally; the
+    // parent just owns the primary feature.
 
     // Display name for the auto-hosted online room. Pre-fills from the
     // persisted atom so returning players don't retype.
@@ -266,10 +265,14 @@ export function GameSetupDialog() {
         if (inferred) setDraftSize(inferred);
     }, [draftFeature, sizeManuallySet]);
 
-    // Re-ask the adjacent-areas question whenever the play area changes —
-    // a previous "yes/no" decision doesn't carry over to a new region.
+    // Clear any picked neighbours when the primary play area changes.
+    // The PlayAreaExtensions picker also resets itself when its
+    // `primary` prop changes, but that doesn't cover the case where
+    // the user picked a few neighbours, then changed the primary
+    // without re-opening the picker — stale selections would
+    // carry over to a different country.
     useEffect(() => {
-        setIncludeAdjacent(null);
+        additionalMapGeoLocations.set([]);
     }, [draftFeature?.properties.osm_id]);
 
     // Wrap setDraftSize so any tile tap also flips the override flag.
@@ -298,7 +301,6 @@ export function GameSetupDialog() {
             setDraftTransit(allowedTransit.get());
             setDraftSize(gameSize.get());
             setDraftDisplayName(displayNameAtom.get() || "");
-            setIncludeAdjacent(null);
             // Reset auto-infer flag for the new session. In edit mode we
             // assume the existing size is intentional and don't override.
             setSizeManuallySet(setupCompleted.get());
@@ -456,15 +458,8 @@ export function GameSetupDialog() {
         step === 1
             ? draftFeature !== null
             : step === 2
-              ? // Must answer the opt-in first; "No" advances on its own,
-                // so the footer Continue only matters once they've said yes.
-                includeAdjacent === true
-              : step === 3
-                ? draftTransit.length > 0
-                : true;
-    // On the step-2 decision prompt, the Yes/No buttons drive navigation,
-    // so the footer Continue button is hidden until they opt in.
-    const hideNext = step === 2 && includeAdjacent !== true;
+              ? draftTransit.length > 0
+              : true;
 
     return (
         <Dialog
@@ -551,20 +546,17 @@ export function GameSetupDialog() {
                                     style={{ letterSpacing: "-0.02em" }}
                                 >
                                     {step === 1 && "Where are you playing?"}
-                                    {step === 2 && "Nearby areas to include?"}
-                                    {step === 3 && "What transit is allowed?"}
-                                    {step === 4 && "How big is the game?"}
+                                    {step === 2 && "What transit is allowed?"}
+                                    {step === 3 && "How big is the game?"}
                                 </DialogTitle>
-                                <SectionPill>Step {step} / 4</SectionPill>
+                                <SectionPill>Step {step} / 3</SectionPill>
                             </div>
                             <DialogDescription className="text-xs leading-snug">
                                 {step === 1 &&
-                                    "Pick the city or region you'll be seeking in."}
+                                    "Pick the city or region you'll be seeking in. Add neighbouring municipalities if they should count as one play area."}
                                 {step === 2 &&
-                                    "Many cities are tightly integrated with neighbouring municipalities. Pick any that should be part of the play area."}
-                                {step === 3 &&
                                     "Which public transit modes the hider can use."}
-                                {step === 4 &&
+                                {step === 3 &&
                                     "Larger games span more ground and last longer."}
                             </DialogDescription>
                         </div>
@@ -576,37 +568,13 @@ export function GameSetupDialog() {
                                     onChange={setDraftFeature}
                                 />
                             )}
-                            {step === 2 &&
-                                draftFeature &&
-                                (includeAdjacent === true ? (
-                                    <PlayAreaExtensions
-                                        primary={draftFeature}
-                                    />
-                                ) : (
-                                    <AdjacentDecision
-                                        areaName={
-                                            draftFeature.properties.name ??
-                                            determineName(draftFeature).split(
-                                                ",",
-                                            )[0]
-                                        }
-                                        onYes={() => setIncludeAdjacent(true)}
-                                        onNo={() => {
-                                            setIncludeAdjacent(false);
-                                            // No neighbours — make sure none
-                                            // linger from a prior decision.
-                                            additionalMapGeoLocations.set([]);
-                                            setStep(3);
-                                        }}
-                                    />
-                                ))}
-                            {step === 3 && (
+                            {step === 2 && (
                                 <TransitStep
                                     value={draftTransit}
                                     onChange={setDraftTransit}
                                 />
                             )}
-                            {step === 4 && (
+                            {step === 3 && (
                                 <div className="space-y-5">
                                     <SizeStep
                                         value={draftSize}
@@ -647,7 +615,7 @@ export function GameSetupDialog() {
                                 onClick={() =>
                                     setStep((s) =>
                                         s > 1
-                                            ? ((s - 1) as 1 | 2 | 3 | 4)
+                                            ? ((s - 1) as 1 | 2 | 3)
                                             : s,
                                     )
                                 }
@@ -657,19 +625,13 @@ export function GameSetupDialog() {
                                 <ChevronLeft className="w-4 h-4" />
                                 Back
                             </Button>
-                            {step < 4 && hideNext ? (
-                                <span />
-                            ) : step < 4 ? (
+                            {step < 3 ? (
                                 <Button
                                     disabled={!canContinue}
                                     onClick={() =>
                                         setStep(
                                             (s) =>
-                                                ((s + 1) as
-                                                    | 1
-                                                    | 2
-                                                    | 3
-                                                    | 4),
+                                                ((s + 1) as 1 | 2 | 3),
                                         )
                                     }
                                 >
@@ -703,6 +665,22 @@ function PlayAreaStep({
     value: OpenStreetMap | null;
     onChange: (v: OpenStreetMap | null) => void;
 }) {
+    const $additional = useStore(additionalMapGeoLocations);
+    // Preview vs. search. Default: preview when there's a committed
+    // area (edit mode reopen, or a fresh wizard that's already
+    // landed on a GPS-suggested match). The user toggles to search
+    // via the "Change area" button, and an OnChange-from-results
+    // bounces back to preview automatically.
+    const [mode, setMode] = useState<"preview" | "search">(
+        value ? "preview" : "search",
+    );
+    // Tracks whether we're in search mode because the user explicitly
+    // tapped "Change area" (true) vs. because we started without a
+    // value (false). When false, the GPS auto-suggest landing a match
+    // should bounce to the preview by itself — that's the streamlined
+    // flow. When true, we let the user finish picking before bouncing.
+    const userInitiatedSearch = useRef(false);
+    const [adjacentOpen, setAdjacentOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [busy, setBusy] = useState(false);
     const [results, setResults] = useState<OpenStreetMap[]>([]);
@@ -832,6 +810,35 @@ function PlayAreaStep({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Auto-bounce back to preview as soon as a result is picked from
+    // the search list. The user came in to change the area; once
+    // they've made a choice, they want to see the new selection on
+    // the map, not stay in search mode.
+    const handlePickResult = (r: OpenStreetMap) => {
+        onChange(r);
+        setQuery("");
+        setResults([]);
+        setSearched(false);
+        setMode("preview");
+        userInitiatedSearch.current = false;
+    };
+
+    // Auto-bounce after a GPS-initiated suggest lands a result. The
+    // search-as-you-type effect above sets `value` to `found[0]`; we
+    // wait until busy clears + a value exists, then drop the user
+    // straight into the preview so they don't have to confirm a tile
+    // they didn't pick themselves.
+    useEffect(() => {
+        if (mode !== "search") return;
+        if (userInitiatedSearch.current) return;
+        if (!value || busy) return;
+        if (gpsState !== "done") return;
+        setMode("preview");
+        setQuery("");
+        setResults([]);
+        setSearched(false);
+    }, [value, busy, mode, gpsState]);
+
     // Search-as-you-type. On every settled keystroke (350ms debounce) we
     // hit Photon and auto-select the first OSM relation — usually the
     // best match, e.g. typing "Stockholm" lands on Stockholm County. The
@@ -864,6 +871,151 @@ function PlayAreaStep({
 
     const selectedId = value?.properties.osm_id ?? null;
 
+    // ────────────── Preview mode ──────────────
+    // Shown when a play area has been picked. Replaces the search-
+    // first layout the wizard used to default to: now the seeker
+    // sees the area on a map immediately and only opens search if
+    // they want to override the GPS guess.
+    if (mode === "preview" && value) {
+        const label =
+            value.properties.name ?? determineName(value).split(",")[0];
+        const typeLabel = placeTypeLabel(value);
+        const areaLabel = formatAreaLabel(value);
+        const sizeHint = recommendedGameSize(value);
+        return (
+            <div className="space-y-3">
+                <PlayAreaPreviewMap value={value} height="h-[220px]" />
+
+                <div
+                    className={cn(
+                        "rounded-md border-2 border-primary bg-primary/10",
+                        "p-3 flex items-start gap-2",
+                    )}
+                >
+                    <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
+                            Play area
+                        </div>
+                        <div className="text-base font-bold truncate">
+                            {label}
+                        </div>
+                        <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                            <span
+                                className={cn(
+                                    "inline-flex items-center px-1.5 py-0.5 rounded-sm",
+                                    "text-[10px] uppercase tracking-wider font-poppins font-bold",
+                                    "bg-background/60 border border-border/60 text-muted-foreground",
+                                )}
+                            >
+                                {typeLabel}
+                            </span>
+                            {areaLabel && (
+                                <span className="text-[10px] tabular-nums text-muted-foreground">
+                                    {areaLabel}
+                                </span>
+                            )}
+                            {sizeHint && (
+                                <SizeBadge
+                                    size={sizeHint}
+                                    className="!text-[9px] !px-1.5 !py-0.5"
+                                />
+                            )}
+                        </div>
+                    </div>
+                    <Check className="w-4 h-4 text-primary shrink-0" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <Button
+                        variant="outline"
+                        onClick={() => {
+                            userInitiatedSearch.current = true;
+                            setMode("search");
+                            setQuery("");
+                            setResults([]);
+                            setSearched(false);
+                        }}
+                        className="gap-1.5"
+                    >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Change area
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => setAdjacentOpen(true)}
+                        className="gap-1.5"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Adjacent
+                        {$additional.length > 0 && (
+                            <span
+                                className={cn(
+                                    "ml-1 px-1.5 py-0.5 rounded-sm",
+                                    "text-[9px] tabular-nums font-poppins font-bold",
+                                    "bg-primary text-primary-foreground",
+                                )}
+                            >
+                                {$additional.length}
+                            </span>
+                        )}
+                    </Button>
+                </div>
+
+                {/* Adjacent-areas dialog. Wraps the existing
+                    PlayAreaExtensions picker so the user can browse
+                    neighbouring municipalities without leaving the
+                    wizard step — a sibling Dialog rather than a
+                    sibling wizard step. Closes when the user taps
+                    Done; selections persist in the
+                    `additionalMapGeoLocations` atom either way. */}
+                <Dialog open={adjacentOpen} onOpenChange={setAdjacentOpen}>
+                    <DialogContent
+                        className={cn(
+                            "!bg-[hsl(var(--sidebar-background))] !text-white",
+                            "flex flex-col p-0 max-h-[85vh]",
+                        )}
+                    >
+                        <div className="px-4 pt-3 pb-3 shrink-0 border-b border-border">
+                            <DialogTitle
+                                className="font-display font-black uppercase text-lg leading-tight"
+                                style={{ letterSpacing: "-0.02em" }}
+                            >
+                                Adjacent areas
+                            </DialogTitle>
+                            <DialogDescription className="text-xs leading-snug">
+                                Some cities are tightly linked to
+                                neighbouring municipalities that locals
+                                treat as one. Pick the ones you want to
+                                include.
+                            </DialogDescription>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
+                            <PlayAreaExtensions primary={value} />
+                        </div>
+                        <DialogFooter className="px-4 py-3 shrink-0 border-t border-border">
+                            <Button onClick={() => setAdjacentOpen(false)}>
+                                <Check className="w-4 h-4 mr-1" />
+                                Done
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                <p className="text-[11px] leading-snug text-muted-foreground border border-dashed border-border/60 rounded-md p-2.5">
+                    <span className="font-semibold text-foreground">
+                        Tip:
+                    </span>{" "}
+                    every seeker should turn on location sharing (Apple{" "}
+                    <span className="italic">Find My</span> or Google
+                    Maps live-share) so the hider can follow your
+                    movement through the round.
+                </p>
+            </div>
+        );
+    }
+
+    // ────────────── Search mode ──────────────
     return (
         <div className="space-y-4">
             <div className="space-y-2">
@@ -891,13 +1043,6 @@ function PlayAreaStep({
                         Searching for places matching &quot;{query}&quot;…
                     </p>
                 )}
-
-                {/* GPS suggestion row — surfaces while the
-                    getCurrentPosition + reverse-geocode is in flight,
-                    and provides a retry button if the user said no /
-                    geolocation failed. Hidden once the search returns
-                    results (the input has been populated) or the user
-                    started typing themselves. */}
                 {gpsState === "pending" && !busy && (
                     <p
                         className="text-xs text-muted-foreground flex items-center gap-1.5"
@@ -936,41 +1081,18 @@ function PlayAreaStep({
                         </div>
                     )}
             </div>
-            {/* Current selection (edit mode / after a pick) — shown while
-                the search box is empty so the user can see the active
-                play area is preserved, with the search above to change it. */}
-            {value && !query.trim() && results.length === 0 && (
-                <div className="space-y-2">
-                    <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2">
-                        <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
-                        <div className="min-w-0 flex-1">
-                            <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
-                                Current play area
-                            </div>
-                            <div className="text-sm font-medium truncate">
-                                {value.properties.name ??
-                                    determineName(value).split(",")[0]}
-                            </div>
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                                Search above to change it.
-                            </div>
-                        </div>
-                        <Check className="w-4 h-4 text-primary shrink-0" />
-                    </div>
-                    <PlayAreaPreviewMap value={value} />
-                </div>
-            )}
-            {/* Selection preview alongside the search-results list,
-                so picking between two close candidates (e.g. "Falun"
-                the municipality vs. the urban area) shows what each
-                actually covers without committing. */}
+
+            {/* Live preview while typing. Highlights what the user is
+                about to commit before they tap Use or pick a different
+                result below. */}
             {value && results.length > 0 && (
                 <PlayAreaPreviewMap value={value} height="h-[140px]" />
             )}
+
             {results.length > 0 && (
                 <div className="space-y-1.5">
                     <p className="text-xs text-muted-foreground">
-                        Top match selected — tap another to switch:
+                        Tap a match to use it (top is auto-selected):
                     </p>
                     <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
                         {results.map((r) => {
@@ -983,7 +1105,7 @@ function PlayAreaStep({
                                 <button
                                     key={`${r.properties.osm_id}-${r.properties.osm_type}`}
                                     type="button"
-                                    onClick={() => onChange(r)}
+                                    onClick={() => handlePickResult(r)}
                                     className={cn(
                                         "w-full text-left p-3 rounded-md border-2 transition-all",
                                         active
@@ -1006,16 +1128,6 @@ function PlayAreaStep({
                                                 {r.properties.name ??
                                                     label.split(",")[0]}
                                             </div>
-                                            {/* Disambiguating metadata
-                                                row — surfaces place type
-                                                (city / state / etc.),
-                                                approximate polygon area,
-                                                and the resulting game-
-                                                size recommendation. Two
-                                                Photon hits sharing the
-                                                same name almost always
-                                                differ on at least one of
-                                                these. */}
                                             <div className="flex items-center flex-wrap gap-1.5 mt-1">
                                                 <span
                                                     className={cn(
@@ -1049,72 +1161,26 @@ function PlayAreaStep({
                     </div>
                 </div>
             )}
-            {/* PlayAreaExtensions used to render inline below the
-                search results here, but it now has its own
-                wizard step (step 2) so the user makes the
-                neighbour decision as a separate, explicit
-                choice. The component reference is kept in this
-                file (the import is still in use) but no longer
-                rendered inside step 1. */}
             {searched && !busy && results.length === 0 && (
                 <p className="text-xs text-muted-foreground italic">
                     No regions match. Try a broader name (city, country).
                 </p>
             )}
-            {/* Rulebook p5: every seeker should turn on location sharing
-                (Apple "Find My" or Google Maps live-share) so the hider can
-                track them through the round. Surfaced here once during
-                setup; no enforcement, just a reminder. */}
-            {results.length === 0 && !searched && (
-                <p className="text-[11px] leading-snug text-muted-foreground border border-dashed border-border/60 rounded-md p-2.5">
-                    <span className="font-semibold text-foreground">
-                        Tip:
-                    </span>{" "}
-                    every seeker should also turn on location sharing
-                    (Apple <span className="italic">Find My</span> or Google
-                    Maps live-share) so the hider can follow your movement
-                    through the round.
-                </p>
-            )}
-        </div>
-    );
-}
 
-/* ─── Adjacent areas opt-in ─── */
-
-function AdjacentDecision({
-    areaName,
-    onYes,
-    onNo,
-}: {
-    areaName: string;
-    onYes: () => void;
-    onNo: () => void;
-}) {
-    return (
-        <div className="space-y-4">
-            <div className="rounded-md border border-border bg-secondary/30 p-4">
-                <p className="text-sm leading-relaxed">
-                    Some cities are tightly linked to neighbouring
-                    municipalities that the map doesn't count as part of{" "}
-                    <span className="font-semibold">{areaName}</span>, but which
-                    are usually played as one area (e.g. Brooklyn and Queens
-                    with Manhattan, or Île-de-France with Paris).
-                </p>
-            </div>
-            <div className="grid grid-cols-1 gap-2.5">
-                <Button onClick={onYes} className="w-full gap-2 py-6 text-base">
-                    <Sparkles className="w-4 h-4" />
-                    Yes, add nearby areas
-                </Button>
+            {/* Cancel-search escape hatch — only meaningful if there's
+                already a committed area to fall back to. Lets the user
+                tap "Change area" by accident in preview mode without
+                losing their selection. */}
+            {value && (
                 <Button
-                    onClick={onNo}
-                    variant="outline"
-                    className="w-full gap-2 py-6 text-base"
+                    variant="ghost"
+                    onClick={() => setMode("preview")}
+                    className="w-full gap-1.5"
                 >
-                    No, just {areaName}
+                    <ChevronLeft className="w-4 h-4" />
+                    Keep current area
                 </Button>
-            </div>
+            )}
         </div>
     );
 }
