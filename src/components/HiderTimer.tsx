@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
+    endgameStartedAt,
     formatTimeRemaining,
     gameSize,
     HIDING_PERIOD_MINUTES,
@@ -38,6 +39,7 @@ export function HiderTimer() {
     const $endsAt = useStore(hidingPeriodEndsAt);
     const $setupCompleted = useStore(setupCompleted);
     const $gameSize = useStore(gameSize);
+    const $endgameStartedAt = useStore(endgameStartedAt);
 
     // Tick every second whenever the timer is meaningful, but
     // pause while the tab is hidden so the CPU isn't woken on
@@ -136,6 +138,27 @@ export function HiderTimer() {
                     <Flag className="w-3 h-3" strokeWidth={2.5} />
                     End hiding · Start seeking
                 </button>
+            )}
+
+            {/* Endgame indicator — surfaces on the seeker's map the
+                moment the trigger fires, so they don't need to open
+                the Settings sheet to confirm the hider has been told
+                to lock down. */}
+            {!inHidingPeriod && $endgameStartedAt !== null && (
+                <div
+                    className={cn(
+                        "flex items-center gap-1.5",
+                        "px-2 py-1 rounded-md",
+                        "bg-yellow-500/15 border-2 border-yellow-500/70",
+                        "text-yellow-300",
+                    )}
+                    title="Endgame triggered — the hider has been told to lock to a final spot."
+                >
+                    <Flag className="w-3 h-3" strokeWidth={2.5} />
+                    <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.15em]">
+                        Endgame armed
+                    </span>
+                </div>
             )}
         </div>
     );
