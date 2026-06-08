@@ -3,6 +3,8 @@ import { Bug, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { debugPanelOpen } from "@/lib/debugState";
+
 import {
     addQuestion,
     mapContext,
@@ -50,7 +52,7 @@ import { DICE_FIZZLE } from "./CastCurseDialog";
 type Phase = "not-sent" | "waiting" | "overdue" | "answered-yes" | "answered-no";
 
 export function DebugPhaseControls() {
-    const [open, setOpen] = useState(false);
+    const open = useStore(debugPanelOpen);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
@@ -426,23 +428,9 @@ export function DebugPhaseControls() {
     }, []);
     if (!mounted || typeof document === "undefined") return null;
 
-    const content = !open ? (
-        <button
-            type="button"
-            onClick={() => setOpen(true)}
-            aria-label="Open debug phase controls"
-            className={cn(
-                "fixed left-3 top-3 z-[9999] pointer-events-auto",
-                "w-9 h-9 flex items-center justify-center rounded-full",
-                "bg-amber-500 text-white shadow-lg",
-                "hover:bg-amber-400 transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300",
-            )}
-            title={`Debug phase controls · ${APP_VERSION}`}
-        >
-            <Bug className="w-4 h-4" />
-        </button>
-    ) : (
+    if (!open) return null;
+
+    const content = (
         <div
             className={cn(
                 "fixed left-3 top-3 z-[9999] pointer-events-auto",
@@ -463,7 +451,7 @@ export function DebugPhaseControls() {
                 </span>
                 <button
                     type="button"
-                    onClick={() => setOpen(false)}
+                    onClick={() => debugPanelOpen.set(false)}
                     aria-label="Close debug panel"
                     className="hover:bg-white/20 w-6 h-6 flex items-center justify-center rounded"
                 >

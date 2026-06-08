@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
+    Bug,
     Bus,
     Copy,
     Flag,
@@ -49,6 +50,7 @@ import {
     type TransitMode,
     welcomeSeen,
 } from "@/lib/gameSetup";
+import { debugPanelOpen } from "@/lib/debugState";
 import { startNewGame, startNewRound } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
@@ -882,6 +884,24 @@ export const BottomNav = () => {
                             })()}
                             <div className="pb-2 flex justify-center">
                                 <OptionDrawers compact />
+                            </div>
+                            <div className="pt-1 flex justify-center">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setMoreOpen(false);
+                                        debugPanelOpen.set(true);
+                                    }}
+                                    className={cn(
+                                        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md",
+                                        "text-[11px] font-mono text-muted-foreground/40",
+                                        "hover:text-muted-foreground hover:bg-secondary/60 transition-colors",
+                                    )}
+                                    title="Open developer debug panel"
+                                >
+                                    <Bug className="w-3 h-3" />
+                                    debug
+                                </button>
                             </div>
                         </div>
                         {/* 'Star on GitHub' button removed in v101. */}
