@@ -70,6 +70,7 @@ import {
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { OnlinePlaySection } from "./multiplayer/OnlinePlaySection";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
+import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 
 /**
  * Three-step game setup. Auto-opens on first load (setupCompleted=false)
@@ -939,22 +940,32 @@ function PlayAreaStep({
                 the search box is empty so the user can see the active
                 play area is preserved, with the search above to change it. */}
             {value && !query.trim() && results.length === 0 && (
-                <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2">
-                    <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
-                    <div className="min-w-0 flex-1">
-                        <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
-                            Current play area
+                <div className="space-y-2">
+                    <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2">
+                        <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
+                                Current play area
+                            </div>
+                            <div className="text-sm font-medium truncate">
+                                {value.properties.name ??
+                                    determineName(value).split(",")[0]}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                                Search above to change it.
+                            </div>
                         </div>
-                        <div className="text-sm font-medium truncate">
-                            {value.properties.name ??
-                                determineName(value).split(",")[0]}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                            Search above to change it.
-                        </div>
+                        <Check className="w-4 h-4 text-primary shrink-0" />
                     </div>
-                    <Check className="w-4 h-4 text-primary shrink-0" />
+                    <PlayAreaPreviewMap value={value} />
                 </div>
+            )}
+            {/* Selection preview alongside the search-results list,
+                so picking between two close candidates (e.g. "Falun"
+                the municipality vs. the urban area) shows what each
+                actually covers without committing. */}
+            {value && results.length > 0 && (
+                <PlayAreaPreviewMap value={value} height="h-[140px]" />
             )}
             {results.length > 0 && (
                 <div className="space-y-1.5">
