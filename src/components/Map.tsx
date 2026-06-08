@@ -241,7 +241,6 @@ function buildStyle(
         version: 8,
         sources,
         layers,
-        glyphs: undefined,
     };
 }
 
