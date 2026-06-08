@@ -76,6 +76,18 @@ export interface SetupState {
      * rides in the welcome snapshot for late joiners.
      */
     endgameStartedAt: number | null;
+    /**
+     * Full Photon OSM feature for the host's selected play area
+     * (`OpenStreetMap` on the client). Carries the extent / osm_id
+     * the hider device needs so its settings dialog can recognise
+     * the area instead of falling back to the persisted Japan
+     * default. Typed as `unknown` on the wire — the client casts
+     * on receipt; the server treats it as an opaque blob. Optional
+     * for back-compat: snapshots produced by older deployments
+     * land without it and the client keeps whatever value it
+     * already had.
+     */
+    mapGeoLocation?: unknown;
 }
 
 /**

@@ -244,6 +244,20 @@ export function GameSetupDialog() {
     // Track whether the user has overridden the size manually. As soon
     // as they tap a size tile, we stop auto-inferring from the play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
+    // Snapshot of the values the dialog opened with. Used in edit
+    // mode to gate the "Save changes" button — when the draft still
+    // matches the snapshot, there's nothing to save.
+    const [editSnapshot, setEditSnapshot] = useState<{
+        playAreaId: number | null;
+        transit: string;
+        size: GameSize;
+        displayName: string;
+    }>({
+        playAreaId: null,
+        transit: "",
+        size: "medium",
+        displayName: "",
+    });
 
     // Adjacent areas now live as an inline Dialog inside the play-
     // area step, so the wizard doesn't need a dedicated step or an
@@ -294,18 +308,56 @@ export function GameSetupDialog() {
             // the picker shows the current selection instead of falling
             // back to a GPS auto-search. Wizard mode starts blank.
             const editing = setupCompleted.get();
-            const current = editing ? mapGeoLocation.get() : null;
+            let current = editing ? mapGeoLocation.get() : null;
+            const pa = playArea.get();
+            // Stale-snapshot guard: on the hide-team device the
+            // persisted mapGeoLocation can be a leftover (e.g. the
+            // Japan default) while playArea has been pushed from
+            // the host. If the seed doesn't match the current play
+            // area's name, drop it so the dialog opens in search
+            // mode rather than misrepresenting the area as Japan.
+            if (current && pa) {
+                const seedName =
+                    current.properties?.name?.split(",")[0]?.trim() ?? "";
+                const paName =
+                    pa.displayName.split(",")[0]?.trim() ?? "";
+                if (
+                    seedName.length > 0 &&
+                    paName.length > 0 &&
+                    seedName.toLowerCase() !== paName.toLowerCase()
+                ) {
+                    current = null;
+                }
+            }
             setDraftFeature(current);
             initialPlayAreaIdRef.current =
                 current?.properties?.osm_id ?? null;
-            setDraftTransit(allowedTransit.get());
-            setDraftSize(gameSize.get());
-            setDraftDisplayName(displayNameAtom.get() || "");
+            const transit = allowedTransit.get();
+            setDraftTransit(transit);
+            const size = gameSize.get();
+            setDraftSize(size);
+            const name = displayNameAtom.get() || "";
+            setDraftDisplayName(name);
+            setEditSnapshot({
+                playAreaId: current?.properties?.osm_id ?? null,
+                transit: [...transit].sort().join(","),
+                size,
+                displayName: name,
+            });
             // Reset auto-infer flag for the new session. In edit mode we
             // assume the existing size is intentional and don't override.
             setSizeManuallySet(setupCompleted.get());
         }
     }, [$open]);
+
+    // Edit-mode dirty check. Save changes only enables once the
+    // draft genuinely differs from what the dialog opened with.
+    const isDirty =
+        editSnapshot.transit !== [...draftTransit].sort().join(",") ||
+        editSnapshot.size !== draftSize ||
+        editSnapshot.displayName !== draftDisplayName ||
+        editSnapshot.playAreaId !==
+            (draftFeature?.properties?.osm_id ?? null);
 
     const handleSaveEdits = () => {
         // Apply transit + size live, no hiding-period restart.
@@ -530,6 +582,7 @@ export function GameSetupDialog() {
                             </Button>
                             <Button
                                 onClick={handleSaveEdits}
+                                disabled={!isDirty}
                                 className="gap-1"
                             >
                                 <Check className="w-4 h-4" />

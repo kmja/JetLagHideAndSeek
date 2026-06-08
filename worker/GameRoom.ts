@@ -49,6 +49,7 @@ function emptySetup(): SetupState {
         gameSize: "medium",
         hidingPeriodEndsAt: null,
         endgameStartedAt: null,
+        mapGeoLocation: null,
     };
 }
 

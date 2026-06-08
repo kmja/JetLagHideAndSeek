@@ -25,10 +25,12 @@ import { PROTOCOL_VERSION } from "@protocol/index";
 import {
     addQuestion as localAddQuestion,
     disabledStations,
+    mapGeoLocation,
     permanentOverlay,
     questionModified,
     questions,
 } from "@/lib/context";
+import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
     gameSize,
@@ -271,6 +273,11 @@ export function hostPushSetup() {
         gameSize: gameSize.get(),
         hidingPeriodEndsAt: hidingPeriodEndsAt.get(),
         endgameStartedAt: endgameStartedAt.get(),
+        // Ship the full Photon OSM feature so the hide team's
+        // settings dialog can show the host's area instead of
+        // its persisted Japan default. Half a KB on the wire,
+        // sent on host-finished and on edit-saves only.
+        mapGeoLocation: mapGeoLocation.get(),
     };
     getTransport().send({ t: "start", setup });
 }
@@ -516,6 +523,11 @@ function applySnapshot(state: GameState) {
     gameSize.set(state.setup.gameSize);
     hidingPeriodEndsAt.set(state.setup.hidingPeriodEndsAt);
     endgameStartedAt.set(state.setup.endgameStartedAt);
+    if (state.setup.mapGeoLocation) {
+        mapGeoLocation.set(
+            state.setup.mapGeoLocation as OpenStreetMap,
+        );
+    }
     // Questions — merge by key, replacing existing entries.
     const incomingQs: Question[] = [];
     for (const raw of state.questions) {
@@ -615,6 +627,11 @@ function handleServerMessage(msg: ServerMessage) {
             gameSize.set(msg.setup.gameSize);
             hidingPeriodEndsAt.set(msg.setup.hidingPeriodEndsAt);
             endgameStartedAt.set(msg.setup.endgameStartedAt);
+            if (msg.setup.mapGeoLocation) {
+                mapGeoLocation.set(
+                    msg.setup.mapGeoLocation as OpenStreetMap,
+                );
+            }
             return;
         case "loc": {
             // Per-seeker GPS update fanned out by the server. Hide
