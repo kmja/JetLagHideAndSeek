@@ -16,6 +16,8 @@ import {
 import { gameSize } from "@/lib/gameSetup";
 import type { CurseCard } from "@/lib/hiderDeck";
 import { discardCard } from "@/lib/hiderRole";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import { hiderCastCurse } from "@/lib/multiplayer/store";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 
@@ -75,6 +77,7 @@ export function CastCurseDialog({
     card: CurseCard | null;
 }) {
     const $gameSize = useStore(gameSize);
+    const $multiplayer = useStore(multiplayerEnabled);
     const fizzleRule = card ? DICE_FIZZLE[card.name] : undefined;
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
@@ -246,6 +249,19 @@ export function CastCurseDialog({
                 `${card.name} fizzled on a ${rolled}. Card moved to discard.`,
                 { autoClose: 3000 },
             );
+            onOpenChange(false);
+            return;
+        }
+
+        // In multiplayer the curse travels over the WebSocket — no link needed.
+        if ($multiplayer) {
+            hiderCastCurse({
+                name: card.name,
+                description: card.description,
+                castingCost: card.castingCost ?? null,
+            });
+            discardCard(card.id);
+            toast.success(`${card.name} cast on seekers.`, { autoClose: 2500 });
             onOpenChange(false);
             return;
         }
@@ -631,10 +647,11 @@ export function CastCurseDialog({
                             the clipboard, so the hider always has a
                             single-tap recovery even when the OS share
                             sheet keeps getting dismissed. Hidden on
-                            fizzle since the card is going to discard
-                            unshared in that branch anyway. */}
+                            fizzle and in multiplayer (curse goes over
+                            the wire, not a link). */}
                         {(fizzleRule === undefined || settled !== null) &&
-                            !fizzles && (
+                            !fizzles &&
+                            !$multiplayer && (
                                 <Button
                                     variant="outline"
                                     onClick={copyLink}

@@ -180,6 +180,18 @@ export default {
             });
         }
 
+        if (request.method === "GET" && url.pathname === "/vapid-public-key") {
+            return new Response(
+                JSON.stringify({ publicKey: env.VAPID_PUBLIC_KEY ?? "" }),
+                {
+                    headers: {
+                        "content-type": "application/json",
+                        ...corsHeaders(env, request),
+                    },
+                },
+            );
+        }
+
         if (request.method === "POST" && url.pathname === "/games") {
             const ip = clientIp(request);
             if (
@@ -265,4 +277,6 @@ export default {
 interface Env {
     GAME_ROOM: DurableObjectNamespace;
     ALLOWED_ORIGINS?: string;
+    VAPID_PUBLIC_KEY?: string;
+    VAPID_KEYS?: string;
 }

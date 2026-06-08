@@ -2,24 +2,14 @@ import { atom } from "nanostores";
 import { persistentAtom } from "@nanostores/persistent";
 
 /**
- * In-tab Notification API wrapper. Fires `new Notification(...)` when
- * a game event happens AND the document is currently hidden (no point
- * notifying a focused tab — the user already sees the toast / update).
- *
- * Scope is limited to "while the tab is alive in the background" —
- * mobile Safari kills suspended tabs and Android Chrome aggressively
- * throttles them. True background push (works after the tab closes)
- * needs Web Push with a VAPID-keyed server — that's a follow-up.
+ * In-tab and Web Push notification wrapper.
  *
  * Two atoms drive the UX:
- *
- *   - `notificationPermission` — mirrors `Notification.permission`
- *     ("default" | "granted" | "denied"). Volatile; refreshed on
- *     window focus + when we call `requestNotificationPermission`.
- *
+ *   - `notificationPermission` — mirrors `Notification.permission`.
+ *     Volatile; refreshed on window focus and when permission is requested.
  *   - `notificationsEnabled` — user opt-in stored in localStorage.
- *     Even with permission granted, the user can flip this off to
- *     mute the app without revoking the browser-level grant.
+ *     Even with permission granted, the user can flip this off to mute
+ *     the app without revoking the browser-level grant.
  */
 
 export type NotificationPermissionState = "default" | "granted" | "denied" | "unsupported";
@@ -60,6 +50,9 @@ if (typeof window !== "undefined") {
     window.addEventListener("focus", () => {
         notificationPermission.set(readPermission());
     });
+    if (readPermission() === "granted") {
+        void subscribeToPush();
+    }
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermissionState> {
@@ -68,11 +61,70 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
         const result = await Notification.requestPermission();
         const state = result as NotificationPermissionState;
         notificationPermission.set(state);
+        if (state === "granted") {
+            void subscribeToPush();
+        }
         return state;
     } catch {
         return readPermission();
     }
 }
+
+/* ────────────────── Web Push subscription ────────────────── */
+
+const PUSH_SUB_STORAGE_KEY = "jlhs_pushSub";
+// Keep in sync with getMultiplayerOrigin() in src/lib/multiplayer/store.ts
+const MULTIPLAYER_ORIGIN = "https://jlhs-multiplayer.karl-mj-andersson.workers.dev";
+
+function b64urlToUint8Array(b64: string): Uint8Array {
+    const padded = b64.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(padded);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+}
+
+export async function subscribeToPush(): Promise<PushSubscriptionJSON | null> {
+    if (typeof window === "undefined") return null;
+    if (!supported || Notification.permission !== "granted") return null;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+    try {
+        const reg = await navigator.serviceWorker.ready;
+        const existing = await reg.pushManager.getSubscription();
+        if (existing) {
+            const json = existing.toJSON() as PushSubscriptionJSON;
+            localStorage.setItem(PUSH_SUB_STORAGE_KEY, JSON.stringify(json));
+            return json;
+        }
+        const resp = await fetch(`${MULTIPLAYER_ORIGIN}/vapid-public-key`);
+        if (!resp.ok) return null;
+        const { publicKey } = (await resp.json()) as { publicKey: string };
+        if (!publicKey) return null;
+        const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: b64urlToUint8Array(publicKey),
+        });
+        const json = sub.toJSON() as PushSubscriptionJSON;
+        localStorage.setItem(PUSH_SUB_STORAGE_KEY, JSON.stringify(json));
+        return json;
+    } catch (e) {
+        console.warn("[push] subscribeToPush failed", e);
+        return null;
+    }
+}
+
+export function getStoredPushSubscription(): PushSubscriptionJSON | null {
+    if (typeof window === "undefined") return null;
+    try {
+        const raw = localStorage.getItem(PUSH_SUB_STORAGE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw) as PushSubscriptionJSON;
+    } catch {
+        return null;
+    }
+}
+
+/* ────────────────── In-tab notifications ────────────────── */
 
 interface NotifyOptions {
     /** Short title shown bold at the top of the notification. */

@@ -210,6 +210,18 @@ export interface CMsgPing {
     ts: number;
 }
 
+/** Hider casts a curse on seekers over the WebSocket wire. */
+export interface CMsgCastCurse {
+    t: "castCurse";
+    curse: CursePayload;
+}
+
+/** Client registers its Web Push subscription so the server can notify it offline. */
+export interface CMsgSubscribePush {
+    t: "subscribePush";
+    subscription: PushSubscriptionData;
+}
+
 export type ClientMessage =
     | CMsgHostGame
     | CMsgJoinGame
@@ -225,7 +237,9 @@ export type ClientMessage =
     | CMsgSetHideZone
     | CMsgStartEndgame
     | CMsgSeekerLocation
-    | CMsgPing;
+    | CMsgPing
+    | CMsgCastCurse
+    | CMsgSubscribePush;
 
 /* ────────────────── Server → Client ────────────────── */
 
@@ -355,6 +369,12 @@ export interface SMsgPong {
     ts: number;
 }
 
+/** Delivered to every seeker when the hider casts a curse. */
+export interface SMsgCurseReceived {
+    t: "curseReceived";
+    curse: CursePayload;
+}
+
 export type ServerMessage =
     | SMsgWelcome
     | SMsgSnapshot
@@ -368,7 +388,24 @@ export type ServerMessage =
     | SMsgHideZone
     | SMsgSeekerLocation
     | SMsgError
-    | SMsgPong;
+    | SMsgPong
+    | SMsgCurseReceived;
+
+/* ────────────────── Shared payload types ────────────────── */
+
+/** Curse payload — mirrors the encodeCurseLink shape. */
+export interface CursePayload {
+    name: string;
+    description: string;
+    castingCost: string | null;
+}
+
+/** Push subscription stored by the client for server-side delivery. */
+export interface PushSubscriptionData {
+    endpoint: string;
+    expirationTime: number | null;
+    keys: { p256dh: string; auth: string };
+}
 
 /* ────────────────── Re-exports for ergonomic imports ────────────────── */
 

@@ -24,13 +24,16 @@ import {
     MAX_ROOM_LIFETIME_MS,
     PROTOCOL_VERSION,
     type ClientMessage,
+    type CursePayload,
     type GameState,
     type HidingZoneShare,
     type Participant,
+    type PushSubscriptionData,
     type Role,
     type ServerMessage,
     type SetupState,
 } from "@protocol/index";
+import { parseVapidKeys, sendWebPush } from "./webpush";
 
 /* ────────────────── Helpers ────────────────── */
 
@@ -88,6 +91,9 @@ export class GameRoom {
      * (the hider + co-hiders). Cleared on each new round.
      */
     private hidingZone: HidingZoneShare | null = null;
+
+    /** Per-participant Web Push subscriptions. Keyed by participant id. */
+    private pushSubscriptions: Map<string, PushSubscriptionData> = new Map();
 
     /** Idle-eviction wake handle. */
     private evictionAlarmSet = false;
@@ -315,6 +321,10 @@ export class GameRoom {
                     msg.accuracy,
                     msg.ts,
                 );
+            case "castCurse":
+                return this.handleCastCurse(socket, msg.curse);
+            case "subscribePush":
+                return this.handleSubscribePush(socket, msg.subscription);
             case "ping":
                 return this.sendTo(socket, { t: "pong", ts: msg.ts });
             default: {
@@ -846,6 +856,48 @@ export class GameRoom {
         this.broadcastPresence();
     }
 
+    private handleCastCurse(socket: WebSocket, curse: CursePayload) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const sender = this.game.participants.find((p) => p.id === conn.participantId);
+        if (!sender || sender.role !== "hider") return;
+        // Fan out to all online seekers.
+        for (const [pid, c] of this.conns.entries()) {
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role === "seeker") {
+                this.sendTo(c.socket, { t: "curseReceived", curse });
+            }
+        }
+        // Push to offline seekers via Web Push.
+        this.state.waitUntil(this.pushCurseToOfflineSeekers(curse));
+    }
+
+    private handleSubscribePush(socket: WebSocket, subscription: PushSubscriptionData) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        this.pushSubscriptions.set(conn.participantId, subscription);
+    }
+
+    private async pushCurseToOfflineSeekers(curse: CursePayload) {
+        const vapidKeysStr = (this.env as { VAPID_KEYS?: string }).VAPID_KEYS;
+        const vapidPublicKey = (this.env as { VAPID_PUBLIC_KEY?: string }).VAPID_PUBLIC_KEY;
+        if (!vapidKeysStr || !vapidPublicKey) return;
+        const vapidKeys = parseVapidKeys(vapidKeysStr);
+        if (!vapidKeys) return;
+        for (const [pid, sub] of this.pushSubscriptions.entries()) {
+            const p = this.game.participants.find((q) => q.id === pid);
+            if (!p || p.role !== "seeker" || p.online) continue;
+            const result = await sendWebPush(
+                sub,
+                { title: curse.name, body: curse.description, tag: "curse" },
+                vapidKeys,
+                vapidPublicKey,
+                "mailto:karl.mj.andersson@gmail.com",
+            );
+            if (result === "gone") this.pushSubscriptions.delete(pid);
+        }
+    }
+
     /* ────────────────── Socket housekeeping ────────────────── */
 
     private handleSocketClose(socket: WebSocket) {
@@ -944,4 +996,6 @@ function isQuestionLike(x: unknown): x is QuestionShape {
 interface Env {
     GAME_ROOM: DurableObjectNamespace;
     ALLOWED_ORIGINS?: string;
+    VAPID_PUBLIC_KEY?: string;
+    VAPID_KEYS?: string;
 }

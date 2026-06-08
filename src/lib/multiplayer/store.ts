@@ -21,6 +21,9 @@
  */
 
 import { PROTOCOL_VERSION } from "@protocol/index";
+import type { CursePayload } from "@protocol/index";
+
+import { getStoredPushSubscription, notify } from "@/lib/notifications";
 
 import { CATEGORIES } from "@/lib/categories";
 import {
@@ -362,6 +365,12 @@ export function promoteCoHider(toParticipantId: string) {
     getTransport().send({ t: "promoteCoHider", to: toParticipantId });
 }
 
+/** Hider broadcasts a curse to all seekers in the room. */
+export function hiderCastCurse(curse: CursePayload) {
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "castCurse", curse });
+}
+
 /* ────────────────── Inbound dispatch ────────────────── */
 
 /**
@@ -593,6 +602,30 @@ function handleServerMessage(msg: ServerMessage) {
                     getTransport().send({ t: "role", role: local });
                 }
             }
+            // Register push subscription so the server can reach us
+            // when our tab is closed or suspended.
+            {
+                const sub = getStoredPushSubscription();
+                if (
+                    sub &&
+                    typeof sub.endpoint === "string" &&
+                    sub.keys &&
+                    typeof sub.keys.p256dh === "string" &&
+                    typeof sub.keys.auth === "string"
+                ) {
+                    getTransport().send({
+                        t: "subscribePush",
+                        subscription: {
+                            endpoint: sub.endpoint,
+                            expirationTime: sub.expirationTime ?? null,
+                            keys: {
+                                p256dh: sub.keys.p256dh,
+                                auth: sub.keys.auth,
+                            },
+                        },
+                    });
+                }
+            }
             return;
         case "snapshot":
             applySnapshot(msg.state);
@@ -741,6 +774,13 @@ function handleServerMessage(msg: ServerMessage) {
                     playerRole.set("seeker");
                 }
             }
+            return;
+        case "curseReceived":
+            notify({
+                title: msg.curse.name,
+                body: msg.curse.description,
+                tag: "curse",
+            });
             return;
         case "pong":
             // No-op; latency tracking can hook in here later.

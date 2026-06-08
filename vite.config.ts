@@ -32,6 +32,12 @@ export default defineConfig({
         // the previous astro.config.mjs.
         VitePWA({
             registerType: "autoUpdate",
+            // injectManifest lets us write our own SW (src/sw.ts) with
+            // a `push` handler for Web Push notifications. The Workbox
+            // precache manifest is injected at build time.
+            strategies: "injectManifest",
+            srcDir: "src",
+            filename: "sw.ts",
             manifest: {
                 name: "Jet Lag Hide and Seek",
                 short_name: "Hide+Seek",
@@ -69,140 +75,6 @@ export default defineConfig({
                         type: "image/png",
                         purpose: "any",
                     },
-                ],
-            },
-            workbox: {
-                globPatterns: [
-                    "**/*.{js,css,html,svg,png,jpg,jpeg,gif,webp,ico,woff,woff2,ttf}",
-                ],
-                // The 50 m coastline GeoJSON is ~8 MB; precaching
-                // would balloon the offline shell. It's fetched
-                // lazily and cached at runtime instead.
-                globIgnores: ["**/coastline50.geojson"],
-                // SPA fallback: an unknown deep link should land on
-                // the React Router shell, which routes client-side.
-                navigateFallback: "/index.html",
-                navigateFallbackDenylist: [],
-                maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-                // Critical for a chunky lazy-loaded SPA that's
-                // redeployed often:
-                //   - skipWaiting + clientsClaim: a new SW takes
-                //     over IMMEDIATELY on activation instead of
-                //     waiting until every existing tab closes.
-                //     Without this, an open tab keeps serving the
-                //     PREVIOUS deploy's index.html — which
-                //     references chunk hashes (Map-XXXX.js,
-                //     SeekerPage-XXXX.js) that no longer exist on
-                //     the server because the new deploy overwrote
-                //     them. Result: the lazy Map chunk 404s and
-                //     the user sees a blank map area. Forcing the
-                //     handover means the next navigation gets the
-                //     fresh index.html with valid chunk hashes.
-                //   - cleanupOutdatedCaches: drop precache entries
-                //     from previous deploys so the storage budget
-                //     doesn't balloon over time AND stale chunks
-                //     can't be accidentally served.
-                //   - directoryIndex + cleanURLs: explicit so
-                //     SPA-fallback maps unknown deep links to
-                //     index.html cleanly.
-                skipWaiting: true,
-                clientsClaim: true,
-                cleanupOutdatedCaches: true,
-                runtimeCaching: [
-                    {
-                        urlPattern:
-                            /^https:\/\/[a-d]\.basemaps\.cartocdn\.com\/.*\.png/i,
-                        handler: "CacheFirst",
-                        options: {
-                            cacheName: "tiles-carto",
-                            expiration: {
-                                maxEntries: 6000,
-                                maxAgeSeconds: 60 * 24 * 60 * 60,
-                            },
-                            cacheableResponse: { statuses: [0, 200] },
-                        },
-                    },
-                    {
-                        urlPattern:
-                            /^https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\//i,
-                        handler: "CacheFirst",
-                        options: {
-                            cacheName: "tiles-satellite",
-                            expiration: {
-                                maxEntries: 4000,
-                                maxAgeSeconds: 60 * 24 * 60 * 60,
-                            },
-                            cacheableResponse: { statuses: [0, 200] },
-                        },
-                    },
-                    {
-                        urlPattern:
-                            /^https:\/\/(tiles|[a-d]\.tiles)\.openrailwaymap\.org\//i,
-                        handler: "CacheFirst",
-                        options: {
-                            cacheName: "tiles-railway",
-                            expiration: {
-                                maxEntries: 3000,
-                                maxAgeSeconds: 60 * 24 * 60 * 60,
-                            },
-                            cacheableResponse: { statuses: [0, 200] },
-                        },
-                    },
-                    {
-                        urlPattern:
-                            /^https:\/\/(tile|[a-c]\.tile)\.openstreetmap\.org\//i,
-                        handler: "CacheFirst",
-                        options: {
-                            cacheName: "tiles-osm",
-                            expiration: {
-                                maxEntries: 3000,
-                                maxAgeSeconds: 60 * 24 * 60 * 60,
-                            },
-                            cacheableResponse: { statuses: [0, 200] },
-                        },
-                    },
-                    {
-                        urlPattern:
-                            /^https:\/\/tile\.thunderforest\.com\//i,
-                        handler: "CacheFirst",
-                        options: {
-                            cacheName: "tiles-thunderforest",
-                            expiration: {
-                                maxEntries: 3000,
-                                maxAgeSeconds: 60 * 24 * 60 * 60,
-                            },
-                            cacheableResponse: { statuses: [0, 200] },
-                        },
-                    },
-                    {
-                        urlPattern: /^https:\/\/photon\.komoot\.io\//i,
-                        handler: "StaleWhileRevalidate",
-                        options: {
-                            cacheName: "api-geocode",
-                            expiration: {
-                                maxEntries: 200,
-                                maxAgeSeconds: 7 * 24 * 60 * 60,
-                            },
-                            cacheableResponse: { statuses: [0, 200] },
-                        },
-                    },
-                    {
-                        urlPattern: /\/coastline50\.geojson$/i,
-                        handler: "CacheFirst",
-                        options: {
-                            cacheName: "asset-coastline",
-                            expiration: {
-                                maxEntries: 1,
-                                maxAgeSeconds: 365 * 24 * 60 * 60,
-                            },
-                            cacheableResponse: { statuses: [0, 200] },
-                        },
-                    },
-                    // Overpass responses are NOT runtime-cached
-                    // here — `src/maps/api/cache.ts` already
-                    // manages them in dedicated Cache Storage
-                    // buckets. Duplicating would confuse
-                    // invalidation.
                 ],
             },
             devOptions: {
