@@ -12,15 +12,69 @@ import {
 
 import { CacheType } from "./types";
 
-const determineQuestionCache = memoize(() => caches.open(CacheType.CACHE));
-const determineZoneCache = memoize(() => caches.open(CacheType.ZONE_CACHE));
+/**
+ * iOS Safari (particularly in PWA / private-mode contexts) sometimes
+ * lets `caches.open()` resolve but then hangs `cache.match()` /
+ * `cache.put()` indefinitely. The whole boundary-fetch pipeline
+ * waits on those promises with no inner timeout, so the user sat
+ * forever on "Fetching boundary…". This wrapper races every Cache-
+ * API call against a short timer; if the cache doesn't answer in
+ * time we yield to the direct-fetch fallback in `cacheFetch`.
+ */
+const CACHE_OP_TIMEOUT_MS = 2500;
+
+function withCacheTimeout<T>(p: Promise<T>, op: string): Promise<T> {
+    return Promise.race([
+        p,
+        new Promise<T>((_, reject) =>
+            setTimeout(
+                () =>
+                    reject(
+                        new Error(`Cache API '${op}' timed out after ${CACHE_OP_TIMEOUT_MS}ms`),
+                    ),
+                CACHE_OP_TIMEOUT_MS,
+            ),
+        ),
+    ]);
+}
+
+function wrapCacheStorage(cache: Cache): Cache {
+    return new Proxy(cache, {
+        get(target, prop, receiver) {
+            const value = Reflect.get(target, prop, receiver);
+            if (typeof value !== "function") return value;
+            if (prop === "match" || prop === "put" || prop === "delete" || prop === "keys") {
+                return (...args: unknown[]) =>
+                    withCacheTimeout(
+                        (value as (...a: unknown[]) => Promise<unknown>).apply(
+                            target,
+                            args,
+                        ),
+                        String(prop),
+                    );
+            }
+            return value.bind(target);
+        },
+    });
+}
+
+async function openCacheSafe(name: string): Promise<Cache> {
+    if (typeof caches === "undefined") {
+        throw new Error("Cache API unavailable");
+    }
+    const cache = await withCacheTimeout(caches.open(name), `open(${name})`);
+    return wrapCacheStorage(cache);
+}
+
+const determineQuestionCache = memoize(() => openCacheSafe(CacheType.CACHE));
+const determineZoneCache = memoize(() => openCacheSafe(CacheType.ZONE_CACHE));
 const determinePermanentCache = memoize(() =>
-    caches.open(CacheType.PERMANENT_CACHE),
+    openCacheSafe(CacheType.PERMANENT_CACHE),
 );
 
 const inFlightFetches = new Map<string, Promise<Response>>();
 
-export const determineCache = async (cacheType: CacheType) => {
+export const determineCache = async (cacheType: CacheType): Promise<Cache> => {
     switch (cacheType) {
         case CacheType.CACHE:
             return await determineQuestionCache();
