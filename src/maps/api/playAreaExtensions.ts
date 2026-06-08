@@ -50,67 +50,6 @@ export interface AdjacentAreaCandidate {
 /* ────────────────── Public API ────────────────── */
 
 /**
- * Query Overpass to discover which transit modes are actually present
- * inside a play area's bounding box. Used by the wizard to seed
- * sensible transit defaults when the user picks a play area — instead
- * of always defaulting to train+subway, we check what's really there.
- *
- * Checks subway stations, tram stops, and ferry terminals. Train is
- * assumed present by default (rail is nearly universal) and bus is
- * not checked (it's everywhere; the caller decides when to enable it).
- *
- * Returns a Set of the transit modes that were found. Empty set means
- * the area has none of those three (probably train-only or rural).
- */
-export async function detectTransitPresence(
-    feature: OpenStreetMap,
-): Promise<Set<TransitMode>> {
-    const extent = feature.properties.extent;
-    if (!extent || extent.length < 4) return new Set();
-    const [maxLat, minLng, minLat, maxLng] = extent;
-    if (
-        typeof maxLat !== "number" ||
-        typeof minLat !== "number" ||
-        typeof minLng !== "number" ||
-        typeof maxLng !== "number"
-    ) {
-        return new Set();
-    }
-    // Overpass bbox: south,west,north,east = minLat,minLng,maxLat,maxLng
-    const bbox = `${minLat},${minLng},${maxLat},${maxLng}`;
-    const query = `
-[out:json][timeout:20];
-(
-  node["station"="subway"](${bbox});
-  node["railway"="tram_stop"](${bbox});
-  node["amenity"="ferry_terminal"](${bbox});
-);
-out 50;
-`;
-    try {
-        const data = await getOverpassData(
-            query,
-            undefined,
-            CacheType.ZONE_CACHE,
-            25_000,
-        );
-        const elements = (
-            (data as { elements?: unknown[] }).elements ?? []
-        ) as Array<{ tags?: Record<string, string> }>;
-        const found = new Set<TransitMode>();
-        for (const el of elements) {
-            if (!el.tags) continue;
-            if (el.tags.station === "subway") found.add("subway");
-            else if (el.tags.railway === "tram_stop") found.add("tram");
-            else if (el.tags.amenity === "ferry_terminal") found.add("ferry");
-        }
-        return found;
-    } catch {
-        return new Set();
-    }
-}
-
-/**
  * Find admin regions adjacent / nearby to `primary` at the same
  * administrative level, optionally filtered to those served by the
  * allowed transit modes.

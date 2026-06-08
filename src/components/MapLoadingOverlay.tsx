@@ -101,12 +101,18 @@ export function MapLoadingOverlay() {
             : null;
 
     return (
+        // Non-blocking status card pinned to the top of the map.
+        // pointer-events-none on the outer wrapper means pinch / pan
+        // gestures still reach the map underneath — historically the
+        // overlay covered the map with an opaque backdrop and ate
+        // every touch, so if the boundary fetch hung the user saw a
+        // dark screen and pinching did nothing. The inner card opts
+        // back into pointer events for the retry button.
         <div
             className={cn(
-                "absolute inset-0 z-[1020]",
-                "flex items-center justify-center",
-                "bg-background/80 backdrop-blur-sm",
-                "transition-opacity duration-200",
+                "absolute left-0 right-0 top-[68px] md:top-12 z-[1020]",
+                "flex items-start justify-center px-2",
+                "pointer-events-none",
             )}
             role="status"
             aria-live="polite"
@@ -115,7 +121,7 @@ export function MapLoadingOverlay() {
                 className={cn(
                     "pointer-events-auto",
                     "flex flex-col gap-3 px-5 py-4 rounded-md",
-                    "bg-card border-2 border-primary shadow-xl",
+                    "bg-card/95 backdrop-blur-sm border-2 border-primary shadow-xl",
                     "max-w-[90vw] w-[min(360px,90vw)]",
                 )}
             >

@@ -67,7 +67,6 @@ import {
     type OpenStreetMap,
     reverseGeocodeCity,
 } from "@/maps/api";
-import { detectTransitPresence } from "@/maps/api/playAreaExtensions";
 
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { OnlinePlaySection } from "./multiplayer/OnlinePlaySection";
@@ -245,11 +244,6 @@ export function GameSetupDialog() {
     // Track whether the user has overridden the size manually. As soon
     // as they tap a size tile, we stop auto-inferring from the play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
-    // Same guard for transit: once the user taps a mode tile we stop
-    // auto-inferring, so their explicit choice is preserved if they go
-    // back to step 1 and change the area.
-    const [transitManuallySet, setTransitManuallySet] = useState(false);
-    const [transitInferring, setTransitInferring] = useState(false);
 
     // Adjacent areas now live as an inline Dialog inside the play-
     // area step, so the wizard doesn't need a dedicated step or an
@@ -270,38 +264,6 @@ export function GameSetupDialog() {
         const inferred = inferGameSize(draftFeature);
         if (inferred) setDraftSize(inferred);
     }, [draftFeature, sizeManuallySet]);
-
-    // When the play area changes (and the user hasn't manually adjusted
-    // transit), run a quick Overpass check to see which modes actually
-    // exist in the area and seed sensible defaults:
-    //   - train: always on
-    //   - subway: on if found
-    //   - tram: on if found
-    //   - ferry: on if found
-    //   - bus: on only if neither subway nor tram was found (sparse area)
-    const transitInferRef = useRef(0);
-    useEffect(() => {
-        if (transitManuallySet || !draftFeature) return;
-        const myToken = ++transitInferRef.current;
-        setTransitInferring(true);
-        detectTransitPresence(draftFeature)
-            .then((found) => {
-                if (myToken !== transitInferRef.current) return;
-                const modes: TransitMode[] = ["train"];
-                if (found.has("subway")) modes.push("subway");
-                if (found.has("tram")) modes.push("tram");
-                if (found.has("ferry")) modes.push("ferry");
-                if (!found.has("subway") && !found.has("tram"))
-                    modes.push("bus");
-                setDraftTransit(modes);
-            })
-            .catch(() => { /* keep existing draft on error */ })
-            .finally(() => {
-                if (myToken === transitInferRef.current)
-                    setTransitInferring(false);
-            });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [draftFeature?.properties.osm_id, transitManuallySet]);
 
     // Clear any picked neighbours when the primary play area changes.
     // The PlayAreaExtensions picker also resets itself when its
@@ -339,11 +301,9 @@ export function GameSetupDialog() {
             setDraftTransit(allowedTransit.get());
             setDraftSize(gameSize.get());
             setDraftDisplayName(displayNameAtom.get() || "");
-            // Reset auto-infer flags for the new session. In edit mode
-            // we assume the existing choices are intentional and don't
-            // override either.
+            // Reset auto-infer flag for the new session. In edit mode we
+            // assume the existing size is intentional and don't override.
             setSizeManuallySet(setupCompleted.get());
-            setTransitManuallySet(setupCompleted.get());
         }
     }, [$open]);
 
@@ -545,11 +505,7 @@ export function GameSetupDialog() {
                                 <SectionPill>Transit</SectionPill>
                                 <TransitStep
                                     value={draftTransit}
-                                    onChange={(v) => {
-                                        setTransitManuallySet(true);
-                                        setDraftTransit(v);
-                                    }}
-                                    inferring={transitInferring}
+                                    onChange={setDraftTransit}
                                 />
                             </section>
                             <section className="space-y-3">
@@ -615,11 +571,7 @@ export function GameSetupDialog() {
                             {step === 2 && (
                                 <TransitStep
                                     value={draftTransit}
-                                    onChange={(v) => {
-                                        setTransitManuallySet(true);
-                                        setDraftTransit(v);
-                                    }}
-                                    inferring={transitInferring}
+                                    onChange={setDraftTransit}
                                 />
                             )}
                             {step === 3 && (
@@ -1246,11 +1198,9 @@ const TRANSIT_ICONS: Record<TransitMode, typeof Bus> = {
 function TransitStep({
     value,
     onChange,
-    inferring = false,
 }: {
     value: TransitMode[];
     onChange: (v: TransitMode[]) => void;
-    inferring?: boolean;
 }) {
     const ALL: TransitMode[] = ["bus", "tram", "train", "subway", "ferry"];
     const toggle = (mode: TransitMode) => {
@@ -1259,20 +1209,13 @@ function TransitStep({
     };
     return (
         <div className="space-y-4">
-            {inferring ? (
-                <p className="text-sm text-muted-foreground flex items-center gap-2">
-                    <span className="inline-block w-3 h-3 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin shrink-0" />
-                    Checking transit availability…
-                </p>
-            ) : (
-                <p className="text-sm text-muted-foreground">
-                    Walking is always allowed.{" "}
-                    <span className="text-foreground/70">
-                        Modes are pre-selected based on what exists in
-                        your play area — tap to adjust.
-                    </span>
-                </p>
-            )}
+            <p className="text-sm text-muted-foreground">
+                Walking is always allowed.{" "}
+                <span className="text-foreground/70">
+                    Bus is off by default — adding it dramatically expands
+                    the search space.
+                </span>
+            </p>
             <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-secondary/40 border border-border">
                 <Footprints className="w-4 h-4 text-muted-foreground" />
                 <span className="text-sm font-medium">Walking</span>
