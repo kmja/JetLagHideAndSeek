@@ -74,7 +74,18 @@ const HIDING_ZONE_URL_PARAM = "hz";
 const HIDING_ZONE_COMPRESSED_URL_PARAM = "hzc";
 const PASTEBIN_URL_PARAM = "pb";
 
-export const OptionDrawers = ({ className }: { className?: string }) => {
+export const OptionDrawers = ({
+    className,
+    compact,
+}: {
+    className?: string;
+    /** When true, render only the "Advanced options" drawer
+     *  trigger as a full-width row, dropping the tutorial / zones /
+     *  share buttons that duplicate surfaces reachable elsewhere
+     *  (mobile More sheet, etc.). Used by BottomNav so its More
+     *  panel doesn't double up on the same actions. */
+    compact?: boolean;
+}) => {
     useStore(triggerLocalRefresh);
     const $defaultCustomQuestions = useStore(defaultCustomQuestions);
     const $allowGooglePlusCodes = useStore(allowGooglePlusCodes);
@@ -281,32 +292,39 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
     return (
         <div
             className={cn(
-                "flex justify-end gap-2 max-[412px]:!mb-4 max-[340px]:flex-col items-center",
+                compact
+                    ? "w-full"
+                    : "flex justify-end gap-2 max-[412px]:!mb-4 max-[340px]:flex-col items-center",
                 className,
             )}
         >
-            <Button
-                variant="outline"
-                size="icon"
-                className="shadow-md shrink-0"
-                title="Open tutorial"
-                aria-label="Open tutorial"
-                onClick={() => {
-                    showTutorial.set(true);
-                }}
-            >
-                <HelpCircle className="w-4 h-4" />
-            </Button>
-            <Button
-                variant="outline"
-                className="shadow-md shrink-0 gap-2"
-                title="Open hiding zone settings"
-                aria-label="Open hiding zone settings"
-                onClick={() => zoneSidebarOpen.set(true)}
-            >
-                <Target className="w-4 h-4" />
-                Zones
-            </Button>
+            {!compact && (
+                <Button
+                    variant="outline"
+                    size="icon"
+                    className="shadow-md shrink-0"
+                    title="Open tutorial"
+                    aria-label="Open tutorial"
+                    onClick={() => {
+                        showTutorial.set(true);
+                    }}
+                >
+                    <HelpCircle className="w-4 h-4" />
+                </Button>
+            )}
+            {!compact && (
+                <Button
+                    variant="outline"
+                    className="shadow-md shrink-0 gap-2"
+                    title="Open hiding zone settings"
+                    aria-label="Open hiding zone settings"
+                    onClick={() => zoneSidebarOpen.set(true)}
+                >
+                    <Target className="w-4 h-4" />
+                    Zones
+                </Button>
+            )}
+            {!compact && (
             <Button
                 className="shadow-md"
                 onClick={async () => {
@@ -375,13 +393,20 @@ export const OptionDrawers = ({ className }: { className?: string }) => {
             >
                 Share
             </Button>
+            )}
             <Drawer open={isOptionsOpen} onOpenChange={setOptionsOpen}>
-                <DrawerTrigger className="w-24" asChild>
+                <DrawerTrigger
+                    className={compact ? "w-full" : "w-24"}
+                    asChild
+                >
                     <Button
-                        className="w-24 shadow-md"
+                        className={cn(
+                            "shadow-md",
+                            compact ? "w-full" : "w-24",
+                        )}
                         data-tutorial-id="option-questions-button"
                     >
-                        Options
+                        {compact ? "Advanced options" : "Options"}
                     </Button>
                 </DrawerTrigger>
                 <DrawerContent>

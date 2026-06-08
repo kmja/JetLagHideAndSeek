@@ -828,7 +828,7 @@ export const BottomNav = () => {
                                 );
                             })()}
                             <div className="pb-2 flex justify-center">
-                                <OptionDrawers />
+                                <OptionDrawers compact />
                             </div>
                         </div>
                         {/* 'Star on GitHub' button removed in v101. */}
