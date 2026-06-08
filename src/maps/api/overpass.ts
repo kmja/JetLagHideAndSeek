@@ -441,26 +441,21 @@ export const findPlacesInZone = async (
     let query = "";
     const $polyGeoJSON = polyGeoJSON.get();
     if ($polyGeoJSON) {
+        // turf.coordAll handles both Polygon and MultiPolygon correctly.
+        // Overpass poly: expects "lat lon" pairs; GeoJSON stores [lon, lat].
+        const polyStr = turf.coordAll($polyGeoJSON)
+            .map(([lon, lat]) => `${lat} ${lon}`)
+            .join(" ");
         query = `
 [out:json]${timeoutDuration != 0 ? `[timeout:${timeoutDuration}]` : ""};
 (
-${searchType}${filter}(poly:"${turf
-            .getCoords($polyGeoJSON.features)
-            .flatMap((polygon) => polygon.geometry.coordinates)
-            .flat()
-            .map((coord) => [coord[1], coord[0]].join(" "))
-            .join(" ")}");
+${searchType}${filter}(poly:"${polyStr}");
 ${
     alternatives.length > 0
         ? alternatives
               .map(
                   (alternative) =>
-                      `${searchType}${alternative}(poly:"${turf
-                          .getCoords($polyGeoJSON.features)
-                          .flatMap((polygon) => polygon.geometry.coordinates)
-                          .flat()
-                          .map((coord) => [coord[1], coord[0]].join(" "))
-                          .join(" ")}");`,
+                      `${searchType}${alternative}(poly:"${polyStr}");`,
               )
               .join("\n")
         : ""

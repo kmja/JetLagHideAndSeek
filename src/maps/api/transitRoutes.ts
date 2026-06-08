@@ -56,11 +56,10 @@ async function fetchTransitRelations(routeType: string): Promise<unknown> {
     const primaryLoc = mapGeoLocation.get();
     let query: string;
     if (polyArea) {
-        const polyStr = turf
-            .getCoords(polyArea.features as never)
-            .flatMap((polygon: any) => polygon.geometry.coordinates)
-            .flat()
-            .map((coord: number[]) => `${coord[1]} ${coord[0]}`)
+        // turf.coordAll handles both Polygon and MultiPolygon features,
+        // returning [lon, lat] pairs. Overpass poly: expects "lat lon" pairs.
+        const polyStr = turf.coordAll(polyArea)
+            .map(([lon, lat]) => `${lat} ${lon}`)
             .join(" ");
         query = `
 [out:json][timeout:180];
