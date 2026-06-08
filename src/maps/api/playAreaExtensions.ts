@@ -92,9 +92,12 @@ export async function findExtensionCandidates(
 relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${primaryLat},${primaryLng});
 out tags bb;
 `;
+    // No loadingText: the wizard's adjacent-areas step has its
+    // own inline spinner; a toast on top of that just
+    // double-counts the loading state.
     const adminData = await getOverpassData(
         adminQuery,
-        "Looking for adjacent areas…",
+        undefined,
         CacheType.ZONE_CACHE,
         90_000,
     );

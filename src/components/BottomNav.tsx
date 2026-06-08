@@ -43,6 +43,7 @@ import {
     setupDialogOpen,
     TRANSIT_LABELS,
     type TransitMode,
+    welcomeSeen,
 } from "@/lib/gameSetup";
 import { startNewGame, startNewRound } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
@@ -70,7 +71,12 @@ import {
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
-import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
+import {
+    hostPushSetup,
+    leaveGame,
+    seekerMarkFound,
+    seekerRotateHider,
+} from "@/lib/multiplayer/store";
 import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
@@ -390,6 +396,9 @@ export const BottomNav = () => {
                                                 hidingPeriodEndsAt.set(
                                                     Date.now(),
                                                 );
+                                                // Broadcast so the
+                                                // hider's clock syncs.
+                                                hostPushSetup();
                                                 setGameSheetOpen(false);
                                             }}
                                             className="w-full mt-3"
@@ -572,46 +581,57 @@ export const BottomNav = () => {
                                                         setGameSheetOpen(
                                                             false,
                                                         );
+                                                        // Full reset to the
+                                                        // landing screen (v101
+                                                        // user report: 'New
+                                                        // game' previously
+                                                        // just re-opened the
+                                                        // wizard on top of the
+                                                        // active game, leaving
+                                                        // the clock ticking
+                                                        // and the seeker UI
+                                                        // still interactive).
+                                                        // We drop the
+                                                        // multiplayer
+                                                        // connection, wipe the
+                                                        // seeker / hider
+                                                        // round state, reset
+                                                        // the welcome +
+                                                        // wizard gates, and
+                                                        // navigate to / so the
+                                                        // user actually lands
+                                                        // on Start / Join
+                                                        // buttons.
+                                                        leaveGame();
                                                         setupCompleted.set(
                                                             false,
                                                         );
+                                                        welcomeSeen.set(false);
                                                         hidingPeriodEndsAt.set(
                                                             null,
                                                         );
-                                                        // Also clear any
-                                                        // pending boundary-load
-                                                        // wait so the next
-                                                        // game starts clean
-                                                        // (GameStartWatcher
-                                                        // otherwise picks up
-                                                        // the queued duration
-                                                        // immediately when
-                                                        // mapGeoJSON next
-                                                        // settles).
                                                         pendingHidingDurationMin.set(
                                                             null,
                                                         );
-                                                        // Don't leave a stale
-                                                        // "round ended" badge
-                                                        // hanging on the seeker
-                                                        // side when starting a
-                                                        // fresh game.
                                                         roundFoundAt.set(null);
-                                                        // Clear hider-side
-                                                        // state on this device
-                                                        // too — same device
+                                                        playerRole.set(null);
                                                         // testing means the
                                                         // hider inbox, hand,
                                                         // and zone would
                                                         // otherwise survive
                                                         // into the next game.
                                                         resetHiderRoundState();
-                                                        setupDialogOpen.set(
-                                                            true,
-                                                        );
+                                                        if (
+                                                            typeof window !==
+                                                            "undefined"
+                                                        ) {
+                                                            window.location.assign(
+                                                                "/",
+                                                            );
+                                                        }
                                                     }}
                                                 >
-                                                    New game
+                                                    Leave game
                                                 </Button>
                                             )}
                                         </div>
@@ -689,14 +709,11 @@ export const BottomNav = () => {
                             >
                                 <OfflineTilePreloader />
                             </div>
-                            {(() => {
-                                // Roles lock once a game is underway —
-                                // switching mid-game doesn't make sense
-                                // (the seeker would lose their question
-                                // state on this device, the hider has a
-                                // committed zone, etc.). Reset via "New
-                                // game" in the Settings drawer to make
-                                // the toggle available again.
+                            {/* 'Switch to hider' button removed in
+                                v101 — role switching lives in the
+                                game-lobby dialog now (next to the
+                                player's own name in the roster). */}
+                            {false && (() => {
                                 const gameStarted = $questions.length > 0;
                                 return (
                                     <button
@@ -735,22 +752,9 @@ export const BottomNav = () => {
                                 <OptionDrawers />
                             </div>
                         </div>
-                        <a
-                            href="https://github.com/taibeled/JetLagHideAndSeek"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={cn(
-                                "mt-3 w-full flex items-center justify-center gap-2",
-                                "py-2 px-3 rounded-md",
-                                "bg-emerald-600 hover:bg-emerald-500 transition-colors",
-                                "text-sm font-semibold text-white",
-                            )}
-                        >
-                            Star this on GitHub! It&apos;s free :)
-                        </a>
+                        {/* 'Star on GitHub' button removed in v101. */}
                         {/* Bottom padding for safe-area + visual breathing
-                            room. Lives below the GitHub link so the link
-                            doesn't kiss the screen edge on mobile. */}
+                            room. */}
                         <div
                             aria-hidden
                             className="h-6 pb-[env(safe-area-inset-bottom)]"

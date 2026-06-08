@@ -11,7 +11,6 @@ import MapGL, {
     Layer,
     type MapRef,
     Marker,
-    NavigationControl,
     ScaleControl,
     Source,
     type ViewStateChangeEvent,
@@ -1051,7 +1050,10 @@ export function Map({ className }: MapProps) {
                 onClick={() => setContextMenu(null)}
             >
                 <AttributionControl compact />
-                <NavigationControl position="top-right" showCompass={false} />
+                {/* Zoom buttons removed in v101 — they overlap
+                    the in-app Map options chip on small phones
+                    and pinch-to-zoom covers the same affordance
+                    natively. */}
                 <ScaleControl />
 
                 {/* Transit-route overlays — one Source+Layer per

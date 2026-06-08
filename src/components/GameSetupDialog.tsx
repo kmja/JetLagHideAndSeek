@@ -67,12 +67,7 @@ import {
     reverseGeocodeCity,
 } from "@/maps/api";
 
-import {
-    HideSeekMark,
-    HideSeekWordmark,
-    SectionPill,
-    SizeBadge,
-} from "./JetLagLogo";
+import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { OnlinePlaySection } from "./multiplayer/OnlinePlaySection";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
 
@@ -486,21 +481,17 @@ export function GameSetupDialog() {
             >
                 {isEditMode ? (
                     <>
-                        <div className="px-6 pt-5 pb-4 shrink-0 border-b border-border">
-                            <div className="mb-3 flex items-center gap-3">
-                                <HideSeekMark size={36} onDark />
-                                <HideSeekWordmark />
-                                <SectionPill className="ml-auto">
-                                    Edit
-                                </SectionPill>
+                        <div className="px-4 pt-3 pb-3 shrink-0 border-b border-border">
+                            <div className="flex items-center gap-3 mb-1.5">
+                                <DialogTitle
+                                    className="font-display font-black uppercase text-xl leading-tight flex-1"
+                                    style={{ letterSpacing: "-0.02em" }}
+                                >
+                                    Game settings
+                                </DialogTitle>
+                                <SectionPill>Edit</SectionPill>
                             </div>
-                            <DialogTitle
-                                className="font-display font-black uppercase text-2xl leading-tight"
-                                style={{ letterSpacing: "-0.02em" }}
-                            >
-                                Game settings
-                            </DialogTitle>
-                            <DialogDescription className="mt-2 text-sm">
+                            <DialogDescription className="text-xs leading-snug">
                                 Transit and size apply immediately. Changing
                                 the play area clears all questions.
                             </DialogDescription>
@@ -552,24 +543,20 @@ export function GameSetupDialog() {
                     </>
                 ) : (
                     <>
-                        <div className="px-6 pt-5 pb-4 shrink-0 border-b border-border">
-                            <div className="mb-3 flex items-center gap-3">
-                                <HideSeekMark size={36} onDark />
-                                <HideSeekWordmark />
-                                <SectionPill className="ml-auto">
-                                    Step {step} / 4
-                                </SectionPill>
+                        <div className="px-4 pt-3 pb-3 shrink-0 border-b border-border">
+                            <div className="flex items-center gap-3 mb-1.5">
+                                <DialogTitle
+                                    className="font-display font-black uppercase text-xl leading-tight flex-1"
+                                    style={{ letterSpacing: "-0.02em" }}
+                                >
+                                    {step === 1 && "Where are you playing?"}
+                                    {step === 2 && "Nearby areas to include?"}
+                                    {step === 3 && "What transit is allowed?"}
+                                    {step === 4 && "How big is the game?"}
+                                </DialogTitle>
+                                <SectionPill>Step {step} / 4</SectionPill>
                             </div>
-                            <DialogTitle
-                                className="font-display font-black uppercase text-2xl leading-tight"
-                                style={{ letterSpacing: "-0.02em" }}
-                            >
-                                {step === 1 && "Where are you playing?"}
-                                {step === 2 && "Nearby areas to include?"}
-                                {step === 3 && "What transit is allowed?"}
-                                {step === 4 && "How big is the game?"}
-                            </DialogTitle>
-                            <DialogDescription className="mt-2 text-sm">
+                            <DialogDescription className="text-xs leading-snug">
                                 {step === 1 &&
                                     "Pick the city or region you'll be seeking in."}
                                 {step === 2 &&

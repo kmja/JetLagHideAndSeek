@@ -10,6 +10,7 @@ import {
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
+import { hostPushSetup } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 /**
@@ -80,6 +81,11 @@ export function HiderTimer() {
         const existing = hidingPeriodEndsAt.get();
         if (existing !== null && existing <= Date.now()) return;
         hidingPeriodEndsAt.set(Date.now());
+        // Broadcast to peers so the hider's clock matches —
+        // without this the seeker's 'end hiding early' only
+        // affects the local device and the hider's countdown
+        // keeps ticking. No-op offline.
+        hostPushSetup();
     };
 
     return (
