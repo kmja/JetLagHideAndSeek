@@ -54,6 +54,14 @@ export class MultiplayerTransport {
      * all other devices even after the socket reconnects.
      */
     private reconnectHandshake: (() => ClientMessage | null) | null = null;
+    /**
+     * Lifecycle listeners registered when a connection is active. We
+     * cancel pending backoff and reconnect immediately whenever the
+     * tab regains focus or the network comes back, since the
+     * exponential backoff alone can leave a tab feeling "dropped"
+     * for several seconds after the user returns from another app.
+     */
+    private lifecycleHandler: (() => void) | null = null;
 
     /**
      * Open the connection. If the transport is already open or
@@ -67,6 +75,7 @@ export class MultiplayerTransport {
         }
         this.url = url;
         this.closedByUser = false;
+        this.attachLifecycleListeners();
         this.openSocket();
     }
 
@@ -87,6 +96,7 @@ export class MultiplayerTransport {
     close(): void {
         this.closedByUser = true;
         this.clearTimers();
+        this.detachLifecycleListeners();
         if (this.socket) {
             try {
                 this.socket.close(1000, "client closing");
@@ -201,6 +211,58 @@ export class MultiplayerTransport {
         }
         if (wasOpen) this.scheduleReconnect();
         else this.setStatus("closed");
+    }
+
+    /**
+     * Cancel any pending backoff timer and reconnect immediately.
+     * No-op if the socket is already open or if the user closed
+     * the connection manually. Used by the visibility / online
+     * listeners so a tab that's been backgrounded for minutes
+     * doesn't have to wait through a full 8 s backoff window
+     * before catching back up.
+     */
+    private reconnectNow(): void {
+        if (this.closedByUser) return;
+        if (this.status === "open" || this.status === "connecting") return;
+        if (!this.url) return;
+        if (this.reconnectTimer !== null) {
+            window.clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
+        // Keep `reconnectAttempt > 0` so handleOpen treats this as a
+        // reconnect (re-sends the handshake). Don't reset to 0.
+        if (this.reconnectAttempt === 0) this.reconnectAttempt = 1;
+        this.openSocket();
+    }
+
+    private attachLifecycleListeners(): void {
+        if (this.lifecycleHandler !== null) return;
+        if (typeof window === "undefined") return;
+        const handler = () => {
+            // Visibility: only kick when the page comes BACK into focus.
+            // Online: network just came back — reconnect even if hidden.
+            if (
+                document.visibilityState === "visible" ||
+                (typeof navigator !== "undefined" && navigator.onLine)
+            ) {
+                this.reconnectNow();
+            }
+        };
+        this.lifecycleHandler = handler;
+        document.addEventListener("visibilitychange", handler);
+        window.addEventListener("online", handler);
+        // `pageshow` covers bfcache restoration on mobile Safari,
+        // which doesn't always fire visibilitychange.
+        window.addEventListener("pageshow", handler);
+    }
+
+    private detachLifecycleListeners(): void {
+        if (this.lifecycleHandler === null) return;
+        if (typeof window === "undefined") return;
+        document.removeEventListener("visibilitychange", this.lifecycleHandler);
+        window.removeEventListener("online", this.lifecycleHandler);
+        window.removeEventListener("pageshow", this.lifecycleHandler);
+        this.lifecycleHandler = null;
     }
 
     private scheduleReconnect() {

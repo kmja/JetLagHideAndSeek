@@ -28,6 +28,15 @@ export function PWAUpdatePrompt() {
         // `registerSW` returns the update function. Pass callbacks
         // so React state flips when the SW lifecycle reports
         // `needRefresh` or `offlineReady`.
+        //
+        // We also actively poll for updates: vite-plugin-pwa only
+        // checks once at registration by default, so a tab that
+        // stays open for hours never picks up a new build. We poll
+        // every 60 s while the tab is visible, plus on every focus,
+        // so the user sees the "Update ready" prompt within a
+        // minute of a deploy instead of after a manual reload.
+        let pollTimer: number | null = null;
+        let focusHandler: (() => void) | null = null;
         try {
             const update = registerSW({
                 immediate: true,
@@ -42,6 +51,27 @@ export function PWAUpdatePrompt() {
                 onRegisterError(error: unknown) {
                     console.warn("PWA SW register error", error);
                 },
+                onRegisteredSW(_swUrl, registration) {
+                    if (!registration) return;
+                    const checkForUpdate = () => {
+                        // `update()` is fire-and-forget. If a new SW
+                        // is available, the registration lifecycle
+                        // fires our onNeedRefresh callback above.
+                        registration.update().catch(() => {
+                            /* offline, transient — try again next tick */
+                        });
+                    };
+                    pollTimer = window.setInterval(checkForUpdate, 60_000);
+                    focusHandler = () => {
+                        if (document.visibilityState === "visible") {
+                            checkForUpdate();
+                        }
+                    };
+                    document.addEventListener(
+                        "visibilitychange",
+                        focusHandler,
+                    );
+                },
             });
             setUpdateSW(() => update);
         } catch (e) {
@@ -49,6 +79,16 @@ export function PWAUpdatePrompt() {
             // capable environment (e.g. some embedded browsers).
             console.warn("PWA registration failed", e);
         }
+
+        return () => {
+            if (pollTimer !== null) window.clearInterval(pollTimer);
+            if (focusHandler !== null) {
+                document.removeEventListener(
+                    "visibilitychange",
+                    focusHandler,
+                );
+            }
+        };
     }, []);
 
     if (!needRefresh) return null;
