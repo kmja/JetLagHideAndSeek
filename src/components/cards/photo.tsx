@@ -15,6 +15,8 @@ import {
     triggerLocalRefresh,
 } from "@/lib/context";
 import { gameSize } from "@/lib/gameSetup";
+import { playerRole } from "@/lib/hiderRole";
+import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import type { PhotoQuestion } from "@/maps/schema";
@@ -79,6 +81,8 @@ export const PhotoQuestionComponent = ({
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
     const $gameSize = useStore(gameSize);
+    const $role = useStore(playerRole);
+    const isHideTeam = $role === "hider" || $role === "coHider";
 
     const label = `Photo ${
         $questions
@@ -109,6 +113,16 @@ export const PhotoQuestionComponent = ({
             data.photoUri = dataUri;
             data.drag = false;
             questionModified();
+            // When the hide team attaches the photo, also push it
+            // to the seekers so they actually see the reply — the
+            // local-only path here was the visible side of the
+            // "photo questions don't reach the seeker" report.
+            if (isHideTeam) {
+                hiderAnswerQuestion(questionKey, {
+                    photoUri: dataUri,
+                    drag: false,
+                });
+            }
             toast.success("Photo attached. Question committed.", {
                 autoClose: 2500,
             });
@@ -223,6 +237,15 @@ export const PhotoQuestionComponent = ({
                                 onClick={() => {
                                     data.drag = false;
                                     questionModified();
+                                    // Same mp-sync as onFile — hide
+                                    // team marking the question done
+                                    // without attaching needs to flip
+                                    // drag on the seeker too.
+                                    if (isHideTeam) {
+                                        hiderAnswerQuestion(questionKey, {
+                                            drag: false,
+                                        });
+                                    }
                                 }}
                                 disabled={$isLoading}
                             >
