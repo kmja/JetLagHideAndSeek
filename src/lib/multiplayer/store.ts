@@ -680,6 +680,24 @@ export function installMultiplayerBridge() {
     t.on("message", handleServerMessage);
     t.on("status", (status) => transportStatus.set(status));
 
+    // After any auto-reconnect the transport opens a brand-new
+    // WebSocket. The server won't know who we are until we re-send
+    // an auth message. `setReconnectHandshake` registers a callback
+    // that the transport calls — before draining any queued game
+    // messages — so the server re-registers us immediately.
+    t.setReconnectHandshake(() => {
+        const token = sessionToken.get();
+        const code = currentGameCode.get();
+        if (!token || !code || !multiplayerEnabled.get()) return null;
+        return {
+            t: "resume",
+            v: PROTOCOL_VERSION,
+            code,
+            deviceId: getDeviceId(),
+            sessionToken: token,
+        };
+    });
+
     // Forward local role changes to the server while we're in a
     // room. Skip the initial nanostores fire (which would race the
     // connect handshake) — initial role claim is handled by the

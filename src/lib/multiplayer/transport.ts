@@ -44,6 +44,16 @@ export class MultiplayerTransport {
     private pingTimer: number | null = null;
     /** When true, manual close — don't auto-reconnect. */
     private closedByUser = false;
+    /**
+     * Called on every auto-reconnect (not the first connect) to
+     * produce the auth handshake that must go out before any queued
+     * game messages. The store layer sets this to return a `resume`
+     * message using the persisted session token. Without it, the
+     * server sees game messages from an unidentified socket and
+     * silently ignores them — the participant stays "offline" on
+     * all other devices even after the socket reconnects.
+     */
+    private reconnectHandshake: (() => ClientMessage | null) | null = null;
 
     /**
      * Open the connection. If the transport is already open or
@@ -89,6 +99,13 @@ export class MultiplayerTransport {
         this.outbox = [];
     }
 
+    /** Register a callback that yields the re-auth message to send
+     *  at the start of every auto-reconnect. Must be set before
+     *  the first connect. Pass null to disable. */
+    setReconnectHandshake(fn: (() => ClientMessage | null) | null): void {
+        this.reconnectHandshake = fn;
+    }
+
     /** Subscribe to a transport event. Returns an unsubscribe fn. */
     on<K extends keyof TransportEvents>(
         event: K,
@@ -128,11 +145,26 @@ export class MultiplayerTransport {
     }
 
     private handleOpen() {
+        const isReconnect = this.reconnectAttempt > 0;
         this.reconnectAttempt = 0;
         this.setStatus("open");
-        // Drain the outbox in order.
+        // On auto-reconnect, the server doesn't know who we are yet
+        // (the WebSocket is a new connection). Re-authenticate first
+        // so the server re-registers us before any queued game
+        // messages arrive. On the first connect the outbox already
+        // contains the host/join/resume message, so no special case.
         const pending = [...this.outbox];
         this.outbox = [];
+        if (isReconnect && this.reconnectHandshake) {
+            const auth = this.reconnectHandshake();
+            if (auth) {
+                try {
+                    this.socket?.send(JSON.stringify(auth));
+                } catch {
+                    /* ignore — close handler will retry */
+                }
+            }
+        }
         for (const msg of pending) {
             try {
                 this.socket?.send(JSON.stringify(msg));

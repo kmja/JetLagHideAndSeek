@@ -434,16 +434,25 @@ export function Map({ className }: MapProps) {
         let cancelled = false;
         (async () => {
             // Wait for the persistent-cache hydration before
-            // deciding we have no boundary on disk.
+            // deciding we have no boundary on disk. Race against a
+            // 3 s wall-clock timeout so a stuck Cache API (iOS
+            // PWA bug) doesn't block the boundary fetch forever.
             if (!polyGeoJSONHydrated.get()) {
-                await new Promise<void>((resolve) => {
-                    const unsub = polyGeoJSONHydrated.subscribe((v) => {
-                        if (v) {
-                            unsub();
-                            resolve();
-                        }
-                    });
-                });
+                await Promise.race([
+                    new Promise<void>((resolve) => {
+                        const unsub = polyGeoJSONHydrated.subscribe(
+                            (v) => {
+                                if (v) {
+                                    unsub();
+                                    resolve();
+                                }
+                            },
+                        );
+                    }),
+                    new Promise<void>((resolve) =>
+                        setTimeout(resolve, 3000),
+                    ),
+                ]);
                 if (cancelled) return;
                 // Re-check after hydration — Cache API may have
                 // produced a value we should use as-is.

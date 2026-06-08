@@ -313,7 +313,7 @@ export function GameLobbyDialog() {
                         <HideSeekMark size={26} onDark />
                         <HideSeekWordmark />
                     </div>
-                    {$playArea && (!mapReady || isHiderRole) && (
+                    {$playArea && !mapReady && !isHiderRole && (
                         <div className="mt-2 text-xs text-muted-foreground leading-snug">
                             <span className="font-semibold text-white">
                                 {$playArea.displayName.split(",")[0]}
@@ -434,16 +434,31 @@ export function GameLobbyDialog() {
                         text recap at the top is hidden once this
                         appears so we don't say the same things
                         twice. */}
-                    {/* Map slot — fixed-size square area that holds
-                        the loading state first and the mini-map
-                        result second. Same width × height in both
-                        states so the surrounding content never
-                        jumps as the boundary lands. Hider hosts
-                        skip the slot entirely since their page
-                        doesn't load the boundary. */}
-                    {!isHiderRole && (
+                    {/* Map slot — always shown. Seekers see the
+                        boundary once loaded (or a loading state
+                        while Overpass is fetching). Hiders skip
+                        the boundary load entirely; they get a
+                        simple centered map using the play-area
+                        coordinates instead. Same fixed size in all
+                        states so content never reflows. */}
+                    {$playArea && (
                         <div className="aspect-square w-full max-w-[260px] mx-auto rounded-md overflow-hidden border border-border bg-secondary/40 relative">
-                            {mapReady && $playArea ? (
+                            {isHiderRole ? (
+                                <LobbyMiniMap
+                                    boundary={null}
+                                    areaName={
+                                        $playArea.displayName.split(
+                                            ",",
+                                        )[0]
+                                    }
+                                    minutes={minutes}
+                                    transits={$allowedTransit}
+                                    centerFallback={{
+                                        lat: $playArea.lat,
+                                        lng: $playArea.lng,
+                                    }}
+                                />
+                            ) : mapReady ? (
                                 <LobbyMiniMap
                                     boundary={
                                         $mapGeoJSON || $polyGeoJSON
@@ -709,11 +724,15 @@ function LobbyMiniMap({
     areaName,
     minutes,
     transits,
+    centerFallback,
 }: {
     boundary: GeoJSON.FeatureCollection | null;
     areaName: string;
     minutes: number;
     transits: import("@/lib/gameSetup").TransitMode[];
+    /** Used when the boundary isn't loaded (e.g. hider's device).
+     *  Shows the map centered on the play area's coordinates. */
+    centerFallback?: { lat: number; lng: number };
 }) {
     const bounds = useMemo(() => {
         if (!boundary || !boundary.features?.length) return null;
@@ -734,19 +753,32 @@ function LobbyMiniMap({
             return null;
         }
     }, [boundary]);
+
+    const hasBounds = bounds !== null;
+    const hasFallback = centerFallback !== undefined;
+    if (!hasBounds && !hasFallback) return null;
+
     return (
         // No outer wrapper — the parent map-slot already provides
         // fixed-size, border, rounded, overflow. We just fill it.
         <div className="absolute inset-0">
-            {bounds && boundary && (
+            {(hasBounds || hasFallback) && (
                 <MapGL
-                    initialViewState={{
-                        bounds: [
-                            [bounds.minLng, bounds.minLat],
-                            [bounds.maxLng, bounds.maxLat],
-                        ],
-                        fitBoundsOptions: { padding: 8 },
-                    }}
+                    initialViewState={
+                        hasBounds
+                            ? {
+                                  bounds: [
+                                      [bounds!.minLng, bounds!.minLat],
+                                      [bounds!.maxLng, bounds!.maxLat],
+                                  ],
+                                  fitBoundsOptions: { padding: 8 },
+                              }
+                            : {
+                                  longitude: centerFallback!.lng,
+                                  latitude: centerFallback!.lat,
+                                  zoom: 10,
+                              }
+                    }
                     style={{ width: "100%", height: "100%" }}
                     interactive={false}
                     attributionControl={false}
@@ -775,29 +807,31 @@ function LobbyMiniMap({
                         ],
                     }}
                 >
-                    <Source
-                        id="lobby-boundary"
-                        type="geojson"
-                        data={boundary}
-                    >
-                        <Layer
-                            id="lobby-boundary-fill"
-                            type="fill"
-                            paint={{
-                                "fill-color": "hsl(2, 70%, 54%)",
-                                "fill-opacity": 0.14,
-                            }}
-                        />
-                        <Layer
-                            id="lobby-boundary-line"
-                            type="line"
-                            paint={{
-                                "line-color": "hsl(2, 70%, 54%)",
-                                "line-width": 2,
-                                "line-opacity": 0.9,
-                            }}
-                        />
-                    </Source>
+                    {boundary && (
+                        <Source
+                            id="lobby-boundary"
+                            type="geojson"
+                            data={boundary}
+                        >
+                            <Layer
+                                id="lobby-boundary-fill"
+                                type="fill"
+                                paint={{
+                                    "fill-color": "hsl(2, 70%, 54%)",
+                                    "fill-opacity": 0.14,
+                                }}
+                            />
+                            <Layer
+                                id="lobby-boundary-line"
+                                type="line"
+                                paint={{
+                                    "line-color": "hsl(2, 70%, 54%)",
+                                    "line-width": 2,
+                                    "line-opacity": 0.9,
+                                }}
+                            />
+                        </Source>
+                    )}
                 </MapGL>
             )}
             {/* Setting chips, overlaid on the map. Each pill has

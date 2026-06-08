@@ -20,18 +20,40 @@
 const CACHE_NAME = "jlhs-boundary-v1";
 const KEY = "https://_internal/polyGeoJSON";
 
+// iOS Safari (especially in PWA / private-mode) sometimes lets
+// caches.open() resolve but hangs cache.match() / cache.put()
+// forever. Race every call against a short timer so a stuck
+// Cache API doesn't block the boundary-fetch pipeline.
+const CACHE_OP_TIMEOUT_MS = 2500;
+
+function withTimeout<T>(p: Promise<T>): Promise<T | null> {
+    return Promise.race([
+        p.catch(() => null as T | null),
+        new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), CACHE_OP_TIMEOUT_MS),
+        ),
+    ]);
+}
+
+async function openCache(): Promise<Cache | null> {
+    if (typeof caches === "undefined") return null;
+    return withTimeout(caches.open(CACHE_NAME));
+}
+
 /** Stash the play-area boundary so the next page load can hydrate
  *  instantly without re-fetching from Overpass. No-op (with a
  *  console warn) when Cache API is unavailable. */
 export async function saveBoundary(geoJSON: unknown): Promise<void> {
-    if (typeof caches === "undefined") return;
     try {
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(
-            KEY,
-            new Response(JSON.stringify(geoJSON), {
-                headers: { "Content-Type": "application/json" },
-            }),
+        const cache = await openCache();
+        if (!cache) return;
+        await withTimeout(
+            cache.put(
+                KEY,
+                new Response(JSON.stringify(geoJSON), {
+                    headers: { "Content-Type": "application/json" },
+                }),
+            ),
         );
     } catch (e) {
         console.warn("Failed to persist play-area boundary:", e);
@@ -41,10 +63,10 @@ export async function saveBoundary(geoJSON: unknown): Promise<void> {
 /** Read the cached boundary, if any. Returns null on cache miss,
  *  parse failure, or any Cache API error. */
 export async function loadBoundary<T = unknown>(): Promise<T | null> {
-    if (typeof caches === "undefined") return null;
     try {
-        const cache = await caches.open(CACHE_NAME);
-        const resp = await cache.match(KEY);
+        const cache = await openCache();
+        if (!cache) return null;
+        const resp = await withTimeout(cache.match(KEY));
         if (!resp) return null;
         return (await resp.json()) as T;
     } catch {
@@ -55,10 +77,10 @@ export async function loadBoundary<T = unknown>(): Promise<T | null> {
 /** Drop the cached boundary — called when the user picks a new
  *  play area or starts a new game. */
 export async function clearBoundary(): Promise<void> {
-    if (typeof caches === "undefined") return;
     try {
-        const cache = await caches.open(CACHE_NAME);
-        await cache.delete(KEY);
+        const cache = await openCache();
+        if (!cache) return;
+        await withTimeout(cache.delete(KEY));
     } catch {
         /* no-op */
     }
