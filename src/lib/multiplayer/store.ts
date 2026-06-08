@@ -35,7 +35,6 @@ import {
     questions,
 } from "@/lib/context";
 import type { OpenStreetMap } from "@/maps/api";
-import { notify } from "@/lib/notifications";
 import {
     allowedTransit,
     gameSize,
@@ -59,6 +58,7 @@ import {
 
 import {
     currentGameCode,
+    demoMode,
     displayName,
     getDeviceId,
     multiplayerEnabled,
@@ -70,6 +70,7 @@ import {
     transportStatus,
 } from "./session";
 import { getTransport } from "./transport";
+import { stopDemoGame } from "./demoBroker";
 import type { GameState, ServerMessage, SetupState } from "./types";
 
 /* ────────────────── URL helpers ────────────────── */
@@ -196,6 +197,17 @@ export function tryResumeFromPersistent() {
     const token = sessionToken.get();
     if (!code || !token) return;
     if (!multiplayerEnabled.get()) return;
+    // Demo mode is runtime-only; a refreshed tab has no live broker to
+    // resume against. Wipe the stale persistent atoms so the user lands
+    // on the offline screen instead of bouncing off the real worker
+    // with a fake "DEMO00" room code.
+    if (token.startsWith("demo-") || code === "DEMO00") {
+        multiplayerEnabled.set(false);
+        currentGameCode.set(null);
+        sessionToken.set(null);
+        selfParticipantId.set(null);
+        return;
+    }
     const transport = getTransport();
     transport.connect(wsUrlForCode(code));
     transport.send({
@@ -209,6 +221,12 @@ export function tryResumeFromPersistent() {
 
 /** Drop the connection and clear session state. */
 export function leaveGame() {
+    // Demo broker owns its own timers; routing the teardown through it
+    // ensures the bot loops stop alongside the transport.
+    if (demoMode.get()) {
+        stopDemoGame();
+        return;
+    }
     const transport = getTransport();
     transport.close();
     multiplayerEnabled.set(false);

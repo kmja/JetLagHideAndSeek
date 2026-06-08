@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
     currentGameCode,
+    demoMode,
     displayName as displayNameAtom,
     multiplayerError,
     transportStatus,
 } from "@/lib/multiplayer/session";
+import { startDemoGame } from "@/lib/multiplayer/demoBroker";
 import {
     createGame,
     joinAsGuest,
@@ -91,6 +93,20 @@ export function OnlinePlaySection() {
         if (!validCode) return;
         setActed(true);
         joinAsGuest(trimmedCode, trimmedName);
+    };
+
+    const handleDemo = (asRole: "seeker" | "hider") => {
+        setActed(true);
+        startDemoGame({
+            asRole,
+            userName: trimmedName || "You",
+        });
+        toast.info(
+            asRole === "seeker"
+                ? "Demo game: bot hider will auto-answer your questions and cast curses."
+                : "Demo game: bot seekers will ping locations and ask questions.",
+            { autoClose: 4000 },
+        );
     };
 
     // Already connected to a room → show the live invite panel.
@@ -224,6 +240,39 @@ export function OnlinePlaySection() {
                         Join game
                     </Button>
                 )}
+            </div>
+
+            <div className="border-t border-border/60 pt-3 space-y-2">
+                <div>
+                    <p className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        Demo mode (testing)
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-snug mt-1">
+                        Spin up a fake room with bot peers — answer your
+                        questions, send location pings, cast curses. No
+                        second device needed.
+                    </p>
+                </div>
+                <div className="flex gap-1.5">
+                    <Button
+                        type="button"
+                        onClick={() => handleDemo("seeker")}
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 h-8 text-xs"
+                    >
+                        Play as seeker
+                    </Button>
+                    <Button
+                        type="button"
+                        onClick={() => handleDemo("hider")}
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 h-8 text-xs"
+                    >
+                        Play as hider
+                    </Button>
+                </div>
             </div>
         </div>
     );

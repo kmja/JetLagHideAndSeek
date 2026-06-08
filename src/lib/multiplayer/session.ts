@@ -101,6 +101,15 @@ export const selfParticipantId = persistentAtom<string | null>(
 
 /* ────────────────── Runtime-only atoms ────────────────── */
 
+/**
+ * Demo-game mode. When true, the transport is swapped for an in-browser
+ * mock GameRoom that drives scripted bots (a fake hider + fake seekers).
+ * Lets a developer exercise the full multiplayer code path on a single
+ * device without spinning up real peers. Runtime-only — closing the tab
+ * or refreshing exits the demo cleanly.
+ */
+export const demoMode = atom<boolean>(false);
+
 /** Current transport state (no persistence — it derives from the live socket). */
 export const transportStatus = atom<TransportStatus>("idle");
 
@@ -179,4 +188,5 @@ export function resetMultiplayerSession() {
     participants.set([]);
     multiplayerError.set(null);
     seekerLocations.set({});
+    demoMode.set(false);
 }

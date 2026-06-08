@@ -45,6 +45,15 @@ export class MultiplayerTransport {
     /** When true, manual close — don't auto-reconnect. */
     private closedByUser = false;
     /**
+     * Demo / mock seam. When set, `connect()` skips the real WebSocket
+     * and `send()` routes every outbound message to this callback
+     * instead. Inbound messages are injected by the demo broker via
+     * `inject()`. Used exclusively by the in-browser demo-game mode
+     * (`src/lib/multiplayer/demoBroker.ts`) — production WebSocket
+     * traffic never touches this path.
+     */
+    private mockSend: ((msg: ClientMessage) => void) | null = null;
+    /**
      * Called on every auto-reconnect (not the first connect) to
      * produce the auth handshake that must go out before any queued
      * game messages. The store layer sets this to return a `resume`
@@ -69,6 +78,14 @@ export class MultiplayerTransport {
      * point it at a different URL).
      */
     connect(url: string): void {
+        // Demo mode: a broker has installed a mock sender; skip the
+        // real WebSocket entirely and present as already-open.
+        if (this.mockSend) {
+            this.url = url;
+            this.closedByUser = false;
+            this.setStatus("open");
+            return;
+        }
         if (this.socket && (this.status === "open" || this.status === "connecting")) {
             if (this.url === url) return;
             this.close();
@@ -81,6 +98,14 @@ export class MultiplayerTransport {
 
     /** Send a message. Queues if the socket isn't ready. */
     send(msg: ClientMessage): void {
+        if (this.mockSend) {
+            try {
+                this.mockSend(msg);
+            } catch (e) {
+                console.warn("[multiplayer] mock sender threw", e);
+            }
+            return;
+        }
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             try {
                 this.socket.send(JSON.stringify(msg));
@@ -105,8 +130,46 @@ export class MultiplayerTransport {
             }
             this.socket = null;
         }
+        if (this.mockSend) this.mockSend = null;
         this.setStatus("closed");
         this.outbox = [];
+    }
+
+    /* ────────────────── Demo / mock seam ────────────────── */
+
+    /**
+     * Install a mock sender. From now on `connect()` is a no-op (status
+     * jumps straight to "open"), `send()` routes to `onSend` instead
+     * of the wire, and `inject()` can be used to feed synthetic server
+     * messages back through the same `message` event the bridge layer
+     * already listens to. Used only by the demo-game mode.
+     */
+    attachMock(onSend: (msg: ClientMessage) => void): void {
+        if (this.socket) {
+            try {
+                this.socket.close(1000, "demo mode");
+            } catch {
+                /* ignore */
+            }
+            this.socket = null;
+        }
+        this.clearTimers();
+        this.outbox = [];
+        this.mockSend = onSend;
+        this.closedByUser = false;
+        this.setStatus("open");
+    }
+
+    /** Tear down the mock seam. Status drops to closed. */
+    detachMock(): void {
+        if (!this.mockSend) return;
+        this.mockSend = null;
+        this.setStatus("closed");
+    }
+
+    /** Inject a synthetic server message into the bridge layer. */
+    inject(msg: ServerMessage): void {
+        this.emit("message", msg);
     }
 
     /** Register a callback that yields the re-auth message to send
