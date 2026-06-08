@@ -184,6 +184,42 @@ export function InlineLocationPicker({
         onChange(e.lngLat.lat, e.lngLat.lng);
     };
 
+    // Memoise the MapLibre style so an inline `mapStyle={{...}}`
+    // doesn't get rebuilt on every parent re-render. Without this,
+    // the 1 Hz countdown tick in the hider's `HiderHome` re-renders
+    // this component once a second, hands MapLibre a new style
+    // object reference, and triggers a setStyle() pass that tears
+    // down and re-creates every Source/Layer — including the
+    // radius circle, which is what the hider saw as a once-a-
+    // second flicker on the hiding-zone preview.
+    const tileUrls = useMemo(
+        () => rasterTilesFromTileConfig(tile),
+        [tile.url, tile.subdomains],
+    );
+    const mapStyle = useMemo(
+        () => ({
+            version: 8 as const,
+            sources: {
+                base: {
+                    type: "raster" as const,
+                    tiles: tileUrls,
+                    tileSize: 256,
+                    attribution: tile.attribution,
+                    maxzoom: tile.maxZoom ?? 19,
+                    minzoom: tile.minZoom ?? 0,
+                },
+            },
+            layers: [
+                {
+                    id: "base-tiles",
+                    type: "raster" as const,
+                    source: "base",
+                },
+            ],
+        }),
+        [tileUrls, tile.attribution, tile.maxZoom, tile.minZoom],
+    );
+
     return (
         <div className="space-y-2">
             <div
@@ -202,26 +238,7 @@ export function InlineLocationPicker({
                     style={{ width: "100%", height: "100%" }}
                     attributionControl={false}
                     onClick={handleClick}
-                    mapStyle={{
-                        version: 8,
-                        sources: {
-                            base: {
-                                type: "raster",
-                                tiles: rasterTilesFromTileConfig(tile),
-                                tileSize: 256,
-                                attribution: tile.attribution,
-                                maxzoom: tile.maxZoom ?? 19,
-                                minzoom: tile.minZoom ?? 0,
-                            },
-                        },
-                        layers: [
-                            {
-                                id: "base-tiles",
-                                type: "raster",
-                                source: "base",
-                            },
-                        ],
-                    }}
+                    mapStyle={mapStyle}
                 >
                     {$satellite && (
                         <Source

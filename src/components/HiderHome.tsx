@@ -17,6 +17,7 @@ import {
     TrainTrack,
     TramFront,
     Trophy,
+    Users,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
@@ -64,6 +65,7 @@ export const ANSWER_VIEW_DISMISSED_KEY = "jlhs:hiderAnswerDismissedKey";
 
 import {
     currentGameCode,
+    lobbyManualOpen,
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
@@ -244,11 +246,21 @@ export function HiderHome() {
                     <Button
                         variant="outline"
                         size="sm"
+                        onClick={() => lobbyManualOpen.set(true)}
+                        className="flex-1 gap-1.5 h-9 text-xs"
+                        title="Open the game lobby — roster, join code, role switch"
+                    >
+                        <Users className="w-3.5 h-3.5" />
+                        Lobby
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
                         onClick={openSettings}
                         className="flex-1 gap-1.5 h-9 text-xs"
                     >
                         <Settings className="w-3.5 h-3.5" />
-                        Game settings
+                        Settings
                     </Button>
                     <Button
                         variant="outline"

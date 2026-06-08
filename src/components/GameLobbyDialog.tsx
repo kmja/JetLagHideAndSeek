@@ -41,6 +41,7 @@ import { loadingProgress } from "@/lib/loadingProgress";
 import {
     currentGameCode,
     displayName as displayNameAtom,
+    lobbyManualOpen,
     multiplayerEnabled,
     multiplayerError,
     participants,
@@ -104,12 +105,20 @@ export function GameLobbyDialog() {
     const $size = useStore(gameSize);
     const $loading = useStore(loadingProgress);
     const $pieces = useStore(loadingPieces);
+    const $manualOpen = useStore(lobbyManualOpen);
 
+    // Two open paths:
+    //   1. Auto-open pre-game: standard wizard → lobby → start flow.
+    //   2. Manual reopen mid-game: a player taps the "Lobby" button
+    //      from the seeker's bottom-nav or the hider's home toolbar
+    //      to revisit the roster, re-share the join code, or rotate
+    //      roles. The manual flag wins regardless of $hidingEndsAt.
     const open =
-        $welcomeSeen &&
-        $setupCompleted &&
-        $hidingEndsAt === null &&
-        $playerRole !== null;
+        $manualOpen ||
+        ($welcomeSeen &&
+            $setupCompleted &&
+            $hidingEndsAt === null &&
+            $playerRole !== null);
 
     const mapReady = Boolean($mapGeoJSON || $polyGeoJSON);
     const isHiderRole =
@@ -273,14 +282,19 @@ export function GameLobbyDialog() {
     return (
         <Dialog
             open={open}
-            onOpenChange={() => {
-                /* The lobby is non-dismissible. Path forward is
-                   Start (host) or wait (guest); path backward is
-                   "Leave game" which clears the room. */
+            onOpenChange={(o) => {
+                // Pre-game the lobby is non-dismissible (forward path
+                // is Start / Leave). Once the game is running we
+                // entered via the manual reopen flag, so closing
+                // simply clears that flag and drops the user back to
+                // the live map.
+                if (!o && $manualOpen) {
+                    lobbyManualOpen.set(false);
+                }
             }}
         >
             <DialogContent
-                closeIcon={false}
+                closeIcon={$manualOpen}
                 className={cn(
                     "!bg-[hsl(var(--sidebar-background))] !text-white",
                     "flex flex-col p-0 gap-0 sm:max-w-md",

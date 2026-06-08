@@ -18,6 +18,7 @@ import {
     TrainTrack,
     TramFront,
     Trophy,
+    Users,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
@@ -68,6 +69,7 @@ import {
 } from "@/lib/hiderRole";
 import {
     currentGameCode,
+    lobbyManualOpen,
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
@@ -671,6 +673,24 @@ export const BottomNav = () => {
                             <HowToPlaySheet
                                 onBeforeOpen={() => setMoreOpen(false)}
                             />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMoreOpen(false);
+                                    lobbyManualOpen.set(true);
+                                }}
+                                className={cn(
+                                    "w-full flex items-center justify-center gap-2",
+                                    "px-3 py-2 rounded-md",
+                                    "bg-secondary hover:bg-accent border border-border",
+                                    "text-sm font-semibold text-foreground transition-colors",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                )}
+                                title="Open the game lobby — roster, join code, role switch"
+                            >
+                                <Users className="w-4 h-4" />
+                                Game lobby
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => {

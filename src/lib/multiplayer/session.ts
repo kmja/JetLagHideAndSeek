@@ -113,6 +113,17 @@ export const multiplayerError = atom<{
     message: string;
 } | null>(null);
 
+/**
+ * Manual "reopen the lobby" flag. The GameLobbyDialog normally
+ * auto-opens before the hiding period starts and stays closed once
+ * the round is live; flipping this to `true` overrides that and
+ * forces the dialog open so a player mid-game can see the roster,
+ * re-share the join code, or switch roles. The dialog clears the
+ * flag when it closes. Runtime-only — no persistence (a refresh
+ * mid-game shouldn't pop the lobby back over the map).
+ */
+export const lobbyManualOpen = atom<boolean>(false);
+
 /* ────────────────── Reset helper ────────────────── */
 
 /**

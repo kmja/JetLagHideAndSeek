@@ -20,7 +20,7 @@ import {
     questionModified,
     questions,
 } from "@/lib/context";
-import { type GameSize,gameSize } from "@/lib/gameSetup";
+import { type GameSize, gameSize, playArea } from "@/lib/gameSetup";
 import { fitMapToRadius } from "@/lib/mapFit";
 import {
     isHiderConnected,
@@ -305,10 +305,28 @@ export const AddQuestionDialog = ({
     // countdown only starts once the question is actually delivered to the
     // hider. `handleConfirm` (configure dialog) and the per-question share
     // button (questions panel) are the two paths that stamp it post-share.
-    const runAddRadius = () => {
+    // Resolve a center point for new questions. Prefer the live map
+    // viewport (so the seeker drops the question where they're looking),
+    // but fall back to the play-area centroid when the map ref isn't
+    // ready yet — e.g. on initial mount before MapLibre has registered
+    // its context. Without this fallback, tapping a subtype tile was a
+    // silent no-op for users who picked a category before the map
+    // finished its first frame.
+    const resolveCenter = (): { lat: number; lng: number } | null => {
         const map = mapContext.get();
-        if (!map) return false;
-        const center = map.getCenter();
+        if (map) {
+            const c = map.getCenter();
+            return { lat: c.lat, lng: c.lng };
+        }
+        const pa = playArea.get();
+        if (pa) return { lat: pa.lat, lng: pa.lng };
+        return null;
+    };
+
+    const runAddRadius = () => {
+        const center = resolveCenter();
+        if (!center) return false;
+        const map = mapContext.get();
         addQuestion({
             id: "radius",
             data: {
@@ -326,14 +344,15 @@ export const AddQuestionDialog = ({
         // visible — otherwise opening the configure dialog can show
         // the seeker a radius that extends off-screen, which is
         // confusing when picking a different preset.
-        fitMapToRadius(map, center.lat, center.lng, 5, "kilometers");
+        if (map) {
+            fitMapToRadius(map, center.lat, center.lng, 5, "kilometers");
+        }
         return true;
     };
 
     const runAddThermometer = () => {
-        const map = mapContext.get();
-        if (!map) return false;
-        const center = map.getCenter();
+        const center = resolveCenter();
+        if (!center) return false;
         // Thermometer per rulebook: capture the seeker's current location
         // as point A and enter "started" state. Point B mirrors A until the
         // seeker has moved and hits Finish in the question card. Map center
@@ -360,9 +379,8 @@ export const AddQuestionDialog = ({
     };
 
     const runAddTentacles = (subtype?: string) => {
-        const map = mapContext.get();
-        if (!map) return false;
-        const center = map.getCenter();
+        const center = resolveCenter();
+        if (!center) return false;
         // Tentacles uses `locationType` as the type field (unlike matching
         // and measuring which use `type`). When the user picks a subtype in
         // step 2 we set it here so the resulting question has the right
@@ -391,9 +409,8 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMatching = (subtype?: string) => {
-        const map = mapContext.get();
-        if (!map) return false;
-        const center = map.getCenter();
+        const center = resolveCenter();
+        if (!center) return false;
         addQuestion({
             id: "matching",
             data: defaultCustomQuestions.get()
@@ -412,9 +429,8 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMeasuring = (subtype?: string) => {
-        const map = mapContext.get();
-        if (!map) return false;
-        const center = map.getCenter();
+        const center = resolveCenter();
+        if (!center) return false;
         addQuestion({
             id: "measuring",
             data: defaultCustomQuestions.get()
@@ -698,6 +714,15 @@ export const AddQuestionDialog = ({
                                                                 null,
                                                             );
                                                             promoteLastQuestion();
+                                                        } else {
+                                                            // Surfaces a previously-silent
+                                                            // failure path: if neither map
+                                                            // nor play area resolve a
+                                                            // center, tell the seeker
+                                                            // instead of doing nothing.
+                                                            toast.error(
+                                                                "Couldn't add the question — map not ready. Try again in a moment.",
+                                                            );
                                                         }
                                                     }}
                                                 />

@@ -314,7 +314,38 @@ out;
         });
     }
     stations.sort((a, b) => a.distanceMeters - b.distanceMeters);
-    return stations;
+
+    // De-duplicate by station identity. OSM often returns the same
+    // station as 2–6 separate nodes — one per platform, one per
+    // entrance, one per subway-railway tag combo — so a naive id-only
+    // dedupe (above) still leaves the list visibly cluttered (the
+    // user reported "duplicate nearby stations"). We collapse anything
+    // with the same normalised name within ~120 m down to the first
+    // (closest) entry. The mode that survives is the mode of that
+    // closest node, which is usually the right one (e.g. the subway
+    // tag wins over the bus stop tag when the user is on a metro
+    // platform).
+    const deduped: FoundStation[] = [];
+    for (const s of stations) {
+        const norm = normaliseName(s.name);
+        const dup = deduped.find(
+            (d) =>
+                normaliseName(d.name) === norm &&
+                haversineMeters(d.lat, d.lng, s.lat, s.lng) < 120,
+        );
+        if (dup) continue;
+        deduped.push(s);
+    }
+    return deduped;
+}
+
+function normaliseName(name: string): string {
+    return name
+        .toLocaleLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/[.,()/-]/g, "")
+        .replace(/\bstation\b|\bstn\b|\bstop\b/g, "")
+        .trim();
 }
 
 function inferMode(tags: Record<string, string>): TransitMode | null {
