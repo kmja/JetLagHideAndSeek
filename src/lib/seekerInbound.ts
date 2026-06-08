@@ -18,6 +18,13 @@ export interface ReceivedCurse extends SharedCursePayload {
     receivedAt: number;
     /** Has the seeker dismissed the curse notification? */
     acknowledged: boolean;
+    /**
+     * True once the seeker marks the curse as expired/over. Hides it
+     * from the active-curse overlay entirely. Separate from `acknowledged`
+     * so the overlay stays visible (for dice access) between "I understand"
+     * and when the curse actually ends.
+     */
+    dismissed?: boolean;
 }
 
 const KEY = "__jlhs_receivedCurses";
