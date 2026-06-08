@@ -68,6 +68,14 @@ export interface SetupState {
     gameSize: GameSize;
     /** Unix ms; null before the host starts the game. */
     hidingPeriodEndsAt: number | null;
+    /**
+     * Unix ms when the seeker has triggered the endgame ("I'm close —
+     * lock down"). Null during normal seeking. The hider's UI surfaces
+     * a banner when this flips so they know to commit to their final
+     * spot per the rulebook (p43). Server keeps it in SetupState so it
+     * rides in the welcome snapshot for late joiners.
+     */
+    endgameStartedAt: number | null;
 }
 
 /**

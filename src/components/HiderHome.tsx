@@ -5,6 +5,7 @@ import {
     Bus,
     Crosshair,
     Eye,
+    Flag,
     Inbox,
     Lock,
     LockOpen,
@@ -26,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     allowedTransit,
+    endgameStartedAt,
     formatTimeRemaining,
     gameSize,
     HIDING_PERIOD_MINUTES,
@@ -127,6 +129,7 @@ export function HiderHome() {
     const $inbox = useStore(hiderInbox);
     const $hand = useStore(hiderHand);
     const $foundAt = useStore(roundFoundAt);
+    const $endgameStartedAt = useStore(endgameStartedAt);
 
     // 1-Hz tick — drives the countdown / elapsed timers.
     // Visibility-aware so the locked-phone case doesn't keep
@@ -281,6 +284,32 @@ export function HiderHome() {
                     hidingEndsAt={$hidingEndsAt}
                     timeBonusMinutes={timeBonusMinutes}
                 />
+            )}
+
+            {/* Endgame banner. Surfaces the moment the seeker flips the
+                trigger, regardless of phase. Loud yellow to interrupt
+                whatever the hider is doing — rulebook p43 says they
+                need to lock to a final stationary spot the instant
+                this hits, no negotiation. */}
+            {$endgameStartedAt !== null && phase !== "over" && (
+                <section
+                    className={cn(
+                        "rounded-md border-2 border-yellow-500 bg-yellow-500/15",
+                        "px-4 py-3 mb-4 flex items-start gap-3 animate-pulse",
+                    )}
+                >
+                    <Flag className="w-5 h-5 shrink-0 text-yellow-400 mt-0.5" />
+                    <div className="flex-1 space-y-1">
+                        <div className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-400">
+                            Endgame — lock down now
+                        </div>
+                        <p className="text-sm text-foreground leading-snug">
+                            The seeker just triggered the endgame. Stay put
+                            and commit to a single hiding spot — once you
+                            do, you can&apos;t move until the round ends.
+                        </p>
+                    </div>
+                </section>
             )}
 
             {phase === "pre-game" && (

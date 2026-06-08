@@ -35,6 +35,7 @@ import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { questions, questionsDrawerOpen, zoneSidebarOpen } from "@/lib/context";
 import {
     allowedTransit,
+    endgameStartedAt,
     formatTimeRemaining,
     gameSize,
     hidingPeriodEndsAt,
@@ -78,6 +79,7 @@ import {
     leaveGame,
     seekerMarkFound,
     seekerRotateHider,
+    seekerStartEndgame,
 } from "@/lib/multiplayer/store";
 import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
 
@@ -103,6 +105,7 @@ export const BottomNav = () => {
     const $allowedTransit = useStore(allowedTransit);
     const $gameSize = useStore(gameSize);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const $endgameStartedAt = useStore(endgameStartedAt);
     const $foundAt = useStore(roundFoundAt);
     const [moreOpen, setMoreOpen] = useState(false);
     const $currentGameCode = useStore(currentGameCode);
@@ -424,6 +427,62 @@ export const BottomNav = () => {
                                         </Button>
                                     </div>
                                 )}
+
+                                {/* Endgame trigger / banner. Once the hider
+                                    is committed (locked spot), the seeker
+                                    can flip the endgame flag — the hider's
+                                    home banner-bars then surface so they
+                                    know to lock down to a stationary final
+                                    spot per the rulebook. Idempotent: tapping
+                                    after it's armed shows the current state
+                                    but doesn't re-trigger. */}
+                                {!hiding &&
+                                    $setupCompleted &&
+                                    $hidingEndsAt !== null &&
+                                    !$foundAt && (
+                                        <div className="mt-4">
+                                            {$endgameStartedAt ? (
+                                                <div
+                                                    className={cn(
+                                                        "rounded-md border-2 border-yellow-500/70 bg-yellow-500/10",
+                                                        "px-3 py-2.5 flex items-center gap-2.5",
+                                                    )}
+                                                >
+                                                    <Flag className="w-4 h-4 text-yellow-500 shrink-0" />
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="text-[9px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-500">
+                                                            Endgame armed
+                                                        </div>
+                                                        <div className="text-[11px] text-muted-foreground leading-snug">
+                                                            Hider has been told to lock to a
+                                                            stationary spot.
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <Button
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        if (
+                                                            !confirm(
+                                                                "Trigger endgame? The hider sees a banner asking them to lock down to a final spot. Only do this when you're closing in.",
+                                                            )
+                                                        )
+                                                            return;
+                                                        seekerStartEndgame();
+                                                        toast.success(
+                                                            "Endgame triggered — hider notified.",
+                                                            { autoClose: 2500 },
+                                                        );
+                                                    }}
+                                                    className="w-full gap-2 border-yellow-500/60 text-yellow-400 hover:bg-yellow-500/10"
+                                                >
+                                                    <Flag className="w-4 h-4" />
+                                                    Trigger endgame
+                                                </Button>
+                                            )}
+                                        </div>
+                                    )}
 
                                 {/* Round-end controls. Only meaningful once
                                     the hiding period has ended (we're in the

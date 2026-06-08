@@ -213,6 +213,25 @@ export const pendingHidingDurationMin = persistentAtom<number | null>(
 );
 
 /**
+ * Unix ms when the seeker has triggered the endgame — "I'm close,
+ * lock down to your final spot" per rulebook p43. The hider's UI
+ * watches this and surfaces a banner the moment it flips so they
+ * know to commit to a fixed location instead of moving with the
+ * subway. Set by `seekerStartEndgame()`; also written by the
+ * multiplayer bridge on setupChanged so guests pick up the trigger
+ * from the host. Persisted so a reload mid-endgame keeps the banner
+ * up (same rationale as hidingPeriodEndsAt).
+ */
+export const endgameStartedAt = persistentAtom<number | null>(
+    "endgameStartedAt",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
  * Volatile celebration trigger — unix ms set the moment the hiding
  * period actually starts (after the boundary load completes). The
  * GoGoGoOverlay component watches this and shows the catchphrase

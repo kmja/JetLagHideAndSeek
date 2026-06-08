@@ -48,6 +48,7 @@ function emptySetup(): SetupState {
         allowedTransit: [],
         gameSize: "medium",
         hidingPeriodEndsAt: null,
+        endgameStartedAt: null,
     };
 }
 
@@ -303,6 +304,8 @@ export class GameRoom {
                 return this.handlePromoteCoHider(socket, msg.to);
             case "setHideZone":
                 return this.handleSetHideZone(socket, msg.zone);
+            case "startEndgame":
+                return this.handleStartEndgame(socket, msg.at);
             case "ping":
                 return this.sendTo(socket, { t: "pong", ts: msg.ts });
             default: {
@@ -651,6 +654,22 @@ export class GameRoom {
     }
 
     /**
+     * Seeker → room: trigger the endgame phase. Idempotent: re-triggering
+     * after the stamp is a no-op so the seeker can re-tap without
+     * scrubbing the original timestamp the hider sees. Broadcasts via
+     * setupChanged so every client reconciles their endgame banner from
+     * the canonical timestamp.
+     */
+    private handleStartEndgame(socket: WebSocket, at: number) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        if (this.game.setup.endgameStartedAt !== null) return;
+        if (typeof at !== "number" || !Number.isFinite(at)) return;
+        this.game.setup.endgameStartedAt = at;
+        this.broadcast({ t: "setupChanged", setup: this.game.setup });
+    }
+
+    /**
      * Round-rotation: assign the hider role to a different
      * participant. Any participant in the room can trigger this —
      * the UI restricts the call site to the "Start new round"
@@ -692,6 +711,10 @@ export class GameRoom {
         // replay last round's questions.
         this.game.roundFoundAt = null;
         this.game.questions = [];
+        // Clear endgame-started too so the new round doesn't open
+        // with last round's "endgame in progress" banner already
+        // armed on the hider's screen.
+        this.game.setup.endgameStartedAt = null;
         // New round, new hide — drop the old zone secret. The new
         // hider will push a fresh one once they commit it.
         this.hidingZone = null;

@@ -166,6 +166,19 @@ export interface CMsgPromoteCoHider {
 }
 
 /**
+ * Seeker triggers the endgame phase ("I'm close — lock your spot
+ * down"). The server stamps `setup.endgameStartedAt` and broadcasts
+ * a setupChanged so every client surfaces the transition. Idempotent:
+ * resending after a stamp is a no-op so the seeker can re-trigger
+ * the banner without re-arming the clock. `at` is the seeker's local
+ * clock at the moment of trigger so the hider sees the right elapsed.
+ */
+export interface CMsgStartEndgame {
+    t: "startEndgame";
+    at: number;
+}
+
+/**
  * Keep-alive — sent periodically by the client. Server responds with
  * `pong`. Used to detect dead connections behind NATs that don't
  * close them cleanly.
@@ -188,6 +201,7 @@ export type ClientMessage =
     | CMsgRotateHider
     | CMsgPromoteCoHider
     | CMsgSetHideZone
+    | CMsgStartEndgame
     | CMsgPing;
 
 /* ────────────────── Server → Client ────────────────── */

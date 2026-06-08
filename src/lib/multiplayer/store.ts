@@ -32,6 +32,7 @@ import {
 import {
     allowedTransit,
     gameSize,
+    endgameStartedAt,
     hidingPeriodEndsAt,
     playArea,
     resetMapOverlays,
@@ -268,8 +269,25 @@ export function hostPushSetup() {
         allowedTransit: allowedTransit.get(),
         gameSize: gameSize.get(),
         hidingPeriodEndsAt: hidingPeriodEndsAt.get(),
+        endgameStartedAt: endgameStartedAt.get(),
     };
     getTransport().send({ t: "start", setup });
+}
+
+/**
+ * Seeker → room: trigger the endgame phase (rulebook p43, "lock
+ * down"). Stamps the local atom and pushes a wire message — the
+ * server idempotently sets the canonical timestamp and broadcasts
+ * setupChanged so hide-team devices surface the banner. Solo /
+ * offline play just flips the local atom and relies on the
+ * persistent store to keep the banner across reloads.
+ */
+export function seekerStartEndgame() {
+    if (endgameStartedAt.get() !== null) return;
+    const at = Date.now();
+    endgameStartedAt.set(at);
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "startEndgame", at });
 }
 
 /** Pick a role for *this* device within the current room. */
@@ -450,6 +468,9 @@ function applyRoundStarted(roster: GameState["participants"]) {
     // The hiding-period clock restarts per round; the seeker re-arms
     // it via the GO GO GO flow and pushes it back over `setupChanged`.
     hidingPeriodEndsAt.set(null);
+    // Endgame flag is per-round — clear it so the new round doesn't
+    // open with last round's lockdown banner stuck on.
+    endgameStartedAt.set(null);
     // Apply the new roster + role assignments. Role-changers get
     // navigated to the right surface; same-role players are no-ops
     // here (we already reset their round state above).
@@ -464,6 +485,7 @@ function applySnapshot(state: GameState) {
     allowedTransit.set(state.setup.allowedTransit);
     gameSize.set(state.setup.gameSize);
     hidingPeriodEndsAt.set(state.setup.hidingPeriodEndsAt);
+    endgameStartedAt.set(state.setup.endgameStartedAt);
     // Questions — merge by key, replacing existing entries.
     const incomingQs: Question[] = [];
     for (const raw of state.questions) {
@@ -562,6 +584,7 @@ function handleServerMessage(msg: ServerMessage) {
             allowedTransit.set(msg.setup.allowedTransit);
             gameSize.set(msg.setup.gameSize);
             hidingPeriodEndsAt.set(msg.setup.hidingPeriodEndsAt);
+            endgameStartedAt.set(msg.setup.endgameStartedAt);
             return;
         case "error":
             console.warn("[multiplayer] server error", msg);
