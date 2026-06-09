@@ -428,7 +428,26 @@ export function DebugPhaseControls() {
     }, []);
     if (!mounted || typeof document === "undefined") return null;
 
-    if (!open) return null;
+    const triggerButton = !open && (
+        <button
+            type="button"
+            onClick={() => debugPanelOpen.set(true)}
+            aria-label="Open developer debug panel"
+            className={cn(
+                "fixed bottom-20 right-3 z-[9999] pointer-events-auto",
+                "flex items-center gap-1 px-2 py-1 rounded-md",
+                "bg-background/80 border border-border/60",
+                "text-[11px] font-mono text-muted-foreground/40",
+                "hover:text-muted-foreground hover:bg-secondary/80 hover:border-border transition-colors",
+                "shadow-sm",
+            )}
+        >
+            <Bug className="w-3 h-3" />
+            debug
+        </button>
+    );
+
+    if (!open) return createPortal(triggerButton, document.body);
 
     const content = (
         <div
@@ -624,7 +643,7 @@ export function DebugPhaseControls() {
         </div>
     );
 
-    return createPortal(content, document.body);
+    return createPortal(<>{triggerButton}{content}</>, document.body);
 }
 
 function phaseLabel(p: Phase): string {
