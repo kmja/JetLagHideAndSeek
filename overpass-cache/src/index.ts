@@ -269,11 +269,30 @@ async function fetchFromMirrorChain(query: string): Promise<Response | null> {
         setTimeout(() => c.abort(), UPSTREAM_TIMEOUT_MS),
     );
 
+    // Large play-area polygons push the encoded query well past the
+    // typical 8 KB GET URI cap on public Overpass mirrors (414 Request
+    // URI Too Long). POST the data field as form-urlencoded body
+    // instead — every Overpass mirror accepts that shape — once the
+    // encoded query crosses a comfortable threshold. Short queries
+    // keep the GET shape so requests stay observable in mirror logs.
+    const URL_POST_THRESHOLD = 4000;
+    const usePost = encoded.length > URL_POST_THRESHOLD;
+
     const attempts = OVERPASS_MIRRORS.map((base, i) =>
-        fetch(`${base}?data=${encoded}`, {
-            method: "GET",
-            signal: controllers[i].signal,
-        })
+        (usePost
+            ? fetch(base, {
+                  method: "POST",
+                  headers: {
+                      "Content-Type": "application/x-www-form-urlencoded",
+                  },
+                  body: `data=${encoded}`,
+                  signal: controllers[i].signal,
+              })
+            : fetch(`${base}?data=${encoded}`, {
+                  method: "GET",
+                  signal: controllers[i].signal,
+              })
+        )
             .then((resp) => ({ idx: i, base, resp }))
             .catch((e) => {
                 console.warn(`Upstream ${base} threw:`, e);

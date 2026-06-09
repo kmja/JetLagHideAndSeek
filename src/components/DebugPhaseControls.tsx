@@ -19,6 +19,11 @@ import {
     presentDraw,
     QUESTION_DRAW_BUDGET,
 } from "@/lib/hiderRole";
+import {
+    startDemoGame,
+    stopDemoGame,
+} from "@/lib/multiplayer/demoBroker";
+import { demoMode } from "@/lib/multiplayer/session";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
@@ -57,6 +62,7 @@ export function DebugPhaseControls() {
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
     const $role = useStore(playerRole);
+    const $demo = useStore(demoMode);
 
     /* ─────── seeker actions ─────── */
 
@@ -500,6 +506,38 @@ export function DebugPhaseControls() {
                         )}
                     </div>
                 </div>
+
+                <Section title={`Demo game · ${$demo ? "running" : "off"}`}>
+                    {$demo ? (
+                        <DebugButton onClick={stopDemoGame} variant="danger">
+                            Stop demo game
+                        </DebugButton>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-1.5">
+                            <DebugButton
+                                onClick={() =>
+                                    startDemoGame({ asRole: "seeker" })
+                                }
+                                variant="primary"
+                            >
+                                Play as seeker
+                            </DebugButton>
+                            <DebugButton
+                                onClick={() =>
+                                    startDemoGame({ asRole: "hider" })
+                                }
+                                variant="primary"
+                            >
+                                Play as hider
+                            </DebugButton>
+                        </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground italic px-1">
+                        Spawns fake bot peers in-browser — no second
+                        device needed. Bot hider auto-answers your
+                        questions; bot seekers ping locations.
+                    </p>
+                </Section>
 
                 <Section title={`Role · current: ${$role}`}>
                     <div className="grid grid-cols-2 gap-1.5">
