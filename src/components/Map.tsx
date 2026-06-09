@@ -479,6 +479,12 @@ export function Map({ className }: MapProps) {
 
         return () => {
             cancelled = true;
+            // Clear the gate so the next effect run (triggered by
+            // deps changing) isn't silently skipped. Without this,
+            // isLoading stays true when we cancel a mid-flight fetch,
+            // and every subsequent run hits the early-return and
+            // never fetches (the lobby "Fetching boundary…" hang).
+            isLoading.set(false);
         };
         // $playArea is in the deps so the wizard's set-then-set
         // write order wakes the effect on the playArea-commit
