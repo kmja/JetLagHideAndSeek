@@ -35,6 +35,7 @@ import {
     planningModeEnabled,
     polyGeoJSON,
     polyGeoJSONHydrated,
+    questionFinishedMapData,
     questionModified,
     questions,
     thunderforestApiKey,
@@ -514,6 +515,7 @@ export function Map({ className }: MapProps) {
     useEffect(() => {
         const inner = $mapGeoJSON || $polyGeoJSON;
         if (!inner) {
+            questionFinishedMapData.set(null);
             setEliminationResult({ mask: null, pendingByCategory: {} });
             return;
         }
@@ -573,6 +575,7 @@ export function Map({ className }: MapProps) {
                 console.warn("Map holedMask failed:", e);
             }
             if (myGen !== eliminationGenRef.current) return; // stale
+            questionFinishedMapData.set(working);
             setEliminationResult({ mask, pendingByCategory });
         })();
     }, [$mapGeoJSON, $polyGeoJSON, $questions]);
