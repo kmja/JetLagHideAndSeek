@@ -235,16 +235,14 @@ export function MapDisplayControls() {
                                 <Loader2 className="w-3.5 h-3.5 animate-spin ml-auto" />
                             )}
                         </button>
-                        {/* Travel times — labels the earliest
-                            arrival time at every station (from
-                            the hider's last-known location by
-                            default; from the seeker's own GPS
-                            via journeyAnchorMode for personal
-                            travel planning). Powered server-side
-                            by the overpass-cache worker's
-                            /api/journey/arrivals proxy, which
-                            holds the Trafiklab API key as a
-                            secret — players don't need their own. */}
+                        {/* Travel times — labels the earliest arrival
+                            at each station for the hider, given they
+                            departed from the game-start location when
+                            the hiding period began. Only stations
+                            reachable before the hiding period ends are
+                            shown. Requires hiding zones + GPS at game
+                            start. Powered by the overpass-cache
+                            worker's /api/journey/arrivals proxy. */}
                         <button
                             type="button"
                             onClick={() =>
@@ -259,7 +257,7 @@ export function MapDisplayControls() {
                                     ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
                                     : "bg-background border-border hover:bg-accent",
                             )}
-                            title="Show earliest arrival times at each station (requires Hiding zones)"
+                            title="Stations reachable within the hiding period (requires Hiding zones + GPS at game start)"
                         >
                             <Clock className="w-4 h-4 shrink-0" />
                             <span className="text-xs font-poppins font-semibold">

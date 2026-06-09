@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 
 import {
     gameStartCelebrationAt,
+    gameStartPosition,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
 
@@ -22,6 +23,11 @@ import {
  * updates (e.g. peers refreshing the timer), so the celebration
  * doesn't pop back up after the user dismissed it.
  *
+ * Also captures the device's GPS at game start and stores it as
+ * `gameStartPosition` — the shared departure point used by the
+ * travel-times overlay to compute which stations the hider could
+ * reach during the hiding period.
+ *
  * Mounted on both /index.astro (seeker) and /h.astro (hider) so
  * the celebration appears whichever side is loaded.
  */
@@ -38,6 +44,22 @@ export function GameStartWatcher() {
         // want to re-pop on a dismiss-then-mount cycle).
         if (gameStartCelebrationAt.get() !== null) return;
         gameStartCelebrationAt.set(Date.now());
+        // Capture GPS as the travel-times departure anchor. Non-
+        // blocking: if the user denies location, the overlay simply
+        // won't activate (it gates on gameStartPosition being set).
+        if (typeof navigator !== "undefined" && navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) =>
+                    gameStartPosition.set({
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                    }),
+                () => {
+                    /* denied or unavailable — travel times won't have an anchor */
+                },
+                { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
+            );
+        }
     }, [$endsAt]);
 
     return null;

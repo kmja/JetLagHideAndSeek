@@ -1235,12 +1235,7 @@ export function Map({ className }: MapProps) {
                                 "text-ignore-placement": false,
                             }}
                             paint={{
-                                "text-color": [
-                                    "case",
-                                    ["==", ["get", "reached"], true],
-                                    "hsl(2, 70%, 54%)",
-                                    "white",
-                                ],
+                                "text-color": "white",
                                 "text-halo-color": "rgba(0,0,0,0.85)",
                                 "text-halo-width": 1.5,
                             }}

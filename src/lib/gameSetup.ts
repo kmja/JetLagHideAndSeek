@@ -241,6 +241,29 @@ export const endgameStartedAt = persistentAtom<number | null>(
  */
 export const gameStartCelebrationAt = atom<number | null>(null);
 
+/**
+ * GPS position captured the moment the hiding period starts — the
+ * shared departure point for both hider and all seekers. Used as the
+ * travel-times anchor: "which stations could the hider reach from here
+ * within the hiding-period budget?"
+ *
+ * Set by GameStartWatcher on the null→non-null transition of
+ * hidingPeriodEndsAt. Cleared by startNewRound / startNewGame.
+ */
+export const gameStartPosition = persistentAtom<{
+    lat: number;
+    lng: number;
+} | null>("jlhs:gameStartPosition", null, {
+    encode: (v) => (v === null ? "" : JSON.stringify(v)),
+    decode: (v) => {
+        try {
+            return v ? JSON.parse(v) : null;
+        } catch {
+            return null;
+        }
+    },
+});
+
 /** Hiding period duration in minutes, per the rulebook (image 2). */
 export const HIDING_PERIOD_MINUTES: Record<GameSize, number> = {
     small: 30,

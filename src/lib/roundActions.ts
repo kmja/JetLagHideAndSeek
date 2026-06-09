@@ -8,6 +8,7 @@ import {
 } from "@/lib/context";
 import {
     gameSize,
+    gameStartPosition,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
@@ -56,6 +57,7 @@ export function startNewRound() {
     // so the clock starts effectively immediately).
     hidingPeriodEndsAt.set(null);
     pendingHidingDurationMin.set(minutes);
+    gameStartPosition.set(null);
 }
 
 /**
@@ -75,6 +77,7 @@ export function startNewGame() {
     roundFoundAt.set(null);
     hidingPeriodEndsAt.set(null);
     pendingHidingDurationMin.set(null);
+    gameStartPosition.set(null);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);
