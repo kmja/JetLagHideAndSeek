@@ -94,6 +94,16 @@ export const determineCache = async (cacheType: CacheType): Promise<Cache> => {
  */
 const DEFAULT_FETCH_TIMEOUT_MS = 25000;
 
+/**
+ * Length at which we switch the Overpass request from GET-with-query
+ * to POST-with-body. Many servers (and CDNs in front of them) reject
+ * GETs with `414 Request-URI Too Long` around 8 KB — that's the failure
+ * mode for large play-area polygons baked into `poly:"…"` filters.
+ * 4 KB is a comfortably safe ceiling that leaves room for headers,
+ * proxy decoration, and Cloudflare's own request URI cap.
+ */
+const URL_POST_THRESHOLD = 4000;
+
 const fetchWithTimeout = async (
     url: string,
     timeoutMs: number,
@@ -102,6 +112,31 @@ const fetchWithTimeout = async (
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
+        // Long-URL escape hatch: when the URL crosses the GET-friendly
+        // limit AND it's an Overpass `?data=…` query, split it and
+        // POST the data field as a form-encoded body. Every Overpass
+        // mirror accepts either shape, and the public CDNs only
+        // 414-out on the GET path.
+        const queryIdx = url.indexOf("?data=");
+        const useFormPost =
+            !init?.method &&
+            queryIdx >= 0 &&
+            url.length > URL_POST_THRESHOLD &&
+            url.includes("/interpreter");
+        if (useFormPost) {
+            const base = url.slice(0, queryIdx);
+            const encodedData = url.slice(queryIdx + "?data=".length);
+            return await fetch(base, {
+                ...init,
+                method: "POST",
+                headers: {
+                    ...(init?.headers ?? {}),
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: `data=${encodedData}`,
+                signal: controller.signal,
+            });
+        }
         return await fetch(url, { ...init, signal: controller.signal });
     } finally {
         clearTimeout(timeoutId);
