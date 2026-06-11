@@ -47,19 +47,16 @@ export function extractBoundaryRelationId(query: string): number | null {
 }
 
 /**
- * Hit polygons.openstreetmap.fr for an OSM relation. Returns
- * an Overpass-shaped { elements: [...] } response on success,
- * or null on any failure (HTTP error, polygon-not-yet-computed
- * 'None' sentinel, parse error, timeout). Never throws.
- *
- * The synthetic Overpass element wraps the GeoJSON polygon in
- * a `members.geometry` shape that osmtogeojson recognises, so
- * the downstream pipeline doesn't need a separate code path.
+ * Hit polygons.openstreetmap.fr for an OSM relation and return the raw
+ * GeoJSON polygon geometry (or null on any failure). The preview map
+ * in the wizard uses this for "show me the actual shape" without going
+ * through the osmtogeojson stitching path that
+ * `fetchBoundaryAsOverpassShape` is for.
  */
-export async function fetchBoundaryAsOverpassShape(
+export async function fetchRawBoundaryPolygon(
     relationId: number,
     signal?: AbortSignal,
-): Promise<{ elements: unknown[] } | null> {
+): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
     const url = `${POLYGONS_OSM_FR_API}?id=${relationId}&params=0`;
 
     const ctrl = new AbortController();
@@ -96,10 +93,6 @@ export async function fetchBoundaryAsOverpassShape(
         trimmed.startsWith("<") ||
         trimmed.startsWith("!")
     ) {
-        // Polygon hasn't been computed for this relation yet
-        // (their server computes on first request and the first
-        // hit can return 'None'), OR the service is returning an
-        // HTML error page. Either way: no usable data.
         return null;
     }
 
@@ -109,11 +102,24 @@ export async function fetchBoundaryAsOverpassShape(
     } catch {
         return null;
     }
+    return normalizeToPolyGeometry(parsed);
+}
 
-    // Normalize to a Polygon / MultiPolygon geometry that
-    // osmtogeojson can consume via the synthetic-relation
-    // wrapper below.
-    const geom = normalizeToPolyGeometry(parsed);
+/**
+ * Hit polygons.openstreetmap.fr for an OSM relation. Returns
+ * an Overpass-shaped { elements: [...] } response on success,
+ * or null on any failure (HTTP error, polygon-not-yet-computed
+ * 'None' sentinel, parse error, timeout). Never throws.
+ *
+ * The synthetic Overpass element wraps the GeoJSON polygon in
+ * a `members.geometry` shape that osmtogeojson recognises, so
+ * the downstream pipeline doesn't need a separate code path.
+ */
+export async function fetchBoundaryAsOverpassShape(
+    relationId: number,
+    signal?: AbortSignal,
+): Promise<{ elements: unknown[] } | null> {
+    const geom = await fetchRawBoundaryPolygon(relationId, signal);
     if (!geom) return null;
 
     // Wrap as a minimal Overpass relation so osmtogeojson treats

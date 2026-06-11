@@ -20,6 +20,62 @@ import { cn } from "@/lib/utils";
  *   - Granted: muteable toggle so the user can silence the app
  *     without revoking permission at the browser level.
  */
+/**
+ * Compact icon-only variant for tight spots (dialog headers, etc.).
+ * Same state model as NotificationsToggle but no labels and a square
+ * footprint.
+ */
+export function NotificationsIconButton({
+    className,
+}: {
+    className?: string;
+}) {
+    const perm = useStore(notificationPermission);
+    const enabled = useStore(notificationsEnabled);
+
+    if (perm === "unsupported") return null;
+
+    const denied = perm === "denied";
+    const granted = perm === "granted";
+
+    const onClick = () => {
+        if (!granted) {
+            void requestNotificationPermission();
+            return;
+        }
+        notificationsEnabled.set(!enabled);
+    };
+
+    const Icon = granted ? (enabled ? BellRing : BellOff) : Bell;
+    const title = !granted
+        ? denied
+            ? "Notifications blocked. Unblock this site in your browser settings."
+            : "Allow notifications for new questions, answers, and curses"
+        : enabled
+          ? "Tap to mute background notifications"
+          : "Tap to re-enable background notifications";
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={denied}
+            title={title}
+            aria-label={title}
+            className={cn(
+                "inline-flex items-center justify-center w-8 h-8 rounded-md",
+                "bg-secondary/60 hover:bg-accent border border-border",
+                "text-foreground transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                denied && "opacity-60 cursor-not-allowed",
+                className,
+            )}
+        >
+            <Icon className="w-4 h-4" />
+        </button>
+    );
+}
+
 export function NotificationsToggle() {
     const perm = useStore(notificationPermission);
     const enabled = useStore(notificationsEnabled);

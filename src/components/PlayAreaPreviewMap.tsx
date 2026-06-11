@@ -1,17 +1,30 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
-import { useEffect, useMemo, useRef } from "react";
-import Map, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
+import * as turf from "@turf/turf";
+import { useEffect, useMemo, useRef, useState } from "react";
+import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
+import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
 
 /**
+ * In-memory cache so swapping back to a previously-previewed result
+ * snaps to its real polygon instantly (and doesn't refetch). Keyed by
+ * OSM relation id. (Aliased the react-map-gl `Map` import to `MapGL`
+ * so the built-in `Map<K, V>` type stays in scope here.)
+ */
+const polygonCache = new Map<
+    number,
+    GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+>();
+
+/**
  * Tiny map preview for the wizard's PlayAreaStep — shows the
- * selected Photon result's bbox as a red outline on a dark
- * basemap so the user can see what they're picking before
- * committing. Cheaper than the full boundary fetch (which only
- * happens after Finish): a 4-coordinate rectangle is enough for
- * an "is this the right city?" check.
+ * selected Photon result. Renders the bbox rectangle instantly as a
+ * cheap first paint, then upgrades to the real boundary polygon as
+ * soon as polygons.openstreetmap.fr responds (~1-5 s) — fully async,
+ * no perceived delay vs the rectangle-only version. If polygons.osm.fr
+ * 404s or times out, the rectangle stays.
  *
  * Renders as `client:only`-safe — MapLibre's window deps are
  * imported lazily at this leaf, so a static import in the wizard
@@ -50,8 +63,10 @@ export function PlayAreaPreviewMap({
     }, [value]);
 
     // Rectangle polygon for the bbox outline. Closed loop so the
-    // line layer renders all four sides.
-    const polygon = useMemo<GeoJSON.Feature<GeoJSON.Polygon> | null>(() => {
+    // line layer renders all four sides. This is the instant first
+    // paint; the real boundary polygon swaps in below when
+    // polygons.osm.fr returns.
+    const bboxPolygon = useMemo<GeoJSON.Feature<GeoJSON.Polygon> | null>(() => {
         if (!bbox) return null;
         const { minLng, minLat, maxLng, maxLat } = bbox;
         return {
@@ -71,6 +86,82 @@ export function PlayAreaPreviewMap({
             },
         };
     }, [bbox]);
+
+    // Async upgrade to the real OSM relation boundary via
+    // polygons.openstreetmap.fr. Only fires when Photon's result is a
+    // Relation (osm_type === "R") — Way / Node results don't have a
+    // pre-computed polygon to fetch. Cached in-module so repeated
+    // previews of the same result are instant. Stale-request guard via
+    // an AbortController so the fast Stockholm preview doesn't get
+    // clobbered by a slow Tokyo preview that landed after.
+    const osmId = value.properties.osm_id;
+    const osmType = value.properties.osm_type;
+    const [realPolygon, setRealPolygon] = useState<
+        GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+    >(() => (osmId ? polygonCache.get(osmId) ?? null : null));
+
+    useEffect(() => {
+        if (osmType !== "R" || !osmId) {
+            setRealPolygon(null);
+            return;
+        }
+        const cached = polygonCache.get(osmId);
+        if (cached !== undefined) {
+            setRealPolygon(cached);
+            return;
+        }
+        const ctrl = new AbortController();
+        fetchRawBoundaryPolygon(osmId, ctrl.signal)
+            .then((geom) => {
+                if (ctrl.signal.aborted) return;
+                polygonCache.set(osmId, geom);
+                setRealPolygon(geom);
+            })
+            .catch(() => {
+                /* swallowed — rectangle is the fallback */
+            });
+        return () => ctrl.abort();
+    }, [osmId, osmType]);
+
+    // Render the real polygon when we have it; otherwise the bbox.
+    const polygon = useMemo<
+        | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+        | null
+    >(() => {
+        if (realPolygon) {
+            return {
+                type: "Feature",
+                properties: {},
+                geometry: realPolygon,
+            };
+        }
+        return bboxPolygon;
+    }, [realPolygon, bboxPolygon]);
+
+    // Once the real polygon lands, re-fit the camera to its actual
+    // extent (the bbox extent was an over-approximation for irregular
+    // shapes — Dalarna's bbox included parts of Norway and Uppsala).
+    useEffect(() => {
+        if (!realPolygon) return;
+        try {
+            const [minX, minY, maxX, maxY] = turf.bbox({
+                type: "Feature",
+                properties: {},
+                geometry: realPolygon,
+            } as GeoJSON.Feature);
+            const map = mapRef.current?.getMap();
+            if (!map) return;
+            map.fitBounds(
+                [
+                    [minX, minY],
+                    [maxX, maxY],
+                ],
+                { padding: 16, duration: 500, maxZoom: 12 },
+            );
+        } catch {
+            /* ignore */
+        }
+    }, [realPolygon]);
 
     // Fit the map to the bbox. Called both from the bbox-change effect
     // (parent swaps `value` without unmounting) AND from the map's
@@ -150,7 +241,7 @@ export function PlayAreaPreviewMap({
         <div
             className={`w-full ${height} rounded-md overflow-hidden border border-border`}
         >
-            <Map
+            <MapGL
                 ref={mapRef}
                 initialViewState={{
                     longitude: (bbox.minLng + bbox.maxLng) / 2,
@@ -183,7 +274,7 @@ export function PlayAreaPreviewMap({
                         />
                     </Source>
                 )}
-            </Map>
+            </MapGL>
         </div>
     );
 }

@@ -61,7 +61,7 @@ import {
     HideSeekMark,
     HideSeekWordmark,
 } from "./JetLagLogo";
-import { NotificationsToggle } from "./NotificationsToggle";
+import { NotificationsIconButton } from "./NotificationsToggle";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -303,18 +303,21 @@ export function GameLobbyDialog() {
                     "flex flex-col p-0 gap-0 sm:max-w-md",
                 )}
             >
-                {/* Minimal header — just the brand mark + wordmark.
-                    No role chip (the icons in the roster carry the
-                    role identity now) and no room code chip (it's
-                    moved down into the share section so it sits
-                    next to the QR + 'share to invite' affordances).
-                    A text recap only appears while the map is still
-                    loading — once the boundary is in, the mini-map
-                    below carries the settings visually. */}
+                {/* Minimal header — brand mark + wordmark on the
+                    left, notifications icon button top-right. The
+                    role chip and room-code chip both moved out:
+                    role is carried by the roster icons, and the room
+                    code lives in the share section below. A text
+                    recap only appears while the map is still loading
+                    — once the boundary is in, the mini-map below
+                    carries the settings visually. */}
                 <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border">
                     <div className="flex items-center gap-2">
                         <HideSeekMark size={26} onDark />
                         <HideSeekWordmark />
+                        <div className="ml-auto">
+                            <NotificationsIconButton />
+                        </div>
                     </div>
                     {$playArea && !mapReady && !isHiderRole && (
                         <div className="mt-2 text-xs text-muted-foreground leading-snug">
@@ -378,74 +381,84 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Participants side-by-side. Drops the inline
-                        QR + share card (moved to a separate dialog
-                        triggered by the button below) so the
-                        seekers / hiders rosters can dominate the
-                        lobby surface — what's actually changing
-                        moment-to-moment as people join. */}
-                    {$mp && $participants.length > 0 && (
-                        <div className="grid grid-cols-2 gap-2">
-                            <RosterCard
-                                label={`Seekers · ${seekers.length}`}
-                                tone="seeker"
-                                participants={seekers}
-                                selfId={$self}
-                                hostId={hostId}
-                                selfRole={$playerRole}
-                                onSwitchRole={() =>
-                                    rolePickerOpen.set(true)
-                                }
-                            />
-                            <RosterCard
-                                label={`Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
-                                tone="hider"
-                                participants={[
-                                    ...(hider ? [hider] : []),
-                                    ...coHiders,
-                                ]}
-                                mainHiderId={hider?.id ?? null}
-                                selfId={$self}
-                                hostId={hostId}
-                                selfRole={$playerRole}
-                                onSwitchRole={() =>
-                                    rolePickerOpen.set(true)
-                                }
-                                showPromote={
-                                    $playerRole === "hider" &&
-                                    !!hider &&
-                                    hider.id === $self
-                                }
-                                onPromote={(id) => promoteCoHider(id)}
-                            />
+                    {/* Share / room code card — moved to the top of
+                        the body in v146 so an inviting host sees the
+                        QR/code/buttons immediately on open. Room
+                        code top-left, QR top-right; Copy + Share
+                        buttons in the left column with
+                        `justify-between` so their bottom edge lines
+                        up with the QR's bottom edge. */}
+                    {$mp && $code && (
+                        <div
+                            className={cn(
+                                "rounded-md border border-border bg-secondary/40",
+                                "px-3 py-2.5",
+                            )}
+                        >
+                            <div className="flex items-stretch gap-3">
+                                <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
+                                    <div>
+                                        <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground leading-none">
+                                            Room code
+                                        </div>
+                                        <div className="font-display font-black uppercase text-xl tabular-nums tracking-[0.10em] leading-none mt-1 text-primary">
+                                            {$code}
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1.5">
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={handleCopy}
+                                            className="flex-1 gap-1.5"
+                                        >
+                                            {copied ? (
+                                                <Check className="w-3.5 h-3.5" />
+                                            ) : (
+                                                <Copy className="w-3.5 h-3.5" />
+                                            )}
+                                            Copy link
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            onClick={handleShare}
+                                            className="flex-1 gap-1.5"
+                                        >
+                                            <Share2 className="w-3.5 h-3.5" />
+                                            Share
+                                        </Button>
+                                    </div>
+                                </div>
+                                {shareUrl && (
+                                    <div
+                                        className="bg-white rounded-[3px] p-1 shrink-0"
+                                        aria-label="Scan to join this game"
+                                    >
+                                        <QRCodeSVG
+                                            value={shareUrl}
+                                            size={76}
+                                            level="M"
+                                            marginSize={0}
+                                            bgColor="#ffffff"
+                                            fgColor="#0f172a"
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
-                    {$mp && !hasRoleBalance && $participants.length > 0 && (
-                        <p className="text-[11px] text-muted-foreground leading-snug">
-                            Need at least one <b>seeker</b> and one{" "}
-                            <b>hider</b> before the game can start.
-                            Share the invite to bring more in.
-                        </p>
-                    )}
 
-                    {/* Mini map — once the boundary's in, swap the
-                        loader for a tiny preview of the play area.
-                        Doubles as the visual home for the rest of
-                        the settings (location pin, hide-period
-                        chip, transit chips) which were previously
-                        repeated three times across the dialog. The
-                        text recap at the top is hidden once this
-                        appears so we don't say the same things
-                        twice. */}
-                    {/* Map slot — always shown. Seekers see the
-                        boundary once loaded (or a loading state
-                        while Overpass is fetching). Hiders skip
-                        the boundary load entirely; they get a
-                        simple centered map using the play-area
-                        coordinates instead. Same fixed size in all
-                        states so content never reflows. */}
+                    {/* Map slot. NEW ORDER (v146): the map sits in
+                        the middle of the body, between the sharing
+                        card above and the player rosters below.
+                        Full-width — the previous max-w-[260px] +
+                        mx-auto kept it as a stamp-sized thumbnail;
+                        with the map now centerpiece of the lobby,
+                        let it stretch the dialog's content width
+                        (still aspect-square for predictable
+                        reflow). */}
                     {$playArea && (
-                        <div className="aspect-square w-full max-w-[260px] mx-auto rounded-md overflow-hidden border border-border bg-secondary/40 relative">
+                        <div className="aspect-square w-full rounded-md overflow-hidden border border-border bg-secondary/40 relative">
                             {isHiderRole ? (
                                 <LobbyMiniMap
                                     boundary={null}
@@ -520,91 +533,72 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Share / room code card. Room code + an
-                        inline QR on the far right form the header
-                        row; Copy + Share live directly underneath.
-                        The QR is always visible (no nested dialog
-                        detour) — small enough to keep the lobby
-                        compact, large enough to scan from a phone
-                        held a few inches away. */}
-                    {$mp && $code && (
-                        <div
-                            className={cn(
-                                "rounded-md border border-border bg-secondary/40",
-                                "px-3 py-2.5 space-y-2",
-                            )}
-                        >
-                            <div className="flex items-start gap-3">
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground leading-none">
-                                        Room code
-                                    </div>
-                                    <div className="font-display font-black uppercase text-xl tabular-nums tracking-[0.10em] leading-none mt-1 text-primary">
-                                        {$code}
-                                    </div>
-                                    <div className="text-[11px] text-muted-foreground mt-1 leading-snug">
-                                        Share the code or link to
-                                        invite friends.
-                                    </div>
-                                </div>
-                                {shareUrl && (
-                                    <div
-                                        className="bg-white rounded-[3px] p-1 shrink-0"
-                                        aria-label="Scan to join this game"
-                                    >
-                                        <QRCodeSVG
-                                            value={shareUrl}
-                                            size={76}
-                                            level="M"
-                                            marginSize={0}
-                                            bgColor="#ffffff"
-                                            fgColor="#0f172a"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                            <div className="flex gap-1.5">
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleCopy}
-                                    className="flex-1 gap-1.5"
-                                >
-                                    {copied ? (
-                                        <Check className="w-3.5 h-3.5" />
-                                    ) : (
-                                        <Copy className="w-3.5 h-3.5" />
-                                    )}
-                                    Copy link
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    onClick={handleShare}
-                                    className="flex-1 gap-1.5"
-                                >
-                                    <Share2 className="w-3.5 h-3.5" />
-                                    Share
-                                </Button>
-                            </div>
+                    {/* Players moved here (below the map) in v146.
+                        The map is the visual centrepiece; rosters
+                        are secondary context. */}
+                    {$mp && $participants.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2">
+                            <RosterCard
+                                label={`Seekers · ${seekers.length}`}
+                                tone="seeker"
+                                participants={seekers}
+                                selfId={$self}
+                                hostId={hostId}
+                                selfRole={$playerRole}
+                                onSwitchRole={() =>
+                                    rolePickerOpen.set(true)
+                                }
+                            />
+                            <RosterCard
+                                label={`Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
+                                tone="hider"
+                                participants={[
+                                    ...(hider ? [hider] : []),
+                                    ...coHiders,
+                                ]}
+                                mainHiderId={hider?.id ?? null}
+                                selfId={$self}
+                                hostId={hostId}
+                                selfRole={$playerRole}
+                                onSwitchRole={() =>
+                                    rolePickerOpen.set(true)
+                                }
+                                showPromote={
+                                    $playerRole === "hider" &&
+                                    !!hider &&
+                                    hider.id === $self
+                                }
+                                onPromote={(id) => promoteCoHider(id)}
+                            />
                         </div>
                     )}
-
-                    {/* Standalone loading block removed in v97 —
-                        the loading state now lives inside the
-                        fixed-size map slot above, so the dialog
-                        doesn't reflow when the boundary lands. */}
+                    {$mp && !hasRoleBalance && $participants.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                            Need at least one <b>seeker</b> and one{" "}
+                            <b>hider</b> before the game can start.
+                            Share the invite to bring more in.
+                        </p>
+                    )}
                 </div>
 
-                {/* Start button. Role-independent: a hider host
-                    sees the same Start UI a seeker host does. */}
+                {/* Start button + Leave game. Role-independent: a
+                    hider host sees the same Start UI a seeker host
+                    does. v146: compacted — the waiting/loading
+                    button is single-line height (h-11) instead of
+                    h-16, and the secondary "{minutes}-min hiding
+                    period" caption only appears on the active Start
+                    state, where the button stays two-line. The
+                    notifications toggle moved to the dialog header
+                    as an icon button. */}
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
                     {isHost ? (
                         <>
                             <Button
                                 size="lg"
                                 className={cn(
-                                    "w-full h-16 flex flex-col items-center justify-center gap-0.5",
+                                    "w-full flex flex-col items-center justify-center gap-0.5",
                                     "font-display uppercase",
+                                    startReady ? "h-16" : "h-11",
                                 )}
                                 onClick={handleStartGame}
                                 disabled={!startReady}
@@ -666,11 +660,6 @@ export function GameLobbyDialog() {
                             )}
                         </div>
                     )}
-                    {/* Notifications enable / mute. Shown in the lobby so
-                        a hider who landed here via a join link (never
-                        seeing the seeker More sheet) can still grant
-                        permission before the game starts. */}
-                    <NotificationsToggle />
                     {/* Switch role moved inline into the roster row
                         next to '(you)' — see RosterCard's SwitchRoleButton.
                         Keeps the lobby's footer clean and the affordance
