@@ -408,27 +408,37 @@ export function GameLobbyDialog() {
                                     {$code}
                                 </span>
                             </div>
+                            {/* Icon-only buttons keep the row narrow
+                                enough to coexist with the room code
+                                + label even on the dialog's tighter
+                                width. Tooltips carry the verb. */}
                             <div className="ml-auto flex items-center gap-1.5">
                                 <Button
                                     size="sm"
                                     variant="outline"
                                     onClick={handleCopy}
-                                    className="gap-1 px-2.5"
+                                    aria-label="Copy invite link"
+                                    title={
+                                        copied
+                                            ? "Copied!"
+                                            : "Copy invite link"
+                                    }
+                                    className="px-2"
                                 >
                                     {copied ? (
                                         <Check className="w-3.5 h-3.5" />
                                     ) : (
                                         <Copy className="w-3.5 h-3.5" />
                                     )}
-                                    Copy
                                 </Button>
                                 <Button
                                     size="sm"
                                     onClick={handleShare}
-                                    className="gap-1 px-2.5"
+                                    aria-label="Share invite link"
+                                    title="Share invite link"
+                                    className="px-2"
                                 >
                                     <Share2 className="w-3.5 h-3.5" />
-                                    Share
                                 </Button>
                                 {shareUrl && (
                                     <Button

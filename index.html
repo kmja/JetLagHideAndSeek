@@ -320,17 +320,38 @@
                 console.log("[gps-spoof] active", window.__gpsSpoof);
             })();
         </script>
+        <!--
+            Theme system: src/lib/theme.ts adds a `light` / `dark`
+            class to the <html> element on boot (before React mounts)
+            based on the persisted preference, defaulting to the OS's
+            `prefers-color-scheme`. The early inline script below
+            paints the same class synchronously so first paint never
+            flashes the wrong palette while the JS module is being
+            parsed.
+        -->
+        <script>
+            (function () {
+                try {
+                    var pref =
+                        localStorage.getItem("jlhs:theme") || "system";
+                    var mode =
+                        pref === "light" || pref === "dark"
+                            ? pref
+                            : window.matchMedia &&
+                                window.matchMedia(
+                                    "(prefers-color-scheme: dark)",
+                                ).matches
+                              ? "dark"
+                              : "light";
+                    document.documentElement.classList.add(mode);
+                    document.documentElement.style.colorScheme = mode;
+                } catch (e) {
+                    document.documentElement.classList.add("dark");
+                }
+            })();
+        </script>
     </head>
-    <!--
-        Hard-coded dark mode. The original Astro Layout applied
-        `class="dark"` on body so all the shadcn CSS variables
-        resolve to their .dark values; the SPA needs the same
-        class or every dialog renders in light theme (white
-        background, hard-to-read text). The seeker app has no
-        light-mode toggle, so this is a static class — no JS
-        needed.
-    -->
-    <body class="dark">
+    <body>
         <div id="root"></div>
         <script type="module" src="/src/main.tsx"></script>
     </body>

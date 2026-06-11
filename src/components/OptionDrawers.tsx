@@ -58,6 +58,7 @@ import { questionsSchema } from "@/maps/schema";
 
 import { LatitudeLongitude } from "./LatLngPicker";
 import { Button } from "./ui/button";
+import { ThemeToggle } from "./ThemeToggle";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -658,6 +659,12 @@ export const OptionDrawers = ({
                                         followMe.set(!$followMe)
                                     }
                                 />
+                            </div>
+                            <div className="flex flex-row items-center justify-between gap-2">
+                                <label className="text-2xl font-semibold font-poppins">
+                                    Theme
+                                </label>
+                                <ThemeToggle />
                             </div>
                             <div className="flex flex-row items-center gap-2">
                                 <label className="text-2xl font-semibold font-poppins">
