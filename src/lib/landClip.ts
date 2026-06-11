@@ -77,11 +77,27 @@ async function loadLandPolys(): Promise<LandPoly[]> {
                     // bogus polygon, so skip.
                     continue;
                 }
-                const poly: Feature<Polygon> = {
+                // Natural Earth coastlines wind CW around land
+                // (continents/islands), which is the opposite of
+                // GeoJSON's outer-ring convention (CCW). Without
+                // rewinding, treating the line as an outer ring
+                // makes the resulting "polygon" represent the
+                // OCEAN instead of the land — and Sweden ∩ ocean
+                // gives back just the coastal-water bits, which
+                // was the visible bug in v149. `turf.rewind` flips
+                // each ring to GeoJSON convention.
+                let poly: Feature<Polygon> = {
                     type: "Feature",
                     properties: {},
                     geometry: { type: "Polygon", coordinates: [coords] },
                 };
+                try {
+                    poly = turf.rewind(poly, {
+                        reverse: false,
+                    }) as Feature<Polygon>;
+                } catch {
+                    /* malformed ring — fall through with raw orientation */
+                }
                 out.push({
                     feature: poly,
                     bbox: turf.bbox(poly) as [
@@ -142,20 +158,56 @@ export async function clipPolygonToLand(
             }
         }
         if (pieces.length === 0) return null;
-        if (pieces.length === 1) return pieces[0];
-
-        // Union the per-island clips so downstream code (mask,
-        // preview, hiding-zone checks) sees a single Feature.
-        let acc: Feature<Polygon | MultiPolygon> = pieces[0];
-        for (let i = 1; i < pieces.length; i++) {
-            try {
-                const u = turf.union(
-                    turf.featureCollection([acc, pieces[i]]),
-                ) as Feature<Polygon | MultiPolygon> | null;
-                if (u) acc = u;
-            } catch {
-                /* skip any pair that fails the topology check */
+        let acc: Feature<Polygon | MultiPolygon>;
+        if (pieces.length === 1) {
+            acc = pieces[0];
+        } else {
+            // Union the per-island clips so downstream code (mask,
+            // preview, hiding-zone checks) sees a single Feature.
+            acc = pieces[0];
+            for (let i = 1; i < pieces.length; i++) {
+                try {
+                    const u = turf.union(
+                        turf.featureCollection([acc, pieces[i]]),
+                    ) as Feature<Polygon | MultiPolygon> | null;
+                    if (u) acc = u;
+                } catch {
+                    /* skip any pair that fails the topology check */
+                }
             }
+        }
+
+        // Sanity check — if the clip removed more than (1-MIN_KEEP)
+        // of the input area, treat it as a bug and bail. Two known
+        // failure modes this catches:
+        //   1. Coastline orientation was wrong (the v149 Sweden
+        //      bug — the land mask was actually an ocean mask, so
+        //      we got back just the coastal-water bits).
+        //   2. NE 1:50m generalises away small features. A play
+        //      area that's mostly small islands could lose most of
+        //      itself to the simplified outline. Better to render
+        //      the un-clipped OSM polygon than a glitchy fragment.
+        // The threshold below is permissive — even a heavily
+        // coastal area like Nagasaki only loses ~50% to the trim,
+        // so 0.4 (keep at least 40%) doesn't reject legitimate
+        // trims but does reject the "we lost 99% of it" disasters.
+        const MIN_KEEP = 0.4;
+        try {
+            const inArea = turf.area(polygon);
+            const outArea = turf.area(acc);
+            if (inArea > 0 && outArea / inArea < MIN_KEEP) {
+                console.warn(
+                    `clipPolygonToLand kept only ${(
+                        (outArea / inArea) *
+                        100
+                    ).toFixed(
+                        1,
+                    )}% of input area — likely a bad clip; falling back to raw polygon.`,
+                );
+                return null;
+            }
+        } catch {
+            /* area comparison failed — proceed with the clip */
         }
         return acc;
     } catch (e) {

@@ -58,6 +58,7 @@ import { questionsSchema } from "@/maps/schema";
 
 import { LatitudeLongitude } from "./LatLngPicker";
 import { Button } from "./ui/button";
+import { CacheStatus } from "./CacheStatus";
 import { ThemeToggle } from "./ThemeToggle";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
@@ -760,6 +761,9 @@ export const OptionDrawers = ({
                                     )}
                                 </SidebarMenu>
                             )}
+                            <div className="mt-6">
+                                <CacheStatus />
+                            </div>
                         </div>
                     </div>
                 </DrawerContent>
