@@ -94,7 +94,8 @@ export const determineMeasuringBoundary = async (
             const features = osmtogeojson(
                 await findPlacesInZone(
                     "[highspeed=yes]",
-                    "Finding high-speed lines...",
+                    // No loadingText — picker has its own progress UI.
+                    undefined,
                     "nwr",
                     "geom",
                 ),
@@ -148,7 +149,6 @@ export const determineMeasuringBoundary = async (
                             (
                                 await findPlacesInZone(
                                     '["aeroway"="aerodrome"]["iata"]', // Only commercial airports have IATA codes,
-                                    "Finding airports...",
                                 )
                             ).elements,
                             (feature: any) => feature.tags.iata,
@@ -168,7 +168,6 @@ export const determineMeasuringBoundary = async (
                         (
                             await findPlacesInZone(
                                 '[place=city]["population"~"^[1-9]+[0-9]{6}$"]', // The regex is faster than (if:number(t["population"])>1000000)
-                                "Finding cities...",
                             )
                         ).elements.map((x: any) =>
                             turf.point([
@@ -194,7 +193,11 @@ export const determineMeasuringBoundary = async (
 
             const data = await findPlacesInZone(
                 `[${LOCATION_FIRST_TAG[location]}=${location}]`,
-                `Finding ${prettifyLocation(location, true).toLowerCase()}...`,
+                // No loadingText: the picker has its own inline
+                // progress UI; toast.promise here stacks duplicates
+                // when the nearest-reference preview and the main
+                // map's mask both run the same query.
+                undefined,
                 "nwr",
                 "center",
                 [],

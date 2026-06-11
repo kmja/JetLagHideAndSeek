@@ -388,7 +388,7 @@ node(${nodeId});
 wr(bn);
 out tags;
 `;
-    const tagData = await getOverpassData(tagQuery, "Finding train line...");
+    const tagData = await getOverpassData(tagQuery);
     const query = `
 [out:json];
 (
@@ -412,7 +412,7 @@ ${tagData.elements
 );
 out geom;
 `;
-    const data = await getOverpassData(query, "Finding train lines...");
+    const data = await getOverpassData(query);
     const geoJSON = osmtogeojson(data);
     const nodes: number[] = [];
     geoJSON.features.forEach((feature: any) => {
@@ -587,7 +587,8 @@ export const nearestToQuestion = async (
                 color: "black",
                 collapsed: false,
             },
-            "Finding matching locations...",
+            // No loadingText — picker has its own progress UI.
+            undefined,
         );
         radius += 30;
     }
