@@ -3,7 +3,7 @@ import { Loader2, MapPin, Ruler } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
-import { LOCATION_FIRST_TAG } from "@/maps/api";
+import { fetchCoastline, LOCATION_FIRST_TAG } from "@/maps/api";
 import {
     findPlacesInZone,
     findTentacleLocations,
@@ -317,46 +317,66 @@ async function fetchNearest(
 }
 
 /**
- * Nearest point on any `natural=coastline` way around the seeker. Uses
- * `turf.nearestPointOnLine` per way so the returned reference is the
- * actual closest point on the coast (not just the closest tagged node).
- * Inland radii expand to 800 km so even landlocked seekers get a
- * reference if there's any reachable coast within continental range.
+ * Nearest point on the world coastline. Uses the Natural Earth 1:50m
+ * coastline (`public/coastline50.geojson`, ~3.9 MB) loaded once and
+ * cached forever in the PERMANENT_CACHE — then scans every line
+ * feature with `turf.nearestPointOnLine` to find the exact closest
+ * point. Pure client-side after the first download: no Overpass round
+ * trip, no progressive radius walk, no "all mirrors timed out" for
+ * inland seekers whose nearest coast is 200+ km away. (The previous
+ * Overpass impl would pull every coastline within 300 km of the
+ * seeker, which for someone in central Sweden meant the entire
+ * Swedish coast + Norway + Baltic — easily megabytes per query,
+ * which is exactly why every public mirror was 429ing.)
+ *
+ * The resolution trade-off is the dataset's ~1:50m simplification:
+ * fjords and small bays get smoothed, so the returned point may be
+ * ~1-5 km off the true OSM coast. Fine for a km-precision question
+ * like "are you closer to the coast than me".
  */
+const coastlineCache: { fc: GeoJSON.FeatureCollection | null } = { fc: null };
+
 async function fetchNearestCoastline(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
-    for (const km of [30, 100, 300, 800]) {
-        const query = `
-[out:json][timeout:60];
-way["natural"="coastline"](around:${km * 1000},${lat},${lng});
-out geom;
-`;
-        const data = await getOverpassData(
-            query,
-            undefined,
-            CacheType.ZONE_CACHE,
-        );
-        const elements = (data as { elements?: any[] }).elements ?? [];
-        if (elements.length === 0) continue;
-
-        const target = turf.point([lng, lat]);
-        let best: {
-            lat: number;
-            lng: number;
-            distanceMeters: number;
-        } | null = null;
-        for (const way of elements) {
-            const g = way.geometry as
-                | Array<{ lat: number; lon: number }>
-                | undefined;
-            if (!g || g.length < 2) continue;
+    if (!coastlineCache.fc) {
+        try {
+            coastlineCache.fc =
+                (await fetchCoastline()) as GeoJSON.FeatureCollection;
+        } catch (e) {
+            console.warn("coastline50.geojson load failed:", e);
+            return null;
+        }
+    }
+    const target = turf.point([lng, lat]);
+    let best: {
+        lat: number;
+        lng: number;
+        distanceMeters: number;
+    } | null = null;
+    for (const feature of coastlineCache.fc.features) {
+        const g = feature.geometry;
+        if (!g) continue;
+        // Natural Earth ships both LineString and MultiLineString.
+        const lines: GeoJSON.LineString[] =
+            g.type === "LineString"
+                ? [g]
+                : g.type === "MultiLineString"
+                  ? (g.coordinates as GeoJSON.Position[][]).map(
+                        (coords) => ({
+                            type: "LineString",
+                            coordinates: coords,
+                        }),
+                    )
+                  : [];
+        for (const line of lines) {
+            if (line.coordinates.length < 2) continue;
             try {
-                const line = turf.lineString(
-                    g.map((p) => [p.lon, p.lat]),
+                const nearest = turf.nearestPointOnLine(
+                    line as GeoJSON.Feature<GeoJSON.LineString> | GeoJSON.LineString,
+                    target,
                 );
-                const nearest = turf.nearestPointOnLine(line, target);
                 const d = turf.distance(target, nearest, {
                     units: "meters",
                 });
@@ -372,14 +392,11 @@ out geom;
                     };
                 }
             } catch {
-                /* skip malformed way */
+                /* skip malformed feature */
             }
         }
-        if (best) {
-            return { name: "Coastline", ...best };
-        }
     }
-    return null;
+    return best ? { name: "Coastline", ...best } : null;
 }
 
 /**
