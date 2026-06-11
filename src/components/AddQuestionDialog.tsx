@@ -84,6 +84,34 @@ function preloadSubtypeData(
 }
 
 /**
+ * Whether the pending question is ready to be shared. For matching and
+ * measuring this means the seeker has either acquired a GPS fix or set
+ * a location manually — both pathways write finite numbers into
+ * `data.lat` / `data.lng`. Before that, the coords are NaN (per
+ * `runAddMatching` / `runAddMeasuring`) and the Confirm button stays
+ * disabled. All other question types are always ready.
+ */
+function isPendingQuestionReady(
+    q:
+        | { id: string; data: Record<string, unknown> }
+        | null
+        | undefined,
+): boolean {
+    if (!q) return false;
+    if (q.id === "matching" || q.id === "measuring") {
+        const lat = (q.data as { lat?: unknown }).lat;
+        const lng = (q.data as { lng?: unknown }).lng;
+        return (
+            typeof lat === "number" &&
+            Number.isFinite(lat) &&
+            typeof lng === "number" &&
+            Number.isFinite(lng)
+        );
+    }
+    return true;
+}
+
+/**
  * A single category tile in the Add Question picker.
  * Visual identity (color + icon) comes from CATEGORIES.
  */
@@ -409,19 +437,23 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMatching = (subtype?: string) => {
-        const center = resolveCenter();
-        if (!center) return false;
+        // Matching/measuring start with NO location — never the map center.
+        // The picker inside the configure dialog requests GPS and
+        // requires either a GPS lock or a manual place pick before the
+        // question can be confirmed (NaN coords disable the Confirm
+        // button). Map-center fallback would silently send the
+        // wrong-location question, so it's gone on purpose.
         addQuestion({
             id: "matching",
             data: defaultCustomQuestions.get()
                 ? ({
-                      lat: center.lat,
-                      lng: center.lng,
+                      lat: NaN,
+                      lng: NaN,
                       type: subtype ?? "custom-points",
                   } as never)
                 : ({
-                      lat: center.lat,
-                      lng: center.lng,
+                      lat: NaN,
+                      lng: NaN,
                       ...(subtype ? { type: subtype } : {}),
                   } as never),
         });
@@ -429,19 +461,19 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMeasuring = (subtype?: string) => {
-        const center = resolveCenter();
-        if (!center) return false;
+        // See runAddMatching — same rule: GPS or manual entry only,
+        // no map-center fallback.
         addQuestion({
             id: "measuring",
             data: defaultCustomQuestions.get()
                 ? ({
-                      lat: center.lat,
-                      lng: center.lng,
+                      lat: NaN,
+                      lng: NaN,
                       type: subtype ?? "custom-measure",
                   } as never)
                 : ({
-                      lat: center.lat,
-                      lng: center.lng,
+                      lat: NaN,
+                      lng: NaN,
                       ...(subtype ? { type: subtype } : {}),
                   } as never),
         });
@@ -820,7 +852,10 @@ export const AddQuestionDialog = ({
                         <Button variant="outline" onClick={handleCancel}>
                             Cancel
                         </Button>
-                        <Button onClick={handleConfirm}>
+                        <Button
+                            onClick={handleConfirm}
+                            disabled={!isPendingQuestionReady(pendingQuestion)}
+                        >
                             Confirm &amp; share
                         </Button>
                     </DialogFooter>

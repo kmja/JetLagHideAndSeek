@@ -48,6 +48,7 @@ export function InlineLocationPicker({
     radiusMeters,
     referencePoint,
     height = "h-[40vh]",
+    lockToGps = false,
 }: {
     latitude: number;
     longitude: number;
@@ -59,6 +60,16 @@ export function InlineLocationPicker({
         name?: string;
     };
     height?: string;
+    /**
+     * When true, the picker becomes a display-only map: map clicks don't
+     * move the pin, the pin isn't draggable, and the pin only renders
+     * once a finite coordinate exists. Used by matching/measuring
+     * configure dialogs where the seeker's location must come from GPS
+     * (or, if GPS is denied, the manual place-search shown by the
+     * caller) — never from a stray map tap. The "Use GPS" button stays
+     * active so a denied fix can be retried.
+     */
+    lockToGps?: boolean;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     const $maskData = useStore(questionFinishedMapData);
@@ -92,15 +103,21 @@ export function InlineLocationPicker({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fall back to the play-area center if no usable coords yet.
-    const safeLat =
-        Number.isFinite(latitude) && latitude !== 0
-            ? latitude
-            : ($playArea?.geometry?.coordinates?.[0] as number) ?? 0;
-    const safeLng =
-        Number.isFinite(longitude) && longitude !== 0
-            ? longitude
-            : ($playArea?.geometry?.coordinates?.[1] as number) ?? 0;
+    // Whether the caller has handed us real, usable coordinates.
+    const coordsAreSet =
+        Number.isFinite(latitude) &&
+        latitude !== 0 &&
+        Number.isFinite(longitude) &&
+        longitude !== 0;
+    // Center the camera somewhere reasonable even when no coord is
+    // set yet — falling back to the play-area centroid so the user
+    // sees their region instead of a null-island ocean view.
+    const safeLat = coordsAreSet
+        ? latitude
+        : ($playArea?.geometry?.coordinates?.[0] as number) ?? 0;
+    const safeLng = coordsAreSet
+        ? longitude
+        : ($playArea?.geometry?.coordinates?.[1] as number) ?? 0;
 
     // Recenter only on GPS-flip-to-granted (not on hand-drag).
     const lastGpsRef = useRef(gpsState);
@@ -181,6 +198,10 @@ export function InlineLocationPicker({
     }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
 
     const handleClick = (e: MapLayerMouseEvent) => {
+        // In lock-to-GPS mode the map is display-only — taps must not
+        // move the pin, since the seeker's reported location has to come
+        // from GPS (or a manual place search owned by the caller).
+        if (lockToGps) return;
         onChange(e.lngLat.lat, e.lngLat.lng);
     };
 
@@ -330,23 +351,40 @@ export function InlineLocationPicker({
                             />
                         </Source>
                     )}
-                    {/* Seeker pin — draggable so the user can
-                        nudge it without re-tapping. */}
-                    <Marker
-                        longitude={safeLng}
-                        latitude={safeLat}
-                        anchor="bottom"
-                        draggable
-                        onDragEnd={(e) =>
-                            onChange(e.lngLat.lat, e.lngLat.lng)
-                        }
-                    >
-                        <div
-                            className="jl-picker-pin"
-                            style={{ width: 28, height: 38, cursor: "grab" }}
-                            dangerouslySetInnerHTML={{ __html: PIN_SVG }}
-                        />
-                    </Marker>
+                    {/* Seeker pin. Draggable by default so the user
+                        can nudge it without re-tapping; in lock-to-GPS
+                        mode it becomes display-only and is suppressed
+                        entirely until real coords arrive (otherwise the
+                        play-area-centroid fallback would render a pin
+                        at the wrong place and read like a confirmed
+                        location). */}
+                    {(!lockToGps || coordsAreSet) && (
+                        <Marker
+                            longitude={safeLng}
+                            latitude={safeLat}
+                            anchor="bottom"
+                            draggable={!lockToGps}
+                            onDragEnd={
+                                lockToGps
+                                    ? undefined
+                                    : (e) =>
+                                          onChange(
+                                              e.lngLat.lat,
+                                              e.lngLat.lng,
+                                          )
+                            }
+                        >
+                            <div
+                                className="jl-picker-pin"
+                                style={{
+                                    width: 28,
+                                    height: 38,
+                                    cursor: lockToGps ? "default" : "grab",
+                                }}
+                                dangerouslySetInnerHTML={{ __html: PIN_SVG }}
+                            />
+                        </Marker>
+                    )}
                     {/* Reference marker + permanent popup label. */}
                     {referencePoint &&
                         Number.isFinite(referencePoint.lat) &&
@@ -395,7 +433,11 @@ export function InlineLocationPicker({
                     {gpsState === "denied" ? (
                         <>
                             <LocateOff className="w-3.5 h-3.5 shrink-0" />
-                            <span>GPS unavailable — tap the map to set</span>
+                            <span>
+                                {lockToGps
+                                    ? "GPS unavailable — search for a place below"
+                                    : "GPS unavailable — tap the map to set"}
+                            </span>
                         </>
                     ) : gpsState === "granted" ? (
                         <>

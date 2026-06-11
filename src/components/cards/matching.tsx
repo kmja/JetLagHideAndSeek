@@ -600,6 +600,9 @@ function MatchingMeasuringLocation({
             onChange={onChange}
             disabled={disabled}
             referencePoint={referencePoint}
+            // See measuring.tsx: GPS or place-search only inside the
+            // configure dialog. Display-only outside.
+            lockToGps={forceExpanded}
         />
     );
 }

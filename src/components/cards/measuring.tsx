@@ -414,6 +414,12 @@ function MeasuringLocation({
             onChange={onChange}
             disabled={disabled}
             referencePoint={referencePoint}
+            // Inside the configure dialog the location must come from
+            // GPS (or the place-search fallback) — never from a stray
+            // map tap. Outside the dialog (`forceExpanded` false) the
+            // question is already answered and the picker is just a
+            // display, so the lock doesn't matter.
+            lockToGps={forceExpanded}
         />
     );
 }

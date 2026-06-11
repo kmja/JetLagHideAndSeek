@@ -87,6 +87,84 @@ const parseCoordinatesFromText = (
     return { lat: null, lng: null };
 };
 
+/**
+ * Standalone place-search field. Renders a Photon-backed search box
+ * that, on result selection, writes back via `onPick(lat, lng)`. The
+ * matching/measuring configure dialogs use this as the manual fallback
+ * when GPS is denied (the map picker is otherwise display-only).
+ */
+const PlaceSearchInput = ({
+    onPick,
+    placeholder = "Search a place to set location...",
+    disabled,
+}: {
+    onPick: (lat: number, lng: number) => void;
+    placeholder?: string;
+    disabled?: boolean;
+}) => {
+    const [inputValue, setInputValue] = useState("");
+    const debouncedValue = useDebounce<string>(inputValue);
+    const [results, setResults] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+        if (debouncedValue === "") {
+            setResults([]);
+            setError(false);
+            return;
+        }
+        setLoading(true);
+        setResults([]);
+        geocode(debouncedValue, "en", false)
+            .then((x) => {
+                setResults(x);
+                setLoading(false);
+            })
+            .catch(() => {
+                setError(true);
+                setLoading(false);
+            });
+    }, [debouncedValue]);
+
+    return (
+        <Command shouldFilter={false}>
+            <CommandInput
+                placeholder={placeholder}
+                onKeyUp={(x) => setInputValue(x.currentTarget.value)}
+                disabled={disabled}
+            />
+            {(inputValue !== "" || results.length > 0) && (
+                <CommandList>
+                    <CommandEmpty>
+                        {loading
+                            ? "Loading..."
+                            : error
+                              ? "Error loading places."
+                              : "No locations found."}
+                    </CommandEmpty>
+                    <CommandGroup>
+                        {results.map((result) => (
+                            <CommandItem
+                                key={`${result.properties.osm_id}${result.properties.name}`}
+                                onSelect={() => {
+                                    const coords = result.geometry.coordinates;
+                                    onPick(coords[1], coords[0]);
+                                    setInputValue("");
+                                    setResults([]);
+                                }}
+                                className="cursor-pointer"
+                            >
+                                {determineName(result)}
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                </CommandList>
+            )}
+        </Command>
+    );
+};
+
 const LatLngEditForm = ({
     latitude,
     longitude,
@@ -318,6 +396,7 @@ export const LatitudeLongitude = ({
     inlineEdit = false,
     radiusMeters,
     referencePoint,
+    lockToGps = false,
 }: {
     latitude: number;
     longitude: number;
@@ -340,6 +419,13 @@ export const LatitudeLongitude = ({
         lng: number;
         name?: string;
     };
+    /**
+     * When true, the map picker is display-only: no tap-to-place, no
+     * draggable pin. Seeker location must come from GPS, or — if GPS
+     * is denied — from the manual place search rendered below the
+     * map. Used by matching/measuring configure dialogs.
+     */
+    lockToGps?: boolean;
 }) => {
     const $isLoading = useStore(isLoading);
 
@@ -405,7 +491,7 @@ export const LatitudeLongitude = ({
                     </div>
                 )}
                 {!inlineEdit && (
-                    <div className="mt-2">
+                    <div className="mt-2 space-y-2">
                         <Suspense
                             fallback={
                                 <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
@@ -419,8 +505,19 @@ export const LatitudeLongitude = ({
                                 onChange={(la, ln) => onChange(la, ln)}
                                 radiusMeters={radiusMeters}
                                 referencePoint={referencePoint}
+                                lockToGps={lockToGps}
                             />
                         </Suspense>
+                        {/* Manual entry path. In lock-to-GPS mode the map
+                            is display-only, so a place search is the
+                            only way to set a location when GPS is denied
+                            (or to override an inaccurate fix). */}
+                        {lockToGps && (
+                            <PlaceSearchInput
+                                onPick={(la, ln) => onChange(la, ln)}
+                                disabled={disabled}
+                            />
+                        )}
                     </div>
                 )}
 
