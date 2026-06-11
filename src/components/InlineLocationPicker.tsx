@@ -197,11 +197,15 @@ export function InlineLocationPicker({
         };
     }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
 
+    // In lock-to-GPS mode the map is fully interactive only when GPS
+    // hasn't (yet) succeeded — the user needs *some* way to set a
+    // location while the fix is being retried. The moment a GPS lock
+    // arrives, the picker snaps back to display-only and the pin is
+    // locked onto GPS coordinates.
+    const interactionsAllowed = !lockToGps || gpsState !== "granted";
+
     const handleClick = (e: MapLayerMouseEvent) => {
-        // In lock-to-GPS mode the map is display-only — taps must not
-        // move the pin, since the seeker's reported location has to come
-        // from GPS (or a manual place search owned by the caller).
-        if (lockToGps) return;
+        if (!interactionsAllowed) return;
         onChange(e.lngLat.lat, e.lngLat.lng);
     };
 
@@ -351,27 +355,27 @@ export function InlineLocationPicker({
                             />
                         </Source>
                     )}
-                    {/* Seeker pin. Draggable by default so the user
-                        can nudge it without re-tapping; in lock-to-GPS
-                        mode it becomes display-only and is suppressed
-                        entirely until real coords arrive (otherwise the
-                        play-area-centroid fallback would render a pin
-                        at the wrong place and read like a confirmed
-                        location). */}
+                    {/* Seeker pin. Hidden in lock-to-GPS mode until
+                        coords actually arrive — otherwise the
+                        play-area centroid fallback would render a
+                        phantom pin at the wrong place and read like a
+                        confirmed location. Draggable whenever
+                        interactions are allowed (free mode, or locked
+                        mode while GPS hasn't returned). */}
                     {(!lockToGps || coordsAreSet) && (
                         <Marker
                             longitude={safeLng}
                             latitude={safeLat}
                             anchor="bottom"
-                            draggable={!lockToGps}
+                            draggable={interactionsAllowed}
                             onDragEnd={
-                                lockToGps
-                                    ? undefined
-                                    : (e) =>
+                                interactionsAllowed
+                                    ? (e) =>
                                           onChange(
                                               e.lngLat.lat,
                                               e.lngLat.lng,
                                           )
+                                    : undefined
                             }
                         >
                             <div
@@ -379,7 +383,9 @@ export function InlineLocationPicker({
                                 style={{
                                     width: 28,
                                     height: 38,
-                                    cursor: lockToGps ? "default" : "grab",
+                                    cursor: interactionsAllowed
+                                        ? "grab"
+                                        : "default",
                                 }}
                                 dangerouslySetInnerHTML={{ __html: PIN_SVG }}
                             />
@@ -434,9 +440,9 @@ export function InlineLocationPicker({
                         <>
                             <LocateOff className="w-3.5 h-3.5 shrink-0" />
                             <span>
-                                {lockToGps
-                                    ? "GPS unavailable — search for a place below"
-                                    : "GPS unavailable — tap the map to set"}
+                                {coordsAreSet
+                                    ? "Drag the pin to adjust, or retry GPS"
+                                    : "GPS unavailable — tap the map to drop a pin"}
                             </span>
                         </>
                     ) : gpsState === "granted" ? (

@@ -52,7 +52,11 @@ import {
     roundFoundAt,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
-import { startNewGame, startNewRound } from "@/lib/roundActions";
+import {
+    endHidingPeriodEarly,
+    startNewGame,
+    startNewRound,
+} from "@/lib/roundActions";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
@@ -597,6 +601,19 @@ function HidingPhaseView({
                 radiusMeters={radiusMeters}
                 showStationSuggest
             />
+
+            {/* The hider — and only the hider — can short-circuit the
+                wait once they're settled into their zone. Snaps the
+                clock forward; broadcasts so the seeker's countdown
+                jumps in sync. */}
+            <Button
+                onClick={endHidingPeriodEarly}
+                variant="outline"
+                className="w-full mt-4 gap-1.5"
+            >
+                <Flag className="w-4 h-4" strokeWidth={2.5} />
+                End hiding period · Start seeking
+            </Button>
         </>
     );
 }

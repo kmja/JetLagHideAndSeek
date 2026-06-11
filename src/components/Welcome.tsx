@@ -17,6 +17,7 @@ import {
     displayName as displayNameAtom,
     multiplayerError,
     participants as participantsAtom,
+    pickRandomCastName,
     transportStatus,
 } from "@/lib/multiplayer/session";
 import {
@@ -61,6 +62,7 @@ export function Welcome() {
     );
     const [name, setName] = useState(displayNameAtom.get() || "");
     const [code, setCode] = useState("");
+    const [castPlaceholder] = useState(() => pickRandomCastName());
 
     const open = !$welcomeSeen;
 
@@ -216,7 +218,7 @@ export function Welcome() {
                                 <Input
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    placeholder="What others see (e.g. Kalle)"
+                                    placeholder={`What others see (e.g. ${castPlaceholder})`}
                                     maxLength={24}
                                     autoFocus
                                 />

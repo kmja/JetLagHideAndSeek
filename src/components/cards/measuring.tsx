@@ -398,7 +398,11 @@ function MeasuringLocation({
     dragLive?: boolean;
     onChange: (lat: number | null, lng: number | null) => void;
 }) {
-    const showRef = Boolean(forceExpanded && dragLive);
+    // Guard the lookup on real coords. 0,0 is the "not set yet"
+    // sentinel from runAddMeasuring; firing the Overpass call against
+    // null island would waste a request and confuse the UI.
+    const coordsSet = lat !== 0 || lng !== 0;
+    const showRef = Boolean(forceExpanded && dragLive && coordsSet);
     const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
 
     const referencePoint =

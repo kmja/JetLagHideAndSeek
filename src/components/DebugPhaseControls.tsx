@@ -24,6 +24,7 @@ import {
     stopDemoGame,
 } from "@/lib/multiplayer/demoBroker";
 import { demoMode } from "@/lib/multiplayer/session";
+import { endHidingPeriodEarly } from "@/lib/roundActions";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
@@ -561,6 +562,18 @@ export function DebugPhaseControls() {
                     <p className="text-[10px] text-muted-foreground italic px-1">
                         Bypasses the production role lock. Resets the
                         route to `/` or `/h` to match.
+                    </p>
+                </Section>
+
+                <Section title="Hiding period">
+                    <DebugButton onClick={endHidingPeriodEarly}>
+                        End hiding period now
+                    </DebugButton>
+                    <p className="text-[10px] text-muted-foreground italic px-1">
+                        Snaps the timer to zero so the seeking phase
+                        starts immediately. The live UI version of this
+                        only lives on the hider's home; the debug copy
+                        is for testing from the seeker view.
                     </p>
                 </Section>
 

@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Plus } from "lucide-react";
+import { useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import {
@@ -12,6 +13,7 @@ import {
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     autoSave,
     isLoading,
@@ -20,6 +22,7 @@ import {
     save,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import { currentGameCode } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
@@ -50,6 +53,16 @@ export const QuestionSidebar = () => {
     // Rulebook p13: one question at a time. Block the in-drawer NEW
     // QUESTION button as well while any draft (drag:true) is outstanding.
     const hasPendingAnswer = $questions.some((q) => q.data.drag === true);
+
+    // Also disable while the hider's hiding period is running —
+    // mirrors the bottom-nav New Question button so the sidebar can't
+    // be used as an end-run around the rule. 1 Hz ticker drives the
+    // flip the moment the timer hits zero (paused while tab hidden).
+    const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const [now, setNow] = useState(() => Date.now());
+    const hidingRunning =
+        $hidingEndsAt !== null && $hidingEndsAt > now;
+    useVisibleInterval(() => setNow(Date.now()), 1000, hidingRunning);
 
     const renderQuestion = (question: (typeof $questions)[number]) => {
         switch (question.id) {
@@ -135,12 +148,17 @@ export const QuestionSidebar = () => {
                                         // be able to add a question during
                                         // those — only the in-flight
                                         // answer rule (`hasPendingAnswer`)
-                                        // actually warrants blocking.
-                                        disabled={hasPendingAnswer}
+                                        // and the hiding-period gate
+                                        // actually warrant blocking.
+                                        disabled={
+                                            hidingRunning || hasPendingAnswer
+                                        }
                                         title={
-                                            hasPendingAnswer
-                                                ? "Waiting for the hider to answer your previous question"
-                                                : undefined
+                                            hidingRunning
+                                                ? "Hiding period — wait for the timer or end it manually to start asking"
+                                                : hasPendingAnswer
+                                                  ? "Waiting for the hider to answer your previous question"
+                                                  : undefined
                                         }
                                         className={cn(
                                             "w-full flex items-center justify-center gap-2",

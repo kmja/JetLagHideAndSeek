@@ -583,8 +583,12 @@ function MatchingMeasuringLocation({
 }) {
     // Always call the hook (no conditional hooks). When the type isn't
     // resolvable, useNearestReference returns { status: "none" } and we
-    // pass no referencePoint to the picker.
-    const showRef = Boolean(forceExpanded && dragLive);
+    // pass no referencePoint to the picker. Skip the lookup at the 0,0
+    // sentinel (runAddMatching's "not set yet" value) — firing on null
+    // island wastes a request and would surface a confusing "Your
+    // nearest reference" 10000 km away.
+    const coordsSet = lat !== 0 || lng !== 0;
+    const showRef = Boolean(forceExpanded && dragLive && coordsSet);
     const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
 
     const referencePoint =

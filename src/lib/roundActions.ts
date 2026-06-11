@@ -17,6 +17,7 @@ import {
     setupDialogOpen,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState, roundFoundAt } from "@/lib/hiderRole";
+import { hostPushSetup } from "@/lib/multiplayer/store";
 
 /**
  * Round / game lifecycle actions, shared by the seeker (BottomNav)
@@ -69,6 +70,26 @@ export function startNewRound() {
  * longer trust the previous game's adjacent picks for whatever
  * area the user is about to choose.
  */
+/**
+ * End the current hiding period right now. Snaps
+ * `hidingPeriodEndsAt` to `Date.now()` so the HiderTimer flips to
+ * elapsed mode immediately, and broadcasts to connected peers so the
+ * hider's clock matches (no-op offline). Guarded: if the timer has
+ * already lapsed, do nothing — preserving the elapsed anchor that
+ * scoring math reads.
+ *
+ * Per the rulebook + UX: only the hider should be able to trigger
+ * this from the live game (their HiderHome surface). The seeker's
+ * side keeps it in the debug panel for testing.
+ */
+export function endHidingPeriodEarly() {
+    const existing = hidingPeriodEndsAt.get();
+    if (existing === null) return;
+    if (existing <= Date.now()) return;
+    hidingPeriodEndsAt.set(Date.now());
+    hostPushSetup();
+}
+
 export function startNewGame() {
     questions.set([]);
     disabledStations.set([]);

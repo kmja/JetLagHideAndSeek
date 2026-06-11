@@ -55,8 +55,11 @@ const HIDER_ANSWER_DELAY_MS = 1500;
 const SEEKER_LOC_INTERVAL_MS = 10_000;
 const CURSE_INTERVAL_MS = 90_000;
 
-const BOT_HIDER_NAME = "Bot Hider";
-const BOT_SEEKER_NAMES = ["Bot Seeker 1", "Bot Seeker 2"];
+// Cast-themed bot names — friendlier than "Bot Seeker 1" and gives the
+// demo a Jet Lag flavor. Order is intentional so the trio reads like
+// the show's hosting rotation.
+const BOT_HIDER_NAME = "Sam";
+const BOT_SEEKER_NAMES = ["Ben", "Adam"];
 
 const SAMPLE_CURSES: CursePayload[] = [
     {
@@ -151,7 +154,11 @@ export function startDemoGame(opts: StartDemoOptions) {
         },
         {
             id: hiderId,
-            displayName: userRole === "hider" ? "Bot Seeker" : BOT_HIDER_NAME,
+            // When the human plays as hider, the slot is filled with a
+            // bot seeker — keep the cast-name vibe by reusing the
+            // primary bot seeker label.
+            displayName:
+                userRole === "hider" ? BOT_SEEKER_NAMES[0] : BOT_HIDER_NAME,
             role: botHiderRole,
             joinedAt: now + 1,
             online: true,

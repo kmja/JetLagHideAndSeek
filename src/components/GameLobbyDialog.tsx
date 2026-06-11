@@ -41,6 +41,7 @@ import { loadingProgress } from "@/lib/loadingProgress";
 import {
     currentGameCode,
     displayName as displayNameAtom,
+    pickRandomCastName,
     lobbyManualOpen,
     multiplayerEnabled,
     multiplayerError,
@@ -155,7 +156,10 @@ export function GameLobbyDialog() {
         // isn't stuck in a "waiting for players…" state with a dead
         // invite link. leaveGame() clears the stale code/session
         // first; createGame() then yields a working one.
-        const name = displayNameAtom.get()?.trim() || "Host";
+        // Default to a Jet Lag cast name instead of a generic "Host"
+        // — keeps the demo / quick-start flavor going when the user
+        // hasn't entered their own name yet.
+        const name = displayNameAtom.get()?.trim() || pickRandomCastName();
         setHostingState("creating");
         multiplayerError.set(null);
         if ($code && !$mp) {

@@ -67,6 +67,32 @@ export const displayName = persistentAtom<string>(
 );
 
 /**
+ * Pool of Jet Lag: The Game cast names, used as fun placeholders
+ * wherever a "your name" field is empty (and as bot names in the demo
+ * broker). Real names of the regular hosts and frequent guests, so a
+ * player who hasn't entered their own name still feels like they're
+ * about to join the show.
+ */
+export const JETLAG_CAST_NAMES = [
+    "Sam",
+    "Ben",
+    "Adam",
+    "Toby",
+    "Michael",
+    "Brian",
+    "Nikki",
+    "Tom",
+] as const;
+
+/** Pick a random cast name. Returns the same value within a single
+ *  render by virtue of being a pure function — callers cache it. */
+export function pickRandomCastName(): string {
+    return JETLAG_CAST_NAMES[
+        Math.floor(Math.random() * JETLAG_CAST_NAMES.length)
+    ];
+}
+
+/**
  * Master switch for the multiplayer feature. When false (default),
  * none of the bridge plumbing fires and the app runs in its old
  * local-only mode. When true, the bridge layer routes seeker /

@@ -84,12 +84,12 @@ function preloadSubtypeData(
 }
 
 /**
- * Whether the pending question is ready to be shared. For matching and
+ * Whether the pending question is ready to be sent. For matching and
  * measuring this means the seeker has either acquired a GPS fix or set
- * a location manually — both pathways write finite numbers into
- * `data.lat` / `data.lng`. Before that, the coords are NaN (per
- * `runAddMatching` / `runAddMeasuring`) and the Confirm button stays
- * disabled. All other question types are always ready.
+ * a location manually — both pathways write finite, non-zero numbers
+ * into `data.lat` / `data.lng`. Before that, the coords are the 0,0
+ * sentinel (per `runAddMatching` / `runAddMeasuring`) and the Send
+ * button stays disabled. All other question types are always ready.
  */
 function isPendingQuestionReady(
     q:
@@ -105,7 +105,8 @@ function isPendingQuestionReady(
             typeof lat === "number" &&
             Number.isFinite(lat) &&
             typeof lng === "number" &&
-            Number.isFinite(lng)
+            Number.isFinite(lng) &&
+            !(lat === 0 && lng === 0)
         );
     }
     return true;
@@ -437,23 +438,23 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMatching = (subtype?: string) => {
-        // Matching/measuring start with NO location — never the map center.
-        // The picker inside the configure dialog requests GPS and
-        // requires either a GPS lock or a manual place pick before the
-        // question can be confirmed (NaN coords disable the Confirm
-        // button). Map-center fallback would silently send the
-        // wrong-location question, so it's gone on purpose.
+        // Matching/measuring start with sentinel 0,0 coords — never the
+        // map center. The picker inside the configure dialog requests
+        // GPS and requires either a GPS lock or a manual location pick
+        // before the question can be sent (the Confirm button stays
+        // disabled while coords are 0,0). 0,0 is used over NaN because
+        // the question's Zod schema rejects NaN at parse time.
         addQuestion({
             id: "matching",
             data: defaultCustomQuestions.get()
                 ? ({
-                      lat: NaN,
-                      lng: NaN,
+                      lat: 0,
+                      lng: 0,
                       type: subtype ?? "custom-points",
                   } as never)
                 : ({
-                      lat: NaN,
-                      lng: NaN,
+                      lat: 0,
+                      lng: 0,
                       ...(subtype ? { type: subtype } : {}),
                   } as never),
         });
@@ -462,18 +463,18 @@ export const AddQuestionDialog = ({
 
     const runAddMeasuring = (subtype?: string) => {
         // See runAddMatching — same rule: GPS or manual entry only,
-        // no map-center fallback.
+        // no map-center fallback. 0,0 is the "not set yet" sentinel.
         addQuestion({
             id: "measuring",
             data: defaultCustomQuestions.get()
                 ? ({
-                      lat: NaN,
-                      lng: NaN,
+                      lat: 0,
+                      lng: 0,
                       type: subtype ?? "custom-measure",
                   } as never)
                 : ({
-                      lat: NaN,
-                      lng: NaN,
+                      lat: 0,
+                      lng: 0,
                       ...(subtype ? { type: subtype } : {}),
                   } as never),
         });
@@ -856,7 +857,7 @@ export const AddQuestionDialog = ({
                             onClick={handleConfirm}
                             disabled={!isPendingQuestionReady(pendingQuestion)}
                         >
-                            Confirm &amp; share
+                            Send question
                         </Button>
                     </DialogFooter>
                 </DialogContent>

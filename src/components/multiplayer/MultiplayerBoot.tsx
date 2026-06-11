@@ -5,6 +5,7 @@ import {
     currentGameCode,
     displayName as displayNameAtom,
     multiplayerEnabled,
+    pickRandomCastName,
 } from "@/lib/multiplayer/session";
 import {
     installMultiplayerBridge,
@@ -56,7 +57,8 @@ function maybeAutoJoinFromUrl() {
         return;
     }
 
-    const name = (displayNameAtom.get() || "").trim() || "Player";
+    const name =
+        (displayNameAtom.get() || "").trim() || pickRandomCastName();
     joinAsGuest(trimmed, name);
     toast.info(`Joining game ${trimmed}…`, { autoClose: 2500 });
 

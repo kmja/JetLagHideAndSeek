@@ -58,6 +58,7 @@ import {
     currentGameCode,
     displayName as displayNameAtom,
     multiplayerEnabled,
+    pickRandomCastName,
 } from "@/lib/multiplayer/session";
 import { hostPushSetup } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
@@ -269,6 +270,9 @@ export function GameSetupDialog() {
     const [draftDisplayName, setDraftDisplayName] = useState(
         displayNameAtom.get() || "",
     );
+    // Resolved once per mount so the cast-name hint stays stable while
+    // the user is mid-edit.
+    const [castPlaceholder] = useState(() => pickRandomCastName());
 
     // Whenever the selected play area changes (and the user hasn't yet
     // picked a size by hand), infer the recommended game size from the
@@ -487,7 +491,7 @@ export function GameSetupDialog() {
         // dialog says 4YSUQK" symptom. Drop the wizard's autohost
         // entirely; the lobby is the single source of truth for
         // creating a room.
-        const trimmedName = draftDisplayName.trim() || "Host";
+        const trimmedName = draftDisplayName.trim() || pickRandomCastName();
         displayNameAtom.set(trimmedName);
 
         const alreadyOnline =
@@ -648,7 +652,7 @@ export function GameSetupDialog() {
                                                     e.target.value,
                                                 )
                                             }
-                                            placeholder="What others see (e.g. Kalle)"
+                                            placeholder={`What others see (e.g. ${castPlaceholder})`}
                                             maxLength={24}
                                         />
                                         <p className="text-[10px] text-muted-foreground leading-snug">

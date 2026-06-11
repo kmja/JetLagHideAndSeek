@@ -78,7 +78,6 @@ import {
     seekerLocationSharing,
 } from "@/lib/multiplayer/session";
 import {
-    hostPushSetup,
     leaveGame,
     seekerMarkFound,
     seekerRotateHider,
@@ -381,40 +380,11 @@ export const BottomNav = () => {
                                                 )}
                                             </div>
                                         </div>
-                                        <Button
-                                            onClick={() => {
-                                                // Snap the countdown to now
-                                                // (instead of clearing) so
-                                                // HiderTimer flips into the
-                                                // "Hidden for" elapsed mode
-                                                // immediately. Guarded: if
-                                                // somehow this fires when
-                                                // we're already past the
-                                                // hiding period, do nothing
-                                                // (preserves the existing
-                                                // elapsed anchor instead of
-                                                // resetting it to zero).
-                                                const existing =
-                                                    hidingPeriodEndsAt.get();
-                                                if (
-                                                    existing !== null &&
-                                                    existing <= Date.now()
-                                                ) {
-                                                    setGameSheetOpen(false);
-                                                    return;
-                                                }
-                                                hidingPeriodEndsAt.set(
-                                                    Date.now(),
-                                                );
-                                                // Broadcast so the
-                                                // hider's clock syncs.
-                                                hostPushSetup();
-                                                setGameSheetOpen(false);
-                                            }}
-                                            className="w-full mt-3"
-                                        >
-                                            End hiding period · Start seeking
-                                        </Button>
+                                        {/* No "End hiding period" button here:
+                                            only the hider can end the hiding
+                                            phase early (from their HiderHome).
+                                            The debug panel keeps a copy for
+                                            testing. */}
                                         {/* Game settings remain editable
                                             during the hiding period — the
                                             host can still tweak transit /

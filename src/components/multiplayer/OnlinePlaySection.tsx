@@ -11,6 +11,7 @@ import {
     demoMode,
     displayName as displayNameAtom,
     multiplayerError,
+    pickRandomCastName,
     transportStatus,
 } from "@/lib/multiplayer/session";
 import { startDemoGame } from "@/lib/multiplayer/demoBroker";
@@ -48,6 +49,10 @@ export function OnlinePlaySection() {
     const [code, setCode] = useState("");
     const [busyHost, setBusyHost] = useState(false);
     const [acted, setActed] = useState(false);
+
+    // Fun rotating placeholder pulled from the Jet Lag cast. Resolved
+    // once per mount so the hint doesn't churn on every keystroke.
+    const [castPlaceholder] = useState(() => pickRandomCastName());
 
     // Persist display-name edits so the user only types it once.
     useEffect(() => {
@@ -167,7 +172,7 @@ export function OnlinePlaySection() {
                 <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="What others see (e.g. Kalle)"
+                    placeholder={`What others see (e.g. ${castPlaceholder})`}
                     maxLength={24}
                 />
             </div>
