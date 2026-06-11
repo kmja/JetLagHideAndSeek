@@ -321,11 +321,22 @@ export function Map({ className }: MapProps) {
     //     was originally written against Leaflet's Map API and
     //     calls map.getCenter() / fitBounds() / flyTo(). See
     //     lib/mapShim.ts for the translation layer.
+    // Track when MapLibre's style + sources are actually ready.
+    // The elimination-mask effect waits for this flip — on PWA cold-
+    // start the play-area polygon hydrates from cache and the mask is
+    // computed before MapLibre has finished initialising; setting a
+    // Source's `data` prop while the style is still loading is
+    // silently dropped by maplibre-gl, leaving the mask invisible
+    // until the user backgrounds + foregrounds the tab. Tying the
+    // effect to `mapLoaded` makes it re-run after onLoad, at which
+    // point the data lands correctly.
+    const [mapLoaded, setMapLoaded] = useState(false);
     const handleLoad = () => {
         if (!mapRef.current) return;
         mapLibreContext.set(mapRef.current);
         const inner = mapRef.current.getMap();
         if (inner) mapContext.set(createMapShim(inner));
+        setMapLoaded(true);
     };
     useEffect(() => {
         return () => {
@@ -626,7 +637,11 @@ export function Map({ className }: MapProps) {
             questionFinishedMapData.set(working);
             setEliminationResult({ mask, pendingByCategory });
         })();
-    }, [$mapGeoJSON, $polyGeoJSON, $questions]);
+        // `mapLoaded` is a dep so the mask re-applies the moment
+        // MapLibre's style is ready — needed because a cold PWA
+        // start hydrates polyGeoJSON before maplibre-gl is, and any
+        // source data set during init is silently dropped.
+    }, [$mapGeoJSON, $polyGeoJSON, $questions, mapLoaded]);
 
     // Transit-route overlays per mode. Each toggle (subway /
     // bus / ferry) gates an Overpass fetch via
