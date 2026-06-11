@@ -6,6 +6,8 @@ import {
     gameStartPosition,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
+import { preloadCommonQuestionData } from "@/lib/preload";
+import { playerRole } from "@/lib/hiderRole";
 
 /**
  * Mount-only watcher. Opens the GoGoGoOverlay celebration the
@@ -59,6 +61,15 @@ export function GameStartWatcher() {
                 },
                 { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
             );
+        }
+        // Hiding period just started — seekers can't ask questions
+        // yet, so this is the ideal window to warm the Overpass cache
+        // for every matching/measuring query they're likely to ask.
+        // Skip on the hider's device: they don't ask questions, and
+        // running the same fetches on every device just multiplies
+        // load on the mirrors for no gain.
+        if (playerRole.get() !== "hider") {
+            preloadCommonQuestionData();
         }
     }, [$endsAt]);
 

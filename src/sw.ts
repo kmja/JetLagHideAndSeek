@@ -124,47 +124,40 @@ registerRoute(
 
 /* ────────────────── Catch handler ────────────────── */
 
-// 1x1 transparent PNG, used as the fallback body for failed image
-// (map tile) requests.
-const TRANSPARENT_PNG = Uint8Array.from(
-    atob(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-    ),
-    (c) => c.charCodeAt(0),
-);
-
 /**
  * When a registered route's strategy throws — CacheFirst gets a cache
- * miss AND the network fetch fails (most often MapLibre cancelling a
- * tile XHR when the map unmounts on game-leave / route change, also
- * true offline) — Workbox lets the rejection reach `respondWith()`.
+ * miss AND the network fetch fails — Workbox lets the rejection reach
+ * `respondWith()`.
  *
- * v140 returned `Response.error()` here, but Firefox flags THAT as
- * "ServiceWorker sent an Error Response to respondWith() … invalid
- * fetch() call" and still logs the CORS/TypeError trio. The fix is to
- * resolve with a real, SW-synthesized Response (which bypasses the CORS
- * read check entirely, since it didn't come from the network):
+ * History:
+ *   - v140 returned `Response.error()` → Firefox flagged it as "SW sent
+ *     an Error Response, invalid fetch() call".
+ *   - v142 returned a 200 transparent PNG for image requests → fixed
+ *     Firefox but caused two new problems: (1) MapLibre crashes with
+ *     "DOMException: object is no longer usable" when a cancelled tile
+ *     fetch races against the synthesized response, and (2) a
+ *     legitimately-failed tile gets cached as transparent forever
+ *     (CacheableResponsePlugin's `statuses: [0,200]` includes our 200)
+ *     — making the picker map look dark and empty on subsequent loads.
  *
- *   - Image/tile requests → a 1x1 transparent PNG (200). MapLibre
- *     treats it as an empty tile and moves on — zero console noise.
- *   - Everything else → an empty 504. The caller's own fallback (the
- *     Overpass mirror race, the geocode retry) handles it.
+ * The right answer is to return an opaque non-cacheable error response:
+ *   - Body `null` so there's no stream that can be consumed.
+ *   - Status `503` is filtered out by CacheableResponsePlugin's default
+ *     statuses, so the failure isn't poisoned into the cache.
+ *   - It's a real Response (not Response.error()), so Firefox doesn't
+ *     complain about the SW returning an invalid value, and there's no
+ *     stream to race against MapLibre's cancellation.
+ *
+ * MapLibre treats a 5xx the same way it treated v140's Response.error()
+ * (a single quiet network-error log line, no CORS trio), but without
+ * the DOMException trace.
  */
-setCatchHandler(async ({ request }: { request: Request }) => {
-    if (
-        request.destination === "image" ||
-        /\.png(\?|$)/i.test(request.url)
-    ) {
-        return new Response(TRANSPARENT_PNG, {
-            status: 200,
-            headers: { "Content-Type": "image/png" },
-        });
-    }
-    return new Response(null, {
-        status: 504,
-        statusText: "Gateway Timeout",
-    });
-});
+setCatchHandler(async () =>
+    new Response(null, {
+        status: 503,
+        statusText: "Service Worker offline-fallback",
+    }),
+);
 
 /* ────────────────── Push notifications ────────────────── */
 
