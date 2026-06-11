@@ -1,17 +1,24 @@
 /**
  * Curated list of major cities to pre-warm into the R2 cache.
  *
- * The weekly cron iterates this list in random order, processing
- * `PREWARM_BATCH_SIZE` entries per run and skipping anything that's
- * already fresh (< CACHE_TTL_DAYS old). Over the course of a few
- * weeks the whole list cycles through, so a real user picking any
- * of these as a play area hits a warm cache on first load.
+ * Two sources merge into `POPULAR_CITIES`:
+ *
+ *   1. The hand-curated list below in this file — small, reviewed.
+ *      Edit here for cities you specifically want warmed.
+ *   2. `bulk-cities.json` at the worker package root. This is the
+ *      auto-discovered list (~170+ entries today) from the local
+ *      discovery script. Edits there flow into the cron without
+ *      any code change.
+ *
+ * Cron processes the merged list in random order, `PREWARM_BATCH_SIZE`
+ * at a time, skipping anything that's still fresh (< CACHE_TTL_DAYS
+ * old in R2). So adding a city is a one-line edit to either source.
  *
  * Entries are OSM relation IDs because that's the only thing the
  * seeker app actually fetches (no nodes, no ways — admin
- * boundaries are always relations). To add a city: look it up on
- * openstreetmap.org, copy the relation id from the URL (e.g.
- * `https://www.openstreetmap.org/relation/398021` -> 398021),
+ * boundaries are always relations). To add a city to the hand-list:
+ * look it up on openstreetmap.org, copy the relation id from the URL
+ * (e.g. `https://www.openstreetmap.org/relation/398021` -> 398021),
  * and add it here.
  *
  * Entries are best-effort — if any of these IDs are stale or
@@ -19,13 +26,18 @@
  * the rest of the cache pipeline is unaffected.
  */
 
+// Wrangler/esbuild bundles JSON imports as compiled-in modules
+// automatically (no runtime fetch). Lives at the worker package root
+// so it can be edited without touching code.
+import BULK_CITIES from "../bulk-cities.json";
+
 export interface CityEntry {
     name: string;
     /** OSM relation id (numeric, no prefix). */
     relationId: number;
 }
 
-export const POPULAR_CITIES: CityEntry[] = [
+const HAND_CURATED: CityEntry[] = [
     // North America
     { name: "New York City", relationId: 175905 },
     { name: "Los Angeles", relationId: 207359 },
@@ -96,3 +108,28 @@ export const POPULAR_CITIES: CityEntry[] = [
     { name: "Buenos Aires", relationId: 1224652 },
     { name: "Santiago", relationId: 3287969 },
 ];
+
+/**
+ * Dedupe + merge. Hand-curated entries take precedence (their `name`
+ * is what we report in logs / R2 metadata), bulk entries fill in the
+ * rest. Bulk file has the shape `{ name, relationId }` already, so no
+ * shape conversion is needed.
+ */
+function mergeUnique(...lists: CityEntry[][]): CityEntry[] {
+    const seen = new Set<number>();
+    const out: CityEntry[] = [];
+    for (const list of lists) {
+        for (const entry of list) {
+            if (!entry || typeof entry.relationId !== "number") continue;
+            if (seen.has(entry.relationId)) continue;
+            seen.add(entry.relationId);
+            out.push(entry);
+        }
+    }
+    return out;
+}
+
+export const POPULAR_CITIES: CityEntry[] = mergeUnique(
+    HAND_CURATED,
+    BULK_CITIES as CityEntry[],
+);

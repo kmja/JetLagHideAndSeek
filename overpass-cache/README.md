@@ -34,9 +34,33 @@ master, same pattern as the multiplayer worker.
 | Path | Auth | Purpose |
 |---|---|---|
 | `GET /api/interpreter?data=…` | none | Cached Overpass query. Used by the seeker app. |
-| `POST /admin/prewarm` | Bearer | Bulk-fetch by relation id. Used by the bulk script. |
+| `POST /admin/prewarm` | Bearer | Bulk-fetch by explicit relation id list (caller supplies the ids). |
+| `POST /admin/trigger-prewarm` | Bearer | Manually run the cron's next batch right now (picks from `POPULAR_CITIES`). Optional body `{ "batch": 20, "delayBetweenMs": 1000 }`. |
 | `GET /admin/status` | Bearer | Cache size + count. |
 | `GET /health` | none | Liveness probe. |
+
+### Fast-fill without your laptop
+
+```bash
+# One batch (default 20 cities, ~25 s).
+curl -X POST \
+    -H "Authorization: Bearer $ADMIN_SECRET" \
+    -H "Content-Type: application/json" \
+    -d '{}' \
+    https://jlhs-overpass-cache.<sub>.workers.dev/admin/trigger-prewarm
+
+# Bigger batch (caps at 100 per call to stay under the worker time
+# budget).
+curl -X POST \
+    -H "Authorization: Bearer $ADMIN_SECRET" \
+    -d '{"batch": 50}' \
+    https://jlhs-overpass-cache.<sub>.workers.dev/admin/trigger-prewarm
+```
+
+Fire it from anywhere that can POST — Cloudflare dashboard's
+"Quick edit" → "Test", Postman, the browser DevTools fetch console,
+etc. Each call returns the per-city result list so you can pipe it
+to a log.
 
 `X-Cache` response header reports `EDGE_HIT` / `R2_HIT` /
 `MISS` / `MISS_REFRESH` / `R2_STALE_FALLBACK` so you can see

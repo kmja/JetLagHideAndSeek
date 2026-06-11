@@ -91,7 +91,7 @@ export default {
         env: Env,
         ctx: ExecutionContext,
     ): Promise<void> {
-        const batch = parseInt(env.PREWARM_BATCH_SIZE, 10) || 5;
+        const batch = parseInt(env.PREWARM_BATCH_SIZE, 10) || 20;
         const ttlMs =
             (parseInt(env.CACHE_TTL_DAYS, 10) || 30) *
             24 *
@@ -149,6 +149,9 @@ async function handleRequest(
 
         if (url.pathname === "/admin/prewarm") {
             return handleAdminPrewarm(request, env, ctx, cors);
+        }
+        if (url.pathname === "/admin/trigger-prewarm") {
+            return handleAdminTriggerPrewarm(request, env, ctx, cors);
         }
         if (url.pathname === "/admin/status") {
             return handleAdminStatus(request, env, cors);
@@ -528,6 +531,123 @@ async function handleAdminPrewarm(
         status: 200,
         headers: { ...cors, "Content-Type": "application/json" },
     });
+}
+
+/**
+ * Manual "run the cron right now" trigger. Picks the same kind of
+ * random batch from POPULAR_CITIES that scheduled() would, but on
+ * demand — kicked off from curl, the browser console, Postman, or the
+ * Cloudflare dashboard tester. Useful when you want to fast-fill the
+ * cache without waiting for tomorrow's cron, or when the cron is
+ * disabled in a preview environment.
+ *
+ * Body (all optional):
+ *   { "batch": 20, "delayBetweenMs": 1000 }
+ *
+ * Returns the same { results: [...] } shape the bulk endpoint does, so
+ * callers can pipe the response straight into a log.
+ */
+async function handleAdminTriggerPrewarm(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: { batch?: number; delayBetweenMs?: number } = {};
+    try {
+        const text = await request.text();
+        if (text.trim()) payload = JSON.parse(text);
+    } catch {
+        return new Response("Invalid JSON body", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    const batch =
+        typeof payload.batch === "number" && payload.batch > 0
+            ? Math.min(Math.floor(payload.batch), 100)
+            : parseInt(env.PREWARM_BATCH_SIZE, 10) || 20;
+    const delay =
+        typeof payload.delayBetweenMs === "number" &&
+        payload.delayBetweenMs >= 0
+            ? Math.min(payload.delayBetweenMs, 10_000)
+            : 1000;
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) *
+        24 *
+        60 *
+        60 *
+        1000;
+    const shuffled = [...POPULAR_CITIES].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, batch);
+    const results: Array<{
+        relationId: number;
+        name?: string;
+        status: string;
+        sizeBytes?: number;
+        ageMs?: number;
+        durationMs: number;
+    }> = [];
+    for (let i = 0; i < picked.length; i++) {
+        const city = picked[i];
+        const t0 = Date.now();
+        try {
+            const r = await prewarmRelation(
+                env,
+                ctx,
+                city.relationId,
+                ttlMs,
+                city.name,
+            );
+            results.push({
+                relationId: city.relationId,
+                name: city.name,
+                status: r.status,
+                sizeBytes:
+                    "sizeBytes" in r ? r.sizeBytes : undefined,
+                ageMs: "ageMs" in r ? r.ageMs : undefined,
+                durationMs: Date.now() - t0,
+            });
+        } catch (e) {
+            results.push({
+                relationId: city.relationId,
+                name: city.name,
+                status: "error",
+                durationMs: Date.now() - t0,
+            });
+            console.warn(
+                `Trigger-prewarm error for ${city.name} (${city.relationId}):`,
+                e,
+            );
+        }
+        if (i < picked.length - 1 && delay > 0) {
+            await new Promise((r) => setTimeout(r, delay));
+        }
+    }
+    return new Response(
+        JSON.stringify(
+            {
+                picked: picked.length,
+                totalCandidates: POPULAR_CITIES.length,
+                results,
+            },
+            null,
+            2,
+        ),
+        {
+            status: 200,
+            headers: { ...cors, "Content-Type": "application/json" },
+        },
+    );
 }
 
 async function handleAdminStatus(

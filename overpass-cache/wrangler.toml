@@ -64,10 +64,13 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CACHE"
 bucket_name = "jlhs-overpass-cache"
 
-# Weekly pre-warm. Mondays 04:00 UTC — off-peak in most regions
-# and well away from the multiplayer worker's eviction sweeps.
+# Daily pre-warm at 04:00 UTC — off-peak in most regions and well
+# away from the multiplayer worker's eviction sweeps. With the
+# merged HAND_CURATED + bulk-cities.json source (~200 entries) and
+# the batch size below, the full list is warmed in ~8-10 days,
+# after which the cron settles into "refresh anything > TTL" mode.
 [triggers]
-crons = ["0 4 * * 1"]
+crons = ["0 4 * * *"]
 
 # CORS allowlist for browser requests. The frontend worker's
 # workers.dev URL is included by default; add a custom domain to
@@ -79,4 +82,8 @@ ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https
 CACHE_TTL_DAYS = "30"
 # How many cities the weekly cron pre-warms per run. Keep small
 # so we don't blast the upstream mirrors with our own cron.
-PREWARM_BATCH_SIZE = "5"
+# Number of relations the daily cron fetches per run. 20 leaves
+# plenty of headroom under the Workers Free per-invocation 30 s
+# wall-clock (each fetch averages ~1 s via polygons.osm.fr fast
+# path) and warms the whole ~200-entry list in roughly 10 days.
+PREWARM_BATCH_SIZE = "20"
