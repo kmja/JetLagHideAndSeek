@@ -55,7 +55,77 @@ export default {
         ctx: ExecutionContext,
     ): Promise<Response> {
         const cors = corsHeaders(request, env);
+        // Top-level guard: NOTHING below may produce a response without
+        // CORS headers. A bare throw here would otherwise surface in the
+        // browser as "CORS Missing Allow Origin" with whatever status
+        // Cloudflare slaps on (often a 404/500 from the default error
+        // page), masking the real failure and blocking the client from
+        // even reading the error body. Catch everything and re-emit with
+        // CORS so the frontend can fail over cleanly to a public mirror.
+        try {
+            return await handleRequest(request, env, ctx, cors);
+        } catch (e) {
+            console.error("[overpass-cache] unhandled error:", e);
+            return new Response(
+                JSON.stringify({
+                    error: "Cache worker error",
+                    detail: e instanceof Error ? e.message : String(e),
+                }),
+                {
+                    status: 500,
+                    headers: { ...cors, "Content-Type": "application/json" },
+                },
+            );
+        }
+    },
 
+    /**
+     * Weekly cron — pre-warm the curated cities list. Cycles
+     * through `POPULAR_CITIES` PREWARM_BATCH_SIZE at a time so
+     * each city gets refreshed roughly once every
+     * `cities.length / batch` weeks. Random shuffle each run so
+     * no city is permanently last in line.
+     */
+    async scheduled(
+        _event: ScheduledEvent,
+        env: Env,
+        ctx: ExecutionContext,
+    ): Promise<void> {
+        const batch = parseInt(env.PREWARM_BATCH_SIZE, 10) || 5;
+        const ttlMs =
+            (parseInt(env.CACHE_TTL_DAYS, 10) || 30) *
+            24 *
+            60 *
+            60 *
+            1000;
+        const shuffled = [...POPULAR_CITIES].sort(() => Math.random() - 0.5);
+        const picked = shuffled.slice(0, batch);
+        for (const city of picked) {
+            try {
+                await prewarmCity(env, ctx, city, ttlMs);
+            } catch (e) {
+                console.warn(
+                    `Prewarm failed for ${city.name} (${city.relationId}):`,
+                    e,
+                );
+            }
+        }
+    },
+};
+
+/**
+ * Core request handler. Extracted from the `fetch` export so the
+ * thin wrapper above can guarantee CORS headers on every response —
+ * including on an unexpected throw, which would otherwise reach the
+ * browser as a CORS-less 4xx/5xx and read as "CORS Missing Allow
+ * Origin".
+ */
+async function handleRequest(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+): Promise<Response> {
         if (request.method === "OPTIONS") {
             return new Response(null, { status: 204, headers: cors });
         }
@@ -215,41 +285,7 @@ export default {
             ),
         );
         return buildJSONResponse(upstreamBody, cors, "MISS");
-    },
-
-    /**
-     * Weekly cron — pre-warm the curated cities list. Cycles
-     * through `POPULAR_CITIES` PREWARM_BATCH_SIZE at a time so
-     * each city gets refreshed roughly once every
-     * `cities.length / batch` weeks. Random shuffle each run so
-     * no city is permanently last in line.
-     */
-    async scheduled(
-        _event: ScheduledEvent,
-        env: Env,
-        ctx: ExecutionContext,
-    ): Promise<void> {
-        const batch = parseInt(env.PREWARM_BATCH_SIZE, 10) || 5;
-        const ttlMs =
-            (parseInt(env.CACHE_TTL_DAYS, 10) || 30) *
-            24 *
-            60 *
-            60 *
-            1000;
-        const shuffled = [...POPULAR_CITIES].sort(() => Math.random() - 0.5);
-        const picked = shuffled.slice(0, batch);
-        for (const city of picked) {
-            try {
-                await prewarmCity(env, ctx, city, ttlMs);
-            } catch (e) {
-                console.warn(
-                    `Prewarm failed for ${city.name} (${city.relationId}):`,
-                    e,
-                );
-            }
-        }
-    },
-};
+}
 
 /* ─────────────────────── Fetch helpers ─────────────────────── */
 
