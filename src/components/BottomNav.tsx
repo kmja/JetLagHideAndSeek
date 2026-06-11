@@ -514,10 +514,20 @@ export const BottomNav = () => {
                                     primary action sets `roundFoundAt` and
                                     offers a share-link the seeker hands the
                                     hider so both sides agree the round is
-                                    over and the final score is frozen. */}
+                                    over and the final score is frozen.
+                                    Gated on `endgameStartedAt` so the
+                                    Mark-found CTA doesn't show before the
+                                    seeker has triggered the endgame —
+                                    that's the rulebook order (endgame first
+                                    so the hider locks down, THEN the
+                                    physical find), and rendering both at
+                                    once just clutters the sheet. The
+                                    Trigger endgame button above takes over
+                                    until endgame is armed. */}
                                 {!hiding &&
                                     $setupCompleted &&
-                                    $hidingEndsAt !== null && (
+                                    $hidingEndsAt !== null &&
+                                    ($foundAt || $endgameStartedAt) && (
                                         <div className="mt-4">
                                             {$foundAt ? (
                                                 <FoundSummary
