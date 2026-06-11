@@ -17,7 +17,11 @@ import {
     createHandlerBoundToURL,
     precacheAndRoute,
 } from "workbox-precaching";
-import { NavigationRoute, registerRoute } from "workbox-routing";
+import {
+    NavigationRoute,
+    registerRoute,
+    setCatchHandler,
+} from "workbox-routing";
 import { CacheFirst, StaleWhileRevalidate } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 import { CacheableResponsePlugin } from "workbox-cacheable-response";
@@ -117,6 +121,26 @@ registerRoute(
         ],
     }),
 );
+
+/* ────────────────── Catch handler ────────────────── */
+
+/**
+ * When a registered route's strategy throws — e.g. CacheFirst gets a
+ * cache miss AND the network fetch fails (cancelled when MapLibre
+ * unmounts during a route change, true offline, CORS preflight blip)
+ * — Workbox lets the rejection propagate to `respondWith()`. The
+ * browser then logs three errors per cancelled request: "SW promise
+ * rejected with no-response", "CORS blocked" (because there's no
+ * response to read CORS headers from), and a generic TypeError.
+ *
+ * Returning `Response.error()` here makes `respondWith()` resolve with
+ * a network-error response instead, so the browser treats it like a
+ * normal failed fetch — one log line, no SW noise. Visually
+ * indistinguishable from "no SW intercept at all" for failed requests,
+ * which is the correct UX: successful tiles still come from cache,
+ * failures just look like ordinary network failures.
+ */
+setCatchHandler(async () => Response.error());
 
 /* ────────────────── Push notifications ────────────────── */
 
