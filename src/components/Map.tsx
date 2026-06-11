@@ -58,7 +58,9 @@ import {
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
+import { clipPolygonToLand } from "@/lib/landClip";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
+import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { clearCache, determineMapBoundaries } from "@/maps/api";
@@ -182,19 +184,29 @@ function buildStyle(
     withSatellite: boolean,
     withRail: boolean,
     thunderforestKey: string,
+    resolvedThemeMode: "light" | "dark" = "dark",
 ): maplibregl.StyleSpecification {
+    // "auto" follows the UI theme — light_all when the user's in light
+    // mode, dark_all when dark. Resolve before the rest of the switch
+    // so the downstream lookup is a normal RASTER_SOURCES read.
+    const effectiveKey =
+        baseKey === "auto"
+            ? resolvedThemeMode === "dark"
+                ? "dark"
+                : "light"
+            : baseKey;
     // Resolve the base layer. Thunderforest needs an API key
     // — fall back to dark if the user hasn't entered one yet
     // (matches the Leaflet branch's behaviour).
     let base: { tiles: string[]; attribution: string };
-    if (baseKey === "transport" || baseKey === "neighbourhood") {
+    if (effectiveKey === "transport" || effectiveKey === "neighbourhood") {
         if (thunderforestKey) {
-            base = thunderforestSource(baseKey, thunderforestKey);
+            base = thunderforestSource(effectiveKey, thunderforestKey);
         } else {
             base = RASTER_SOURCES.dark;
         }
     } else {
-        base = RASTER_SOURCES[baseKey] ?? RASTER_SOURCES.dark;
+        base = RASTER_SOURCES[effectiveKey] ?? RASTER_SOURCES.dark;
     }
 
     const sources: maplibregl.StyleSpecification["sources"] = {
@@ -270,9 +282,10 @@ export function Map({ className }: MapProps) {
 
     const mapRef = useRef<MapRef | null>(null);
 
+    const $theme = useStore(resolvedTheme);
     const style = useMemo(
-        () => buildStyle($tileKey, $satellite, $rail, $tfKey ?? ""),
-        [$tileKey, $satellite, $rail, $tfKey],
+        () => buildStyle($tileKey, $satellite, $rail, $tfKey ?? "", $theme),
+        [$tileKey, $satellite, $rail, $tfKey, $theme],
     );
 
     // Initial view priority: persisted viewport > OSM extent of
@@ -465,11 +478,39 @@ export function Map({ className }: MapProps) {
                 const boundary = await determineMapBoundaries();
                 if (cancelled) return;
                 if (boundary) {
-                    mapGeoJSON.set(boundary);
+                    // Trim the legal-boundary polygon to actual land
+                    // before we publish it. OSM admin boundaries
+                    // include coastal waters (Nagasaki Prefecture
+                    // sweeps ~50 km out to sea), which made ~half the
+                    // visible play area look playable when it's
+                    // open ocean. Best-effort: if the clip fails for
+                    // any reason we publish the original polygon so a
+                    // bad clip can never break the game.
+                    const f =
+                        (boundary.features?.[0] as any) ?? null;
+                    let clipped = boundary;
+                    if (f && f.geometry) {
+                        try {
+                            const c = await clipPolygonToLand(f);
+                            if (c) {
+                                clipped = {
+                                    type: "FeatureCollection",
+                                    features: [c],
+                                } as any;
+                            }
+                        } catch (e) {
+                            console.warn(
+                                "clipPolygonToLand failed; using raw boundary",
+                                e,
+                            );
+                        }
+                    }
+                    if (cancelled) return;
+                    mapGeoJSON.set(clipped);
                     // Mirror to polyGeoJSON so the persistent-
                     // cache layer in context.ts picks up the
                     // value and stashes it for next session.
-                    polyGeoJSON.set(boundary);
+                    polyGeoJSON.set(clipped);
                 }
             } catch (e) {
                 console.warn("determineMapBoundaries failed:", e);

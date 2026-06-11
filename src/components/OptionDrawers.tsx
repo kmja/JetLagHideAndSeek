@@ -477,6 +477,7 @@ export const OptionDrawers = ({
                             <Select
                                 trigger="Base map style"
                                 options={{
+                                    auto: "Follow theme (auto)",
                                     voyager: "CARTO Voyager",
                                     light: "CARTO Light",
                                     dark: "CARTO Dark",
