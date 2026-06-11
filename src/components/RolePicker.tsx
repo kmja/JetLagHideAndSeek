@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Eye, MapPin, UserRound,Users } from "lucide-react";
+import { Footprints, UserRound, Users, VenetianMask } from "lucide-react";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -136,20 +136,28 @@ export function RolePicker() {
                 </div>
 
                 <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Icon + tone choices mirror the lobby roster
+                        cards: Footprints for seekers (tracking
+                        the hider — the older magnifying-glass icon
+                        read as a generic "search field"),
+                        VenetianMask for hiders, muted instead of
+                        brand-coloured so the role identity doesn't
+                        fight the question-category palette
+                        downstream. */}
                     <button
                         type="button"
                         onClick={pickSeeker}
                         className={cn(
                             "flex flex-col items-start text-left gap-2 p-4 rounded-sm",
-                            "bg-secondary border-2 border-border border-t-[6px] border-t-primary",
+                            "bg-secondary/40 border-2 border-border",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                             "hover:bg-accent hover:-translate-y-[1px] transition-all",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         )}
                     >
                         <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-primary text-primary-foreground">
-                                <Eye size={18} strokeWidth={2.4} />
+                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-secondary text-muted-foreground">
+                                <Footprints size={18} strokeWidth={2.4} />
                             </span>
                             <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
                                 Seeker
@@ -167,23 +175,17 @@ export function RolePicker() {
                         disabled={hiderTaken}
                         className={cn(
                             "flex flex-col items-start text-left gap-2 p-4 rounded-sm",
-                            "bg-secondary border-2 border-border border-t-[6px]",
+                            "bg-secondary/20 border-2 border-border/70",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                             "transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             hiderTaken
                                 ? "opacity-50 cursor-not-allowed"
                                 : "hover:bg-accent hover:-translate-y-[1px]",
                         )}
-                        style={{
-                            borderTopColor: "hsl(44 87% 64%)" /* yellow */,
-                        }}
                     >
                         <div className="flex items-center gap-2">
-                            <span
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-sm text-white"
-                                style={{ background: "hsl(44 87% 64%)" }}
-                            >
-                                <MapPin size={18} strokeWidth={2.4} />
+                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-secondary/60 text-muted-foreground/70">
+                                <VenetianMask size={18} strokeWidth={2.4} />
                             </span>
                             <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
                                 Hider

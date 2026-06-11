@@ -5,10 +5,11 @@ import {
     Check,
     Clock,
     Copy,
+    Footprints,
     Loader2,
     LogOut,
     MapPin,
-    Search,
+    QrCode,
     Share2,
     VenetianMask,
     X,
@@ -244,6 +245,7 @@ export function GameLobbyDialog() {
     }, [$code]);
 
     const [copied, setCopied] = useState(false);
+    const [qrOpen, setQrOpen] = useState(false);
     const handleCopy = async () => {
         if (!shareUrl) return;
         try {
@@ -381,71 +383,107 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Share / room code card — moved to the top of
-                        the body in v146 so an inviting host sees the
-                        QR/code/buttons immediately on open. Room
-                        code top-left, QR top-right; Copy + Share
-                        buttons in the left column with
-                        `justify-between` so their bottom edge lines
-                        up with the QR's bottom edge. */}
+                    {/* Share / room code row (v147): single-row
+                        layout — eyebrow label + code on the left,
+                        Copy / Share / QR icon on the right. The
+                        inline QR image moved into a nested dialog
+                        the QR icon opens (same pattern as the
+                        pre-v99 detour, but smaller surface here
+                        and the dialog QR is much bigger for easier
+                        scanning across a room). "Copy link"
+                        shortened to "Copy" since the row needs to
+                        fit in the lobby's narrow width. */}
                     {$mp && $code && (
                         <div
                             className={cn(
                                 "rounded-md border border-border bg-secondary/40",
-                                "px-3 py-2.5",
+                                "px-3 py-2 flex items-center gap-2",
                             )}
                         >
-                            <div className="flex items-stretch gap-3">
-                                <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
-                                    <div>
-                                        <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground leading-none">
-                                            Room code
-                                        </div>
-                                        <div className="font-display font-black uppercase text-xl tabular-nums tracking-[0.10em] leading-none mt-1 text-primary">
-                                            {$code}
-                                        </div>
-                                    </div>
-                                    <div className="flex gap-1.5">
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={handleCopy}
-                                            className="flex-1 gap-1.5"
-                                        >
-                                            {copied ? (
-                                                <Check className="w-3.5 h-3.5" />
-                                            ) : (
-                                                <Copy className="w-3.5 h-3.5" />
-                                            )}
-                                            Copy link
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            onClick={handleShare}
-                                            className="flex-1 gap-1.5"
-                                        >
-                                            <Share2 className="w-3.5 h-3.5" />
-                                            Share
-                                        </Button>
-                                    </div>
-                                </div>
+                            <div className="flex flex-col min-w-0 leading-none">
+                                <span className="text-[9px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                    Room code
+                                </span>
+                                <span className="font-display font-black uppercase text-lg tabular-nums tracking-[0.08em] text-primary mt-0.5">
+                                    {$code}
+                                </span>
+                            </div>
+                            <div className="ml-auto flex items-center gap-1.5">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleCopy}
+                                    className="gap-1 px-2.5"
+                                >
+                                    {copied ? (
+                                        <Check className="w-3.5 h-3.5" />
+                                    ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                    Copy
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleShare}
+                                    className="gap-1 px-2.5"
+                                >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    Share
+                                </Button>
                                 {shareUrl && (
-                                    <div
-                                        className="bg-white rounded-[3px] p-1 shrink-0"
-                                        aria-label="Scan to join this game"
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setQrOpen(true)}
+                                        aria-label="Show large QR code"
+                                        title="Show large QR code"
+                                        className="px-2"
                                     >
-                                        <QRCodeSVG
-                                            value={shareUrl}
-                                            size={76}
-                                            level="M"
-                                            marginSize={0}
-                                            bgColor="#ffffff"
-                                            fgColor="#0f172a"
-                                        />
-                                    </div>
+                                        <QrCode className="w-3.5 h-3.5" />
+                                    </Button>
                                 )}
                             </div>
                         </div>
+                    )}
+
+                    {/* Large QR for cross-room scanning, opened by
+                        the QR icon button above. The lobby keeps the
+                        row compact; this is the "lean in to scan"
+                        affordance. */}
+                    {$mp && $code && shareUrl && (
+                        <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+                            <DialogContent
+                                className={cn(
+                                    "!bg-[hsl(var(--sidebar-background))] !text-white",
+                                    "sm:max-w-xs flex flex-col items-center p-6 gap-4",
+                                )}
+                            >
+                                <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em]">
+                                    Scan to join
+                                </DialogTitle>
+                                <div
+                                    className="bg-white rounded-md p-3"
+                                    aria-label="Scan to join this game"
+                                >
+                                    <QRCodeSVG
+                                        value={shareUrl}
+                                        size={240}
+                                        level="M"
+                                        marginSize={0}
+                                        bgColor="#ffffff"
+                                        fgColor="#0f172a"
+                                    />
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                        Room code
+                                    </div>
+                                    <div className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.10em] text-primary mt-1">
+                                        {$code}
+                                    </div>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
                     )}
 
                     {/* Map slot. NEW ORDER (v146): the map sits in
@@ -948,10 +986,11 @@ function RosterCard({
     // Identity is carried by icon + (for hiders) a subtle dim,
     // not a brand-coloured dot — the role colors were colliding
     // with the question-category palette downstream. Seeker gets
-    // a magnifying glass; hider gets a venetian half-mask, with
-    // a slightly more muted card background + a dimmer icon
-    // colour to read as 'in the shadows'.
-    const RoleIcon = tone === "seeker" ? Search : VenetianMask;
+    // footprints (tracking the hider's trail through transit
+    // stations — the original Search/magnifying glass read as a
+    // generic "search field" icon, too confusing); hider gets a
+    // venetian half-mask, dimmer to read as 'in the shadows'.
+    const RoleIcon = tone === "seeker" ? Footprints : VenetianMask;
     const cardCls =
         tone === "seeker"
             ? "bg-secondary/40 border-border"
@@ -1046,7 +1085,7 @@ function RosterCard({
                                                 selfRole === "seeker";
                                             const DestIcon = goingToHider
                                                 ? VenetianMask
-                                                : Search;
+                                                : Footprints;
                                             const destLabel = goingToHider
                                                 ? "Hiders"
                                                 : "Seekers";
