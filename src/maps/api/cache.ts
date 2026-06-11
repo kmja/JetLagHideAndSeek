@@ -10,7 +10,6 @@ import {
     setBytesForUrl,
 } from "@/lib/loadingProgress";
 
-import { OVERPASS_API } from "./constants";
 import { CacheType } from "./types";
 
 /**
@@ -116,25 +115,17 @@ const fetchWithTimeout = async (
         // Long-URL escape hatch: when the URL crosses the GET-friendly
         // limit AND it's an Overpass `?data=…` query, split it and
         // POST the data field as a form-encoded body. Every Overpass
-        // mirror accepts either shape, and the public CDNs only
-        // 414-out on the GET path.
-        //
-        // EXCEPTION: never POST-convert our own cache worker. It runs
-        // on Cloudflare (which accepts URLs up to ~16 KB, well past the
-        // public CDNs' ~8 KB GET cap) and its GET handler already POSTs
-        // to the upstream mirrors itself for long queries — so GET is
-        // both safe and the only path the worker reliably serves. (The
-        // worker's inbound-POST handling shipped in v131 but a stale
-        // deploy can still 404 a POST with no CORS header, which the
-        // browser blocks; sidestep that whole class of failure.)
+        // mirror — including our cache worker (v131+) — accepts either
+        // shape, and the public CDNs only 414-out on the GET path.
+        // Cloudflare also 414s GETs past ~8 KB, so the worker needs
+        // the POST conversion just as much as the public mirrors do
+        // for the largest poly:-filtered queries.
         const queryIdx = url.indexOf("?data=");
-        const isCacheWorker = OVERPASS_API && url.startsWith(OVERPASS_API);
         const useFormPost =
             !init?.method &&
             queryIdx >= 0 &&
             url.length > URL_POST_THRESHOLD &&
-            url.includes("/interpreter") &&
-            !isCacheWorker;
+            url.includes("/interpreter");
         if (useFormPost) {
             const base = url.slice(0, queryIdx);
             const encodedData = url.slice(queryIdx + "?data=".length);
