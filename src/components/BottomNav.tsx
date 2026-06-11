@@ -41,13 +41,11 @@ import {
     formatTimeRemaining,
     gameSize,
     hidingPeriodEndsAt,
-    pendingHidingDurationMin,
     playArea,
     setupCompleted,
     setupDialogOpen,
     TRANSIT_LABELS,
     type TransitMode,
-    welcomeSeen,
 } from "@/lib/gameSetup";
 import { startNewGame, startNewRound } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
@@ -67,7 +65,6 @@ import { toast } from "react-toastify";
 
 import {
     playerRole,
-    resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
 import {
@@ -78,7 +75,6 @@ import {
     seekerLocationSharing,
 } from "@/lib/multiplayer/session";
 import {
-    leaveGame,
     seekerMarkFound,
     seekerRotateHider,
     seekerStartEndgame,
@@ -655,10 +651,19 @@ export const BottomNav = () => {
                                                 </div>
                                             </div>
                                         )}
-                                        <div className="flex gap-2 pt-2">
+                                        {/* "Leave game" lived here as a
+                                            second action button; it
+                                            moved into the lobby dialog
+                                            (header → Leave) so the
+                                            in-game settings stay
+                                            focused on the wizard-shaped
+                                            three concepts. Edit
+                                            settings stretches full
+                                            width now that it's solo. */}
+                                        <div className="pt-2">
                                             <Button
                                                 variant="outline"
-                                                className="flex-1"
+                                                className="w-full"
                                                 onClick={() => {
                                                     setGameSheetOpen(false);
                                                     setupDialogOpen.set(true);
@@ -668,67 +673,6 @@ export const BottomNav = () => {
                                                     ? "Edit settings"
                                                     : "Set up game"}
                                             </Button>
-                                            {$setupCompleted && (
-                                                <Button
-                                                    variant="destructive"
-                                                    className="flex-1"
-                                                    onClick={() => {
-                                                        setGameSheetOpen(
-                                                            false,
-                                                        );
-                                                        // Full reset to the
-                                                        // landing screen (v101
-                                                        // user report: 'New
-                                                        // game' previously
-                                                        // just re-opened the
-                                                        // wizard on top of the
-                                                        // active game, leaving
-                                                        // the clock ticking
-                                                        // and the seeker UI
-                                                        // still interactive).
-                                                        // We drop the
-                                                        // multiplayer
-                                                        // connection, wipe the
-                                                        // seeker / hider
-                                                        // round state, reset
-                                                        // the welcome +
-                                                        // wizard gates, and
-                                                        // navigate to / so the
-                                                        // user actually lands
-                                                        // on Start / Join
-                                                        // buttons.
-                                                        leaveGame();
-                                                        setupCompleted.set(
-                                                            false,
-                                                        );
-                                                        welcomeSeen.set(false);
-                                                        hidingPeriodEndsAt.set(
-                                                            null,
-                                                        );
-                                                        pendingHidingDurationMin.set(
-                                                            null,
-                                                        );
-                                                        roundFoundAt.set(null);
-                                                        playerRole.set(null);
-                                                        // testing means the
-                                                        // hider inbox, hand,
-                                                        // and zone would
-                                                        // otherwise survive
-                                                        // into the next game.
-                                                        resetHiderRoundState();
-                                                        if (
-                                                            typeof window !==
-                                                            "undefined"
-                                                        ) {
-                                                            window.location.assign(
-                                                                "/",
-                                                            );
-                                                        }
-                                                    }}
-                                                >
-                                                    Leave game
-                                                </Button>
-                                            )}
                                         </div>
                                     </div>
                                 )}

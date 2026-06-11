@@ -73,7 +73,6 @@ import {
 } from "@/maps/api";
 
 import { SectionPill, SizeBadge } from "./JetLagLogo";
-import { OnlinePlaySection } from "./multiplayer/OnlinePlaySection";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 
@@ -591,10 +590,11 @@ export function GameSetupDialog() {
                                     />
                                 )}
                             </div>
-                            <section className="space-y-3 border-t border-border pt-5">
-                                <SectionPill>Online play</SectionPill>
-                                <OnlinePlaySection />
-                            </section>
+                            {/* Online play / lobby controls live in
+                                the lobby dialog (top-right header
+                                button) — not here. Keeps Game
+                                Settings purely about the wizard-shaped
+                                three concepts. */}
                         </div>
 
                         <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
