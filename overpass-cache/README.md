@@ -36,8 +36,27 @@ master, same pattern as the multiplayer worker.
 | `GET /api/interpreter?data=…` | none | Cached Overpass query. Used by the seeker app. |
 | `POST /admin/prewarm` | Bearer | Bulk-fetch by explicit relation id list (caller supplies the ids). |
 | `POST /admin/trigger-prewarm` | Bearer | Manually run the cron's next batch right now (picks from `POPULAR_CITIES`). Optional body `{ "batch": 20, "delayBetweenMs": 1000 }`. |
+| `POST /admin/discover` | Bearer | Resolve unresolved candidate city names via Photon and append the new relation IDs to the R2-stored list. Optional body `{ "batch": 20 }` or `{ "names": ["Halifax, Canada", ...] }`. |
 | `GET /admin/status` | Bearer | Cache size + count. |
 | `GET /health` | none | Liveness probe. |
+
+### Discovery + prewarm pipeline
+
+There are two backlogs:
+
+1. **Unresolved names** — `bulk-city-names.json` ships ~600 candidate
+   strings; about 170 already have resolved IDs in `bulk-cities.json`.
+   The rest need a Photon search to turn "Halifax, Canada" into
+   relation `12345`. This is what `/admin/discover` does.
+2. **Unwarmed relations** — once an ID is known, the boundary query
+   has to actually run so the result lands in R2. This is what
+   `/admin/trigger-prewarm` and the daily cron do.
+
+The daily cron handles both: 5 names through Photon → discovered list,
+then 20 relations through the prewarm. Roughly: full ~600-name
+backlog drains in ~4 months without any manual nudge; the
+already-resolved ~170 cities fill in ~10 days. Speed it up by
+hitting the endpoints below.
 
 ### Fast-fill without your laptop
 
@@ -61,6 +80,38 @@ Fire it from anywhere that can POST — Cloudflare dashboard's
 "Quick edit" → "Test", Postman, the browser DevTools fetch console,
 etc. Each call returns the per-city result list so you can pipe it
 to a log.
+
+To drain the discovery backlog (turn the ~430 remaining candidate
+names into relation IDs) faster than the cron's 5/day pace:
+
+```bash
+# Default batch of 20, ~20 s wall clock.
+curl -X POST \
+    -H "Authorization: Bearer $ADMIN_SECRET" \
+    -d '{}' \
+    https://jlhs-overpass-cache.<sub>.workers.dev/admin/discover
+
+# Or resolve specific names:
+curl -X POST \
+    -H "Authorization: Bearer $ADMIN_SECRET" \
+    -H "Content-Type: application/json" \
+    -d '{"names": ["Halifax, Canada", "Lyon, France"]}' \
+    https://jlhs-overpass-cache.<sub>.workers.dev/admin/discover
+```
+
+Response shape:
+```json
+{
+  "attempted": 20,
+  "resolved": [{ "name": "...", "relationId": 12345 }, ...],
+  "skipped": ["..."],
+  "stillUnresolved": 410
+}
+```
+
+Repeat the discover call until `stillUnresolved` hits 0 (~22 calls
+for the full backlog), then trigger-prewarm picks up the newly
+resolved relations next time it runs.
 
 `X-Cache` response header reports `EDGE_HIT` / `R2_HIT` /
 `MISS` / `MISS_REFRESH` / `R2_STALE_FALLBACK` so you can see

@@ -28,7 +28,12 @@
  * hits warm cache on day one.
  */
 
-import { POPULAR_CITIES, type CityEntry } from "./cities";
+import {
+    appendDiscoveredCities,
+    type CityEntry,
+    getPopularCities,
+    unresolvedCandidates,
+} from "./cities";
 import type { Env } from "./envTypes";
 import { handleJourneyArrivals } from "./journey";
 
@@ -98,7 +103,25 @@ export default {
             60 *
             60 *
             1000;
-        const shuffled = [...POPULAR_CITIES].sort(() => Math.random() - 0.5);
+        // Discovery pass first: resolve a handful of names from the
+        // bundled candidate list against Photon, append to R2. Small
+        // (~5/day) so it never crowds out the prewarm step inside the
+        // 30 s wall-clock budget. Drains the ~600-name backlog in a
+        // few months without any manual nudge.
+        try {
+            const discovered = await discoverCandidates(env, 5);
+            if (discovered.length > 0) {
+                console.log(
+                    `[discover] +${discovered.length}: ${discovered
+                        .map((d) => d.name)
+                        .join(", ")}`,
+                );
+            }
+        } catch (e) {
+            console.warn("Discovery pass failed:", e);
+        }
+        const cities = await getPopularCities(env);
+        const shuffled = [...cities].sort(() => Math.random() - 0.5);
         const picked = shuffled.slice(0, batch);
         for (const city of picked) {
             try {
@@ -152,6 +175,9 @@ async function handleRequest(
         }
         if (url.pathname === "/admin/trigger-prewarm") {
             return handleAdminTriggerPrewarm(request, env, ctx, cors);
+        }
+        if (url.pathname === "/admin/discover") {
+            return handleAdminDiscover(request, env, cors);
         }
         if (url.pathname === "/admin/status") {
             return handleAdminStatus(request, env, cors);
@@ -587,7 +613,8 @@ async function handleAdminTriggerPrewarm(
         60 *
         60 *
         1000;
-    const shuffled = [...POPULAR_CITIES].sort(() => Math.random() - 0.5);
+    const cities = await getPopularCities(env);
+    const shuffled = [...cities].sort(() => Math.random() - 0.5);
     const picked = shuffled.slice(0, batch);
     const results: Array<{
         relationId: number;
@@ -637,8 +664,180 @@ async function handleAdminTriggerPrewarm(
         JSON.stringify(
             {
                 picked: picked.length,
-                totalCandidates: POPULAR_CITIES.length,
+                totalCandidates: cities.length,
                 results,
+            },
+            null,
+            2,
+        ),
+        {
+            status: 200,
+            headers: { ...cors, "Content-Type": "application/json" },
+        },
+    );
+}
+
+/* ─────────────────────── Discovery ─────────────────────── */
+
+const PHOTON_API = "https://photon.komoot.io/api/";
+
+/**
+ * Resolve a "City, Country" string to an OSM relation ID via Photon.
+ * Picks the first feature with `osm_type === "R"` — that's the
+ * relation-shaped result, which is what every play-area boundary
+ * fetch needs. Returns null when no relation result is found.
+ */
+async function resolveNameViaPhoton(
+    name: string,
+    timeoutMs = 8_000,
+): Promise<{ relationId: number } | null> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const resp = await fetch(
+            `${PHOTON_API}?q=${encodeURIComponent(name)}&limit=5`,
+            { signal: ctrl.signal },
+        );
+        if (!resp.ok) return null;
+        const data = (await resp.json()) as {
+            features?: Array<{
+                properties?: {
+                    osm_type?: string;
+                    osm_id?: number;
+                };
+            }>;
+        };
+        for (const f of data.features ?? []) {
+            if (
+                f.properties?.osm_type === "R" &&
+                typeof f.properties.osm_id === "number" &&
+                f.properties.osm_id > 0
+            ) {
+                return { relationId: f.properties.osm_id };
+            }
+        }
+        return null;
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Process up to `limit` unresolved candidate names, rate-limited at
+ * ~1 req/s to keep within Photon's free-tier expectations. Successful
+ * resolutions are appended to the R2-stored discovered list. Returns
+ * the newly added entries so callers can log them.
+ */
+async function discoverCandidates(
+    env: Env,
+    limit: number,
+): Promise<CityEntry[]> {
+    if (limit <= 0) return [];
+    const todo = (await unresolvedCandidates(env)).slice(0, limit);
+    const fresh: CityEntry[] = [];
+    for (let i = 0; i < todo.length; i++) {
+        const name = todo[i];
+        try {
+            const r = await resolveNameViaPhoton(name);
+            if (r) {
+                fresh.push({ name, relationId: r.relationId });
+            }
+        } catch (e) {
+            console.warn(`Photon resolve failed for "${name}":`, e);
+        }
+        // Photon courtesy delay; skip after the last item.
+        if (i < todo.length - 1) {
+            await new Promise((r) => setTimeout(r, 1000));
+        }
+    }
+    if (fresh.length > 0) {
+        await appendDiscoveredCities(env, fresh);
+    }
+    return fresh;
+}
+
+/**
+ * `POST /admin/discover` — manual discovery trigger.
+ *
+ * Body (all optional):
+ *   { "batch": 20 }              — process up to N unresolved names.
+ *   { "names": ["...","..."] }   — resolve these specific strings
+ *                                   instead of pulling from the
+ *                                   bundled candidate list.
+ *
+ * With no body, defaults to batch=20. Each Photon hit is 1 req/s so a
+ * batch of 20 finishes in ~20 s — safely under the worker's 30 s
+ * wall-clock budget. Repeat the call until the backlog drains, or
+ * just let the daily cron auto-drain it 5 names at a time.
+ */
+async function handleAdminDiscover(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: { batch?: number; names?: string[] } = {};
+    try {
+        const text = await request.text();
+        if (text.trim()) payload = JSON.parse(text);
+    } catch {
+        return new Response("Invalid JSON body", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    let names: string[];
+    if (Array.isArray(payload.names) && payload.names.length > 0) {
+        names = payload.names
+            .filter((n): n is string => typeof n === "string" && n.length > 0)
+            .slice(0, 25);
+    } else {
+        const batch =
+            typeof payload.batch === "number" && payload.batch > 0
+                ? Math.min(Math.floor(payload.batch), 25)
+                : 20;
+        names = (await unresolvedCandidates(env)).slice(0, batch);
+    }
+    const fresh: CityEntry[] = [];
+    const skipped: string[] = [];
+    for (let i = 0; i < names.length; i++) {
+        const name = names[i];
+        try {
+            const r = await resolveNameViaPhoton(name);
+            if (r) {
+                fresh.push({ name, relationId: r.relationId });
+            } else {
+                skipped.push(name);
+            }
+        } catch (e) {
+            skipped.push(name);
+            console.warn(`Photon resolve failed for "${name}":`, e);
+        }
+        if (i < names.length - 1) {
+            await new Promise((r) => setTimeout(r, 1000));
+        }
+    }
+    if (fresh.length > 0) {
+        await appendDiscoveredCities(env, fresh);
+    }
+    const remaining = await unresolvedCandidates(env);
+    return new Response(
+        JSON.stringify(
+            {
+                attempted: names.length,
+                resolved: fresh,
+                skipped,
+                stillUnresolved: remaining.length,
             },
             null,
             2,

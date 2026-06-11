@@ -30,6 +30,9 @@
 // automatically (no runtime fetch). Lives at the worker package root
 // so it can be edited without touching code.
 import BULK_CITIES from "../bulk-cities.json";
+import BULK_CANDIDATE_NAMES from "../bulk-city-names.json";
+
+import type { Env } from "./envTypes";
 
 export interface CityEntry {
     name: string;
@@ -129,7 +132,110 @@ function mergeUnique(...lists: CityEntry[][]): CityEntry[] {
     return out;
 }
 
+/**
+ * Bundled list as a synchronous baseline. The cron / trigger /
+ * discover paths prefer `getPopularCities(env)` which folds in
+ * R2-stored discovered relations too — but this constant stays for
+ * any caller that doesn't have an Env handy.
+ */
 export const POPULAR_CITIES: CityEntry[] = mergeUnique(
     HAND_CURATED,
     BULK_CITIES as CityEntry[],
 );
+
+/** R2 key under which discovered (Photon-resolved) cities accumulate. */
+export const DISCOVERED_R2_KEY = "_meta/discovered-cities.json";
+
+/**
+ * Same merge as `POPULAR_CITIES`, plus anything the
+ * `/admin/discover` endpoint or the cron's discovery pass has
+ * resolved and stored in R2. Cached at module scope so repeat calls
+ * inside the same worker invocation don't re-hit R2.
+ */
+let _discoveredCache: CityEntry[] | null = null;
+let _discoveredCacheLoadedFor: R2Bucket | null = null;
+
+export async function loadDiscoveredCities(
+    env: Env,
+): Promise<CityEntry[]> {
+    if (
+        _discoveredCache !== null &&
+        _discoveredCacheLoadedFor === env.CACHE
+    ) {
+        return _discoveredCache;
+    }
+    try {
+        const obj = await env.CACHE.get(DISCOVERED_R2_KEY);
+        if (!obj) {
+            _discoveredCache = [];
+        } else {
+            const parsed = (await obj.json()) as unknown;
+            _discoveredCache = Array.isArray(parsed)
+                ? (parsed as CityEntry[]).filter(
+                      (e) =>
+                          e &&
+                          typeof e.relationId === "number" &&
+                          typeof e.name === "string",
+                  )
+                : [];
+        }
+    } catch (e) {
+        console.warn("loadDiscoveredCities failed:", e);
+        _discoveredCache = [];
+    }
+    _discoveredCacheLoadedFor = env.CACHE;
+    return _discoveredCache;
+}
+
+export async function getPopularCities(
+    env: Env,
+): Promise<CityEntry[]> {
+    const discovered = await loadDiscoveredCities(env);
+    return mergeUnique(HAND_CURATED, BULK_CITIES as CityEntry[], discovered);
+}
+
+/**
+ * Append newly discovered entries to the R2-stored list. Idempotent
+ * via `mergeUnique` semantics; the cache is invalidated so the next
+ * `getPopularCities(env)` call sees the updates.
+ */
+export async function appendDiscoveredCities(
+    env: Env,
+    fresh: CityEntry[],
+): Promise<void> {
+    if (fresh.length === 0) return;
+    const existing = await loadDiscoveredCities(env);
+    const merged = mergeUnique(existing, fresh);
+    await env.CACHE.put(
+        DISCOVERED_R2_KEY,
+        JSON.stringify(merged),
+        { httpMetadata: { contentType: "application/json" } },
+    );
+    _discoveredCache = merged;
+    _discoveredCacheLoadedFor = env.CACHE;
+}
+
+/**
+ * Bundled candidate city-name list (~600 entries). Used by the
+ * discover pipeline as the source of names to resolve.
+ */
+export const CANDIDATE_NAMES: string[] = (
+    BULK_CANDIDATE_NAMES as string[]
+).filter((n) => typeof n === "string" && n.length > 0);
+
+/**
+ * Names that haven't been resolved into a relation ID yet. Drops
+ * anything whose name (case-insensitive substring match, before the
+ * first comma) appears in the merged HAND_CURATED + BULK_CITIES +
+ * R2-stored set.
+ */
+export async function unresolvedCandidates(
+    env: Env,
+): Promise<string[]> {
+    const known = await getPopularCities(env);
+    const knownLower = new Set(known.map((c) => c.name.toLowerCase()));
+    return CANDIDATE_NAMES.filter((raw) => {
+        const headLower = raw.split(",")[0].trim().toLowerCase();
+        return !knownLower.has(headLower);
+    });
+}
