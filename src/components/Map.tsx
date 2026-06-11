@@ -29,6 +29,7 @@ import {
     hiderMode,
     hidingZonesGeoJSON,
     isLoading,
+    lastKnownPosition,
     mapContext,
     mapGeoJSON,
     mapGeoLocation,
@@ -780,12 +781,13 @@ export function Map({ className }: MapProps) {
         lng: number;
     } | null>(null);
 
-    // Follow-me pin: live blue dot at the seeker's current
-    // position, updated via watchPosition. Same shape as the
-    // Leaflet path — gated on the followMe atom, started on
-    // flip-true, cleaned up on flip-false or unmount. The
-    // marker is rendered in JSX below; we keep just the
-    // position in state here.
+    // Live blue "you are here" dot, always shown on the seeker map
+    // (like every other mapping app). Decoupled from the Follow Me
+    // toggle — that now only controls auto-centering below. The watch
+    // runs for the whole session; errors are silent (a denied or
+    // unavailable fix just means no dot, no toast spam on every load).
+    // The marker is rendered in JSX below; we keep just the position
+    // in state here.
     const [selfPosition, setSelfPosition] = useState<
         | {
               lat: number;
@@ -794,10 +796,6 @@ export function Map({ className }: MapProps) {
         | null
     >(null);
     useEffect(() => {
-        if (!$followMe) {
-            setSelfPosition(null);
-            return;
-        }
         if (
             typeof navigator === "undefined" ||
             !navigator.geolocation
@@ -806,21 +804,37 @@ export function Map({ className }: MapProps) {
         }
         const id = navigator.geolocation.watchPosition(
             (pos) => {
-                setSelfPosition({
+                const next = {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
-                });
+                };
+                setSelfPosition(next);
+                // Share the fix so question pickers can default to the
+                // player's real position instead of the play-area centroid.
+                lastKnownPosition.set(next);
             },
             () => {
-                toast.error("Unable to access your location.");
-                followMe.set(false);
+                // Stay quiet — no dot is the correct degraded state.
             },
             { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
         );
         return () => {
             navigator.geolocation.clearWatch(id);
         };
-    }, [$followMe]);
+    }, []);
+
+    // Follow Me: when enabled, recenter the map on each new GPS fix so
+    // the seeker's dot stays in view as they move. Off by default so it
+    // doesn't fight manual panning.
+    useEffect(() => {
+        if (!$followMe || !selfPosition) return;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        map.easeTo({
+            center: [selfPosition.lng, selfPosition.lat],
+            duration: 600,
+        });
+    }, [$followMe, selfPosition]);
 
     // Map-screenshot trigger. The MapDisplayControls "Save image"
     // button dispatches a `jlhs:save-map-image` CustomEvent on
@@ -1398,9 +1412,9 @@ export function Map({ className }: MapProps) {
                     </Marker>
                 )}
 
-                {/* Follow-me pin — seeker's live position. Gated
-                    on the followMe atom; the watch-position
-                    effect above keeps `selfPosition` current. */}
+                {/* Live GPS dot — the seeker's current position,
+                    always shown (the always-on watch-position effect
+                    above keeps `selfPosition` current). */}
                 {selfPosition && (
                     <Marker
                         longitude={selfPosition.lng}

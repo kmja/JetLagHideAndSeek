@@ -16,6 +16,7 @@ import Map, {
 import { Button } from "@/components/ui/button";
 import {
     baseTileLayer,
+    lastKnownPosition,
     mapGeoLocation,
     questionFinishedMapData,
     thunderforestApiKey,
@@ -92,13 +93,31 @@ export function InlineLocationPicker({
             setGpsState("denied");
             return;
         }
+        // Seed immediately from the main map's last-known fix (the blue
+        // dot) so the pin starts at the player's real position rather
+        // than the play-area centroid while the fresh fix resolves.
+        const known = lastKnownPosition.get();
+        if (known) {
+            onChange(known.lat, known.lng);
+            setGpsState("granted");
+        }
+        // maximumAge:0 forces a fresh, high-accuracy fix rather than a
+        // stale/coarse cached one (the cached fix was landing far from
+        // the player).
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 onChange(pos.coords.latitude, pos.coords.longitude);
+                lastKnownPosition.set({
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                });
                 setGpsState("granted");
             },
-            () => setGpsState("denied"),
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 30_000 },
+            () => {
+                // Only fall to "denied" if we never got a seed fix.
+                if (!lastKnownPosition.get()) setGpsState("denied");
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
         );
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -479,6 +498,10 @@ export function InlineLocationPicker({
                                         pos.coords.latitude,
                                         pos.coords.longitude,
                                     );
+                                    lastKnownPosition.set({
+                                        lat: pos.coords.latitude,
+                                        lng: pos.coords.longitude,
+                                    });
                                     setGpsState("granted");
                                 },
                                 () => setGpsState("denied"),

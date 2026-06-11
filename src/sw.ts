@@ -124,23 +124,47 @@ registerRoute(
 
 /* ────────────────── Catch handler ────────────────── */
 
+// 1x1 transparent PNG, used as the fallback body for failed image
+// (map tile) requests.
+const TRANSPARENT_PNG = Uint8Array.from(
+    atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    ),
+    (c) => c.charCodeAt(0),
+);
+
 /**
- * When a registered route's strategy throws — e.g. CacheFirst gets a
- * cache miss AND the network fetch fails (cancelled when MapLibre
- * unmounts during a route change, true offline, CORS preflight blip)
- * — Workbox lets the rejection propagate to `respondWith()`. The
- * browser then logs three errors per cancelled request: "SW promise
- * rejected with no-response", "CORS blocked" (because there's no
- * response to read CORS headers from), and a generic TypeError.
+ * When a registered route's strategy throws — CacheFirst gets a cache
+ * miss AND the network fetch fails (most often MapLibre cancelling a
+ * tile XHR when the map unmounts on game-leave / route change, also
+ * true offline) — Workbox lets the rejection reach `respondWith()`.
  *
- * Returning `Response.error()` here makes `respondWith()` resolve with
- * a network-error response instead, so the browser treats it like a
- * normal failed fetch — one log line, no SW noise. Visually
- * indistinguishable from "no SW intercept at all" for failed requests,
- * which is the correct UX: successful tiles still come from cache,
- * failures just look like ordinary network failures.
+ * v140 returned `Response.error()` here, but Firefox flags THAT as
+ * "ServiceWorker sent an Error Response to respondWith() … invalid
+ * fetch() call" and still logs the CORS/TypeError trio. The fix is to
+ * resolve with a real, SW-synthesized Response (which bypasses the CORS
+ * read check entirely, since it didn't come from the network):
+ *
+ *   - Image/tile requests → a 1x1 transparent PNG (200). MapLibre
+ *     treats it as an empty tile and moves on — zero console noise.
+ *   - Everything else → an empty 504. The caller's own fallback (the
+ *     Overpass mirror race, the geocode retry) handles it.
  */
-setCatchHandler(async () => Response.error());
+setCatchHandler(async ({ request }: { request: Request }) => {
+    if (
+        request.destination === "image" ||
+        /\.png(\?|$)/i.test(request.url)
+    ) {
+        return new Response(TRANSPARENT_PNG, {
+            status: 200,
+            headers: { "Content-Type": "image/png" },
+        });
+    }
+    return new Response(null, {
+        status: 504,
+        statusText: "Gateway Timeout",
+    });
+});
 
 /* ────────────────── Push notifications ────────────────── */
 

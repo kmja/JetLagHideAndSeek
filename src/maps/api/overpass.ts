@@ -105,7 +105,16 @@ export const getOverpassData = async (
             return null;
         } catch (e) {
             const ms = Date.now() - t0;
-            console.warn(
+            // Aborts are expected and noisy: every mirror race cancels
+            // its losers, and slow mirrors hit the fetch timeout. Those
+            // aren't failures worth a warning — only log genuine errors
+            // (network, DNS, CORS) at warn level; aborts go to debug.
+            const isAbort =
+                e instanceof Error &&
+                (e.name === "AbortError" ||
+                    /aborted/i.test(e.message));
+            const log = isAbort ? console.debug : console.warn;
+            log(
                 `[overpass] ${shortName} threw (${ms}ms):`,
                 e instanceof Error ? e.message : e,
             );

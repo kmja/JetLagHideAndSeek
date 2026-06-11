@@ -72,10 +72,14 @@ export function PlayAreaPreviewMap({
         };
     }, [bbox]);
 
-    // Fit the map to the bbox whenever it changes. We don't rely on
-    // initialViewState because the parent might swap `value` without
-    // unmounting (user picks a different search result).
-    useEffect(() => {
+    // Fit the map to the bbox. Called both from the bbox-change effect
+    // (parent swaps `value` without unmounting) AND from the map's
+    // onLoad — on first mount the effect runs before MapLibre has
+    // initialised, so its fitBounds was being silently swallowed,
+    // leaving the preview stuck at the hardcoded initial zoom (way too
+    // tight for a large region like a whole county). onLoad guarantees
+    // the fit lands once the map is actually ready.
+    const fitToBbox = (animate: boolean) => {
         const map = mapRef.current?.getMap();
         if (!map || !bbox) return;
         try {
@@ -84,11 +88,33 @@ export function PlayAreaPreviewMap({
                     [bbox.minLng, bbox.minLat],
                     [bbox.maxLng, bbox.maxLat],
                 ],
-                { padding: 16, duration: 400, maxZoom: 12 },
+                { padding: 16, duration: animate ? 400 : 0, maxZoom: 12 },
             );
         } catch {
-            /* ignore — the map may not be ready on first render */
+            /* ignore — the map may not be ready yet */
         }
+    };
+
+    useEffect(() => {
+        fitToBbox(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [bbox]);
+
+    // Rough initial zoom from the bbox span so the very first paint is
+    // already close to framed (before onLoad's exact fit). Larger spans
+    // → lower zoom. Keeps a big county from flashing in over-zoomed.
+    const initialZoom = useMemo(() => {
+        if (!bbox) return 9;
+        const span = Math.max(
+            bbox.maxLat - bbox.minLat,
+            bbox.maxLng - bbox.minLng,
+        );
+        if (span > 4) return 5;
+        if (span > 2) return 6;
+        if (span > 1) return 7;
+        if (span > 0.5) return 8;
+        if (span > 0.25) return 9;
+        return 10;
     }, [bbox]);
 
     const mapStyle = useMemo(
@@ -129,12 +155,13 @@ export function PlayAreaPreviewMap({
                 initialViewState={{
                     longitude: (bbox.minLng + bbox.maxLng) / 2,
                     latitude: (bbox.minLat + bbox.maxLat) / 2,
-                    zoom: 9,
+                    zoom: initialZoom,
                 }}
                 style={{ width: "100%", height: "100%" }}
                 mapStyle={mapStyle}
                 attributionControl={false}
                 interactive={false}
+                onLoad={() => fitToBbox(false)}
             >
                 {polygon && (
                     <Source id="bbox" type="geojson" data={polygon}>

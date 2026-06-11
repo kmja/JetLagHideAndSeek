@@ -650,7 +650,7 @@ export const OptionDrawers = ({
                             </div>
                             <div className="flex flex-row items-center gap-2">
                                 <label className="text-2xl font-semibold font-poppins">
-                                    Follow Me (GPS)?
+                                    Auto-center on me (GPS)?
                                 </label>
                                 <Checkbox
                                     checked={$followMe}

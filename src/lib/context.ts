@@ -480,6 +480,18 @@ export const followMe = persistentAtom<boolean>("followMe", false, {
     encode: JSON.stringify,
     decode: JSON.parse,
 });
+
+/**
+ * The seeker's most recent GPS fix, written by the main map's always-on
+ * watch-position effect. Volatile (not persisted — a stale fix from a
+ * previous session shouldn't seed a new game). Used as the default
+ * location for matching/measuring question pickers so they start at
+ * the player's real position (the same blue dot on the map) instead of
+ * the play-area centroid.
+ */
+export const lastKnownPosition = atom<{ lat: number; lng: number } | null>(
+    null,
+);
 export const defaultCustomQuestions = persistentAtom<boolean>(
     "defaultCustomQuestions",
     false,
