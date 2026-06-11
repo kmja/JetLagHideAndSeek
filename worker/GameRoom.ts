@@ -23,6 +23,7 @@ import {
     MAX_QUESTIONS_PER_ROOM,
     MAX_ROOM_LIFETIME_MS,
     PROTOCOL_VERSION,
+    resolveUniqueDisplayName,
     type ClientMessage,
     type CursePayload,
     type GameState,
@@ -341,6 +342,21 @@ export class GameRoom {
 
     /* ────────────────── Handlers ────────────────── */
 
+    /**
+     * Resolve a requested display name to one unique within the room.
+     * Empty requests (the common case — the client sends "" when the
+     * player didn't type a name) get an assigned Jet Lag cast name;
+     * a typed name is kept if free, else reassigned. `excludeId` omits
+     * the participant's own current record so a reconnecting player
+     * doesn't collide with themselves.
+     */
+    private uniqueDisplayName(requested: string, excludeId?: string): string {
+        const taken = this.game.participants
+            .filter((p) => p.id !== excludeId)
+            .map((p) => p.displayName);
+        return resolveUniqueDisplayName(requested, taken);
+    }
+
     private handleHost(
         socket: WebSocket,
         version: number,
@@ -365,7 +381,7 @@ export class GameRoom {
 
         const participant: Participant = {
             id: participantId,
-            displayName: displayName || "Host",
+            displayName: this.uniqueDisplayName(displayName, participantId),
             // Host doesn't pre-commit a role — leaves room to be either
             // seeker or hider depending on the local setup.
             role: existing?.role ?? null,
@@ -422,7 +438,14 @@ export class GameRoom {
             participantId = existingByDevice[1].participantId;
             const existingP = this.game.participants.find((p) => p.id === participantId);
             if (existingP) {
-                existingP.displayName = displayName || existingP.displayName;
+                // Keep their existing name on reconnect unless they sent
+                // a new non-empty one; either way ensure it's unique
+                // against the rest of the room.
+                const requested = displayName.trim() || existingP.displayName;
+                existingP.displayName = this.uniqueDisplayName(
+                    requested,
+                    participantId,
+                );
                 existingP.online = true;
             }
         } else {
@@ -436,7 +459,7 @@ export class GameRoom {
             participantId = crypto.randomUUID();
             this.game.participants.push({
                 id: participantId,
-                displayName: displayName || "Player",
+                displayName: this.uniqueDisplayName(displayName, participantId),
                 role: null,
                 joinedAt: Date.now(),
                 online: true,

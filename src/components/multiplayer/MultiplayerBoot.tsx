@@ -5,7 +5,6 @@ import {
     currentGameCode,
     displayName as displayNameAtom,
     multiplayerEnabled,
-    pickRandomCastName,
 } from "@/lib/multiplayer/session";
 import {
     installMultiplayerBridge,
@@ -57,8 +56,9 @@ function maybeAutoJoinFromUrl() {
         return;
     }
 
-    const name =
-        (displayNameAtom.get() || "").trim() || pickRandomCastName();
+    // Send the typed name, or empty to let the server assign a unique
+    // Jet Lag cast name (avoids two players defaulting to the same one).
+    const name = (displayNameAtom.get() || "").trim();
     joinAsGuest(trimmed, name);
     toast.info(`Joining game ${trimmed}…`, { autoClose: 2500 });
 

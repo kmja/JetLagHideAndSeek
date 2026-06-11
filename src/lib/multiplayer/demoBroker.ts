@@ -26,6 +26,7 @@
  * with a friendly server on the other end.
  */
 
+import { pickUniqueName } from "@protocol/index";
 import type {
     ClientMessage,
     CursePayload,
@@ -55,11 +56,9 @@ const HIDER_ANSWER_DELAY_MS = 1500;
 const SEEKER_LOC_INTERVAL_MS = 10_000;
 const CURSE_INTERVAL_MS = 90_000;
 
-// Cast-themed bot names — friendlier than "Bot Seeker 1" and gives the
-// demo a Jet Lag flavor. Order is intentional so the trio reads like
-// the show's hosting rotation.
-const BOT_HIDER_NAME = "Sam";
-const BOT_SEEKER_NAMES = ["Ben", "Adam"];
+// Bot names are picked at boot from the shared Jet Lag roster via
+// pickUniqueName(), so they never collide with each other or with the
+// human player's chosen name.
 
 const SAMPLE_CURSES: CursePayload[] = [
     {
@@ -138,11 +137,23 @@ export function startDemoGame(opts: StartDemoOptions) {
 
     const userId = uid();
     const hiderId = uid();
-    const seekerIds = BOT_SEEKER_NAMES.map(() => uid());
+    // Two bot seekers fill out the roster alongside the bot hider.
+    const seekerIds = [uid(), uid()];
 
     const now = Date.now();
     const userRole = opts.asRole;
     const botHiderRole = userRole === "hider" ? "seeker" : "hider";
+
+    // Assign unique cast names to every bot, avoiding the human's name
+    // and each other — no two participants share a name in the roster.
+    const taken: string[] = [name];
+    const nextBotName = () => {
+        const n = pickUniqueName(taken);
+        taken.push(n);
+        return n;
+    };
+    const hiderName = nextBotName();
+    const seekerNames = seekerIds.map(() => nextBotName());
 
     const roster: Participant[] = [
         {
@@ -154,18 +165,14 @@ export function startDemoGame(opts: StartDemoOptions) {
         },
         {
             id: hiderId,
-            // When the human plays as hider, the slot is filled with a
-            // bot seeker — keep the cast-name vibe by reusing the
-            // primary bot seeker label.
-            displayName:
-                userRole === "hider" ? BOT_SEEKER_NAMES[0] : BOT_HIDER_NAME,
+            displayName: hiderName,
             role: botHiderRole,
             joinedAt: now + 1,
             online: true,
         },
         ...seekerIds.map<Participant>((id, i) => ({
             id,
-            displayName: BOT_SEEKER_NAMES[i],
+            displayName: seekerNames[i],
             role: "seeker",
             joinedAt: now + 2 + i,
             online: true,

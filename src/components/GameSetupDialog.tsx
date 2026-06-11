@@ -491,7 +491,10 @@ export function GameSetupDialog() {
         // dialog says 4YSUQK" symptom. Drop the wizard's autohost
         // entirely; the lobby is the single source of truth for
         // creating a room.
-        const trimmedName = draftDisplayName.trim() || pickRandomCastName();
+        // Persist exactly what they typed (empty if they left it blank);
+        // the server assigns a unique Jet Lag cast name on host when it's
+        // empty, so two un-named players never share a name.
+        const trimmedName = draftDisplayName.trim();
         displayNameAtom.set(trimmedName);
 
         const alreadyOnline =

@@ -66,31 +66,15 @@ export const displayName = persistentAtom<string>(
     { encode: (v) => v, decode: (v) => v },
 );
 
-/**
- * Pool of Jet Lag: The Game cast names, used as fun placeholders
- * wherever a "your name" field is empty (and as bot names in the demo
- * broker). Real names of the regular hosts and frequent guests, so a
- * player who hasn't entered their own name still feels like they're
- * about to join the show.
- */
-export const JETLAG_CAST_NAMES = [
-    "Sam",
-    "Ben",
-    "Adam",
-    "Toby",
-    "Michael",
-    "Brian",
-    "Nikki",
-    "Tom",
-] as const;
-
-/** Pick a random cast name. Returns the same value within a single
- *  render by virtue of being a pure function — callers cache it. */
-export function pickRandomCastName(): string {
-    return JETLAG_CAST_NAMES[
-        Math.floor(Math.random() * JETLAG_CAST_NAMES.length)
-    ];
-}
+// Display-name pool + unique picker now live in the shared protocol
+// module so the server can use the exact same roster when it assigns
+// unique names. Re-exported here so existing client imports keep
+// working unchanged.
+export {
+    JETLAG_CAST_NAMES,
+    pickRandomCastName,
+    pickUniqueName,
+} from "@protocol/index";
 
 /**
  * Master switch for the multiplayer feature. When false (default),
