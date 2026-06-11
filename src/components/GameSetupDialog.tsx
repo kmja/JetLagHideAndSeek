@@ -4,6 +4,7 @@ import {
     Check,
     ChevronLeft,
     Footprints,
+    Maximize2,
     MapPin,
     Pencil,
     Plus,
@@ -12,6 +13,8 @@ import {
     TrainTrack,
     TramFront,
 } from "lucide-react";
+
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -232,6 +235,13 @@ export function GameSetupDialog() {
     }, [$welcomeSeen]);
 
     const [step, setStep] = useState<1 | 2 | 3>(1);
+    // Edit-mode current tab. Mirrors the three setup-wizard steps so
+    // the player navigates the same three concepts (play area, transit,
+    // size) in the same order, but laterally instead of sequentially.
+    // Opens on Play area, the most-edited surface.
+    const [editTab, setEditTab] = useState<"area" | "transit" | "size">(
+        "area",
+    );
     const [draftFeature, setDraftFeature] = useState<OpenStreetMap | null>(
         null,
     );
@@ -552,29 +562,36 @@ export function GameSetupDialog() {
                             </DialogDescription>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 space-y-6">
-                            <section className="space-y-3">
-                                <SectionPill>Play area</SectionPill>
-                                <PlayAreaStep
-                                    value={draftFeature}
-                                    onChange={setDraftFeature}
-                                />
-                            </section>
-                            <section className="space-y-3">
-                                <SectionPill>Transit</SectionPill>
-                                <TransitStep
-                                    value={draftTransit}
-                                    onChange={setDraftTransit}
-                                />
-                            </section>
-                            <section className="space-y-3">
-                                <SectionPill>Size</SectionPill>
-                                <SizeStep
-                                    value={draftSize}
-                                    onChange={setDraftSizeManual}
-                                />
-                            </section>
-                            <section className="space-y-3">
+                        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 space-y-5">
+                            {/* Three tabs mirror the three setup-wizard
+                                steps in the same order (Play area,
+                                Transit, Size) so the same conceptual
+                                map drives both the first-time wizard
+                                and later edits. The Online-play block
+                                stays below as a non-tabbed section —
+                                it's not part of the wizard flow. */}
+                            <EditTabs value={editTab} onChange={setEditTab} />
+                            <div>
+                                {editTab === "area" && (
+                                    <PlayAreaStep
+                                        value={draftFeature}
+                                        onChange={setDraftFeature}
+                                    />
+                                )}
+                                {editTab === "transit" && (
+                                    <TransitStep
+                                        value={draftTransit}
+                                        onChange={setDraftTransit}
+                                    />
+                                )}
+                                {editTab === "size" && (
+                                    <SizeStep
+                                        value={draftSize}
+                                        onChange={setDraftSizeManual}
+                                    />
+                                )}
+                            </div>
+                            <section className="space-y-3 border-t border-border pt-5">
                                 <SectionPill>Online play</SectionPill>
                                 <OnlinePlaySection />
                             </section>
@@ -713,6 +730,63 @@ export function GameSetupDialog() {
                 )}
             </DialogContent>
         </Dialog>
+    );
+}
+
+/* ─── Edit-mode tabs ─── */
+
+const EDIT_TABS: Array<{
+    value: "area" | "transit" | "size";
+    label: string;
+    icon: LucideIcon;
+}> = [
+    { value: "area", label: "Play area", icon: MapPin },
+    { value: "transit", label: "Transit", icon: TrainTrack },
+    { value: "size", label: "Size", icon: Maximize2 },
+];
+
+function EditTabs({
+    value,
+    onChange,
+}: {
+    value: "area" | "transit" | "size";
+    onChange: (next: "area" | "transit" | "size") => void;
+}) {
+    return (
+        <div
+            role="tablist"
+            aria-label="Game settings sections"
+            className={cn(
+                "grid grid-cols-3 gap-1 p-1 rounded-md",
+                "bg-secondary/40 border border-border",
+            )}
+        >
+            {EDIT_TABS.map(({ value: v, label, icon: Icon }) => {
+                const active = value === v;
+                return (
+                    <button
+                        key={v}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => onChange(v)}
+                        className={cn(
+                            "flex items-center justify-center gap-1.5",
+                            "px-2 py-1.5 rounded-sm",
+                            "text-[11px] font-poppins font-bold uppercase tracking-[0.10em]",
+                            "transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            active
+                                ? "bg-primary text-primary-foreground shadow-sm"
+                                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        )}
+                    >
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{label}</span>
+                    </button>
+                );
+            })}
+        </div>
     );
 }
 
