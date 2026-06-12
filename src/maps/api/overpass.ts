@@ -376,6 +376,12 @@ export const determineGeoJSON = async (
         30_000,
         reportProgress,
         progressLabel,
+        // Forward `silent` to the total-failure toast path too —
+        // determineMapBoundaries owns the loading overlay and
+        // schedules its own retry, so a single piece failing
+        // shouldn't fire a scary "could not load Overpass" banner
+        // on top.
+        silent,
     );
     const geo = osmtogeojson(data);
     return {

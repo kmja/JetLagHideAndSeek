@@ -42,13 +42,11 @@ import {
     thunderforestApiKey,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { playArea } from "@/lib/gameSetup";
 import {
     mapLibreContext,
     mapLibreViewport,
 } from "@/lib/featureFlags";
-import { travelTimesFC } from "@/lib/journey/state";
-import { createMapShim } from "@/lib/mapShim";
+import { playArea } from "@/lib/gameSetup";
 import {
     allowedTransit,
     satelliteView,
@@ -58,7 +56,9 @@ import {
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
+import { travelTimesFC } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
+import { createMapShim } from "@/lib/mapShim";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -485,9 +485,58 @@ export function Map({ className }: MapProps) {
             }
             if (isLoading.get()) return;
             isLoading.set(true);
-            try {
-                const boundary = await determineMapBoundaries();
+            // One silent retry pass. A first-time-ever play area
+            // often misses every fast path (R2 cold + polygons.osm.fr
+            // returning "None") and lands on the rate-limited public
+            // mirrors. The first attempt is the slowest, but it
+            // (a) writes the polygons.osm.fr build trigger, (b) warms
+            // the cache worker's R2, and (c) gives the public mirrors'
+            // rate window time to relax. The second attempt — 8 s
+            // later — usually hits something warm and resolves
+            // quickly. Total cap: two passes, so we never loop
+            // forever. The user-facing failure toast only fires after
+            // BOTH attempts come back empty.
+            let boundary:
+                | Awaited<ReturnType<typeof determineMapBoundaries>>
+                | null = null;
+            for (let attempt = 1; attempt <= 2; attempt++) {
+                try {
+                    boundary = await determineMapBoundaries();
+                } catch (e) {
+                    console.warn(
+                        `determineMapBoundaries attempt ${attempt} failed:`,
+                        e,
+                    );
+                    boundary = null;
+                }
                 if (cancelled) return;
+                const hasFeatures = Boolean(
+                    boundary?.features?.length,
+                );
+                if (hasFeatures) break;
+                if (attempt < 2) {
+                    console.debug(
+                        "[map] boundary attempt 1 returned nothing — retrying in 8 s",
+                    );
+                    await new Promise((r) => setTimeout(r, 8000));
+                    if (cancelled) return;
+                }
+            }
+            try {
+                const hadFeatures = Boolean(boundary?.features?.length);
+                if (!hadFeatures && !cancelled) {
+                    // Both attempts came back empty. Surface a single
+                    // user-facing toast (the per-fetch silent path
+                    // suppresses any sub-toasts so we're the only
+                    // voice). The wording avoids blaming the user —
+                    // boundary fetches fail mostly when the public
+                    // mirrors are rate-limited or the relation hasn't
+                    // been built at polygons.osm.fr yet.
+                    toast.error(
+                        "Couldn't load the play-area boundary. The mirrors are busy — try again in a minute.",
+                        { toastId: "boundary-load-error" },
+                    );
+                }
                 if (boundary) {
                     // Trim the legal-boundary polygon to actual land
                     // before we publish it. OSM admin boundaries

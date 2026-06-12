@@ -1,11 +1,12 @@
 import { useStore } from "@nanostores/react";
+import type { LucideIcon } from "lucide-react";
 import {
     Bus,
     Check,
     ChevronLeft,
     Footprints,
-    Maximize2,
     MapPin,
+    Maximize2,
     Pencil,
     Plus,
     Ship,
@@ -13,8 +14,6 @@ import {
     TrainTrack,
     TramFront,
 } from "lucide-react";
-
-import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -71,6 +70,7 @@ import {
     type OpenStreetMap,
     reverseGeocodeCity,
 } from "@/maps/api";
+import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
 
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
@@ -398,6 +398,16 @@ export function GameSetupDialog() {
                 lng,
             });
             mapGeoLocation.set(draftFeature);
+            // Pre-build the polygons.osm.fr polygon for this relation
+            // so that by the time the seeker hits the lobby and the
+            // boundary fetch kicks in, the fast-path racer already
+            // has a built polygon ready instead of returning "None"
+            // and falling back to the public Overpass mirrors. The
+            // call is fire-and-forget and idempotent per relation,
+            // so re-picks are free.
+            if (draftFeature.properties.osm_type === "R") {
+                triggerPolygonsOsmFrBuild(draftFeature.properties.osm_id);
+            }
             questions.set([]);
             // NOTE: don't clear `additionalMapGeoLocations` here —
             // `PlayAreaExtensions` already manages it (it clears
@@ -450,6 +460,12 @@ export function GameSetupDialog() {
             // such relation, so no boundary was ever fetched and the entire
             // world stayed "in play").
             mapGeoLocation.set(draftFeature);
+            // See the matching call above (finish-wizard path): kick
+            // off the polygons.osm.fr build immediately on selection
+            // so the boundary is ready by the time the lobby loads.
+            if (draftFeature.properties.osm_type === "R") {
+                triggerPolygonsOsmFrBuild(draftFeature.properties.osm_id);
+            }
 
             // Fresh game: wipe everything tied to a previous session so the
             // seeker starts from a blank slate inside the new region. Settings
