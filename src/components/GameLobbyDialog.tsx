@@ -193,8 +193,19 @@ export function GameLobbyDialog() {
     // always auto-creates a multiplayer room on finish, so the only
     // way to be without $mp is an autohost network failure, which
     // shouldn't let the player start either.
+    // Role-balance gate:
+    //   - There must be at least one hider (someone has to hide).
+    //   - There must be at least one seeker — UNLESS the local player
+    //     is the hider, in which case the hider can start the round
+    //     solo and let seekers join during the hiding period (which
+    //     they get to spend en route to their hiding spot anyway).
+    //     Without this carve-out a hider host was permanently stuck
+    //     on "Waiting for players…" because the gate required a
+    //     seeker that wasn't there.
     const hasRoleBalance =
-        $mp && seekers.length >= 1 && hiders.length >= 1;
+        $mp &&
+        hiders.length >= 1 &&
+        (seekers.length >= 1 || isHiderRole);
 
     // Identify the host. In a multiplayer room the host owns the
     // clock kickoff; guests see a "waiting for host to start"
