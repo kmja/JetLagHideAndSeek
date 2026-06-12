@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
 import { BottomNav } from "@/components/BottomNav";
+import { CacheStatusPill } from "@/components/CacheStatusPill";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
 // Eager-import the map itself. It's a ~880 KB chunk on its own
@@ -147,8 +148,9 @@ export function SeekerPage() {
                                     the bottom-nav slot that previously
                                     held the zones trigger has been
                                     reassigned to "Game". */}
-                                <div className="absolute top-2 right-2 z-[1030] group-[.fullscreen]:hidden">
+                                <div className="absolute top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
                                     <MapDisplayControls />
+                                    <CacheStatusPill />
                                 </div>
                                 <div className="bottom-5 right-2 mx-auto mb-2 w-fit absolute z-[1030] group-[.fullscreen]:hidden hidden md:block">
                                     <OptionDrawers />

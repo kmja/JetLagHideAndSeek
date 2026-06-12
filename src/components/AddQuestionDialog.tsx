@@ -72,7 +72,13 @@ function preloadSubtypeData(
             location
         ];
         if (!tag) continue;
-        // No loadingText → no toast.promise wrapper; this is pure pre-fetch.
+        // No loadingText → no toast.promise wrapper; this is pure
+        // pre-fetch. `silent: true` so a downed cache worker doesn't
+        // make this background warm-up toast the user with "Could
+        // not load data from Overpass" while their interactive
+        // request resolves fine — that mismatch was confusing
+        // because the user saw their question succeed yet still got
+        // a scary failure banner.
         findPlacesInZone(
             `[${tag}=${location}]`,
             undefined,
@@ -80,6 +86,7 @@ function preloadSubtypeData(
             "center",
             [],
             60,
+            true,
         ).catch(() => {});
     }
 }

@@ -1,4 +1,5 @@
 import * as turf from "@turf/turf";
+import { atom } from "nanostores";
 
 import {
     additionalMapGeoLocations,
@@ -116,6 +117,7 @@ export async function prefetchCategory(
     const racing = inFlight.get(key);
     if (racing) return racing;
 
+    bumpStatus({ inFlightDelta: 1 });
     const promise = (async () => {
         try {
             const data = await findPlacesInZone(
@@ -144,9 +146,14 @@ export async function prefetchCategory(
                 features.push({ lat, lng: lon, name });
             }
             cache.set(key, features);
+            bumpStatus({ warmedKey: key, count: features.length });
             return features;
+        } catch (e) {
+            bumpStatus({ failedKey: key });
+            throw e;
         } finally {
             inFlight.delete(key);
+            bumpStatus({ inFlightDelta: -1 });
         }
     })();
     inFlight.set(key, promise);
@@ -232,4 +239,107 @@ export async function prefetchAllStandardCategories(): Promise<void> {
         });
         await new Promise((r) => setTimeout(r, 250));
     }
+}
+
+/* ─────────────────── Live status (for UI) ─────────────────── */
+
+/**
+ * Live cache-status snapshot, surfaced to a small floating pill so
+ * the player can see at a glance whether the warm-up has actually
+ * landed. Reset whenever the play area changes (signature flip).
+ *
+ *   total       — how many distinct family keys we've ever asked
+ *                 for under the current play-area signature
+ *   warmed      — keys with a successful cache entry (could be 0
+ *                 features — empty play area for that family — but
+ *                 still counts as "answered")
+ *   failed      — keys whose last attempt threw or returned null
+ *                 (the lazy fallback will retry on next use)
+ *   inFlight    — fetches currently in flight
+ *   features    — total feature count across all warmed keys, so
+ *                 the pill can show a meaningful "X amenities"
+ *                 number rather than a meaningless "14 categories"
+ *   lastUpdate  — Unix ms, refreshed on every transition (drives a
+ *                 small "just now / 30s ago" pill subtitle)
+ */
+export interface PrefetchStatus {
+    signature: string;
+    total: number;
+    warmed: number;
+    failed: number;
+    inFlight: number;
+    features: number;
+    lastUpdate: number;
+    /** Per-family detail for the expanded panel: family key → result. */
+    perFamily: Record<
+        string,
+        { state: "in-flight" | "warm" | "failed"; count: number }
+    >;
+}
+
+function emptyStatus(signature: string): PrefetchStatus {
+    return {
+        signature,
+        total: 0,
+        warmed: 0,
+        failed: 0,
+        inFlight: 0,
+        features: 0,
+        lastUpdate: Date.now(),
+        perFamily: {},
+    };
+}
+
+export const prefetchStatus = atom<PrefetchStatus>(emptyStatus(""));
+
+/** Apply a transition to `prefetchStatus`. Recomputes derived
+ *  counts so subscribers always see a self-consistent snapshot.
+ *  Drops anything from a previous play-area signature on the floor. */
+function bumpStatus(args: {
+    warmedKey?: string;
+    failedKey?: string;
+    count?: number;
+    inFlightDelta?: number;
+}): void {
+    const sig = playAreaSignature();
+    const current = prefetchStatus.get();
+    const next: PrefetchStatus =
+        current.signature === sig
+            ? { ...current, perFamily: { ...current.perFamily } }
+            : emptyStatus(sig);
+
+    if (args.warmedKey) {
+        const familyFromKey = args.warmedKey.split("|")[1] ?? args.warmedKey;
+        next.perFamily[familyFromKey] = {
+            state: "warm",
+            count: args.count ?? 0,
+        };
+    }
+    if (args.failedKey) {
+        const familyFromKey = args.failedKey.split("|")[1] ?? args.failedKey;
+        // Don't downgrade a previously-warm key on a later failure —
+        // the cache still holds the older result, the failure was on
+        // a refresh attempt.
+        if (next.perFamily[familyFromKey]?.state !== "warm") {
+            next.perFamily[familyFromKey] = { state: "failed", count: 0 };
+        }
+    }
+    if (args.inFlightDelta) {
+        next.inFlight = Math.max(0, next.inFlight + args.inFlightDelta);
+    }
+
+    const entries = Object.values(next.perFamily);
+    next.warmed = entries.filter((e) => e.state === "warm").length;
+    next.failed = entries.filter((e) => e.state === "failed").length;
+    next.features = entries.reduce(
+        (acc, e) => acc + (e.state === "warm" ? e.count : 0),
+        0,
+    );
+    next.total = Math.max(
+        Object.keys(next.perFamily).length,
+        standardFamilies().length,
+    );
+    next.lastUpdate = Date.now();
+
+    prefetchStatus.set(next);
 }
