@@ -53,6 +53,25 @@ const RADIUS_PRESETS: {
 const PRIMARY_PRESETS = RADIUS_PRESETS.slice(0, 5);
 const OTHER_PRESETS = RADIUS_PRESETS.slice(5);
 
+/**
+ * Pick a "nice" step for snapping the logarithmic slider's output:
+ * tighter intervals around small radii (where seekers really do need
+ * sub-100 m resolution) and progressively looser ones higher up so
+ * we don't pretend a 30 km vs 30.3 km guess matters.
+ */
+function snapToNiceStep(value: number, unit: Units): number {
+    if (unit === "meters") {
+        if (value < 200) return Math.round(value / 10) * 10;
+        if (value < 1000) return Math.round(value / 50) * 50;
+        return Math.round(value / 100) * 100;
+    }
+    // miles + kilometers share the same shape in "1 unit" terms.
+    if (value < 1) return Math.round(value * 10) / 10;
+    if (value < 5) return Math.round(value * 4) / 4;
+    if (value < 20) return Math.round(value * 2) / 2;
+    return Math.round(value);
+}
+
 export const RadiusQuestionComponent = ({
     data,
     questionKey,
@@ -136,13 +155,41 @@ export const RadiusQuestionComponent = ({
                             }),
                     );
 
-                    // Range/step for custom slider, unit-dependent.
+                    // Range for the custom slider, unit-dependent. The
+                    // slider itself runs on a 0..1000 integer track and
+                    // maps that logarithmically onto the [min, max]
+                    // radius window — small values get most of the
+                    // travel so a seeker can tune a 600 m radar pixel-
+                    // perfect, while still reaching the 50 km end from
+                    // the same control. Snapping to a magnitude-aware
+                    // step (0.1 → 1 km, 10 → 100 m, etc.) keeps the
+                    // visible number tidy.
                     const sliderConfig =
                         data.unit === "miles"
-                            ? { min: 0.5, max: 30, step: 0.5 }
+                            ? { min: 0.5, max: 30 }
                             : data.unit === "meters"
-                              ? { min: 50, max: 5000, step: 50 }
-                              : { min: 0.5, max: 50, step: 0.5 };
+                              ? { min: 50, max: 5000 }
+                              : { min: 0.5, max: 50 };
+                    const SLIDER_TRACK = 1000;
+                    const logMin = Math.log(sliderConfig.min);
+                    const logMax = Math.log(sliderConfig.max);
+                    const sliderToRadius = (s: number): number => {
+                        const r = Math.exp(
+                            logMin + ((logMax - logMin) * s) / SLIDER_TRACK,
+                        );
+                        return snapToNiceStep(r, data.unit);
+                    };
+                    const radiusToSlider = (r: number): number => {
+                        const clamped = Math.max(
+                            sliderConfig.min,
+                            Math.min(sliderConfig.max, r),
+                        );
+                        return Math.round(
+                            ((Math.log(clamped) - logMin) /
+                                (logMax - logMin)) *
+                                SLIDER_TRACK,
+                        );
+                    };
 
                     const pickPreset = (preset: typeof RADIUS_PRESETS[0]) => {
                         data.radius = preset.radius;
@@ -167,9 +214,9 @@ export const RadiusQuestionComponent = ({
 
                     const presetBtnClass = (sig: string) =>
                         cn(
-                            "flex-1 min-w-[60px] py-2 px-1 rounded-md text-sm font-poppins font-semibold",
+                            "py-2 px-2 rounded-md text-sm font-poppins font-semibold",
                             "bg-secondary text-foreground hover:bg-accent",
-                            "transition-colors",
+                            "transition-colors whitespace-nowrap leading-none",
                             "disabled:opacity-30 disabled:cursor-not-allowed",
                             currentSig === sig &&
                                 "ring-2 ring-primary bg-primary/20 text-primary",
@@ -182,10 +229,15 @@ export const RadiusQuestionComponent = ({
                                 "flex flex-col gap-3",
                             )}
                         >
-                            {/* Primary preset row — 5 equal columns so the
-                                last preset (10 km) doesn't wrap onto its own
-                                line on narrow mobile widths. */}
-                            <div className="grid grid-cols-5 gap-1.5">
+                            {/* Primary preset row — responsive 3-col on
+                                narrow phones, 5-col once we have a wider
+                                dialog body. The old `grid-cols-5` forced
+                                five ~60 px buttons on ~310 px-wide bodies
+                                and they ended up clipping into each
+                                other; switching to a flex-wrap with a
+                                65 px basis lets the row reflow to a 3+2
+                                layout when it has to. */}
+                            <div className="flex flex-wrap gap-1.5">
                                 {PRIMARY_PRESETS.map((preset) => (
                                     <button
                                         key={preset.sig}
@@ -197,24 +249,31 @@ export const RadiusQuestionComponent = ({
                                             (usedSigs.has(preset.sig) &&
                                                 currentSig !== preset.sig)
                                         }
-                                        className={presetBtnClass(preset.sig)}
+                                        className={cn(
+                                            presetBtnClass(preset.sig),
+                                            "flex-1 basis-[65px]",
+                                        )}
                                     >
                                         {preset.label}
                                     </button>
                                 ))}
                             </div>
 
-                            {/* Other + Custom row */}
-                            <div className="flex gap-1.5">
+                            {/* Other + Custom row. `whitespace-nowrap`
+                                stops "Other ▾" from wrapping to two
+                                lines when the button is narrow — that
+                                wrap was what made these look much
+                                taller than the primary row. */}
+                            <div className="flex flex-wrap gap-1.5">
                                 <Popover>
                                     <PopoverTrigger asChild>
                                         <button
                                             type="button"
                                             disabled={!data.drag || $isLoading}
                                             className={cn(
-                                                "flex-1 py-2 px-2 rounded-md text-sm font-poppins font-semibold",
+                                                "flex-1 basis-[120px] py-2 px-2 rounded-md text-sm font-poppins font-semibold",
                                                 "bg-secondary text-foreground hover:bg-accent",
-                                                "transition-colors",
+                                                "transition-colors whitespace-nowrap leading-none",
                                                 "disabled:opacity-30 disabled:cursor-not-allowed",
                                                 OTHER_PRESETS.some(
                                                     (p) =>
@@ -270,9 +329,9 @@ export const RadiusQuestionComponent = ({
                                             !data.useCustom)
                                     }
                                     className={cn(
-                                        "flex-1 py-2 px-2 rounded-md text-sm font-poppins font-semibold",
+                                        "flex-1 basis-[120px] py-2 px-2 rounded-md text-sm font-poppins font-semibold",
                                         "bg-secondary text-foreground hover:bg-accent",
-                                        "transition-colors",
+                                        "transition-colors whitespace-nowrap leading-none",
                                         "disabled:opacity-30 disabled:cursor-not-allowed",
                                         data.useCustom &&
                                             "ring-2 ring-primary bg-primary/20 text-primary",
@@ -303,15 +362,18 @@ export const RadiusQuestionComponent = ({
                                     </div>
                                     <input
                                         type="range"
-                                        min={sliderConfig.min}
-                                        max={sliderConfig.max}
-                                        step={sliderConfig.step}
-                                        value={data.radius}
+                                        min={0}
+                                        max={SLIDER_TRACK}
+                                        step={1}
+                                        value={radiusToSlider(data.radius)}
                                         disabled={!data.drag || $isLoading}
                                         onChange={(e) =>
                                             questionModified(
-                                                (data.radius = parseFloat(
-                                                    e.target.value,
+                                                (data.radius = sliderToRadius(
+                                                    parseInt(
+                                                        e.target.value,
+                                                        10,
+                                                    ),
                                                 )),
                                             )
                                         }

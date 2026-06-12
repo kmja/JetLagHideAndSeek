@@ -16,6 +16,7 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     defaultCustomQuestions,
     defaultUnit,
+    lastKnownPosition,
     mapContext,
     questionModified,
     questions,
@@ -352,8 +353,22 @@ export const AddQuestionDialog = ({
         return null;
     };
 
+    // GPS-seeded center for question types whose answer depends on
+    // the seeker's actual position (radar, matching, measuring).
+    // Prefers the seeker's most recent GPS fix, then the map center,
+    // then the play-area centroid. Radar in particular feels broken
+    // when the new circle drops on the last-panned map view rather
+    // than the seeker's location, so we ask GPS first here.
+    const resolveSeekerCenter = (): { lat: number; lng: number } | null => {
+        const gps = lastKnownPosition.get();
+        if (gps && Number.isFinite(gps.lat) && Number.isFinite(gps.lng)) {
+            return { lat: gps.lat, lng: gps.lng };
+        }
+        return resolveCenter();
+    };
+
     const runAddRadius = () => {
-        const center = resolveCenter();
+        const center = resolveSeekerCenter();
         if (!center) return false;
         const map = mapContext.get();
         addQuestion({
@@ -438,23 +453,26 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMatching = (subtype?: string) => {
-        // Matching/measuring start with sentinel 0,0 coords — never the
-        // map center. The picker inside the configure dialog requests
-        // GPS and requires either a GPS lock or a manual location pick
-        // before the question can be sent (the Confirm button stays
-        // disabled while coords are 0,0). 0,0 is used over NaN because
-        // the question's Zod schema rejects NaN at parse time.
+        // Seed from the latest GPS fix when we have one — the configure
+        // dialog can then fire the "nearest reference" lookup
+        // immediately instead of waiting for the picker's own GPS pass
+        // to land first. If we have no fix yet, fall back to the 0,0
+        // sentinel so the Confirm button stays disabled until a real
+        // location is chosen (GPS or manual place-search). 0,0 is
+        // preferred over NaN because the Zod schema rejects NaN at
+        // parse time.
+        const seed = lastKnownPosition.get();
         addQuestion({
             id: "matching",
             data: defaultCustomQuestions.get()
                 ? ({
-                      lat: 0,
-                      lng: 0,
+                      lat: seed?.lat ?? 0,
+                      lng: seed?.lng ?? 0,
                       type: subtype ?? "custom-points",
                   } as never)
                 : ({
-                      lat: 0,
-                      lng: 0,
+                      lat: seed?.lat ?? 0,
+                      lng: seed?.lng ?? 0,
                       ...(subtype ? { type: subtype } : {}),
                   } as never),
         });
@@ -462,19 +480,21 @@ export const AddQuestionDialog = ({
     };
 
     const runAddMeasuring = (subtype?: string) => {
-        // See runAddMatching — same rule: GPS or manual entry only,
-        // no map-center fallback. 0,0 is the "not set yet" sentinel.
+        // See runAddMatching — same rule: prefer the last GPS fix so
+        // the reference lookup can start immediately; 0,0 sentinel
+        // when we have nothing yet.
+        const seed = lastKnownPosition.get();
         addQuestion({
             id: "measuring",
             data: defaultCustomQuestions.get()
                 ? ({
-                      lat: 0,
-                      lng: 0,
+                      lat: seed?.lat ?? 0,
+                      lng: seed?.lng ?? 0,
                       type: subtype ?? "custom-measure",
                   } as never)
                 : ({
-                      lat: 0,
-                      lng: 0,
+                      lat: seed?.lat ?? 0,
+                      lng: seed?.lng ?? 0,
                       ...(subtype ? { type: subtype } : {}),
                   } as never),
         });

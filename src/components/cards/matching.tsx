@@ -596,6 +596,14 @@ function MatchingMeasuringLocation({
             ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
             : undefined;
 
+    // Inside the configure dialog, defer the map until *both* the
+    // seeker pin and the nearest-reference dot are ready. Showing the
+    // map while one of them is still resolving meant a flicker of an
+    // unrelated centroid, then a fly-to-GPS, then a fit-bounds — three
+    // animations the user didn't ask for. Outside the configure dialog
+    // (drawer/sidebar render) the map renders as before.
+    const mapReady = !forceExpanded || (coordsSet && Boolean(referencePoint));
+
     return (
         <LatitudeLongitude
             latitude={lat}
@@ -607,6 +615,7 @@ function MatchingMeasuringLocation({
             // See measuring.tsx: GPS or place-search only inside the
             // configure dialog. Display-only outside.
             lockToGps={forceExpanded}
+            mapReady={mapReady}
         />
     );
 }

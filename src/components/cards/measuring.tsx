@@ -410,6 +410,11 @@ function MeasuringLocation({
             ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
             : undefined;
 
+    // See cards/matching.tsx — defer the map inside the configure
+    // dialog until both the seeker pin and the resolved nearest
+    // reference are known. Avoids the play-area-centroid flash.
+    const mapReady = !forceExpanded || (coordsSet && Boolean(referencePoint));
+
     return (
         <LatitudeLongitude
             latitude={lat}
@@ -424,6 +429,7 @@ function MeasuringLocation({
             // question is already answered and the picker is just a
             // display, so the lock doesn't matter.
             lockToGps={forceExpanded}
+            mapReady={mapReady}
         />
     );
 }

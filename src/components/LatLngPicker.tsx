@@ -397,6 +397,7 @@ export const LatitudeLongitude = ({
     radiusMeters,
     referencePoint,
     lockToGps = false,
+    mapReady = true,
 }: {
     latitude: number;
     longitude: number;
@@ -426,6 +427,15 @@ export const LatitudeLongitude = ({
      * map. Used by matching/measuring configure dialogs.
      */
     lockToGps?: boolean;
+    /**
+     * Gate the inline map render. When false, a small "Locating…"
+     * placeholder is shown in the map's slot instead — useful for
+     * matching/measuring where the map is only meaningful once *both*
+     * the seeker pin and the resolved nearest reference are known.
+     * The PlaceSearchInput below stays mounted in lock-to-GPS mode
+     * so the user can still set a location while the map is gated.
+     */
+    mapReady?: boolean;
 }) => {
     const $isLoading = useStore(isLoading);
 
@@ -492,22 +502,28 @@ export const LatitudeLongitude = ({
                 )}
                 {!inlineEdit && (
                     <div className="mt-2 space-y-2">
-                        <Suspense
-                            fallback={
-                                <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
-                                    Loading map…
-                                </div>
-                            }
-                        >
-                            <InlineLocationPicker
-                                latitude={latitude}
-                                longitude={longitude}
-                                onChange={(la, ln) => onChange(la, ln)}
-                                radiusMeters={radiusMeters}
-                                referencePoint={referencePoint}
-                                lockToGps={lockToGps}
-                            />
-                        </Suspense>
+                        {mapReady ? (
+                            <Suspense
+                                fallback={
+                                    <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                                        Loading map…
+                                    </div>
+                                }
+                            >
+                                <InlineLocationPicker
+                                    latitude={latitude}
+                                    longitude={longitude}
+                                    onChange={(la, ln) => onChange(la, ln)}
+                                    radiusMeters={radiusMeters}
+                                    referencePoint={referencePoint}
+                                    lockToGps={lockToGps}
+                                />
+                            </Suspense>
+                        ) : (
+                            <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground px-4 text-center">
+                                Locating you and the nearest reference…
+                            </div>
+                        )}
                         {/* Manual entry path. In lock-to-GPS mode the map
                             is display-only, so a place search is the
                             only way to set a location when GPS is denied

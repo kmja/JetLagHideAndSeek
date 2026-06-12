@@ -419,36 +419,15 @@ function ShareQuestionRow({ question }: { question: Question }) {
 }
 
 /**
- * Collapsible wrapper for the "manual answer" toggle in question cards.
- * When `compact` is true, the children are hidden behind a small "Set
- * answer manually" button that reveals them on click. Used in the
- * just-added-question dialog where we expect the hider to provide the
- * answer via share-link instead.
+ * Suppressed manual-answer disclosure. The app now trusts that a real
+ * hider will reply via share-link or multiplayer — so the seeker
+ * never needs to override the answer locally. Renders nothing for
+ * every question type. The component is kept (rather than ripped
+ * out at every callsite) so the wiring stays simple if we ever want
+ * to bring a debug-only manual mode back.
  */
-export const ManualAnswerDisclosure = ({
-    children,
-}: {
-    /** Accepted for backwards-compat but no longer drives behavior —
-     *  the disclosure is now collapsed by default for every question
-     *  type, matching the "the answer arrives from the hider, you
-     *  rarely need to set it manually" workflow. */
-    compact?: boolean;
-    children: React.ReactNode;
-}) => {
-    const [open, setOpen] = useState(false);
-    if (open) return <>{children}</>;
-    return (
-        <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className={cn(
-                "w-full px-2 py-2 mt-1 text-left text-xs",
-                "text-muted-foreground hover:text-foreground",
-                "transition-colors",
-            )}
-        >
-            ▾ Set answer manually
-        </button>
-    );
-};
+export const ManualAnswerDisclosure = (
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _props: { compact?: boolean; children: React.ReactNode },
+) => null;
 
