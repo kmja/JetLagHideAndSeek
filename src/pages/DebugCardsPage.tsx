@@ -1,424 +1,40 @@
+import { useStore } from "@nanostores/react";
 import { ArrowLeft } from "lucide-react";
+import { useMemo, useState } from "react";
 
-import {
-    MatchingQuestionComponent,
-    MeasuringQuestionComponent,
-    PhotoQuestionComponent,
-    RadiusQuestionComponent,
-    TentacleQuestionComponent,
-    ThermometerQuestionComponent,
-} from "@/components/QuestionCards";
+import { CardTile } from "@/components/CardTile";
+import { type GameSize,gameSize } from "@/lib/gameSetup";
+import { type Card, uniqueCardTemplates } from "@/lib/hiderDeck";
+import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
-import type {
-    MatchingQuestion,
-    MeasuringQuestion,
-    RadiusQuestion,
-    TentacleQuestion,
-    ThermometerQuestion,
-} from "@/maps/schema";
 
 /**
- * Developer gallery of every unique question card, at `/debug/cards`.
+ * Developer gallery of every unique hider-deck card, at `/debug/cards`.
  *
- * Renders one of each card category — plus the meaningful visual
- * variants within a category (answered / unanswered, inside / outside,
- * warmer / colder, started / finished, declined photo) — so a designer
- * or developer can eyeball every card surface on one screen without
- * having to set up a game and ask each question type by hand.
+ * Renders one of each distinct template — every time-bonus tier, every
+ * powerup, every curse — in the same `CardTile` chrome the hand fan
+ * and HandCarousel use. Lets a designer or developer eyeball every
+ * card surface on one screen without having to draw a full deck and
+ * hope to flip them all.
  *
- * The cards read the global `questions` store for a few cross-question
- * computations (uniqueness, labels), but they tolerate not finding
- * themselves there (see `QuestionCard` — `thisQuestion?.…`), so the
- * gallery renders them with sample `data` WITHOUT touching the real
- * store. That keeps the page side-effect-free: visiting it can't
- * pollute a live game's question list or fire Overpass lookups (those
- * only fire when a matching/measuring card is expanded into its
- * configure state, which the user triggers manually).
- *
- * Cards render in their natural collapsed state; tap any chevron to
- * expand. Keys are large negatives so they can never collide with a
- * real question key.
+ * Side-effect-free: `CardTile` is a pure renderer (no Overpass
+ * fetches, no atom writes, no question store touches). Visiting this
+ * page can't pollute a live game. The previous version of this page
+ * accidentally rendered *question* cards, which transitively kicked
+ * off `findTentacleLocations()` calls at JSX construction time and
+ * stacked a dozen failure toasts — the hider-deck cards have none of
+ * that surface.
  */
-
-interface Specimen {
-    key: number;
-    label: string;
-    render: (key: number) => React.ReactNode;
-}
-
-let nextKey = -100_000;
-const k = () => nextKey--;
-
-const COMMON = {
-    lat: 59.3293,
-    lng: 18.0686,
-    color: "red" as const,
-    collapsed: true,
-    createdAt: Date.now() - 4 * 60_000,
-};
-
-/** Hardcoded Point features for the tentacles `custom` branch — see
- *  the comment in the Tentacles section below for why we pin to
- *  custom here rather than the rulebook subtypes. */
-const SAMPLE_PLACES = [
-    {
-        type: "Feature" as const,
-        geometry: {
-            type: "Point" as const,
-            coordinates: [18.0686, 59.3293],
-        },
-        properties: { name: "Stockholm City Hall" },
-    },
-    {
-        type: "Feature" as const,
-        geometry: {
-            type: "Point" as const,
-            coordinates: [18.09, 59.34],
-        },
-        properties: { name: "Vasa Museum" },
-    },
-    {
-        type: "Feature" as const,
-        geometry: {
-            type: "Point" as const,
-            coordinates: [18.05, 59.32],
-        },
-        properties: { name: "Stockholm Concert Hall" },
-    },
-];
-
-const SECTIONS: { title: string; specimens: Specimen[] }[] = [
-    {
-        title: "Radius (radar)",
-        specimens: [
-            {
-                key: k(),
-                label: "Unanswered (awaiting hider)",
-                render: (key) => (
-                    <RadiusQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                radius: 5,
-                                unit: "kilometers",
-                                within: true,
-                                drag: true,
-                            } as RadiusQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Answered — inside",
-                render: (key) => (
-                    <RadiusQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                radius: 1,
-                                unit: "kilometers",
-                                within: true,
-                                drag: false,
-                            } as RadiusQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Answered — outside",
-                render: (key) => (
-                    <RadiusQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                radius: 500,
-                                unit: "meters",
-                                within: false,
-                                drag: false,
-                            } as RadiusQuestion
-                        }
-                    />
-                ),
-            },
-        ],
-    },
-    {
-        title: "Thermometer",
-        specimens: [
-            {
-                key: k(),
-                label: "Started (measuring in progress)",
-                render: (key) => (
-                    <ThermometerQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                latA: COMMON.lat,
-                                lngA: COMMON.lng,
-                                latB: COMMON.lat,
-                                lngB: COMMON.lng,
-                                warmer: true,
-                                colorA: "red",
-                                colorB: "green",
-                                drag: true,
-                                collapsed: true,
-                                status: "started",
-                                startedAt: Date.now() - 2 * 60_000,
-                            } as ThermometerQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Finished — warmer",
-                render: (key) => (
-                    <ThermometerQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                latA: COMMON.lat,
-                                lngA: COMMON.lng,
-                                latB: 59.34,
-                                lngB: 18.09,
-                                warmer: true,
-                                colorA: "red",
-                                colorB: "green",
-                                drag: false,
-                                collapsed: true,
-                                status: "finished",
-                                distance: "1km",
-                                createdAt: COMMON.createdAt,
-                            } as ThermometerQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Finished — colder",
-                render: (key) => (
-                    <ThermometerQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                latA: COMMON.lat,
-                                lngA: COMMON.lng,
-                                latB: 59.32,
-                                lngB: 18.05,
-                                warmer: false,
-                                colorA: "red",
-                                colorB: "green",
-                                drag: false,
-                                collapsed: true,
-                                status: "finished",
-                                distance: "500m",
-                                createdAt: COMMON.createdAt,
-                            } as ThermometerQuestion
-                        }
-                    />
-                ),
-            },
-        ],
-    },
-    {
-        title: "Tentacles",
-        specimens: [
-            // NB: rulebook tentacles (locationType "theme_park" /
-            // "museum" / etc.) would fire `findTentacleLocations()`
-            // *during JSX construction* — the call is a prop value,
-            // so it runs whether or not the surrounding
-            // `ManualAnswerDisclosure` renders the child tree. That's
-            // why a freshly-opened gallery used to stack a dozen
-            // "Determining tentacle locations…" toasts and burn
-            // through Overpass quota. We pin the gallery to the
-            // `custom` branch (Promise.resolve over `data.places`)
-            // with hardcoded sample features instead — same visual
-            // chrome, zero network.
-            {
-                key: k(),
-                label: "Custom — 15-mile variant",
-                render: (key) => (
-                    <TentacleQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                radius: 15,
-                                unit: "miles",
-                                location: false,
-                                locationType: "custom",
-                                drag: true,
-                                places: SAMPLE_PLACES,
-                            } as unknown as TentacleQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Custom — 1-mile variant",
-                render: (key) => (
-                    <TentacleQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                radius: 1,
-                                unit: "miles",
-                                location: false,
-                                locationType: "custom",
-                                drag: true,
-                                places: SAMPLE_PLACES,
-                            } as unknown as TentacleQuestion
-                        }
-                    />
-                ),
-            },
-        ],
-    },
-    {
-        title: "Matching",
-        specimens: [
-            {
-                key: k(),
-                label: "Answered — same (museum)",
-                render: (key) => (
-                    <MatchingQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                type: "museum",
-                                same: true,
-                                drag: false,
-                            } as unknown as MatchingQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Answered — different (museum)",
-                render: (key) => (
-                    <MatchingQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                type: "museum",
-                                same: false,
-                                drag: false,
-                            } as unknown as MatchingQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Zone (admin level)",
-                render: (key) => (
-                    <MatchingQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                type: "zone",
-                                same: true,
-                                drag: false,
-                                cat: { adminLevel: 4 },
-                            } as unknown as MatchingQuestion
-                        }
-                    />
-                ),
-            },
-        ],
-    },
-    {
-        title: "Measuring",
-        specimens: [
-            {
-                key: k(),
-                label: "Answered — closer (museum)",
-                render: (key) => (
-                    <MeasuringQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                type: "museum",
-                                hiderCloser: false,
-                                drag: false,
-                            } as unknown as MeasuringQuestion
-                        }
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Answered — further (major city)",
-                render: (key) => (
-                    <MeasuringQuestionComponent
-                        questionKey={key}
-                        data={
-                            {
-                                ...COMMON,
-                                type: "city",
-                                hiderCloser: true,
-                                drag: false,
-                            } as unknown as MeasuringQuestion
-                        }
-                    />
-                ),
-            },
-        ],
-    },
-    {
-        title: "Photo",
-        specimens: [
-            {
-                key: k(),
-                label: "Unanswered (tree)",
-                render: (key) => (
-                    <PhotoQuestionComponent
-                        questionKey={key}
-                        data={{
-                            type: "tree",
-                            drag: true,
-                            collapsed: true,
-                            color: "red",
-                            createdAt: COMMON.createdAt,
-                        }}
-                    />
-                ),
-            },
-            {
-                key: k(),
-                label: "Declined (could not answer)",
-                render: (key) => (
-                    <PhotoQuestionComponent
-                        questionKey={key}
-                        data={{
-                            type: "selfie",
-                            drag: false,
-                            declined: true,
-                            collapsed: true,
-                            color: "red",
-                            createdAt: COMMON.createdAt,
-                        }}
-                    />
-                ),
-            },
-        ],
-    },
-];
-
 export function DebugCardsPage() {
+    // Game size only affects the time-bonus minute lookup on each
+    // card's face. The toggle lets us preview "Time bonus · 5" in all
+    // three rulebook variants (2 / 3 / 5 min) without flipping atoms.
+    const $gameSize = useStore(gameSize);
+    const [previewSize, setPreviewSize] = useState<GameSize>($gameSize);
+
+    const cards = useMemo(() => uniqueCardTemplates(), []);
+    const byKind = useMemo(() => groupByKind(cards), [cards]);
+
     return (
         <div className="min-h-screen bg-background text-foreground">
             <header className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 flex items-center gap-3">
@@ -437,32 +53,109 @@ export function DebugCardsPage() {
                 </span>
             </header>
 
-            <div className="max-w-md mx-auto px-3 py-4 space-y-6 pb-24">
+            <div className="max-w-3xl mx-auto px-3 py-4 space-y-6 pb-24">
                 <p className="text-xs text-muted-foreground leading-snug">
-                    Every unique card surface with sample data. Cards render
-                    collapsed — tap a chevron to expand. This page is
-                    read-only: it doesn&apos;t touch your real question list.
+                    Every unique hider-deck card — one per distinct
+                    template — in the same chrome the fan and hand
+                    carousel use. Read-only: nothing here writes to your
+                    real game.
                 </p>
-                {SECTIONS.map((section) => (
-                    <section key={section.title} className="space-y-2">
-                        <h2 className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                            {section.title}
-                        </h2>
-                        <div className="space-y-2">
-                            {section.specimens.map((s) => (
-                                <div key={s.key} className="space-y-1">
-                                    <div className="text-[10px] text-muted-foreground/70 font-mono px-1">
-                                        {s.label}
-                                    </div>
-                                    {s.render(s.key)}
-                                </div>
-                            ))}
-                        </div>
-                    </section>
-                ))}
+
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        Game size preview
+                    </span>
+                    <div className="inline-flex rounded-md border border-border overflow-hidden">
+                        {(["small", "medium", "large"] as const).map(
+                            (s) => (
+                                <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => setPreviewSize(s)}
+                                    className={cn(
+                                        "px-2.5 py-1 text-xs font-poppins font-semibold",
+                                        "transition-colors capitalize",
+                                        previewSize === s
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-secondary/60 text-foreground hover:bg-secondary",
+                                    )}
+                                >
+                                    {s}
+                                </button>
+                            ),
+                        )}
+                    </div>
+                </div>
+
+                <Section
+                    title={`Time bonus (${byKind.timeBonus.length})`}
+                    cards={byKind.timeBonus}
+                    previewSize={previewSize}
+                />
+                <Section
+                    title={`Powerups (${byKind.powerup.length})`}
+                    cards={byKind.powerup}
+                    previewSize={previewSize}
+                />
+                <Section
+                    title={`Curses (${byKind.curse.length})`}
+                    cards={byKind.curse}
+                    previewSize={previewSize}
+                />
             </div>
         </div>
     );
+}
+
+function Section({
+    title,
+    cards,
+    previewSize,
+}: {
+    title: string;
+    cards: Card[];
+    previewSize: GameSize;
+}) {
+    if (cards.length === 0) return null;
+    return (
+        <section className="space-y-2">
+            <h2 className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                {title}
+            </h2>
+            {/* Grid of full-size CardTile instances. The HandFan
+                miniaturises these to fit the rest screen; here we let
+                them breathe at their natural size so each line of copy
+                is legible. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {cards.map((card) => (
+                    <div key={card.id} className="space-y-1">
+                        <div className="text-[10px] text-muted-foreground/70 font-mono px-1 truncate">
+                            {card.name}
+                        </div>
+                        <CardTile
+                            card={card}
+                            gameSize={previewSize}
+                            selectionIndicator="none"
+                        />
+                    </div>
+                ))}
+            </div>
+        </section>
+    );
+}
+
+function groupByKind(cards: Card[]): {
+    timeBonus: Card[];
+    powerup: Card[];
+    curse: Card[];
+} {
+    const out = { timeBonus: [] as Card[], powerup: [] as Card[], curse: [] as Card[] };
+    for (const c of cards) {
+        if (c.kind === "time-bonus") out.timeBonus.push(c);
+        else if (c.kind === "powerup") out.powerup.push(c);
+        else out.curse.push(c);
+    }
+    return out;
 }
 
 export default DebugCardsPage;

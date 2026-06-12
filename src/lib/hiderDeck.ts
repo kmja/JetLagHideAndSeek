@@ -521,6 +521,28 @@ export function shuffledDeck(): Card[] {
     return deck;
 }
 
+/**
+ * One instance of every distinct card template in the hider deck —
+ * 5 time-bonus tiers + 7 powerup slots + N curse slots. Each carries
+ * a fresh id so they can be rendered alongside real hand cards
+ * without key collisions. Used by the developer card-gallery page;
+ * keep in sync with `makeDeck` by sourcing from the same tier/slot
+ * arrays.
+ */
+export function uniqueCardTemplates(): Card[] {
+    const out: Card[] = [];
+    for (const tier of TIME_BONUS_TIERS) {
+        out.push({ ...tier.template, id: makeId() });
+    }
+    for (const slot of POWERUP_SLOTS) {
+        out.push({ ...slot.template, id: makeId() });
+    }
+    for (const slot of CURSE_SLOTS) {
+        out.push({ ...slot.template, id: makeId() });
+    }
+    return out;
+}
+
 /** Fisher-Yates in-place shuffle. */
 function shuffleInPlace<T>(arr: T[]): void {
     for (let i = arr.length - 1; i > 0; i--) {
