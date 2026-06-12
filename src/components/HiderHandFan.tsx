@@ -121,6 +121,14 @@ function Fan({
     const activePointerRef = useRef<number | null>(null);
     const previewRef = useRef<number | null>(null);
     const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+    // Stable resting hit rects captured at press start. The card the
+    // user is currently peeking grows MUCH larger via transform —
+    // getBoundingClientRect() returns those transformed bounds, which
+    // moves the active hit area away from where the finger is. That
+    // caused the v164 flicker bug. Using the resting rect captured
+    // BEFORE any preview applies keeps the hit target stable through
+    // the whole press.
+    const stableRectsRef = useRef<DOMRect[]>([]);
 
     const setPreview = (idx: number | null) => {
         previewRef.current = idx;
@@ -132,16 +140,17 @@ function Fan({
         clientY: number,
         currentIdx: number | null,
     ): number | null => {
-        // Hysteresis: if a card is currently previewed, give it a
-        // generous bounds margin so a finger sitting on the seam
-        // between two cards doesn't flicker. The current card only
-        // loses focus when the finger has moved a clear distance
-        // past its expanded bounds.
-        const HYSTERESIS_PX = 18;
+        const rects = stableRectsRef.current;
+        // Hysteresis: prefer staying on the current card. The press
+        // expands the active card's hit area by HYSTERESIS_PX on
+        // every side, so jitter on the seam between two cards doesn't
+        // flip the preview. Combined with the stable resting rects,
+        // this keeps the focus locked to whatever the finger was on
+        // until it has moved a clear distance away.
+        const HYSTERESIS_PX = 14;
         if (currentIdx !== null) {
-            const btn = cardRefs.current[currentIdx];
-            if (btn) {
-                const r = btn.getBoundingClientRect();
+            const r = rects[currentIdx];
+            if (r) {
                 if (
                     clientX >= r.left - HYSTERESIS_PX &&
                     clientX <= r.right + HYSTERESIS_PX &&
@@ -154,15 +163,14 @@ function Fan({
         }
         // Walk top-to-bottom of the z-order (last index = topmost) so
         // the front-facing card wins overlapping pixels.
-        for (let i = cardRefs.current.length - 1; i >= 0; i--) {
-            const btn = cardRefs.current[i];
-            if (!btn) continue;
-            const rect = btn.getBoundingClientRect();
+        for (let i = rects.length - 1; i >= 0; i--) {
+            const r = rects[i];
+            if (!r) continue;
             if (
-                clientX >= rect.left &&
-                clientX <= rect.right &&
-                clientY >= rect.top &&
-                clientY <= rect.bottom
+                clientX >= r.left &&
+                clientX <= r.right &&
+                clientY >= r.top &&
+                clientY <= r.bottom
             ) {
                 return i;
             }
@@ -173,6 +181,16 @@ function Fan({
     const startPress = (e: React.PointerEvent, idx: number) => {
         if (activePointerRef.current !== null) return; // single-touch only
         activePointerRef.current = e.pointerId;
+        // Snapshot the resting hit rects BEFORE we set the preview
+        // state. setPreview synchronously triggers a re-render whose
+        // transform would otherwise be reflected in the rects on the
+        // next paint. Even though the rects we capture here come from
+        // the un-previewed DOM (since no flush has happened yet), the
+        // safer pattern is "snapshot first, transform second" — and
+        // it makes the intent unambiguous to readers.
+        stableRectsRef.current = cardRefs.current.map((btn) =>
+            btn ? btn.getBoundingClientRect() : new DOMRect(),
+        );
         setPreview(idx);
 
         const onMove = (ev: PointerEvent) => {
