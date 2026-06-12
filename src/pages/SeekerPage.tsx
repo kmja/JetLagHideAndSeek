@@ -1,11 +1,11 @@
-import { Suspense } from "react";
+import { useStore } from "@nanostores/react";
+import { Suspense, useEffect } from "react";
 
-import { BottomNav } from "@/components/BottomNav";
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
+import { BottomNav } from "@/components/BottomNav";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
-import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
 // Eager-import the map itself. It's a ~880 KB chunk on its own
 // (maplibre-gl) and was historically wrapped in React.lazy +
 // MapErrorBoundary + lazyWithRetry to handle the deploy-race
@@ -33,7 +33,11 @@ import {
 } from "@/components/ui/sidebar-l";
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
+import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
+import { mapGeoLocation } from "@/lib/context";
+import { setupCompleted } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
+import { prefetchAllStandardCategories } from "@/maps/api/playAreaPrefetch";
 
 // Dialogs / overlays / wizards that only render once the user
 // actually triggers them — lazy so a freshly-landed seeker doesn't
@@ -106,6 +110,23 @@ export function SeekerPage() {
     // The hook gates on role + multiplayer + sharing toggle + live
     // game state, so it's a no-op outside an active seeker session.
     useSeekerLocationBroadcast();
+
+    // Warm the play-area-wide amenity cache once setup is finished
+    // and a play area exists. This converts the first matching /
+    // measuring tap from a several-second around-radius walk against
+    // the rate-limited public Overpass mirrors into an instant local
+    // `nearestPoint` over a pre-fetched FeatureCollection.
+    const $setupDone = useStore(setupCompleted);
+    const $playArea = useStore(mapGeoLocation);
+    const playAreaId = $playArea?.properties?.osm_id ?? "";
+    useEffect(() => {
+        if (!$setupDone) return;
+        if (!playAreaId) return;
+        prefetchAllStandardCategories().catch((e) =>
+            console.warn("playArea prefetch warm-up failed:", e),
+        );
+    }, [$setupDone, playAreaId]);
+
     return (
         <div className="bg-jetlag">
             <SidebarProviderL>

@@ -9,6 +9,11 @@ import {
     findTentacleLocations,
     getOverpassData,
 } from "@/maps/api/overpass";
+import {
+    type FamilyKey,
+    nearestFromCache,
+    prefetchCategory,
+} from "@/maps/api/playAreaPrefetch";
 import { CacheType } from "@/maps/api/types";
 import type { APILocations } from "@/maps/schema";
 
@@ -247,11 +252,64 @@ export function NearestReferencePreview({
     );
 }
 
+/**
+ * Try the play-area-wide prefetch cache for families that support
+ * it. Returns the resolved nearest, or null when the family isn't
+ * cacheable, the prefetch hasn't landed, or the play area is empty
+ * of that family. Caller falls back to the legacy radius-walking
+ * path on null.
+ *
+ * Skipping the cache on `coastline`, `city`, and `highspeed-rail`
+ * is deliberate: those use either a local GeoJSON (coastline) or a
+ * world-spanning radius walk (cities are sparse, high-speed rail
+ * is global by nature) — neither benefits from a play-area-scoped
+ * cache.
+ */
+async function tryCacheNearest(
+    family: NonNullable<ResolvedFamily>,
+    lat: number,
+    lng: number,
+): Promise<NearestRef | null> {
+    const key: FamilyKey | null =
+        family.kind === "api"
+            ? `api:${family.location}`
+            : family.kind === "airport"
+              ? "airport"
+              : family.kind === "rail-station"
+                ? "rail-station"
+                : family.kind === "brand"
+                  ? `brand:${family.wikidataId}`
+                  : null;
+    if (!key) return null;
+
+    const cached = nearestFromCache(key, lat, lng);
+    if (cached) return cached;
+
+    // Cache miss — fire ONE play-area-wide query (deduped by
+    // prefetchCategory). The single fetch replaces the legacy 4-step
+    // radius walk that was burning through rate-limit slots.
+    try {
+        const features = await prefetchCategory(key);
+        if (features.length === 0) return null;
+        return nearestFromCache(key, lat, lng);
+    } catch (e) {
+        console.warn("playArea prefetch failed; falling back:", e);
+        return null;
+    }
+}
+
 async function fetchNearest(
     family: NonNullable<ResolvedFamily>,
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
+    // Play-area-wide cache short-circuit. One Overpass call per
+    // category per play area instead of N around-radius walks per
+    // seeker tap — this is what makes a quick burst of matching
+    // questions survive the public mirrors' rate limit.
+    const fromCache = await tryCacheNearest(family, lat, lng);
+    if (fromCache) return fromCache;
+
     if (family.kind === "airport") {
         const data = await findPlacesInZone(
             '["aeroway"="aerodrome"]["iata"]',
@@ -272,9 +330,9 @@ async function fetchNearest(
     if (family.kind === "highspeed-rail")
         return fetchNearestHighspeedRail(lat, lng);
 
-    // `api` case — tentacle-style fetch around the seeker's question
-    // point. Radius grows in 30-mile steps until we find something or
-    // hit the cap; matches `nearestToQuestion` in overpass.ts.
+    // `api` case fallback — the play-area cache didn't have it (or
+    // failed), so walk an Overpass radius from the seeker as the last
+    // resort. Matches the historical `nearestToQuestion` behavior.
     let radius = 30;
     while (radius <= 240) {
         const fc = await findTentacleLocations(
