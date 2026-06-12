@@ -549,17 +549,22 @@ function rasterTilesFromTileConfig(tile: {
 
 /** Bigger radii deserve a wider zoom so the whole circle fits. */
 function zoomForRadius(radiusMeters: number): number {
+    // Each level zooms out one extra step vs the v1 table: the picker
+    // is 30vh tall (often <250 px on a phone), which at the previous
+    // zooms cut the radius circle off at top/bottom for the typical
+    // 500m / 1km hiding zones. One level less keeps the whole circle
+    // visible with a comfortable margin.
     const km = radiusMeters / 1000;
-    if (km <= 0.6) return 14;
-    if (km <= 1.2) return 13;
-    if (km <= 2.5) return 12;
-    if (km <= 6) return 11;
-    if (km <= 12) return 10;
-    if (km <= 25) return 9;
-    if (km <= 50) return 8;
-    if (km <= 100) return 7;
-    if (km <= 200) return 6;
-    return 5;
+    if (km <= 0.6) return 13;
+    if (km <= 1.2) return 12;
+    if (km <= 2.5) return 11;
+    if (km <= 6) return 10;
+    if (km <= 12) return 9;
+    if (km <= 25) return 8;
+    if (km <= 50) return 7;
+    if (km <= 100) return 6;
+    if (km <= 200) return 5;
+    return 4;
 }
 
 function formatMeters(m: number): string {

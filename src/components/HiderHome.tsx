@@ -1105,6 +1105,26 @@ function HidingZoneSection({
         });
         setEditing(false);
         toast.success("Hiding zone committed.", { autoClose: 2000 });
+
+        // If the hiding period is still running, offer the hider
+        // the rulebook shortcut: they've reached their spot, do they
+        // want to end the hiding period early and let the seekers
+        // start looking? The seeker's countdown jumps to zero (mirror
+        // over multiplayer to keep everyone in sync). Skipped silently
+        // if the hider is past the hiding period anyway.
+        if (
+            hidingPeriodEndsAt.get() !== null &&
+            (hidingPeriodEndsAt.get() ?? 0) > Date.now() &&
+            typeof window !== "undefined" &&
+            window.confirm(
+                "Zone committed. End the hiding period early and alert the seekers? You can keep the timer running if you want a bit more time in your spot.",
+            )
+        ) {
+            endHidingPeriodEarly();
+            toast.success("Hiding period ended — seekers can start asking.", {
+                autoClose: 2500,
+            });
+        }
     };
 
     return (
