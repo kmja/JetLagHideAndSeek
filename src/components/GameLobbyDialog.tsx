@@ -137,7 +137,16 @@ export function GameLobbyDialog() {
     >("idle");
     useEffect(() => {
         if (!open) return;
-        if (isHiderRole) return; // Hiders never auto-host.
+        // Note v167-fix: previously this short-circuited on
+        // `isHiderRole` under the assumption hiders always join via
+        // an invite link instead of hosting. That left a hider who
+        // ran the setup wizard from a fresh session permanently
+        // stranded — no room was ever created, no participants
+        // appeared, and the lobby rendered as a chrome-only dialog
+        // with a disabled "Waiting for players…" button. Hiders can
+        // host just fine; the role-balance gate (needs ≥1 seeker AND
+        // ≥1 hider) still keeps the game from STARTING until a
+        // seeker joins, which is the actual rule.
         if (hostingState === "creating") return; // Already in flight.
         // Working room? Keep it. A persisted code that's currently
         // connecting/reconnecting counts as "in progress" — we
@@ -193,19 +202,13 @@ export function GameLobbyDialog() {
     // always auto-creates a multiplayer room on finish, so the only
     // way to be without $mp is an autohost network failure, which
     // shouldn't let the player start either.
-    // Role-balance gate:
-    //   - There must be at least one hider (someone has to hide).
-    //   - There must be at least one seeker — UNLESS the local player
-    //     is the hider, in which case the hider can start the round
-    //     solo and let seekers join during the hiding period (which
-    //     they get to spend en route to their hiding spot anyway).
-    //     Without this carve-out a hider host was permanently stuck
-    //     on "Waiting for players…" because the gate required a
-    //     seeker that wasn't there.
+    // Require a real room with at least one seeker AND one hider.
+    // Solo "single device" play is not allowed — the wizard always
+    // auto-creates a multiplayer room on finish, so the only way to
+    // be without $mp is an autohost network failure, which shouldn't
+    // let the player start either.
     const hasRoleBalance =
-        $mp &&
-        hiders.length >= 1 &&
-        (seekers.length >= 1 || isHiderRole);
+        $mp && seekers.length >= 1 && hiders.length >= 1;
 
     // Identify the host. In a multiplayer room the host owns the
     // clock kickoff; guests see a "waiting for host to start"
@@ -365,7 +368,7 @@ export function GameLobbyDialog() {
 
                     {/* Autohost status — only visible until we have
                         a room code. */}
-                    {!isHiderRole && !$code && hostingState === "creating" && (
+                    {!$code && hostingState === "creating" && (
                         <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2.5">
                             <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
                             <div className="text-xs">
@@ -373,7 +376,7 @@ export function GameLobbyDialog() {
                             </div>
                         </div>
                     )}
-                    {!isHiderRole && !$code && hostingState === "failed" && (
+                    {!$code && hostingState === "failed" && (
                         <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2 space-y-1.5">
                             <div className="text-xs font-medium text-destructive">
                                 Couldn't create a game room.
