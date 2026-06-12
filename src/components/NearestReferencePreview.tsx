@@ -15,6 +15,7 @@ import {
     prefetchCategory,
 } from "@/maps/api/playAreaPrefetch";
 import { CacheType } from "@/maps/api/types";
+import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
 
 /**
@@ -458,33 +459,29 @@ async function fetchNearestCoastline(
 }
 
 /**
- * Nearest `place=city` with a 1M+ population (matches the rulebook's
- * "major city" definition). Radius grows wider than the brand fetcher
- * because major cities are sparse — at most a couple dozen exist per
- * country.
+ * Nearest major city (1M+ population). Resolved entirely client-side
+ * from the bundled `MAJOR_CITIES` list (Natural Earth, ~500 cities) —
+ * no Overpass round trip. The nearest million-plus city is almost
+ * always far outside the play area, so the old outward radius walk
+ * (200 → 800 → 2000 km `node[place=city]` queries) was both heavy and
+ * the first thing the public mirrors rate-limited. A bundled lookup
+ * is instant and consistent between hider and seeker.
  */
 async function fetchNearestMajorCity(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
-    for (const km of [200, 800, 2000]) {
-        const query = `
-[out:json][timeout:60];
-node[place=city]["population"~"^[1-9]+[0-9]{6}$"](around:${km * 1000},${lat},${lng});
-out;
-`;
-        const data = await getOverpassData(
-            query,
-            undefined,
-            CacheType.ZONE_CACHE,
-        );
-        const elements = (data as { elements?: any[] }).elements ?? [];
-        if (elements.length > 0) {
-            const ref = pickNearestNamed(elements, lat, lng);
-            if (ref) return ref;
+    const target = turf.point([lng, lat]);
+    let best: NearestRef | null = null;
+    for (const [name, cityLat, cityLng] of MAJOR_CITIES) {
+        const d = turf.distance(target, turf.point([cityLng, cityLat]), {
+            units: "meters",
+        });
+        if (!best || d < best.distanceMeters) {
+            best = { name, lat: cityLat, lng: cityLng, distanceMeters: d };
         }
     }
-    return null;
+    return best;
 }
 
 /**

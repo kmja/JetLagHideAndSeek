@@ -7,7 +7,6 @@ import type {
     Polygon,
 } from "geojson";
 import memoize from "lodash/memoize";
-import uniq from "lodash/uniq";
 import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
@@ -26,6 +25,7 @@ import {
     prettifyLocation,
     trainLineNodeFinder,
 } from "@/maps/api";
+import { majorCityPoints } from "@/maps/data/majorCities";
 import { holedMask, modifyMapData, safeUnion } from "@/maps/geo-utils";
 import { geoSpatialVoronoi } from "@/maps/geo-utils";
 import type {
@@ -52,16 +52,11 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
             );
         }
         case "major-city": {
-            return (
-                await findPlacesInZone(
-                    '[place=city]["population"~"^[1-9]+[0-9]{6}$"]', // The regex is faster than (if:number(t["population"])>1000000)
-                )
-            ).elements.map((x: any) =>
-                turf.point([
-                    x.center ? x.center.lon : x.lon,
-                    x.center ? x.center.lat : x.lat,
-                ]),
-            );
+            // Bundled worldwide 1M+ city list — no Overpass. Covers
+            // cities outside the play area too, which the old
+            // play-area-only query missed (and which are usually the
+            // nearest major city anyway).
+            return majorCityPoints();
         }
         case "custom-points": {
             return question.geo!;

@@ -2,6 +2,10 @@ import { gameSize, HIDING_PERIOD_MINUTES, hidingPeriodEndsAt, playArea } from "@
 import { getSubtypes } from "@/lib/subtypes";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
 import { findPlacesInZone } from "@/maps/api/overpass";
+import {
+    type FamilyKey,
+    prefetchCategory,
+} from "@/maps/api/playAreaPrefetch";
 
 /**
  * Warm the Overpass cache for every question type a seeker is likely
@@ -62,30 +66,18 @@ function buildJobs(): PreloadJob[] {
     // query, and on-demand calls have their own toast path.
     jobs.push({
         label: "airports",
-        run: () =>
-            findPlacesInZone(
-                '["aeroway"="aerodrome"]["iata"]',
-                undefined,
-                "nwr",
-                "center",
-                [],
-                0,
-                true,
-            ),
+        // Route through prefetchCategory (NOT a raw findPlacesInZone)
+        // so the hiding-period warm-up populates the EXACT same
+        // in-memory + R2 cache keys the tap-time nearest-reference
+        // lookup reads. Previously the preloader fetched a
+        // differently-shaped query than the reference preview ever
+        // issued, so it warmed a key nothing asked for — which is
+        // why reference points never resolved instantly.
+        run: () => prefetchCategory("airport"),
     });
-    jobs.push({
-        label: "major cities",
-        run: () =>
-            findPlacesInZone(
-                '[place=city]["population"~"^[1-9]+[0-9]{6}$"]',
-                undefined,
-                "nwr",
-                "center",
-                [],
-                0,
-                true,
-            ),
-    });
+    // NB: no "major cities" warm-up here anymore — the nearest
+    // major-city reference now resolves client-side from the bundled
+    // MAJOR_CITIES list (no Overpass), so there's nothing to preload.
     // High-speed rail (measuring "highspeed-measure-shinkansen") —
     // small/medium only per rulebook (`highspeed=yes` worldwide).
     if (size !== "large") {
@@ -106,16 +98,7 @@ function buildJobs(): PreloadJob[] {
     // Train stations — used by the matching same-train-line family.
     jobs.push({
         label: "train stations",
-        run: () =>
-            findPlacesInZone(
-                "[railway=station]",
-                undefined,
-                "node",
-                "center",
-                [],
-                0,
-                true,
-            ),
+        run: () => prefetchCategory("rail-station"),
     });
     // Subtype-specific *-full queries (Small + Medium games only).
     if (size !== "large") {
@@ -135,16 +118,12 @@ function buildJobs(): PreloadJob[] {
                 if (!tag) continue;
                 jobs.push({
                     label: s.label.toLowerCase(),
+                    // Same key-sharing rationale as airports above:
+                    // go through prefetchCategory so this warms the
+                    // `api:<location>` cache the configure-dialog
+                    // reference lookup reads at tap time.
                     run: () =>
-                        findPlacesInZone(
-                            `[${tag}=${location}]`,
-                            undefined,
-                            "nwr",
-                            "center",
-                            [],
-                            60,
-                            true,
-                        ),
+                        prefetchCategory(`api:${location}` as FamilyKey),
                 });
             }
         }

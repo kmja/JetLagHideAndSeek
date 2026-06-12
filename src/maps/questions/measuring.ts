@@ -1,7 +1,6 @@
 import * as turf from "@turf/turf";
 import type { Feature, MultiPolygon } from "geojson";
 import memoize from "lodash/memoize";
-import uniq from "lodash/uniq";
 import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
@@ -22,6 +21,7 @@ import {
     prettifyLocation,
     QuestionSpecificLocation,
 } from "@/maps/api";
+import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
     connectToSeparateLines,
@@ -162,20 +162,11 @@ export const determineMeasuringBoundary = async (
                 ).features[0],
             ];
         case "city":
+            // Bundled worldwide 1M+ city list — no Overpass, and
+            // includes out-of-play-area cities (usually the nearest).
             return [
                 turf.combine(
-                    turf.featureCollection(
-                        (
-                            await findPlacesInZone(
-                                '[place=city]["population"~"^[1-9]+[0-9]{6}$"]', // The regex is faster than (if:number(t["population"])>1000000)
-                            )
-                        ).elements.map((x: any) =>
-                            turf.point([
-                                x.center ? x.center.lon : x.lon,
-                                x.center ? x.center.lat : x.lat,
-                            ]),
-                        ),
-                    ),
+                    turf.featureCollection(majorCityPoints()),
                 ).features[0],
             ];
         case "aquarium-full":
