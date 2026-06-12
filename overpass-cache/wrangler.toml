@@ -64,13 +64,15 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CACHE"
 bucket_name = "jlhs-overpass-cache"
 
-# Daily pre-warm at 04:00 UTC — off-peak in most regions and well
-# away from the multiplayer worker's eviction sweeps. With the
-# merged HAND_CURATED + bulk-cities.json source (~200 entries) and
-# the batch size below, the full list is warmed in ~8-10 days,
-# after which the cron settles into "refresh anything > TTL" mode.
+# Hourly pre-warm. The candidate list grew to ~1350 cities and the
+# scheduled handler drains BOTH the discovery (Photon name → OSM
+# relation id) AND prewarm (relation → R2-cached boundary) queues
+# per run. Hourly with the batch sizes below means a fresh bucket
+# fills out in roughly 1 day of wall clock — fast enough to be
+# useful, slow enough to stay friendly to the public Overpass
+# mirrors that ultimately backstop a polygons.osm.fr miss.
 [triggers]
-crons = ["0 4 * * *"]
+crons = ["0 * * * *"]
 
 # CORS allowlist for browser requests. The frontend worker's
 # workers.dev URL is included by default; add a custom domain to
@@ -80,10 +82,11 @@ ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https
 # Cache freshness. Boundaries change rarely on OSM — anything
 # fresher than a month is fine to serve straight from R2.
 CACHE_TTL_DAYS = "30"
-# How many cities the weekly cron pre-warms per run. Keep small
-# so we don't blast the upstream mirrors with our own cron.
-# Number of relations the daily cron fetches per run. 20 leaves
-# plenty of headroom under the Workers Free per-invocation 30 s
-# wall-clock (each fetch averages ~1 s via polygons.osm.fr fast
-# path) and warms the whole ~200-entry list in roughly 10 days.
-PREWARM_BATCH_SIZE = "20"
+# How many cities the cron pre-warms per run. 60 fits inside a 30 s
+# scheduled-handler budget (polygons.osm.fr fast-path averages
+# 200-500 ms per relation when warm, ~1-3 s cold), so with the
+# hourly cron above the worker processes ~1440 cities/day — enough
+# to fully cycle the ~1350-entry candidate list each day. The
+# scheduled-handler discovery pass (5/run) auto-drains the
+# unresolved-names backlog over the same interval.
+PREWARM_BATCH_SIZE = "60"

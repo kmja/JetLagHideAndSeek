@@ -177,13 +177,14 @@ export default {
             60 *
             60 *
             1000;
-        // Discovery pass first: resolve a handful of names from the
-        // bundled candidate list against Photon, append to R2. Small
-        // (~5/day) so it never crowds out the prewarm step inside the
-        // 30 s wall-clock budget. Drains the ~600-name backlog in a
-        // few months without any manual nudge.
+        // Discovery pass first: resolve up to 10 names from the
+        // bundled candidate list against Photon (1 req/s = ~10s of
+        // wall clock), append to R2. The bulk-city-names list grew
+        // to ~1350 entries; hourly cron × 10/run drains the backlog
+        // in ~6 days even from cold. The remaining ~20 s of the
+        // scheduled budget goes to the prewarm pass below.
         try {
-            const discovered = await discoverCandidates(env, 5);
+            const discovered = await discoverCandidates(env, 10);
             if (discovered.length > 0) {
                 console.log(
                     `[discover] +${discovered.length}: ${discovered
@@ -714,7 +715,7 @@ async function handleAdminTriggerPrewarm(
     ctx: ExecutionContext,
     cors: HeadersInit,
 ): Promise<Response> {
-    if (request.method !== "POST") {
+    if (request.method !== "POST" && request.method !== "GET") {
         return new Response("Method not allowed", {
             status: 405,
             headers: cors,
@@ -723,10 +724,22 @@ async function handleAdminTriggerPrewarm(
     if (!checkAdminAuth(request, env)) {
         return new Response("Unauthorized", { status: 401, headers: cors });
     }
+    // Accept config either as a JSON POST body OR as query params on a
+    // GET, so the operator can trigger this from a browser URL bar /
+    // the Cloudflare dashboard's HTTP tester without needing curl.
+    //   ?batch=60&delayBetweenMs=1000
     let payload: { batch?: number; delayBetweenMs?: number } = {};
     try {
-        const text = await request.text();
-        if (text.trim()) payload = JSON.parse(text);
+        if (request.method === "GET") {
+            const u = new URL(request.url);
+            const b = u.searchParams.get("batch");
+            const d = u.searchParams.get("delayBetweenMs");
+            if (b) payload.batch = parseInt(b, 10);
+            if (d) payload.delayBetweenMs = parseInt(d, 10);
+        } else {
+            const text = await request.text();
+            if (text.trim()) payload = JSON.parse(text);
+        }
     } catch {
         return new Response("Invalid JSON body", {
             status: 400,

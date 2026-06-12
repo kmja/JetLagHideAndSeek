@@ -4,9 +4,11 @@ import { atom } from "nanostores";
 import {
     additionalMapGeoLocations,
     mapGeoLocation,
+    polyGeoJSON,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api/constants";
-import { findPlacesInZone } from "@/maps/api/overpass";
+import { getOverpassData } from "@/maps/api/overpass";
+import { CacheType } from "@/maps/api/types";
 import type { APILocations } from "@/maps/schema";
 
 /**
@@ -126,6 +128,65 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
     return null;
 }
 
+/**
+ * Build an Overpass `[bbox:south,west,north,east]` filter string for
+ * the current play area, padded by `padKm` so the seeker's nearest
+ * reference near the play-area edge can still be just outside the
+ * strict boundary.
+ *
+ * Why bbox and not the proper poly: filter? The nearest-reference
+ * lookup doesn't care whether the museum/zoo/airport is inside the
+ * play area — only that it's THE NEAREST to the seeker. Using the
+ * polygon would make us miss references just outside the play-area
+ * edge, and (more importantly) the polygon serialised into the query
+ * string is enormous for complex shapes and trips the public mirrors'
+ * request-size limit — that was the v190 "8/8 warm but no results"
+ * bug. The bbox is two coordinates regardless of polygon complexity.
+ * The matching/measuring elimination path STILL uses the polygon
+ * (that path cares about "in the play area" for the Voronoi math) —
+ * just not this lookup.
+ *
+ * Returns null when no play area is set (no bbox to derive from).
+ */
+function buildPaddedBboxFilter(padKm: number): string | null {
+    const $polyGeoJSON = polyGeoJSON.get();
+    let bbox: [number, number, number, number] | null = null;
+    if ($polyGeoJSON) {
+        try {
+            bbox = turf.bbox($polyGeoJSON as any) as [
+                number,
+                number,
+                number,
+                number,
+            ];
+        } catch {
+            bbox = null;
+        }
+    }
+    if (!bbox) {
+        // No polygon yet — fall back to the play-area Photon extent
+        // (which is roughly a country/region bbox). Better than
+        // nothing; the actual fetch will refine on the next round.
+        const primary = mapGeoLocation.get();
+        const extent = (primary?.properties as { extent?: number[] })
+            ?.extent;
+        if (extent && extent.length === 4) {
+            // extent is [maxLat, minLng, minLat, maxLng] post-normalize.
+            const [maxLat, minLng, minLat, maxLng] = extent;
+            bbox = [minLng, minLat, maxLng, maxLat];
+        }
+    }
+    if (!bbox) return null;
+    const [west, south, east, north] = bbox;
+    // Pad: ~111 km per degree of latitude; longitude shrinks with
+    // cos(latitude). The pad is a soft buffer — exact precision
+    // doesn't matter, only that it adds tens of km on every side.
+    const latPad = padKm / 111;
+    const midLat = (south + north) / 2;
+    const lngPad = padKm / (111 * Math.cos((midLat * Math.PI) / 180));
+    return `[bbox:${south - latPad},${west - lngPad},${north + latPad},${east + lngPad}]`;
+}
+
 /** Turn a raw Overpass element into a cache feature, or null when it
  *  lacks usable coordinates or a name. */
 function featureFromElement(el: any): PrefetchedFeature | null {
@@ -178,19 +239,9 @@ export async function prefetchCategory(
     bumpStatus({ inFlightDelta: 1 });
     const promise = (async () => {
         try {
-            const data = await findPlacesInZone(
+            const elements = await runBboxOverpassFetch([
                 filterForFamily(family),
-                undefined,
-                searchTypeForFamily(family),
-                "center",
-                [],
-                60,
-                // silent=true — a lazy category prefetch failure
-                // should fall back to the radius walk quietly, not
-                // toast on every category miss.
-                true,
-            );
-            const elements = (data as { elements?: any[] })?.elements ?? [];
+            ]);
             const features: PrefetchedFeature[] = [];
             for (const el of elements) {
                 const feat = featureFromElement(el);
@@ -209,6 +260,44 @@ export async function prefetchCategory(
     })();
     inFlight.set(key, promise);
     return promise;
+}
+
+/**
+ * Issue a single bbox-filtered Overpass query for one-or-more
+ * `nwr` filters. The bbox covers the current play area plus a
+ * generous pad, so a seeker near the edge can still resolve a
+ * nearest reference just outside the strict boundary. Returns the
+ * raw `elements` array; partition by tag at the call site.
+ *
+ * Uses `getOverpassData` directly (not `findPlacesInZone`) because
+ * findPlacesInZone always builds a poly: filter from the play-area
+ * polygon — which is unnecessary here and was the v190 budget-blowup
+ * trigger.
+ */
+async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
+    if (filters.length === 0) return [];
+    const bboxFilter = buildPaddedBboxFilter(50);
+    if (!bboxFilter) return [];
+    const body = filters.map((f) => `nwr${f};`).join("\n");
+    const query = `
+[out:json][timeout:120]${bboxFilter};
+(
+${body}
+);
+out center;
+`;
+    const data = await getOverpassData(
+        query,
+        undefined,
+        CacheType.ZONE_CACHE,
+        undefined,
+        false,
+        undefined,
+        // silent=true: prefetch failures fall back to the lazy
+        // per-tap retry; they should never spawn a user-facing toast.
+        true,
+    );
+    return ((data as { elements?: any[] })?.elements ?? []) as any[];
 }
 
 /** Synchronous cache lookup. Returns null if nothing has been
@@ -281,20 +370,13 @@ export async function prefetchFamiliesInOneQuery(
 
     todo.forEach(() => bumpStatus({ inFlightDelta: 1 }));
     try {
+        // One unioned query keyed on the play-area BBOX (see
+        // runBboxOverpassFetch / buildPaddedBboxFilter): a tiny,
+        // fixed-size filter regardless of polygon complexity, so a
+        // crenellated county boundary can't blow the request-size
+        // budget that the v190 poly: path tripped on.
         const filters = todo.map(filterForFamily);
-        // primary filter + the rest as `alternatives` => one unioned
-        // query. searchType nwr covers nodes too, so the train-station
-        // `node`-only families still match here.
-        const data = await findPlacesInZone(
-            filters[0],
-            undefined,
-            "nwr",
-            "center",
-            filters.slice(1),
-            120,
-            true,
-        );
-        const elements = (data as { elements?: any[] })?.elements ?? [];
+        const elements = await runBboxOverpassFetch(filters);
         const emptyFamilies: FamilyKey[] = [];
         for (const family of todo) {
             const feats: PrefetchedFeature[] = [];
