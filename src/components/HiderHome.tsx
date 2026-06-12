@@ -268,14 +268,15 @@ export function HiderHome() {
         setupDialogOpen.set(true);
     };
 
-    const startNewGame = () => {
-        if (
-            !confirm(
-                "Start a new game? This clears your hiding zone, question log, hand, and discard pile on this device.",
-            )
-        ) {
-            return;
-        }
+    const startNewGame = async () => {
+        const ok = await appConfirm({
+            title: "Start a new game?",
+            description:
+                "Clears your hiding zone, question log, hand, and discard pile on this device.",
+            confirmLabel: "New game",
+            destructive: true,
+        });
+        if (!ok) return;
         setupCompleted.set(false);
         hidingPeriodEndsAt.set(null);
         // Clear pending-boundary-load wait too — otherwise
@@ -487,15 +488,16 @@ export function HiderHome() {
                                     ? "Roles lock once you've received your first question. Start a new game to switch."
                                     : "Switch back to the seeker side"
                             }
-                            onClick={() => {
-                                if (
-                                    confirm(
-                                        "Switch back to the seeker side? Hider-side state (hiding zone, inbox, hand) stays saved on this device.",
-                                    )
-                                ) {
-                                    playerRole.set("seeker");
-                                    window.location.assign("/");
-                                }
+                            onClick={async () => {
+                                const ok = await appConfirm({
+                                    title: "Switch back to the seeker side?",
+                                    description:
+                                        "Hider-side state (hiding zone, inbox, hand) stays saved on this device.",
+                                    confirmLabel: "Switch",
+                                });
+                                if (!ok) return;
+                                playerRole.set("seeker");
+                                window.location.assign("/");
                             }}
                         >
                             Switch to seeker
@@ -949,7 +951,7 @@ function FinalScoreBanner({
     // Multiplayer-aware new-round flow. In an online room with 2+
     // participants we open the hider-rotation picker so the table
     // can hand off the role; otherwise we fall back to the simple
-    // confirm() prompt (offline / solo case).
+    // app-styled confirm prompt (offline / solo case).
     const $multiplayerEnabled = useStore(multiplayerEnabled);
     const $code = useStore(currentGameCode);
     const $participants = useStore(participants);
@@ -957,18 +959,18 @@ function FinalScoreBanner({
     const canRotateHider =
         $multiplayerEnabled && $code !== null && $participants.length >= 2;
 
-    const onNewRound = () => {
+    const onNewRound = async () => {
         if (canRotateHider) {
             setRotateDialogOpen(true);
             return;
         }
-        if (
-            !confirm(
-                "Start a new round? Hiding zone, hand, discard pile and inbox reset. Play area + transit + size stay the same.",
-            )
-        ) {
-            return;
-        }
+        const ok = await appConfirm({
+            title: "Start a new round?",
+            description:
+                "Hiding zone, hand, discard pile and inbox reset. Play area + transit + size stay the same.",
+            confirmLabel: "New round",
+        });
+        if (!ok) return;
         startNewRound();
         toast.success("New round — hiding period starting now.", {
             autoClose: 2500,
@@ -988,14 +990,15 @@ function FinalScoreBanner({
         });
     };
 
-    const onNewGame = () => {
-        if (
-            !confirm(
-                "Start a new game? This drops the play area, transit, and size — the setup wizard will re-open.",
-            )
-        ) {
-            return;
-        }
+    const onNewGame = async () => {
+        const ok = await appConfirm({
+            title: "Start a new game?",
+            description:
+                "Drops the play area, transit, and size — the setup wizard will re-open.",
+            confirmLabel: "New game",
+            destructive: true,
+        });
+        if (!ok) return;
         startNewGame();
     };
 

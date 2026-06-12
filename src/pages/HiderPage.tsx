@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
+import { AppPromptHost } from "@/components/AppPromptHost";
 import { ClosingInWatcher } from "@/components/ClosingInWatcher";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
@@ -67,6 +68,7 @@ export function HiderPage() {
             <GameStartWatcher />
             <ClosingInWatcher />
             <AppConfirmHost />
+            <AppPromptHost />
             <Suspense fallback={null}>
                 <DebugPhaseControls />
                 <StaleSessionPrompt />

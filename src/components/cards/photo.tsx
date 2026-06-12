@@ -14,6 +14,7 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { appConfirm } from "@/lib/confirm";
 import { endgameStartedAt } from "@/lib/gameSetup";
 import { gameSize } from "@/lib/gameSetup";
 import { playerRole, recordPhotoAnswerDraw } from "@/lib/hiderRole";
@@ -212,14 +213,15 @@ export const PhotoQuestionComponent = ({
                                 variant="destructive"
                                 size="sm"
                                 className="absolute top-1 right-1 h-7 px-2"
-                                onClick={() => {
-                                    if (
-                                        confirm("Remove this photo?") ===
-                                        true
-                                    ) {
-                                        data.photoUri = undefined;
-                                        questionModified();
-                                    }
+                                onClick={async () => {
+                                    const ok = await appConfirm({
+                                        title: "Remove this photo?",
+                                        confirmLabel: "Remove",
+                                        destructive: true,
+                                    });
+                                    if (!ok) return;
+                                    data.photoUri = undefined;
+                                    questionModified();
                                 }}
                                 disabled={$isLoading}
                                 aria-label="Remove photo"

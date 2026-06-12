@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
+import { appConfirm } from "@/lib/confirm";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -73,14 +74,15 @@ export function InvitePanel() {
         }
     };
 
-    const handleLeave = () => {
-        if (
-            !confirm(
-                "Leave the online game? Your local progress stays, but you'll need the code to rejoin.",
-            )
-        ) {
-            return;
-        }
+    const handleLeave = async () => {
+        const ok = await appConfirm({
+            title: "Leave the online game?",
+            description:
+                "Your local progress stays, but you'll need the code to rejoin.",
+            confirmLabel: "Leave game",
+            destructive: true,
+        });
+        if (!ok) return;
         leaveGame();
         toast.info("Disconnected from online game.", { autoClose: 2000 });
     };

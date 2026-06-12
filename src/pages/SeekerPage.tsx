@@ -2,6 +2,7 @@ import { Suspense } from "react";
 
 import { BottomNav } from "@/components/BottomNav";
 import { AppConfirmHost } from "@/components/AppConfirmHost";
+import { AppPromptHost } from "@/components/AppPromptHost";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
@@ -181,6 +182,7 @@ export function SeekerPage() {
                         <SeekingStartWatcher />
                     </Suspense>
                     <AppConfirmHost />
+                    <AppPromptHost />
                     <GameStartWatcher />
                     <MultiplayerBoot />
                 </SidebarProviderR>

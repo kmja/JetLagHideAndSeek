@@ -52,3 +52,31 @@ export function appConfirm(opts: ConfirmOptions): Promise<boolean> {
         pendingConfirm.set({ ...opts, resolve });
     });
 }
+
+export interface PromptOptions {
+    title: string;
+    description?: string;
+    placeholder?: string;
+    defaultValue?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+}
+
+interface PendingPrompt extends PromptOptions {
+    resolve: (value: string | null) => void;
+}
+
+export const pendingPrompt = atom<PendingPrompt | null>(null);
+
+/**
+ * App-styled replacement for `window.prompt()` — resolves to the
+ * entered string, or `null` if the user cancels / dismisses. Same
+ * imperative ergonomics as `appConfirm`, rendered by `AppPromptHost`.
+ */
+export function appPrompt(opts: PromptOptions): Promise<string | null> {
+    const existing = pendingPrompt.get();
+    if (existing) existing.resolve(null);
+    return new Promise<string | null>((resolve) => {
+        pendingPrompt.set({ ...opts, resolve });
+    });
+}

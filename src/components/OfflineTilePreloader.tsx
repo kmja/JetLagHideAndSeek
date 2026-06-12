@@ -4,6 +4,7 @@ import { Check, CloudDownload, Loader2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
+import { appConfirm } from "@/lib/confirm";
 import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
 import { cn } from "@/lib/utils";
 
@@ -254,13 +255,14 @@ export function OfflineTilePreloader() {
     };
 
     const clearTileCache = async () => {
-        if (
-            !confirm(
-                "Clear all cached map tiles? This frees up storage but means the next load will re-fetch them from the network.",
-            )
-        ) {
-            return;
-        }
+        const ok = await appConfirm({
+            title: "Clear all cached map tiles?",
+            description:
+                "Frees up storage but means the next load will re-fetch them from the network.",
+            confirmLabel: "Clear cache",
+            destructive: true,
+        });
+        if (!ok) return;
         try {
             const names = await caches.keys();
             const tileCaches = names.filter((n) => n.startsWith("tiles-"));

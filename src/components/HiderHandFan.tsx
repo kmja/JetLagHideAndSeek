@@ -16,6 +16,7 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { appConfirm } from "@/lib/confirm";
 import { gameSize } from "@/lib/gameSetup";
 import {
     type Card,
@@ -586,7 +587,7 @@ function CardActions({
     const [pickerAction, setPickerAction] = useState<PickerAction>(null);
     const [castCurse, setCastCurse] = useState<CurseCard | null>(null);
 
-    const onPlayPowerup = (c: PowerupCard) => {
+    const onPlayPowerup = async (c: PowerupCard) => {
         const hand = hiderHand.get();
         switch (c.powerup) {
             case "discard1draw2":
@@ -662,14 +663,15 @@ function CardActions({
                 );
                 onActionTaken();
                 return;
-            case "move":
-                if (
-                    !confirm(
-                        "Move card: this discards your entire hand and sends your station to the seekers. A fresh hiding period starts after this confirms. Proceed?",
-                    )
-                ) {
-                    return;
-                }
+            case "move": {
+                const ok = await appConfirm({
+                    title: "Play Move?",
+                    description:
+                        "Discards your entire hand and sends your station to the seekers. A fresh hiding period starts after this confirms.",
+                    confirmLabel: "Play Move",
+                    destructive: true,
+                });
+                if (!ok) return;
                 for (const c2 of [...hiderHand.get()]) {
                     discardCard(c2.id);
                 }
@@ -679,6 +681,7 @@ function CardActions({
                 );
                 onActionTaken();
                 return;
+            }
         }
     };
 

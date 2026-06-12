@@ -23,6 +23,7 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { appConfirm } from "@/lib/confirm";
 import { gameSize } from "@/lib/gameSetup";
 import { type Card, type CurseCard, type PowerupCard,tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
@@ -83,7 +84,7 @@ export function HiderHandPanel() {
         useState<PendingPickerAction>(null);
     const [castCurse, setCastCurse] = useState<CurseCard | null>(null);
 
-    const onPlayPowerup = (card: PowerupCard) => {
+    const onPlayPowerup = async (card: PowerupCard) => {
         const hand = hiderHand.get();
         switch (card.powerup) {
             case "discard1draw2":
@@ -153,14 +154,15 @@ export function HiderHandPanel() {
                     { autoClose: 5000 },
                 );
                 return;
-            case "move":
-                if (
-                    !confirm(
-                        "Move card: this discards your entire hand and sends your station to the seekers. A fresh hiding period starts after this confirms. Proceed?",
-                    )
-                ) {
-                    return;
-                }
+            case "move": {
+                const ok = await appConfirm({
+                    title: "Play Move?",
+                    description:
+                        "Discards your entire hand and sends your station to the seekers. A fresh hiding period starts after this confirms.",
+                    confirmLabel: "Play Move",
+                    destructive: true,
+                });
+                if (!ok) return;
                 // Discard the entire hand (Move included) — the rulebook
                 // is clear that no cards survive a Move.
                 for (const c of [...hiderHand.get()]) {
@@ -171,6 +173,7 @@ export function HiderHandPanel() {
                     { autoClose: 6000 },
                 );
                 return;
+            }
         }
     };
 

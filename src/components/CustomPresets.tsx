@@ -3,6 +3,7 @@ import * as React from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
+import { appConfirm, appPrompt } from "@/lib/confirm";
 import {
     type CustomPreset,
     customPresets,
@@ -30,7 +31,11 @@ const CustomPresets: React.FC<Props> = ({ data, presetTypeHint }) => {
     );
 
     const handleSave = async () => {
-        const name = window.prompt("Name for this preset", "");
+        const name = await appPrompt({
+            title: "Name for this preset",
+            placeholder: "e.g. \"Train station radius\"",
+            confirmLabel: "Save",
+        });
         if (!name) return;
         const toSave = {
             name,
@@ -52,15 +57,24 @@ const CustomPresets: React.FC<Props> = ({ data, presetTypeHint }) => {
         toast.info(`Loaded preset "${preset.name}"`);
     };
 
-    const handleEdit = (preset: CustomPreset) => {
-        const newName = window.prompt("New preset name", preset.name);
+    const handleEdit = async (preset: CustomPreset) => {
+        const newName = await appPrompt({
+            title: "Rename preset",
+            defaultValue: preset.name,
+            confirmLabel: "Save",
+        });
         if (!newName || newName === preset.name) return;
         updateCustomPreset(preset.id, { name: newName });
         toast.success(`Renamed preset to "${newName}"`);
     };
 
-    const handleDelete = (preset: CustomPreset) => {
-        if (!window.confirm(`Delete preset "${preset.name}"?`)) return;
+    const handleDelete = async (preset: CustomPreset) => {
+        const ok = await appConfirm({
+            title: `Delete preset "${preset.name}"?`,
+            confirmLabel: "Delete",
+            destructive: true,
+        });
+        if (!ok) return;
         deleteCustomPreset(preset.id);
         toast.info(`Deleted preset "${preset.name}"`);
     };
