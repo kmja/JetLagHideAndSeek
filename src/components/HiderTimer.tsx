@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "react-toastify";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { appConfirm } from "@/lib/confirm";
 import { shareFoundLink } from "@/lib/foundShare";
 import {
     endgameStartedAt,
@@ -36,14 +37,14 @@ export function HiderTimer() {
     const $endgameStartedAt = useStore(endgameStartedAt);
     const $foundAt = useStore(roundFoundAt);
 
-    const handleTriggerEndgame = () => {
-        if (
-            !confirm(
-                "Trigger endgame? The hider sees a banner asking them to lock down to a final spot. Only do this when you're closing in.",
-            )
-        ) {
-            return;
-        }
+    const handleTriggerEndgame = async () => {
+        const ok = await appConfirm({
+            title: "Trigger endgame?",
+            description:
+                "The hider sees a banner asking them to lock down to a final spot. Only do this when you're closing in.",
+            confirmLabel: "Trigger endgame",
+        });
+        if (!ok) return;
         seekerStartEndgame();
         toast.success("Endgame triggered — hider notified.", {
             autoClose: 2500,

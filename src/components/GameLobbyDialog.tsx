@@ -36,6 +36,7 @@ import {
     TRANSIT_LABELS,
     welcomeSeen,
 } from "@/lib/gameSetup";
+import { appConfirm } from "@/lib/confirm";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
 import { loadingProgress } from "@/lib/loadingProgress";
@@ -730,30 +731,28 @@ export function GameLobbyDialog() {
                         <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => {
-                                if (
-                                    typeof window === "undefined" ||
-                                    window.confirm(
-                                        "Leave this online game? You'll exit the room — the others can keep playing without you.",
-                                    )
-                                ) {
-                                    // Reset the local session all the
-                                    // way back to Welcome so the user
-                                    // doesn't end up in a dead-end
-                                    // hider view with nothing to do.
-                                    // Clears: the connection, the
-                                    // welcome dismissal, the wizard
-                                    // completion, and the player
-                                    // role. Then navigate to / so a
-                                    // hider on /h ends up on the
-                                    // welcome surface.
-                                    leaveGame();
-                                    welcomeSeen.set(false);
-                                    setupCompleted.set(false);
-                                    playerRole.set(null);
-                                    if (typeof window !== "undefined") {
-                                        window.location.assign("/");
-                                    }
+                            onClick={async () => {
+                                const ok = await appConfirm({
+                                    title: "Leave this online game?",
+                                    description:
+                                        "You'll exit the room — the others can keep playing without you.",
+                                    confirmLabel: "Leave game",
+                                    destructive: true,
+                                });
+                                if (!ok) return;
+                                // Reset the local session all the way
+                                // back to Welcome so the user doesn't
+                                // end up in a dead-end hider view with
+                                // nothing to do. Clears: connection,
+                                // welcome dismissal, wizard completion,
+                                // player role. Navigate to / so a hider
+                                // on /h ends up on the welcome surface.
+                                leaveGame();
+                                welcomeSeen.set(false);
+                                setupCompleted.set(false);
+                                playerRole.set(null);
+                                if (typeof window !== "undefined") {
+                                    window.location.assign("/");
                                 }
                             }}
                             className="w-full gap-1.5 text-muted-foreground"

@@ -57,6 +57,7 @@ import {
     startNewGame,
     startNewRound,
 } from "@/lib/roundActions";
+import { appConfirm } from "@/lib/confirm";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
@@ -1114,15 +1115,21 @@ function HidingZoneSection({
         // if the hider is past the hiding period anyway.
         if (
             hidingPeriodEndsAt.get() !== null &&
-            (hidingPeriodEndsAt.get() ?? 0) > Date.now() &&
-            typeof window !== "undefined" &&
-            window.confirm(
-                "Zone committed. End the hiding period early and alert the seekers? You can keep the timer running if you want a bit more time in your spot.",
-            )
+            (hidingPeriodEndsAt.get() ?? 0) > Date.now()
         ) {
-            endHidingPeriodEarly();
-            toast.success("Hiding period ended — seekers can start asking.", {
-                autoClose: 2500,
+            void appConfirm({
+                title: "End hiding period now?",
+                description:
+                    "Zone committed. End the hiding period early and alert the seekers? You can keep the timer running if you want a bit more time in your spot.",
+                confirmLabel: "End it now",
+                cancelLabel: "Keep timer running",
+            }).then((ok) => {
+                if (!ok) return;
+                endHidingPeriodEarly();
+                toast.success(
+                    "Hiding period ended — seekers can start asking.",
+                    { autoClose: 2500 },
+                );
             });
         }
     };

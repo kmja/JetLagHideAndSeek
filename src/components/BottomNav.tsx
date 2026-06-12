@@ -74,8 +74,9 @@ import {
     participants,
     seekerLocationSharing,
 } from "@/lib/multiplayer/session";
-import { seekerRotateHider } from "@/lib/multiplayer/store";
+import { appConfirm } from "@/lib/confirm";
 import { copyFoundLink, shareFoundLink } from "@/lib/foundShare";
+import { seekerRotateHider } from "@/lib/multiplayer/store";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
@@ -121,21 +122,22 @@ export const BottomNav = () => {
         $currentGameCode !== null &&
         $participants.length >= 2;
 
-    const handleNewRound = () => {
+    const handleNewRound = async () => {
         if (canRotateHider) {
             // Open the picker; the dialog's onConfirm will run the
             // wire send + local reset.
             setRotateDialogOpen(true);
             return;
         }
-        // Offline / solo: existing confirm() flow.
-        if (
-            !confirm(
-                "Start a new round? Question log, hider hand, hiding zone and spot will all reset. Play area + transit + size stay the same.",
-            )
-        ) {
-            return;
-        }
+        // Offline / solo: confirm via the app-styled dialog (was a
+        // raw window.confirm() that came with the OS chrome).
+        const ok = await appConfirm({
+            title: "Start a new round?",
+            description:
+                "Question log, hider hand, hiding zone and spot will all reset. Play area + transit + size stay the same.",
+            confirmLabel: "New round",
+        });
+        if (!ok) return;
         setGameSheetOpen(false);
         startNewRound();
         toast.success("New round — hiding period starting now.", {
@@ -481,14 +483,17 @@ export const BottomNav = () => {
                                                         );
                                                     }}
                                                     onNewRound={handleNewRound}
-                                                    onNewGame={() => {
-                                                        if (
-                                                            !confirm(
-                                                                "Start a new game? This drops the play area, transit modes, and size — the setup wizard will re-open.",
-                                                            )
-                                                        ) {
-                                                            return;
-                                                        }
+                                                    onNewGame={async () => {
+                                                        const ok = await appConfirm(
+                                                            {
+                                                                title: "Start a new game?",
+                                                                description:
+                                                                    "This drops the play area, transit modes, and size — the setup wizard will re-open.",
+                                                                confirmLabel: "New game",
+                                                                destructive: true,
+                                                            },
+                                                        );
+                                                        if (!ok) return;
                                                         setGameSheetOpen(false);
                                                         startNewGame();
                                                     }}
@@ -708,14 +713,14 @@ export const BottomNav = () => {
                                                 ? "Roles lock once the first question has been asked. Start a new game to switch."
                                                 : "Switch this device to the hider side"
                                         }
-                                        onClick={() => {
-                                            if (
-                                                !confirm(
-                                                    "Switch this device to the hider side? You'll go to the hider home — seeker state stays saved.",
-                                                )
-                                            ) {
-                                                return;
-                                            }
+                                        onClick={async () => {
+                                            const ok = await appConfirm({
+                                                title: "Switch to hider?",
+                                                description:
+                                                    "You'll go to the hider home — seeker state stays saved.",
+                                                confirmLabel: "Switch to hider",
+                                            });
+                                            if (!ok) return;
                                             playerRole.set("hider");
                                             window.location.assign("/h");
                                         }}
