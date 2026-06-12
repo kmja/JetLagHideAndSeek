@@ -76,7 +76,7 @@ crons = ["0 4 * * *"]
 # workers.dev URL is included by default; add a custom domain to
 # this comma-separated list once one is wired up.
 [vars]
-ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https://*-jetlaghideandseek.karl-mj-andersson.workers.dev,http://localhost:4321,http://localhost:3000,http://localhost:5173"
+ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https://*-jetlaghideandseek.karl-mj-andersson.workers.dev,https://hideandseek.game,https://www.hideandseek.game,https://jetlaghideandseek.com,https://www.jetlaghideandseek.com,http://localhost:4321,http://localhost:3000,http://localhost:5173"
 # Cache freshness. Boundaries change rarely on OSM — anything
 # fresher than a month is fine to serve straight from R2.
 CACHE_TTL_DAYS = "30"

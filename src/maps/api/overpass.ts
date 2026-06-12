@@ -1,8 +1,6 @@
 import * as turf from "@turf/turf";
 import type { FeatureCollection, MultiPolygon } from "geojson";
-import memoize from "lodash/memoize";
 import uniq from "lodash/uniq";
-import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
 
@@ -67,7 +65,6 @@ export const getOverpassData = async (
     const fallbackUrl = `${OVERPASS_API_FALLBACK}?data=${encodedQuery}`;
     const tertiaryUrl = `${OVERPASS_API_TERTIARY}?data=${encodedQuery}`;
     const quaternaryUrl = `${OVERPASS_API_QUATERNARY}?data=${encodedQuery}`;
-    const allUrls = [primaryUrl, fallbackUrl, tertiaryUrl, quaternaryUrl];
 
     // Fast-path racer: if this is a simple relation-boundary
     // fetch (the heavy hitter for play-area loading), also race
@@ -151,15 +148,20 @@ export const getOverpassData = async (
     // through cacheFetch (cache-aware, timeout-managed); the
     // polygons.osm.fr racer wraps its JSON in a Response so the
     // downstream code path doesn't care which mirror won.
-    type Racer = () => Promise<Response | null>;
-    const racers: Array<{ name: string; run: Racer }> = allUrls.map(
-        (url) => ({
-            name: url.replace(/^https?:\/\//, "").split("/")[0],
-            run: () => tryFetch(url),
-        }),
-    );
+    type Racer = { name: string; run: () => Promise<Response | null> };
+    const hostOf = (url: string) =>
+        url.replace(/^https?:\/\//, "").split("/")[0];
+
+    // Tier 1 — our own cache worker, plus (for boundary queries) the
+    // pre-computed polygon fast-path. Neither hammers the public
+    // Overpass mirrors: the worker is R2-backed and is the single
+    // coordinated upstream caller, and polygons.osm.fr is a separate
+    // service. These race immediately.
+    const tier1: Racer[] = [
+        { name: hostOf(primaryUrl), run: () => tryFetch(primaryUrl) },
+    ];
     if (fastPathRelationId !== null) {
-        racers.unshift({
+        tier1.unshift({
             name: "polygons.osm.fr",
             run: async () => {
                 const t0 = Date.now();
@@ -184,7 +186,27 @@ export const getOverpassData = async (
         });
     }
 
-    const winner = await raceUntilFirstSuccessGeneric(racers);
+    // Tier 2 — the public Overpass mirrors, held back behind a
+    // stagger. Previously the client raced these in parallel with the
+    // worker on EVERY query, which (a) flooded the mirrors directly
+    // from the user's IP and tripped their per-IP rate limit — the
+    // 429/CORS cascade in the console — and (b) defeated the cache
+    // worker's purpose of being the sole upstream contact (so R2
+    // never filled). Now they only kick in when the worker has
+    // actually failed, or when it's been slow for longer than the
+    // stagger window. A healthy cache hit returns long before that;
+    // a cache miss lets the worker fetch + persist once, so the next
+    // identical query is a fast R2 hit instead of another mirror
+    // flood.
+    const tier2: Racer[] = [fallbackUrl, tertiaryUrl, quaternaryUrl].map(
+        (url) => ({ name: hostOf(url), run: () => tryFetch(url) }),
+    );
+
+    const winner = await raceWithStaggeredFallback(
+        tier1,
+        tier2,
+        PUBLIC_MIRROR_STAGGER_MS,
+    );
 
     if (winner) {
         // Best-effort: warm the cache key for the primary URL so
@@ -208,40 +230,87 @@ export const getOverpassData = async (
     return { elements: [] };
 };
 
+/** How long the client gives its own cache worker (tier 1) before it
+ *  brings the public mirrors (tier 2) into the race as insurance.
+ *  A cache hit returns in well under a second, so on the happy path
+ *  the mirrors are never touched. A cache *miss* lets the worker
+ *  fetch + persist once within this window; only a genuinely
+ *  slow/stuck worker leaks past it. Worker hard-failures don't wait
+ *  for this timer — tier 2 starts the instant tier 1 has all
+ *  failed. */
+const PUBLIC_MIRROR_STAGGER_MS = 7000;
+
 /**
- * Mirror race: invoke `worker` for every URL in parallel and
- * resolve as soon as the FIRST one returns a non-null Response.
- * If every worker resolves to null, resolves to null. Never
- * throws.
+ * Two-tier first-success-wins race with a staggered second tier.
  *
- * Why not Promise.race? Promise.race resolves to the FIRST
- * settled promise — including failures. That would short-
- * circuit on the fastest 503 / network error and miss a slower
- * mirror that's actually working. We need first-SUCCESS-wins.
+ * `tier1` racers all start immediately. `tier2` racers start either
+ * (a) as soon as every started racer has failed, or (b) `staggerMs`
+ * after the start, whichever comes first. The first racer in either
+ * tier to return a non-null Response wins and the rest are
+ * abandoned; if everything fails, resolves null.
+ *
+ * This replaces the old "race all four endpoints at once" so the
+ * client stops flooding the public Overpass mirrors directly on
+ * every query — they're now a delayed fallback behind our own
+ * R2-backed cache worker.
  */
-async function raceUntilFirstSuccessGeneric(
-    racers: Array<{ name: string; run: () => Promise<Response | null> }>,
+async function raceWithStaggeredFallback(
+    tier1: Array<{ name: string; run: () => Promise<Response | null> }>,
+    tier2: Array<{ name: string; run: () => Promise<Response | null> }>,
+    staggerMs: number,
 ): Promise<Response | null> {
     return new Promise((resolve) => {
-        let pending = racers.length;
         let resolved = false;
-        racers.forEach(({ run }) => {
-            run().then(
-                (r) => {
-                    if (resolved) return;
-                    if (r) {
-                        resolved = true;
-                        resolve(r);
-                        return;
-                    }
-                    if (--pending === 0) resolve(null);
-                },
-                () => {
-                    if (resolved) return;
-                    if (--pending === 0) resolve(null);
-                },
-            );
-        });
+        let tier2Started = false;
+        let pending = tier1.length;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
+        const finish = (r: Response | null) => {
+            if (resolved) return;
+            resolved = true;
+            if (timer !== null) clearTimeout(timer);
+            resolve(r);
+        };
+
+        const onSettled = (r: Response | null) => {
+            if (resolved) return;
+            if (r) {
+                finish(r);
+                return;
+            }
+            pending--;
+            if (pending === 0) {
+                // Everything started so far has failed.
+                if (!tier2Started && tier2.length > 0) {
+                    startTier2();
+                } else {
+                    finish(null);
+                }
+            }
+        };
+
+        const startRacers = (
+            racers: Array<{ run: () => Promise<Response | null> }>,
+        ) => {
+            racers.forEach(({ run }) => {
+                run().then(onSettled, () => onSettled(null));
+            });
+        };
+
+        function startTier2() {
+            if (tier2Started || resolved) return;
+            tier2Started = true;
+            pending += tier2.length;
+            startRacers(tier2);
+        }
+
+        startRacers(tier1);
+
+        if (tier2.length > 0) {
+            timer = setTimeout(() => {
+                if (!resolved) startTier2();
+            }, staggerMs);
+        }
     });
 }
 

@@ -53,6 +53,80 @@ const UPSTREAM_TIMEOUT_MS = 20_000;
 
 const CACHE_API_TTL_SECS = 24 * 60 * 60; // 24 h at the edge
 
+/* ───────────────── Upstream load control ─────────────────
+ *
+ * The cache only fills if upstream fetches succeed — and they were
+ * failing because the client fires a burst of distinct category
+ * queries at game start, each of which had the worker race all three
+ * public mirrors with no coordination. 14 queries × 3 mirrors = 42
+ * near-simultaneous hits from the worker's single egress IP, which
+ * the mirrors answer with an instant 429. Every query 502'd, nothing
+ * got written to R2, and the next game repeated the cycle.
+ *
+ * Two module-level guards (state persists per isolate across
+ * requests) tame that:
+ *
+ *   1. A counting semaphore caps how many upstream mirror-races run
+ *      at once, converting the thundering herd into a polite trickle.
+ *   2. An in-flight map coalesces concurrent requests for the SAME
+ *      query (duplicate matching taps, React strict-mode double
+ *      fires, two seekers on the same play area) onto a single
+ *      upstream fetch + single R2 write.
+ */
+
+/** Max concurrent upstream mirror-races across the whole isolate.
+ *  4 races × 3 mirrors = 12 concurrent connections — a big cut from
+ *  the unbounded herd, low enough to stay under the mirrors' per-IP
+ *  rate limit, high enough that the queue drains well inside the
+ *  ~30 s Workers wall-clock budget. */
+const MAX_CONCURRENT_UPSTREAM = 4;
+
+/** A minimal fair counting semaphore. `run` acquires a slot, awaits
+ *  `fn`, then hands the slot directly to the next waiter (no
+ *  decrement-then-reincrement gap, so the active count can never
+ *  overshoot `max`). */
+class Semaphore {
+    private active = 0;
+    private readonly queue: Array<() => void> = [];
+    constructor(private readonly max: number) {}
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+        await this.acquire();
+        try {
+            return await fn();
+        } finally {
+            this.release();
+        }
+    }
+    private async acquire(): Promise<void> {
+        if (this.active < this.max) {
+            this.active++;
+            return;
+        }
+        await new Promise<void>((res) => this.queue.push(res));
+        // A slot was handed to us by release(); `active` already
+        // counts us, so we don't increment here.
+    }
+    private release(): void {
+        const next = this.queue.shift();
+        if (next) {
+            // Transfer our slot straight to the next waiter; the
+            // active count stays the same.
+            next();
+        } else {
+            this.active--;
+        }
+    }
+}
+
+const upstreamSemaphore = new Semaphore(MAX_CONCURRENT_UPSTREAM);
+
+/** Coalesce concurrent upstream fetches for the same R2 cache key.
+ *  Keyed by cacheKey → in-flight Promise of the response body (or
+ *  null on total failure). Cleared in the `finally` once the fetch
+ *  and its R2 write-back finish. */
+const inFlightUpstream = new Map<string, Promise<string | null>>();
+
+
 export default {
     async fetch(
         request: Request,
@@ -257,21 +331,18 @@ async function handleRequest(
                 ctx.waitUntil(edgeCache.put(cacheApiKey, fresh.clone()));
                 return fresh;
             }
-            // Stale — fall through to refresh, but hang onto the
-            // stale R2 hit for the "all upstreams failed" branch.
-            const upstream = await fetchFromMirrorChain(query);
-            if (upstream) {
-                const upstreamBody = await upstream.text();
-                ctx.waitUntil(
-                    writeBackThroughCaches(
-                        env,
-                        ctx,
-                        edgeCache,
-                        cacheApiKey,
-                        cacheKey,
-                        upstreamBody,
-                    ),
-                );
+            // Stale — fall through to refresh (coalesced + rate-
+            // limited), but hang onto the stale R2 hit for the "all
+            // upstreams failed" branch.
+            const upstreamBody = await fetchAndCacheUpstream(
+                env,
+                ctx,
+                edgeCache,
+                cacheApiKey,
+                cacheKey,
+                query,
+            );
+            if (upstreamBody !== null) {
                 return buildJSONResponse(upstreamBody, cors, "MISS_REFRESH");
             }
             // Stale-while-error: every mirror was sad, serve the
@@ -286,9 +357,17 @@ async function handleRequest(
             return stale;
         }
 
-        // Step 3 — full miss. Fetch upstream, persist, return.
-        const upstream = await fetchFromMirrorChain(query);
-        if (!upstream) {
+        // Step 3 — full miss. Fetch upstream (coalesced + rate-
+        // limited), persist, return.
+        const upstreamBody = await fetchAndCacheUpstream(
+            env,
+            ctx,
+            edgeCache,
+            cacheApiKey,
+            cacheKey,
+            query,
+        );
+        if (upstreamBody === null) {
             return new Response(
                 JSON.stringify({
                     error: "All Overpass mirrors are currently unavailable.",
@@ -302,17 +381,6 @@ async function handleRequest(
                 },
             );
         }
-        const upstreamBody = await upstream.text();
-        ctx.waitUntil(
-            writeBackThroughCaches(
-                env,
-                ctx,
-                edgeCache,
-                cacheApiKey,
-                cacheKey,
-                upstreamBody,
-            ),
-        );
         return buildJSONResponse(upstreamBody, cors, "MISS");
 }
 
@@ -400,6 +468,69 @@ async function fetchFromMirrorChain(query: string): Promise<Response | null> {
     });
 }
 
+/** One retry pass over the mirror chain. The common failure mode is
+ *  a rate-limit storm where every mirror 429s in ~150 ms — a brief
+ *  backoff then a second try usually clears it. We only retry when
+ *  the first pass failed *fast* (a slow timeout failure means the
+ *  mirrors are genuinely hung, and retrying would just burn the
+ *  remaining wall-clock budget). */
+async function fetchFromMirrorChainWithRetry(
+    query: string,
+): Promise<Response | null> {
+    const t0 = Date.now();
+    const first = await fetchFromMirrorChain(query);
+    if (first) return first;
+    if (Date.now() - t0 > 6000) return null;
+    await new Promise((r) => setTimeout(r, 1200));
+    return await fetchFromMirrorChain(query);
+}
+
+/**
+ * Fetch a query upstream and write the result back through both
+ * cache tiers — coalesced so concurrent callers for the same query
+ * share one upstream round trip and one R2 write, and rate-limited
+ * by the upstream semaphore so a burst of distinct queries doesn't
+ * trip the public mirrors.
+ *
+ * The R2 write is awaited (not fire-and-forget) so the cache
+ * actually fills — that's this worker's entire reason to exist, and
+ * the symptom that started this was an empty bucket. Returns the
+ * response body, or null if every mirror failed.
+ */
+function fetchAndCacheUpstream(
+    env: Env,
+    ctx: ExecutionContext,
+    edgeCache: Cache,
+    cacheApiKey: Request,
+    cacheKey: string,
+    query: string,
+): Promise<string | null> {
+    const existing = inFlightUpstream.get(cacheKey);
+    if (existing) return existing;
+    const p = (async () => {
+        try {
+            const upstream = await upstreamSemaphore.run(() =>
+                fetchFromMirrorChainWithRetry(query),
+            );
+            if (!upstream) return null;
+            const body = await upstream.text();
+            await writeBackThroughCaches(
+                env,
+                ctx,
+                edgeCache,
+                cacheApiKey,
+                cacheKey,
+                body,
+            );
+            return body;
+        } finally {
+            inFlightUpstream.delete(cacheKey);
+        }
+    })();
+    inFlightUpstream.set(cacheKey, p);
+    return p;
+}
+
 async function prewarmCity(
     env: Env,
     ctx: ExecutionContext,
@@ -437,7 +568,11 @@ async function prewarmRelation(
             return { status: "skipped-fresh", ageMs };
         }
     }
-    const upstream = await fetchFromMirrorChain(query);
+    // Through the shared semaphore so a cron batch can't starve (or
+    // be starved by) live request traffic on the same mirrors.
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(query),
+    );
     if (!upstream) {
         return { status: "upstream-failed" };
     }
