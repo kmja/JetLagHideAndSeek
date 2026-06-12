@@ -288,13 +288,12 @@ export function HiderHome() {
     };
 
     return (
-        // pb-[180px] leaves room below the last content item for the
+        // pb-[160px] leaves room below the last content item for the
         // resting HiderHandFan strip pinned to the viewport bottom
-        // (~168px: 124 card + 24 slack + ~20 safe-area). The
+        // (~150px: 104 card + 24 slack + ~20 safe-area). The
         // peek-preview extends above this briefly while a card is
-        // pressed; that brief overlap is fine since peeking is a
-        // focused interaction.
-        <div className="min-h-screen flex flex-col p-4 max-w-2xl mx-auto pb-[180px] bg-background text-foreground">
+        // pressed.
+        <div className="min-h-screen flex flex-col p-4 max-w-2xl mx-auto pb-[160px] bg-background text-foreground">
             {/* Header */}
             <header className="mb-4">
                 <div className="flex items-center gap-3">

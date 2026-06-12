@@ -92,13 +92,16 @@ function Fan({
     gameSize: ReturnType<typeof gameSize.get>;
     onCardTap: (index: number) => void;
 }) {
-    // Card size + spacing. CardTile's compact variant has
-    // min-h-[120px]; the fan card box is 80x124 (≈5:8 playing-card
-    // aspect) so the tile fits without overflow. Spacing tightens
-    // with hand size so a big hand still fits across a narrow phone.
+    // Card size + spacing. The fan renders CardTile at its FULL
+    // default size inside a scale(MINIATURE) wrapper, so the
+    // miniature is a faithful tiny copy of the real card (same
+    // layout, same fonts shrunk). MINIATURE = 0.42 → 180x240 default
+    // CardTile becomes 76x100 visible, which matches a standard
+    // playing-card 3:4 aspect close enough.
     const N = hand.length;
-    const CARD_W = 80;
-    const CARD_H = 124;
+    const CARD_MINIATURE_SCALE = 0.42;
+    const CARD_W = 76;
+    const CARD_H = 104;
     const TOTAL_ANGLE = N <= 1 ? 0 : Math.min(60, 9 * N);
     const stepAngle = N <= 1 ? 0 : TOTAL_ANGLE / (N - 1);
     const startAngle = -TOTAL_ANGLE / 2;
@@ -206,7 +209,11 @@ function Fan({
             >
                 {hand.map((card, i) => {
                     const angle = startAngle + i * stepAngle;
-                    const x = -halfSpan + i * slotPx;
+                    // Translate so each card's CENTRE sits at x
+                    // (rather than the card's left edge). Without
+                    // this -CARD_W/2 adjustment the whole fan
+                    // appears shifted right by half a card width.
+                    const x = -halfSpan + i * slotPx - CARD_W / 2;
                     // Lift the centre cards higher than the edges so
                     // the fan reads as a curve. cos() of the angle
                     // gives the vertical offset along the imaginary
@@ -266,13 +273,29 @@ function Fan({
                                     : "0 -2px 8px rgba(0,0,0,0.45)",
                             }}
                         >
-                            <CardTile
-                                card={card}
-                                gameSize={$gameSize}
-                                size="compact"
-                                selectionIndicator="none"
-                                className="h-full w-full"
-                            />
+                            {/* Render the full-size CardTile design
+                                inside a CARD_MINIATURE_SCALE-down
+                                wrapper so the fan card is a faithful
+                                miniature of the real card — same layout
+                                proportions, same fonts (just smaller),
+                                same artwork. The inner wrapper sizes
+                                up to 1/scale so the unscaled layout
+                                fills the visible CARD_W x CARD_H box. */}
+                            <div
+                                style={{
+                                    width: CARD_W / CARD_MINIATURE_SCALE,
+                                    height: CARD_H / CARD_MINIATURE_SCALE,
+                                    transform: `scale(${CARD_MINIATURE_SCALE})`,
+                                    transformOrigin: "top left",
+                                }}
+                            >
+                                <CardTile
+                                    card={card}
+                                    gameSize={$gameSize}
+                                    selectionIndicator="none"
+                                    className="h-full w-full"
+                                />
+                            </div>
                         </button>
                     );
                 })}
@@ -375,13 +398,12 @@ function HandCarousel({
             shouldScaleBackground={false}
         >
             <VaulDrawer.Portal>
-                <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/70" />
+                <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/80" />
                 <VaulDrawer.Content
                     className={cn(
-                        "fixed inset-x-0 bottom-0 z-[1051]",
-                        "flex h-[88vh] flex-col rounded-t-[10px]",
+                        "fixed inset-0 z-[1051]",
+                        "flex flex-col",
                         "bg-background text-foreground",
-                        "border-t border-border",
                         "pb-[env(safe-area-inset-bottom)]",
                     )}
                 >
@@ -413,11 +435,12 @@ function HandCarousel({
                     </div>
 
                     {/* Carousel — horizontal scroll-snap row. Each
-                        slide is its own <article>; scroll-snap aligns
-                        whichever's centred. Picker dialogs (curse
-                        cast / hand-card picker) stack above this via
-                        Radix portals, so swiping behind the open
-                        dialog is harmless. */}
+                        slide takes the full carousel width (with
+                        small side-peek so the neighbour shows it can
+                        be swiped to). Card maintains its natural
+                        ~3:4 aspect with the height capped at the
+                        available track height so it doesn't push
+                        past the action row on short viewports. */}
                     <div
                         ref={trackRef}
                         role="region"
@@ -425,7 +448,7 @@ function HandCarousel({
                         className={cn(
                             "flex-1 min-h-0 flex overflow-x-auto",
                             "snap-x snap-mandatory scroll-smooth",
-                            "no-scrollbar gap-3 px-[12.5%] py-3",
+                            "no-scrollbar gap-4 px-[10%] py-4",
                         )}
                     >
                         {hand.map((card, i) => (
@@ -433,20 +456,24 @@ function HandCarousel({
                                 key={card.id}
                                 className={cn(
                                     "snap-center shrink-0",
-                                    "w-[75%] max-w-[260px]",
+                                    "w-[80%] max-w-[360px]",
                                     "flex items-center justify-center",
                                     "transition-transform duration-200",
                                     i === focusIndex
                                         ? "scale-100"
-                                        : "scale-[0.92] opacity-80",
+                                        : "scale-95 opacity-70",
                                 )}
                                 aria-current={i === focusIndex}
                             >
-                                <div className="w-full">
+                                <div
+                                    className="w-full max-h-full"
+                                    style={{ aspectRatio: "3 / 4" }}
+                                >
                                     <CardTile
                                         card={card}
                                         gameSize={$gameSize}
                                         selectionIndicator="none"
+                                        className="h-full w-full"
                                     />
                                 </div>
                             </article>
@@ -605,33 +632,38 @@ function CardActions({
         }
     };
 
+    // Action row: always Discard, plus a Play CTA for cards that
+    // have an effect to fire. Time-bonus cards have no playable
+    // effect (they only count when held at round end) so only
+    // Discard shows. Powerups and curses both label their action
+    // "Play" — unified language even though the underlying code
+    // path differs (powerup → onPlayPowerup, curse → cast dialog).
+    const playable = card.kind === "powerup" || card.kind === "curse";
     return (
         <>
-            <div className="flex items-center gap-2">
-                {card.kind === "powerup" && (
-                    <Button
-                        type="button"
-                        onClick={() => onPlayPowerup(card)}
-                        className="flex-1 gap-1.5 h-10"
-                    >
-                        <Sparkles className="w-4 h-4" />
-                        Play
-                    </Button>
-                )}
-                {card.kind === "curse" && (
+            <div className="flex items-stretch gap-2">
+                <DiscardButton card={card} onDiscarded={onActionTaken} />
+                {playable && (
                     <Button
                         type="button"
                         onClick={() => {
-                            onPickerOpen();
-                            setCastCurse(card);
+                            if (card.kind === "powerup") {
+                                onPlayPowerup(card);
+                            } else if (card.kind === "curse") {
+                                onPickerOpen();
+                                setCastCurse(card);
+                            }
                         }}
-                        className="flex-1 gap-1.5 h-10"
+                        className="flex-1 gap-1.5 h-12 text-base font-semibold"
                     >
-                        <Zap className="w-4 h-4" />
-                        Cast
+                        {card.kind === "curse" ? (
+                            <Zap className="w-5 h-5" />
+                        ) : (
+                            <Sparkles className="w-5 h-5" />
+                        )}
+                        Play
                     </Button>
                 )}
-                <DiscardButton card={card} onDiscarded={onActionTaken} />
             </div>
 
             {/* Powerup-resolution picker */}
@@ -751,9 +783,9 @@ function DiscardButton({
                 <Button
                     type="button"
                     variant="secondary"
-                    className="gap-1.5 h-10 px-4"
+                    className="flex-1 gap-1.5 h-12 text-base font-semibold"
                 >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-5 h-5" />
                     Discard
                 </Button>
             </AlertDialogTrigger>

@@ -195,12 +195,12 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     const shouldBlurMap = autoComputable && !revealed;
 
     return (
-        // pb leaves room for the resting HiderHandFan (~168px
-        // including safe-area: 124 card + 24 strip slack + ~20 safe
-        // area). Page footers sit just above it. The peek-preview
-        // extends above this height briefly while the user holds a
-        // card, which is fine — it's a focused interaction.
-        <div className="min-h-screen flex flex-col p-4 pb-[180px] max-w-md mx-auto">
+        // pb leaves room for the resting HiderHandFan (~150px
+        // including safe-area: 104 card + 24 slack + ~20 safe-area).
+        // Page footers sit just above it. The peek-preview extends
+        // above briefly while held — that's a focused interaction
+        // and recovering on release.
+        <div className="min-h-screen flex flex-col p-4 pb-[160px] max-w-md mx-auto">
             <header className="mt-2 mb-3">
                 {/* Escape hatch back to HiderHome. Useful both for
                     abandoning an answer mid-flow and for closing the
