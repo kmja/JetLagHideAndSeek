@@ -101,14 +101,25 @@ function Fan({
     //     sits. Larger = flatter arc.
     // Card-to-card spacing scales with hand size so a 10-card hand
     // overlaps tighter without spilling off-screen.
+    // Card size + spacing. v160 fix: use compact CardTile (120px
+    // min-height) at its natural width so the proportions stay
+    // playing-card-shaped. Earlier versions rendered the default
+    // 240px-tall tile inside a 88px-wide box with a 0.6 inner scale,
+    // which laid out the card as a tall thin strip before scaling —
+    // hence the "crazy proportions" the user saw.
     const N = hand.length;
+    // CARD_W:CARD_H ≈ 5:8 — close to a standard playing-card aspect.
+    // CARD_H must be ≥ CardTile's compact min-height (120px) or the
+    // tile would push past its container.
+    const CARD_W = 80;
+    const CARD_H = 124;
     const TOTAL_ANGLE = N <= 1 ? 0 : Math.min(60, 9 * N);
     const stepAngle = N <= 1 ? 0 : TOTAL_ANGLE / (N - 1);
     const startAngle = -TOTAL_ANGLE / 2;
-    // Approximate visible-card width when fanned. Each card is 88px
-    // wide; tighter overlap on bigger hands keeps the fan centered.
-    const overlap = Math.min(56, 8 + 6 * N);
-    const slotPx = 88 - overlap;
+    // Card-to-card spacing: bigger overlap on bigger hands so a
+    // 10-card hand still fits across a narrow phone.
+    const overlap = Math.min(50, 8 + 5 * N);
+    const slotPx = CARD_W - overlap;
     const halfSpan = ((N - 1) * slotPx) / 2;
 
     return (
@@ -117,14 +128,19 @@ function Fan({
             aria-label={`Hand of ${N} card${N === 1 ? "" : "s"}`}
             className={cn(
                 "fixed inset-x-0 bottom-0 z-40",
-                "h-[150px] flex items-end justify-center",
+                "flex items-end justify-center",
                 "pointer-events-none",
             )}
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
+            style={{
+                // Container height = card height + lift slack + safe
+                // area. Page footers should sit above this strip.
+                height: CARD_H + 24,
+                paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)",
+            }}
         >
             <div
                 className="relative pointer-events-none"
-                style={{ width: 0, height: 130 }}
+                style={{ width: 0, height: CARD_H }}
             >
                 {hand.map((card, i) => {
                     const angle = startAngle + i * stepAngle;
@@ -144,6 +160,9 @@ function Fan({
                             className={cn(
                                 "absolute bottom-0 left-0 p-0",
                                 "pointer-events-auto",
+                                "rounded-md overflow-hidden",
+                                "shadow-[0_-2px_8px_rgba(0,0,0,0.45)]",
+                                "border border-border bg-card",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                 "transition-transform duration-150",
                                 // Higher cards (later index) sit on
@@ -156,27 +175,18 @@ function Fan({
                             style={{
                                 transform: `translateX(${x}px) translateY(${-yLift}px) rotate(${angle}deg)`,
                                 transformOrigin: "50% 100%",
-                                width: 88,
+                                width: CARD_W,
+                                height: CARD_H,
                                 zIndex: 100 + i,
                             }}
                         >
-                            <div
-                                className={cn(
-                                    "rounded-md overflow-hidden",
-                                    "shadow-[0_-2px_8px_rgba(0,0,0,0.45)]",
-                                    "border border-border bg-card",
-                                )}
-                                style={{
-                                    transform: "scale(0.6)",
-                                    transformOrigin: "50% 100%",
-                                }}
-                            >
-                                <CardTile
-                                    card={card}
-                                    gameSize={$gameSize}
-                                    selectionIndicator="none"
-                                />
-                            </div>
+                            <CardTile
+                                card={card}
+                                gameSize={$gameSize}
+                                size="compact"
+                                selectionIndicator="none"
+                                className="h-full w-full"
+                            />
                         </button>
                     );
                 })}
