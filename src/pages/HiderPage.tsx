@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { GameStartWatcher } from "@/components/GameStartWatcher";
+import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderView } from "@/components/HiderView";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
@@ -71,6 +72,11 @@ export function HiderPage() {
                 {/* Hiding-period gate + GO GO GO moment. */}
                 <GoGoGoOverlay />
             </Suspense>
+            {/* Hearthstone-style fanned hand pinned to the bottom of
+                the viewport. Auto-hides when the hand is empty.
+                Tapping the fan opens a full-screen carousel where the
+                hider plays / casts / discards the focused card. */}
+            <HiderHandFan />
         </div>
     );
 }

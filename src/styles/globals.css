@@ -444,3 +444,15 @@ div.leaflet-control-attribution.leaflet-control {
 [data-tutorial-active="true"] [role="dialog"] {
     position: fixed !important;
 }
+
+/* Hide native scrollbar while keeping scroll functionality. Used by
+ * the hider's hand carousel where the snap-track is the only way to
+ * navigate; the scrollbar would just be visual noise on touch
+ * devices. */
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}

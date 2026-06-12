@@ -288,7 +288,11 @@ export function HiderHome() {
     };
 
     return (
-        <div className="min-h-screen flex flex-col p-4 max-w-2xl mx-auto pb-12 bg-background text-foreground">
+        // pb-[160px] leaves room below the last content item for the
+        // fixed HiderHandFan strip pinned to the viewport bottom. The
+        // fan itself is mounted on HiderPage (not here) so it lives
+        // outside this scrolling column.
+        <div className="min-h-screen flex flex-col p-4 max-w-2xl mx-auto pb-[160px] bg-background text-foreground">
             {/* Header */}
             <header className="mb-4">
                 <div className="flex items-center gap-3">
