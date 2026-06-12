@@ -515,6 +515,52 @@ out geom;
     return uniqNodes;
 };
 
+/** Soft cap on how many coordinate pairs go into a `poly:` filter
+ *  string. The string is repeated once per sub-statement in a
+ *  combined query, so the effective query size is roughly
+ *  `MAX_POLY_POINTS * filters * ~18 bytes`. 600 points × 8 filters ×
+ *  18 ≈ 85 KB — comfortably under the public mirrors' request-size
+ *  ceiling while preserving the play-area silhouette. */
+const MAX_POLY_POINTS = 600;
+
+/**
+ * Serialise a play-area polygon into an Overpass `poly:` coordinate
+ * string ("lat lon lat lon …"), progressively simplifying until the
+ * point count is under `MAX_POLY_POINTS`. Small play areas (a
+ * neighbourhood, a town) are already under the cap and pass through
+ * untouched; large/complex ones (a county, a metropolis with a
+ * crenellated coastline) get simplified just enough to fit.
+ *
+ * turf.coordAll flattens every ring of every polygon into one
+ * sequence — fine for our purposes since Overpass treats the whole
+ * point list as the filter region, and the v190 land-clip already
+ * dropped far-flung islands that would otherwise corrupt that.
+ */
+function buildPolyFilterString(
+    geojson: GeoJSON.FeatureCollection | GeoJSON.Feature | GeoJSON.Geometry,
+): string {
+    let coords = turf.coordAll(geojson as any);
+    if (coords.length > MAX_POLY_POINTS) {
+        for (const tolerance of [0.001, 0.002, 0.005, 0.01, 0.02, 0.05]) {
+            try {
+                const simplified = turf.simplify(geojson as any, {
+                    tolerance,
+                    highQuality: false,
+                    mutate: false,
+                });
+                const next = turf.coordAll(simplified as any);
+                // Guard against simplification collapsing the polygon
+                // to nothing — keep the last usable set.
+                if (next.length >= 4) coords = next;
+                if (coords.length <= MAX_POLY_POINTS) break;
+            } catch {
+                break;
+            }
+        }
+    }
+    return coords.map(([lon, lat]) => `${lat} ${lon}`).join(" ");
+}
+
 export const findPlacesInZone = async (
     filter: string,
     loadingText?: string,
@@ -539,11 +585,19 @@ export const findPlacesInZone = async (
     let query = "";
     const $polyGeoJSON = polyGeoJSON.get();
     if ($polyGeoJSON) {
-        // turf.coordAll handles both Polygon and MultiPolygon correctly.
-        // Overpass poly: expects "lat lon" pairs; GeoJSON stores [lon, lat].
-        const polyStr = turf.coordAll($polyGeoJSON)
-            .map(([lon, lat]) => `${lat} ${lon}`)
-            .join(" ");
+        // Overpass poly: expects "lat lon" pairs; GeoJSON stores
+        // [lon, lat]. We build the string from a SIMPLIFIED polygon
+        // (see buildPolyFilterString) — a raw county boundary can
+        // carry thousands of vertices, and this string is repeated
+        // once per sub-statement in a combined multi-category query.
+        // Left unsimplified, an 8-category query for a complex region
+        // (Dalarna) balloons past the public mirrors' request-size
+        // limit and they silently drop sub-statements — the
+        // "8/8 warm but only one category has results" bug. A ~500m
+        // simplification is invisible to "is this amenity in the
+        // play area" while cutting the vertex count (and query size)
+        // by 10-50x.
+        const polyStr = buildPolyFilterString($polyGeoJSON);
         query = `
 [out:json]${timeoutDuration != 0 ? `[timeout:${timeoutDuration}]` : ""};
 (

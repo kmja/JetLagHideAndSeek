@@ -49,7 +49,21 @@ const DialogContent = React.forwardRef<
                 "fixed left-[50%] top-[50%] z-[1050] grid w-[calc(100%-2rem)] max-w-lg",
                 "translate-x-[-50%] translate-y-[calc(-50%+env(safe-area-inset-top)/2-env(safe-area-inset-bottom)/2)]",
                 "gap-4 border bg-background p-6 shadow-lg duration-200",
-                "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+                // Enter/exit animation. The slide-in-from-* classes are
+                // load-bearing, not decoration: tailwindcss-animate's
+                // zoom keyframe rebuilds `transform` from its own
+                // --tw-enter-translate-* vars (default 0), which would
+                // otherwise CLOBBER the `translate-x-[-50%]` centering
+                // mid-animation — making the dialog appear to slide in
+                // from the bottom-right toward center. Setting the
+                // enter/exit translate to the same -50%/-48% centering
+                // offset keeps the box pinned to the middle so it just
+                // grows from the center (zoom-in-95) and fades.
+                "data-[state=open]:animate-in data-[state=closed]:animate-out",
+                "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+                "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+                "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]",
                 "sm:rounded-lg",
                 "max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem)]",
                 "sm:max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-4rem)]",

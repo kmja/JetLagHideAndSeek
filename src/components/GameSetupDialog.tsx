@@ -234,6 +234,18 @@ export function GameSetupDialog() {
     }, [$welcomeSeen]);
 
     const [step, setStep] = useState<1 | 2 | 3>(1);
+    // Direction of the most recent step change, for the slide
+    // animation on the step body: "fwd" (Next) slides the new step in
+    // from the right (movement left→right through the wizard), "back"
+    // slides it in from the left. Tracked via a ref of the previous
+    // step so we don't need to thread direction through every setStep
+    // call site.
+    const prevStepRef = useRef(step);
+    const stepDir: "fwd" | "back" =
+        step >= prevStepRef.current ? "fwd" : "back";
+    useEffect(() => {
+        prevStepRef.current = step;
+    }, [step]);
     // Edit-mode current tab. Mirrors the three setup-wizard steps so
     // the player navigates the same three concepts (play area, transit,
     // size) in the same order, but laterally instead of sequentially.
@@ -654,7 +666,21 @@ export function GameSetupDialog() {
                             </DialogDescription>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
+                        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 overflow-x-hidden">
+                            {/* Keyed on `step` so each advance/retreat
+                                remounts and replays the slide. Forward
+                                steps enter from the right, back steps
+                                from the left — a small directional cue
+                                that the wizard is a left→right flow. */}
+                            <div
+                                key={step}
+                                className={cn(
+                                    "animate-in fade-in duration-200",
+                                    stepDir === "fwd"
+                                        ? "slide-in-from-right-6"
+                                        : "slide-in-from-left-6",
+                                )}
+                            >
                             {step === 1 && (
                                 <PlayAreaStep
                                     value={draftFeature}
@@ -700,6 +726,7 @@ export function GameSetupDialog() {
                                     </div>
                                 </div>
                             )}
+                            </div>
                         </div>
 
                         <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-between">
