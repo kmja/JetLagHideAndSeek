@@ -5,8 +5,9 @@ import { toast } from "react-toastify";
 
 import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
-import { ANSWER_VIEW_DISMISSED_KEY,HiderHome } from "@/components/HiderHome";
+import { ANSWER_VIEW_DISMISSED_KEY } from "@/components/HiderHome";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
+import { HiderShell } from "@/components/HiderShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
@@ -129,7 +130,7 @@ export function HiderView() {
     return (
         <>
             {!hasQueryParam ? (
-                <HiderHome />
+                <HiderShell />
             ) : !question ? (
                 <div className="min-h-screen flex items-center justify-center p-6">
                     <div className="max-w-sm text-center">

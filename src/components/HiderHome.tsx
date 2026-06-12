@@ -7,11 +7,9 @@ import {
     Crosshair,
     Eye,
     Flag,
-    Inbox,
     Lock,
     LockOpen,
     MapPin,
-    Settings,
     Ship,
     Sparkles,
     Timer,
@@ -19,13 +17,13 @@ import {
     TrainTrack,
     TramFront,
     Trophy,
-    Users,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { appConfirm } from "@/lib/confirm";
 import {
     allowedTransit,
     endgameStartedAt,
@@ -57,7 +55,6 @@ import {
     startNewGame,
     startNewRound,
 } from "@/lib/roundActions";
-import { appConfirm } from "@/lib/confirm";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
@@ -75,7 +72,6 @@ export const ANSWER_VIEW_DISMISSED_KEY = "jlhs:hiderAnswerDismissedKey";
 
 import {
     currentGameCode,
-    lobbyManualOpen,
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
@@ -84,12 +80,7 @@ import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
 import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
 import { HiderQuestionLog } from "./HiderQuestionLog";
-import {
-    HideSeekMark,
-    HideSeekWordmark,
-    SectionPill,
-    SizeBadge,
-} from "./JetLagLogo";
+import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import {
     type FoundStation,
@@ -137,7 +128,14 @@ type HiderPhase =
     | "over"
     | "pre-game";
 
-export function HiderHome() {
+/**
+ * The phase-aware action body — exported as the content the
+ * HiderShell mounts inside the Settings sheet of HiderBottomNav.
+ * The legacy `HiderHome` export below is a thin wrapper that
+ * re-adds the standalone-page chrome (max-width, padding, hand-fan
+ * spacer) so any non-shell caller still works.
+ */
+export function HiderHomeContent() {
     const $role = useStore(playerRole);
     const $hidingZone = useStore(hidingZone);
     const $hidingSpot = useStore(hidingSpot);
@@ -261,13 +259,6 @@ export function HiderHome() {
         }
     }, [$inbox, phase]);
 
-    const openSettings = () => {
-        // Edit mode — setupCompleted is true mid-game, so the dialog
-        // shows all sections in one scroll rather than the 3-step
-        // wizard. Online play section is in there too.
-        setupDialogOpen.set(true);
-    };
-
     const startNewGame = async () => {
         const ok = await appConfirm({
             title: "Start a new game?",
@@ -291,54 +282,11 @@ export function HiderHome() {
     };
 
     return (
-        // pb-[160px] leaves room below the last content item for the
-        // resting HiderHandFan strip pinned to the viewport bottom
-        // (~150px: 104 card + 24 slack + ~20 safe-area). The
-        // peek-preview extends above this briefly while a card is
-        // pressed.
-        <div className="min-h-screen flex flex-col p-4 max-w-2xl mx-auto pb-[160px] bg-background text-foreground">
-            {/* Header */}
-            <header className="mb-4">
-                <div className="flex items-center gap-3">
-                    <HideSeekMark size={36} onDark={false} />
-                    <HideSeekWordmark />
-                    <SectionPill className="ml-auto">Hider</SectionPill>
-                </div>
-                {/* Hider-side game controls. The seeker has the
-                    BottomNav; the hider has this compact toolbar.
-                    Both flows write the same nanostores. */}
-                <div className="mt-3 flex gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => lobbyManualOpen.set(true)}
-                        className="flex-1 gap-1.5 h-9 text-xs"
-                        title="Open the game lobby — roster, join code, role switch"
-                    >
-                        <Users className="w-3.5 h-3.5" />
-                        Lobby
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={openSettings}
-                        className="flex-1 gap-1.5 h-9 text-xs"
-                    >
-                        <Settings className="w-3.5 h-3.5" />
-                        Settings
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={startNewGame}
-                        className="flex-1 gap-1.5 h-9 text-xs"
-                    >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        New game
-                    </Button>
-                </div>
-            </header>
-
+        // Sheet-friendly container: no min-h-screen, no max-width
+        // clamp, modest horizontal padding. The Settings sheet of
+        // HiderBottomNav provides scroll + header chrome; this
+        // panel is just the phase content.
+        <div className="flex flex-col px-4 pb-6 text-foreground">
             {/* Final score on top once the round closes */}
             {phase === "over" && $hidingEndsAt && (
                 <FinalScoreBanner
@@ -509,6 +457,20 @@ export function HiderHome() {
                     {$role === "hider" ? "active" : "guest"}
                 </p>
             </footer>
+        </div>
+    );
+}
+
+/**
+ * Standalone hider-home page — legacy entry point. The new shell
+ * (HiderShell) wraps the same body but draws its own header / nav
+ * around it. This wrapper exists so a non-shell render (e.g. a
+ * future debug surface or a print view) still works.
+ */
+export function HiderHome() {
+    return (
+        <div className="min-h-screen pb-[160px] bg-background">
+            <HiderHomeContent />
         </div>
     );
 }
