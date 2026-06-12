@@ -19,6 +19,13 @@ const SeekerPage = lazyWithRetry(() =>
 const HiderPage = lazyWithRetry(() =>
     import("@/pages/HiderPage").then((m) => ({ default: m.HiderPage })),
 );
+// Developer-only card gallery. Lazy so it never weighs on the real
+// routes; reachable from the debug panel's "Card gallery" link.
+const DebugCardsPage = lazyWithRetry(() =>
+    import("@/pages/DebugCardsPage").then((m) => ({
+        default: m.DebugCardsPage,
+    })),
+);
 
 // Both routes mount under the same Suspense boundary so the
 // fallback (or lack thereof) is consistent. The route chunks
@@ -52,6 +59,10 @@ const router = createBrowserRouter([
     { path: "/", element: <RouteWrapper element={<SeekerPage />} /> },
     { path: "/h", element: <RouteWrapper element={<HiderPage />} /> },
     { path: "/h/", element: <RouteWrapper element={<HiderPage />} /> },
+    {
+        path: "/debug/cards",
+        element: <RouteWrapper element={<DebugCardsPage />} />,
+    },
     // Catch-all — anything else lands on the seeker shell. Matches
     // the previous Astro behaviour of `not_found_handling:
     // "single-page-application"`.

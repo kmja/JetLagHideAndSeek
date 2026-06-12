@@ -1,16 +1,17 @@
 import { useStore } from "@nanostores/react";
-import { Bug, X } from "lucide-react";
+import { Bug, LayoutGrid, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { debugPanelOpen } from "@/lib/debugState";
-
+import { appConfirm } from "@/lib/confirm";
 import {
     addQuestion,
     mapContext,
     questionModified,
     questions,
 } from "@/lib/context";
+import { debugPanelOpen } from "@/lib/debugState";
+import { clearAllLocalDataAndReload } from "@/lib/debugTools";
 import { type Card,shuffledDeck } from "@/lib/hiderDeck";
 import {
     hiderHand,
@@ -788,6 +789,38 @@ export function DebugPhaseControls() {
                 <DebugButton onClick={resetQuestions} variant="danger">
                     Reset · clear all questions
                 </DebugButton>
+
+                <Section title="Developer tools">
+                    <DebugButton
+                        onClick={() => {
+                            window.location.assign("/debug/cards");
+                        }}
+                    >
+                        <span className="inline-flex items-center gap-1.5">
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            Card gallery (all unique cards)
+                        </span>
+                    </DebugButton>
+                    <DebugButton
+                        variant="danger"
+                        onClick={async () => {
+                            const ok = await appConfirm({
+                                title: "Clear all local data?",
+                                description:
+                                    "Wipes every cache, saved game, role, and setting on this device, then reloads as a brand-new first-time player. Can't be undone.",
+                                confirmLabel: "Clear & reload",
+                                destructive: true,
+                            });
+                            if (!ok) return;
+                            await clearAllLocalDataAndReload();
+                        }}
+                    >
+                        <span className="inline-flex items-center gap-1.5">
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Clear all data · simulate first visit
+                        </span>
+                    </DebugButton>
+                </Section>
 
                 <p className="text-[10px] text-muted-foreground leading-snug italic pt-1 border-t border-border">
                     Temporary widget for testing the question lifecycle.
