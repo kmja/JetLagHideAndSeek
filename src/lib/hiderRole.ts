@@ -178,6 +178,54 @@ export const hidingSpot = __globalPersistent<HidingSpot | null>(
     },
 );
 
+/**
+ * Hider's scouted-spot list — places they've passed during the
+ * hiding period and want to remember as potential final spots.
+ * Persistent so a phone-lock or PWA close doesn't lose them.
+ * Distinct from `hidingSpot` (the committed final spot) and
+ * `hidingZone` (the 500m-radius station boundary).
+ */
+export interface ScoutedSpot {
+    id: string;
+    lat: number;
+    lng: number;
+    /** Hider's freeform label ("by the bench", "alley between blocks"). */
+    label?: string;
+    savedAt: number;
+}
+
+export const scoutedSpots = __globalPersistent<ScoutedSpot[]>(
+    "__jlhs_scoutedSpots",
+    "scoutedSpots",
+    [],
+    JSON.stringify,
+    (v) => {
+        try {
+            const arr = JSON.parse(v);
+            return Array.isArray(arr) ? (arr as ScoutedSpot[]) : [];
+        } catch {
+            return [];
+        }
+    },
+);
+
+export function addScoutedSpot(
+    spot: Omit<ScoutedSpot, "id" | "savedAt">,
+): void {
+    scoutedSpots.set([
+        ...scoutedSpots.get(),
+        {
+            ...spot,
+            id: `spot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            savedAt: Date.now(),
+        },
+    ]);
+}
+
+export function removeScoutedSpot(id: string): void {
+    scoutedSpots.set(scoutedSpots.get().filter((s) => s.id !== id));
+}
+
 /* ────────────────── Hider's question inbox ────────────────── */
 
 /**
@@ -345,6 +393,7 @@ export const pendingDraw = __globalPersistent<PendingDraw | null>(
 export function resetHiderRoundState() {
     hidingZone.set(null);
     hidingSpot.set(null);
+    scoutedSpots.set([]);
     hiderInbox.set([]);
     hiderHand.set([]);
     hiderDeck.set([]);

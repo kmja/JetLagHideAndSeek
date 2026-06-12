@@ -95,6 +95,7 @@ import {
     type FoundStation,
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
+import { ScoutedSpotsPanel } from "./ScoutedSpotsPanel";
 import { SeekerLivePositions } from "./SeekerLivePositions";
 
 // Lazy-load the inline picker — leaflet must stay out of the SSR graph.
@@ -537,7 +538,9 @@ function HidingPhaseView({
 
     return (
         <>
-            {/* Big dominant countdown */}
+            {/* Big dominant countdown + the End-hiding shortcut tucked
+                directly under the timer so the action sits next to the
+                thing it acts on. */}
             <section className="rounded-md border-2 border-primary bg-primary/5 px-4 py-5 mb-4 text-center">
                 <div className="text-[10px] uppercase tracking-[0.2em] font-poppins font-bold text-muted-foreground mb-1.5">
                     Hiding period
@@ -549,6 +552,15 @@ function HidingPhaseView({
                     of {totalMinutes} min · size{" "}
                     <SizeBadge size={size} className="inline-flex" />
                 </div>
+                <Button
+                    onClick={endHidingPeriodEarly}
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 gap-1.5"
+                >
+                    <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
+                    End hiding · Start seeking
+                </Button>
             </section>
 
             {/* Explainer */}
@@ -608,18 +620,11 @@ function HidingPhaseView({
                 showStationSuggest
             />
 
-            {/* The hider — and only the hider — can short-circuit the
-                wait once they're settled into their zone. Snaps the
-                clock forward; broadcasts so the seeker's countdown
-                jumps in sync. */}
-            <Button
-                onClick={endHidingPeriodEarly}
-                variant="outline"
-                className="w-full mt-4 gap-1.5"
-            >
-                <Flag className="w-4 h-4" strokeWidth={2.5} />
-                End hiding period · Start seeking
-            </Button>
+            {/* Walk-around notebook: drop pins on potential hiding spots
+                so the hider doesn't lose track between scouting trips. */}
+            <ScoutedSpotsPanel />
+
+            {/* End-hiding shortcut moved up next to the countdown. */}
         </>
     );
 }
@@ -734,6 +739,11 @@ function SeekingPhaseView({
             {/* Lockdown affordance — when the hider commits to their
                 final spot the view transitions to endgame. */}
             <HidingSpotSection spot={spot} roundOver={false} />
+
+            {/* Scouted spots stay accessible during seeking too — the
+                hider may pivot to a backup spot if the original gets
+                compromised. */}
+            <ScoutedSpotsPanel />
 
             {/* Seeker-style question log replaces the old inbox UI */}
             <HiderQuestionLog />

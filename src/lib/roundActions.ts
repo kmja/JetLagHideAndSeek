@@ -7,6 +7,7 @@ import {
     questions,
 } from "@/lib/context";
 import {
+    closingInWarningLevel,
     gameSize,
     gameStartPosition,
     HIDING_PERIOD_MINUTES,
@@ -61,6 +62,7 @@ export function startNewRound() {
     pendingHidingDurationMin.set(minutes);
     gameStartPosition.set(null);
     seekingStartFiredFor.set(null);
+    closingInWarningLevel.set(0);
 }
 
 /**
@@ -102,6 +104,7 @@ export function startNewGame() {
     pendingHidingDurationMin.set(null);
     gameStartPosition.set(null);
     seekingStartFiredFor.set(null);
+    closingInWarningLevel.set(0);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);

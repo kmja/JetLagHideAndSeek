@@ -270,6 +270,24 @@ export const seekingStartFiredFor = persistentAtom<number | null>(
 );
 
 /**
+ * Highest "seekers are closing in" warning level the hider has been
+ * shown this round. 0 = none, 1 = soft warning, 2 = urgent warning.
+ * Persistent so a reload doesn't replay the dialog; cleared by
+ * startNewRound / startNewGame.
+ */
+export const closingInWarningLevel = persistentAtom<0 | 1 | 2>(
+    "jlhs:closingInWarningLevel",
+    0,
+    {
+        encode: (v) => String(v),
+        decode: (v) => {
+            const n = Number(v);
+            return n === 1 || n === 2 ? n : 0;
+        },
+    },
+);
+
+/**
  * GPS position captured the moment the hiding period starts — the
  * shared departure point for both hider and all seekers. Used as the
  * travel-times anchor: "which stations could the hider reach from here
