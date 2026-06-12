@@ -108,14 +108,10 @@ export function SeekerPage() {
     // game state, so it's a no-op outside an active seeker session.
     useSeekerLocationBroadcast();
 
-    // NB: play-area-wide amenity warming lives in `lib/preload.ts`
-    // (`preloadCommonQuestionData`), kicked off during the hiding
-    // period by GameStartWatcher. v178 briefly added a second
-    // warm-up pass here; v179 reverted that because the two passes
-    // were doubling each other and overloading the R2 cache worker
-    // on game start. The lazy `prefetchCategory` call inside
-    // `tryCacheNearest` still gives us instant per-tap reuse from
-    // whichever pass landed the underlying findPlacesInZone first.
+    // NB: all play-area reference warming is consolidated into the
+    // single `preloadDuringHidingPeriod()` orchestrator in
+    // `lib/preload.ts`, kicked off by GameStartWatcher when the
+    // hiding period starts. Nothing warms from this page anymore.
 
     return (
         <div className="bg-jetlag">

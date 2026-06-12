@@ -6,8 +6,8 @@ import {
     gameStartPosition,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
-import { preloadCommonQuestionData } from "@/lib/preload";
 import { playerRole } from "@/lib/hiderRole";
+import { preloadDuringHidingPeriod } from "@/lib/preload";
 
 /**
  * Mount-only watcher. Opens the GoGoGoOverlay celebration the
@@ -69,7 +69,7 @@ export function GameStartWatcher() {
         // running the same fetches on every device just multiplies
         // load on the mirrors for no gain.
         if (playerRole.get() !== "hider") {
-            preloadCommonQuestionData();
+            preloadDuringHidingPeriod();
         }
     }, [$endsAt]);
 

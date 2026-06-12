@@ -100,6 +100,64 @@ function searchTypeForFamily(family: FamilyKey): "nwr" | "node" {
     return "nwr";
 }
 
+/** Map a matching/measuring subtype string to the cache family that
+ *  serves it, or null when it isn't a play-area-cacheable family
+ *  (city / coastline / high-speed rail / custom geometry — those use
+ *  the bundled dataset or their own path). Shared by the hiding-
+ *  period preloader and the on-tap warm-up so there's exactly one
+ *  policy for "what does this subtype need". */
+export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
+    const stripped = typeRaw.endsWith("-full")
+        ? typeRaw.slice(0, -"-full".length)
+        : typeRaw;
+    if (stripped === "airport") return "airport";
+    if (
+        stripped === "rail-measure" ||
+        stripped === "same-train-line" ||
+        stripped === "same-length-station"
+    ) {
+        return "rail-station";
+    }
+    if (stripped === "mcdonalds") return "brand:Q38076" as FamilyKey;
+    if (stripped === "seven11") return "brand:Q259340" as FamilyKey;
+    if (stripped in LOCATION_FIRST_TAG) {
+        return `api:${stripped}` as FamilyKey;
+    }
+    return null;
+}
+
+/** Turn a raw Overpass element into a cache feature, or null when it
+ *  lacks usable coordinates or a name. */
+function featureFromElement(el: any): PrefetchedFeature | null {
+    const lat = el.lat ?? el.center?.lat;
+    const lon = el.lon ?? el.center?.lon;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    const name = el.tags?.["name:en"] ?? el.tags?.["name"] ?? el.tags?.["iata"];
+    if (!name) return null;
+    return { lat, lng: lon, name };
+}
+
+/** Whether an Overpass element belongs to a given family, by tags.
+ *  Used to partition a single combined query's results back into the
+ *  per-family caches. */
+function elementMatchesFamily(el: any, family: FamilyKey): boolean {
+    const tags = el.tags ?? {};
+    if (family.startsWith("api:")) {
+        const loc = family.slice(4) as APILocations;
+        return tags[LOCATION_FIRST_TAG[loc]] === loc;
+    }
+    if (family.startsWith("brand:")) {
+        return tags["brand:wikidata"] === family.slice(6);
+    }
+    if (family === "airport") {
+        return tags["aeroway"] === "aerodrome" && Boolean(tags["iata"]);
+    }
+    if (family === "rail-station") {
+        return tags["railway"] === "station";
+    }
+    return false;
+}
+
 /**
  * Fetch (or return cached) features for the given family within
  * the current play area. Idempotent and dedups concurrent callers
@@ -135,15 +193,8 @@ export async function prefetchCategory(
             const elements = (data as { elements?: any[] })?.elements ?? [];
             const features: PrefetchedFeature[] = [];
             for (const el of elements) {
-                const lat = el.lat ?? el.center?.lat;
-                const lon = el.lon ?? el.center?.lon;
-                if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-                const name =
-                    el.tags?.["name:en"] ??
-                    el.tags?.["name"] ??
-                    el.tags?.["iata"];
-                if (!name) continue;
-                features.push({ lat, lng: lon, name });
+                const feat = featureFromElement(el);
+                if (feat) features.push(feat);
             }
             cache.set(key, features);
             bumpStatus({ warmedKey: key, count: features.length });
@@ -201,43 +252,66 @@ export function nearestFromCache(
     return best;
 }
 
-/** The set of categories the seeker's matching / measuring picker
- *  can resolve through the play-area-wide cache. Highspeed-rail
- *  and city/coastline are deliberately excluded — they need wider-
- *  than-play-area searches or already use a non-Overpass path. */
-function standardFamilies(): FamilyKey[] {
-    const apis = (Object.keys(LOCATION_FIRST_TAG) as APILocations[]).map(
-        (loc) => `api:${loc}` as FamilyKey,
-    );
-    return [
-        ...apis,
-        "airport",
-        "rail-station",
-        // The two rulebook brand-quiz subtypes. Cheap to prefetch
-        // play-area-wide; outside a brand-heavy country (most of
-        // Europe outside the UK lacks 7-Eleven, etc.) the response
-        // is empty and the cache key short-circuits forever.
-        "brand:Q38076" as FamilyKey, // McDonald's
-        "brand:Q259340" as FamilyKey, // 7-Eleven
-    ];
-}
-
 /**
- * Warm the cache for every standard category in the background.
- * Spaced ~250 ms apart so we don't smash the Overpass mirrors (or
- * our R2-backed cache worker) with a 14-fold concurrent burst the
- * instant the seeker finishes setup. Each prefetch swallows its
- * own errors — a single category failure shouldn't block the
- * others, and the lazy fallback in `fetchNearest` will retry the
- * failed family on first use.
+ * Warm a whole set of families in ONE Overpass query.
+ *
+ * This is the heart of the consolidation: instead of firing N
+ * separate `findPlacesInZone` calls (one per category — the thing
+ * that produced the cascade of rate-limit failures), we union every
+ * `out center` family into a single query, then partition the
+ * response back into the per-family caches by tag. One request, one
+ * R2 cache entry, one chance to fail — and on failure the lazy
+ * per-tap `prefetchCategory` still covers each family individually.
+ *
+ * Only the `out center` families (amenity/tourism/leisure points,
+ * airports, train stations, brands) can share a query — high-speed
+ * rail needs `out geom` and the bundled major-city/coastline paths
+ * aren't Overpass at all, so those stay separate (handled by the
+ * caller).
+ *
+ * Families already warm under the current play-area signature are
+ * skipped, so calling this repeatedly is cheap.
  */
-export async function prefetchAllStandardCategories(): Promise<void> {
+export async function prefetchFamiliesInOneQuery(
+    families: FamilyKey[],
+): Promise<void> {
     if (!playAreaSignature()) return;
-    for (const f of standardFamilies()) {
-        prefetchCategory(f).catch(() => {
-            /* lazy path covers retries */
-        });
-        await new Promise((r) => setTimeout(r, 250));
+    const todo = families.filter((f) => !cache.get(cacheKey(f)));
+    if (todo.length === 0) return;
+
+    todo.forEach(() => bumpStatus({ inFlightDelta: 1 }));
+    try {
+        const filters = todo.map(filterForFamily);
+        // primary filter + the rest as `alternatives` => one unioned
+        // query. searchType nwr covers nodes too, so the train-station
+        // `node`-only families still match here.
+        const data = await findPlacesInZone(
+            filters[0],
+            undefined,
+            "nwr",
+            "center",
+            filters.slice(1),
+            120,
+            true,
+        );
+        const elements = (data as { elements?: any[] })?.elements ?? [];
+        for (const family of todo) {
+            const feats: PrefetchedFeature[] = [];
+            for (const el of elements) {
+                if (!elementMatchesFamily(el, family)) continue;
+                const feat = featureFromElement(el);
+                if (feat) feats.push(feat);
+            }
+            cache.set(cacheKey(family), feats);
+            bumpStatus({ warmedKey: cacheKey(family), count: feats.length });
+        }
+    } catch {
+        // Whole-batch failure: mark each family failed so the status
+        // pill is honest, then let the lazy per-tap path retry them
+        // one at a time when actually needed.
+        todo.forEach((f) => bumpStatus({ failedKey: cacheKey(f) }));
+    } finally {
+        todo.forEach(() => bumpStatus({ inFlightDelta: -1 }));
     }
 }
 
@@ -335,10 +409,10 @@ function bumpStatus(args: {
         (acc, e) => acc + (e.state === "warm" ? e.count : 0),
         0,
     );
-    next.total = Math.max(
-        Object.keys(next.perFamily).length,
-        standardFamilies().length,
-    );
+    // `total` reflects the families this game has actually engaged
+    // with (the preloader registers them all up front via the
+    // in-flight bump), so the pill reads e.g. "11/12 warm".
+    next.total = Object.keys(next.perFamily).length || next.inFlight;
     next.lastUpdate = Date.now();
 
     prefetchStatus.set(next);

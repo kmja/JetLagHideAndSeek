@@ -33,7 +33,11 @@ import {
 } from "@/lib/shareLinks";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
-import { findPlacesInZone, LOCATION_FIRST_TAG } from "@/maps/api";
+import {
+    cacheableFamilyForType,
+    type FamilyKey,
+    prefetchCategory,
+} from "@/maps/api/playAreaPrefetch";
 
 import {
     MatchingQuestionComponent,
@@ -46,18 +50,18 @@ import {
 import { Button } from "./ui/button";
 
 /**
- * Fire-and-forget background prefetch of Overpass data for every -full
- * subtype of the given category, so that committing to a specific subtype
- * later is near-instant. Cache-only — no toast, no UI blocking, errors
- * swallowed. Limited to the `-full` family of subtypes (museum, aquarium,
- * zoo, etc.) because they all share the simple `[tag=value]` query shape
- * via LOCATION_FIRST_TAG. Subtypes with bespoke queries (airport,
- * major-city, coastline) and tentacles (radius-dependent) are skipped —
- * adding them would require duplicating their adjustment logic and the
- * marginal benefit is small for those one-off picks.
+ * On-tap warm-up for a category's reference data. This is the
+ * lightweight cousin of the hiding-period `preloadDuringHidingPeriod`
+ * orchestrator: when the seeker opens a category's subtype picker we
+ * make sure that category's families are warming, in case the hiding-
+ * period preload was skipped (late join, solo testing) or failed.
  *
- * Started already-tracked Overpass requests dedupe via the in-flight map
- * in cacheFetch, so calling this repeatedly is safe.
+ * Routes through the SAME `prefetchCategory` path the hiding-period
+ * preload and the on-answer reference lookup use, so there's one
+ * cache, one set of keys, and one status surface — no separate query
+ * shape (the old version fired a differently-quoted `[tag=value]`
+ * query that never shared keys with anything). Deduped + silent, so a
+ * cache hit is a no-op and a failure never toasts.
  */
 function preloadSubtypeData(
     category: "matching" | "measuring" | "tentacles",
@@ -65,29 +69,13 @@ function preloadSubtypeData(
 ) {
     const subtypes = getSubtypes(category, size);
     if (!subtypes) return;
+    const families = new Set<FamilyKey>();
     for (const s of subtypes) {
-        if (!s.value.endsWith("-full")) continue;
-        const location = s.value.slice(0, -"-full".length);
-        const tag = (LOCATION_FIRST_TAG as Record<string, string | undefined>)[
-            location
-        ];
-        if (!tag) continue;
-        // No loadingText → no toast.promise wrapper; this is pure
-        // pre-fetch. `silent: true` so a downed cache worker doesn't
-        // make this background warm-up toast the user with "Could
-        // not load data from Overpass" while their interactive
-        // request resolves fine — that mismatch was confusing
-        // because the user saw their question succeed yet still got
-        // a scary failure banner.
-        findPlacesInZone(
-            `[${tag}=${location}]`,
-            undefined,
-            "nwr",
-            "center",
-            [],
-            60,
-            true,
-        ).catch(() => {});
+        const fam = cacheableFamilyForType(s.value);
+        if (fam) families.add(fam);
+    }
+    for (const fam of families) {
+        prefetchCategory(fam).catch(() => {});
     }
 }
 
