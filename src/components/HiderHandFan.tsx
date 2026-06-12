@@ -92,38 +92,95 @@ function Fan({
     gameSize: ReturnType<typeof gameSize.get>;
     onCardTap: (index: number) => void;
 }) {
-    // The fan's curve math. Each card rotates around an imaginary
-    // pivot far below the bottom of the screen; the arc's tightness
-    // and total spread tune at two settings:
-    //   - TOTAL_ANGLE: degrees from leftmost to rightmost card.
-    //     Wider = more fan, harder to fit on a narrow phone.
-    //   - PIVOT_OFFSET: how far below the bottom edge the pivot
-    //     sits. Larger = flatter arc.
-    // Card-to-card spacing scales with hand size so a 10-card hand
-    // overlaps tighter without spilling off-screen.
-    // Card size + spacing. v160 fix: use compact CardTile (120px
-    // min-height) at its natural width so the proportions stay
-    // playing-card-shaped. Earlier versions rendered the default
-    // 240px-tall tile inside a 88px-wide box with a 0.6 inner scale,
-    // which laid out the card as a tall thin strip before scaling —
-    // hence the "crazy proportions" the user saw.
+    // Card size + spacing. CardTile's compact variant has
+    // min-h-[120px]; the fan card box is 80x124 (≈5:8 playing-card
+    // aspect) so the tile fits without overflow. Spacing tightens
+    // with hand size so a big hand still fits across a narrow phone.
     const N = hand.length;
-    // CARD_W:CARD_H ≈ 5:8 — close to a standard playing-card aspect.
-    // CARD_H must be ≥ CardTile's compact min-height (120px) or the
-    // tile would push past its container.
     const CARD_W = 80;
     const CARD_H = 124;
     const TOTAL_ANGLE = N <= 1 ? 0 : Math.min(60, 9 * N);
     const stepAngle = N <= 1 ? 0 : TOTAL_ANGLE / (N - 1);
     const startAngle = -TOTAL_ANGLE / 2;
-    // Card-to-card spacing: bigger overlap on bigger hands so a
-    // 10-card hand still fits across a narrow phone.
     const overlap = Math.min(50, 8 + 5 * N);
     const slotPx = CARD_W - overlap;
     const halfSpan = ((N - 1) * slotPx) / 2;
 
+    // Press-and-drag peek: pointerdown on a card sets the previewed
+    // index; pointermove anywhere on screen hit-tests against the
+    // card AABBs and updates which card is lifted; pointerup commits
+    // (opens the carousel to the lifted card) and pointercancel just
+    // dismisses. The previewed card scales up and translates higher
+    // than the rest of the fan; transitions are short enough to feel
+    // tactile but not so short the change is invisible.
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const cardRefs = useRef<Array<HTMLButtonElement | null>>([]);
+    const activePointerRef = useRef<number | null>(null);
+    const previewRef = useRef<number | null>(null);
+    const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+    const setPreview = (idx: number | null) => {
+        previewRef.current = idx;
+        setPreviewIndex(idx);
+    };
+
+    const hitTest = (clientX: number, clientY: number): number | null => {
+        // Walk top-to-bottom of the z-order (last index = topmost) so
+        // the front-facing card wins overlapping pixels.
+        for (let i = cardRefs.current.length - 1; i >= 0; i--) {
+            const btn = cardRefs.current[i];
+            if (!btn) continue;
+            const rect = btn.getBoundingClientRect();
+            if (
+                clientX >= rect.left &&
+                clientX <= rect.right &&
+                clientY >= rect.top &&
+                clientY <= rect.bottom
+            ) {
+                return i;
+            }
+        }
+        return null;
+    };
+
+    const startPress = (e: React.PointerEvent, idx: number) => {
+        if (activePointerRef.current !== null) return; // single-touch only
+        activePointerRef.current = e.pointerId;
+        setPreview(idx);
+
+        const onMove = (ev: PointerEvent) => {
+            if (ev.pointerId !== activePointerRef.current) return;
+            setPreview(hitTest(ev.clientX, ev.clientY));
+        };
+        const cleanup = () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            window.removeEventListener("pointercancel", onCancel);
+        };
+        const onUp = (ev: PointerEvent) => {
+            if (ev.pointerId !== activePointerRef.current) return;
+            const finalIdx = previewRef.current;
+            activePointerRef.current = null;
+            setPreview(null);
+            cleanup();
+            // Only commit if the finger came up over a card — a drag
+            // off the fan + release just cancels.
+            if (finalIdx !== null) onCardTap(finalIdx);
+        };
+        const onCancel = (ev: PointerEvent) => {
+            if (ev.pointerId !== activePointerRef.current) return;
+            activePointerRef.current = null;
+            setPreview(null);
+            cleanup();
+        };
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+        window.addEventListener("pointercancel", onCancel);
+    };
+
     return (
         <div
+            ref={containerRef}
             role="group"
             aria-label={`Hand of ${N} card${N === 1 ? "" : "s"}`}
             className={cn(
@@ -132,8 +189,13 @@ function Fan({
                 "pointer-events-none",
             )}
             style={{
-                // Container height = card height + lift slack + safe
-                // area. Page footers should sit above this strip.
+                // Container height covers the resting fan. The
+                // peek-preview card extends ABOVE the container
+                // (overflow is intentionally visible) so page footers
+                // only need to clear the resting strip — they get
+                // briefly covered while the user is peeking, but
+                // peeking is a deliberate interaction with full focus,
+                // so brief overlap is fine.
                 height: CARD_H + 24,
                 paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)",
             }}
@@ -151,33 +213,57 @@ function Fan({
                     // pivot circle.
                     const rad = (angle * Math.PI) / 180;
                     const yLift = (1 - Math.cos(rad)) * 28;
+                    const previewed = previewIndex === i;
+                    // Peek transform: undo the rotation so the
+                    // previewed card stands upright, lift it higher,
+                    // and scale slightly so it reads as foregrounded.
+                    const previewTranslate = previewed ? 32 : 0;
+                    const previewScale = previewed ? 1.25 : 1;
+                    const cardRotate = previewed ? 0 : angle;
                     return (
                         <button
                             key={card.id}
+                            ref={(el) => {
+                                cardRefs.current[i] = el;
+                            }}
                             type="button"
-                            onClick={() => onCardTap(i)}
+                            onPointerDown={(e) => startPress(e, i)}
+                            // Keyboard fallback: Enter / Space on a
+                            // focused card opens the carousel without
+                            // any pointer dance.
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    onCardTap(i);
+                                }
+                            }}
                             aria-label={`Open ${card.name}`}
                             className={cn(
                                 "absolute bottom-0 left-0 p-0",
                                 "pointer-events-auto",
                                 "rounded-md overflow-hidden",
-                                "shadow-[0_-2px_8px_rgba(0,0,0,0.45)]",
                                 "border border-border bg-card",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                "transition-transform duration-150",
-                                // Higher cards (later index) sit on
-                                // top — that's where the largest tap
-                                // surface naturally lives, since the
-                                // overlapping portion of the next card
-                                // is masked by the one above it.
-                                "hover:-translate-y-1 active:translate-y-0",
+                                "transition-transform duration-150 ease-out",
+                                // touch-action: none prevents the
+                                // press-and-drag gesture from being
+                                // intercepted as a page scroll on
+                                // touch devices.
+                                "touch-none select-none",
                             )}
                             style={{
-                                transform: `translateX(${x}px) translateY(${-yLift}px) rotate(${angle}deg)`,
+                                transform: `translateX(${x}px) translateY(${-yLift - previewTranslate}px) rotate(${cardRotate}deg) scale(${previewScale})`,
                                 transformOrigin: "50% 100%",
                                 width: CARD_W,
                                 height: CARD_H,
-                                zIndex: 100 + i,
+                                // Lifted card jumps to the top of the
+                                // stack so its scaled-up footprint
+                                // isn't clipped by overlapping
+                                // neighbours.
+                                zIndex: previewed ? 1000 : 100 + i,
+                                boxShadow: previewed
+                                    ? "0 8px 24px rgba(0,0,0,0.6)"
+                                    : "0 -2px 8px rgba(0,0,0,0.45)",
                             }}
                         >
                             <CardTile
