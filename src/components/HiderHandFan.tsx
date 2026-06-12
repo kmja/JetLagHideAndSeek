@@ -127,7 +127,31 @@ function Fan({
         setPreviewIndex(idx);
     };
 
-    const hitTest = (clientX: number, clientY: number): number | null => {
+    const hitTest = (
+        clientX: number,
+        clientY: number,
+        currentIdx: number | null,
+    ): number | null => {
+        // Hysteresis: if a card is currently previewed, give it a
+        // generous bounds margin so a finger sitting on the seam
+        // between two cards doesn't flicker. The current card only
+        // loses focus when the finger has moved a clear distance
+        // past its expanded bounds.
+        const HYSTERESIS_PX = 18;
+        if (currentIdx !== null) {
+            const btn = cardRefs.current[currentIdx];
+            if (btn) {
+                const r = btn.getBoundingClientRect();
+                if (
+                    clientX >= r.left - HYSTERESIS_PX &&
+                    clientX <= r.right + HYSTERESIS_PX &&
+                    clientY >= r.top - HYSTERESIS_PX &&
+                    clientY <= r.bottom + HYSTERESIS_PX
+                ) {
+                    return currentIdx;
+                }
+            }
+        }
         // Walk top-to-bottom of the z-order (last index = topmost) so
         // the front-facing card wins overlapping pixels.
         for (let i = cardRefs.current.length - 1; i >= 0; i--) {
@@ -153,7 +177,9 @@ function Fan({
 
         const onMove = (ev: PointerEvent) => {
             if (ev.pointerId !== activePointerRef.current) return;
-            setPreview(hitTest(ev.clientX, ev.clientY));
+            setPreview(
+                hitTest(ev.clientX, ev.clientY, previewRef.current),
+            );
         };
         const cleanup = () => {
             window.removeEventListener("pointermove", onMove);
@@ -222,10 +248,13 @@ function Fan({
                     const yLift = (1 - Math.cos(rad)) * 28;
                     const previewed = previewIndex === i;
                     // Peek transform: undo the rotation so the
-                    // previewed card stands upright, lift it higher,
-                    // and scale slightly so it reads as foregrounded.
-                    const previewTranslate = previewed ? 32 : 0;
-                    const previewScale = previewed ? 1.25 : 1;
+                    // previewed card stands upright, lift it well
+                    // clear of the fan, and scale up considerably so
+                    // it reads as the obvious focal point. The
+                    // resting fan strip stays the same size, so the
+                    // peek floats above any neighbouring card.
+                    const previewTranslate = previewed ? 70 : 0;
+                    const previewScale = previewed ? 1.9 : 1;
                     const cardRotate = previewed ? 0 : angle;
                     return (
                         <button
@@ -455,7 +484,13 @@ function HandCarousel({
                             <article
                                 key={card.id}
                                 className={cn(
-                                    "snap-center shrink-0",
+                                    // `snap-always` (scroll-snap-stop:
+                                    // always) forces the scroller to
+                                    // stop at every snap point, so a
+                                    // flick swipe can only ever move
+                                    // ±1 card instead of carrying
+                                    // through several at once.
+                                    "snap-center snap-always shrink-0",
                                     "w-[80%] max-w-[360px]",
                                     "flex items-center justify-center",
                                     "transition-transform duration-200",
