@@ -95,6 +95,96 @@ export function DebugPhaseControls() {
         });
     };
 
+    const addMatchingQuestion = () => {
+        const { lat, lng } = pickCenter();
+        addQuestion({
+            id: "matching",
+            data: {
+                lat,
+                lng,
+                type: "airport",
+            } as never,
+        });
+    };
+
+    const addMeasuringQuestion = () => {
+        const { lat, lng } = pickCenter();
+        addQuestion({
+            id: "measuring",
+            data: {
+                lat,
+                lng,
+                type: "coastline",
+            } as never,
+        });
+    };
+
+    const addTentaclesQuestion = () => {
+        const { lat, lng } = pickCenter();
+        addQuestion({
+            id: "tentacles",
+            data: {
+                lat,
+                lng,
+                radius: 30,
+                unit: "miles",
+                location: false,
+                locationType: "aquarium",
+            } as never,
+        });
+    };
+
+    const addThermometerQuestion = () => {
+        const { lat, lng } = pickCenter();
+        // Already-finished 500m thermometer pair: A is the centre, B
+        // is roughly 500m east (lng offset ≈ 0.005° at mid latitudes).
+        addQuestion({
+            id: "thermometer",
+            data: {
+                latA: lat,
+                lngA: lng,
+                latB: lat,
+                lngB: lng + 0.005,
+                distance: "500m",
+                status: "finished",
+                startedAt: Date.now() - 60_000,
+            } as never,
+        });
+    };
+
+    const addPhotoQuestion = () => {
+        addQuestion({
+            id: "photo",
+            data: {
+                type: "tree",
+            } as never,
+        });
+    };
+
+    /**
+     * Catalogue of the variety-pack injectors so the rotating
+     * "Add random" button can hit each type at uniform probability.
+     */
+    const EXAMPLE_QUESTION_ADDERS: Array<{
+        label: string;
+        run: () => void;
+    }> = [
+        { label: "Radar", run: addRadarQuestion },
+        { label: "Matching", run: addMatchingQuestion },
+        { label: "Measuring", run: addMeasuringQuestion },
+        { label: "Tentacles", run: addTentaclesQuestion },
+        { label: "Thermometer", run: addThermometerQuestion },
+        { label: "Photo", run: addPhotoQuestion },
+    ];
+
+    const addRandomQuestion = () => {
+        const pick =
+            EXAMPLE_QUESTION_ADDERS[
+                Math.floor(Math.random() * EXAMPLE_QUESTION_ADDERS.length)
+            ];
+        pick.run();
+    };
+
     /**
      * Move the latest question to a specific phase. Stateless — works
      * regardless of where the question currently is, so the user can
@@ -578,13 +668,26 @@ export function DebugPhaseControls() {
                 </Section>
 
                 <Section title="Add">
-                    <DebugButton onClick={addRadarQuestion}>
-                        Add radar question
+                    <DebugButton onClick={addRandomQuestion}>
+                        Add random question
                     </DebugButton>
+                    <div className="grid grid-cols-2 gap-1.5">
+                        {EXAMPLE_QUESTION_ADDERS.map((adder) => (
+                            <DebugButton
+                                key={adder.label}
+                                onClick={adder.run}
+                            >
+                                {adder.label}
+                            </DebugButton>
+                        ))}
+                    </div>
                     <p className="text-[10px] text-muted-foreground italic px-1">
-                        For matching / measuring etc., add via the
-                        normal UI. The phase buttons below operate on
-                        whichever question was most recently added.
+                        Each injects an example question of that type
+                        at the current map centre. Use "Open latest as
+                        hider" below to ferry the most recent one into
+                        the hider's inbox for round-trip testing. The
+                        phase buttons further down operate on whichever
+                        question was added last.
                     </p>
                 </Section>
 
