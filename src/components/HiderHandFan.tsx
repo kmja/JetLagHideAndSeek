@@ -54,6 +54,9 @@ export function HiderHandFan() {
     const $hand = useStore(hiderHand);
     const $gameSize = useStore(gameSize);
     const [open, setOpen] = useState(false);
+    // Which card the carousel should land on when it opens. Set by
+    // whichever card in the fan the hider tapped.
+    const [initialIndex, setInitialIndex] = useState(0);
 
     if ($hand.length === 0) return null;
 
@@ -62,13 +65,17 @@ export function HiderHandFan() {
             <Fan
                 hand={$hand}
                 gameSize={$gameSize}
-                onTap={() => setOpen(true)}
+                onCardTap={(idx) => {
+                    setInitialIndex(idx);
+                    setOpen(true);
+                }}
             />
             <HandCarousel
                 open={open}
                 onOpenChange={setOpen}
                 hand={$hand}
                 gameSize={$gameSize}
+                initialIndex={initialIndex}
             />
         </>
     );
@@ -79,11 +86,11 @@ export function HiderHandFan() {
 function Fan({
     hand,
     gameSize: $gameSize,
-    onTap,
+    onCardTap,
 }: {
     hand: Card[];
     gameSize: ReturnType<typeof gameSize.get>;
-    onTap: () => void;
+    onCardTap: (index: number) => void;
 }) {
     // The fan's curve math. Each card rotates around an imaginary
     // pivot far below the bottom of the screen; the arc's tightness
@@ -105,15 +112,13 @@ function Fan({
     const halfSpan = ((N - 1) * slotPx) / 2;
 
     return (
-        <button
-            type="button"
-            onClick={onTap}
-            aria-label={`Open hand of ${N} card${N === 1 ? "" : "s"}`}
+        <div
+            role="group"
+            aria-label={`Hand of ${N} card${N === 1 ? "" : "s"}`}
             className={cn(
                 "fixed inset-x-0 bottom-0 z-40",
                 "h-[150px] flex items-end justify-center",
-                "pointer-events-auto",
-                "focus-visible:outline-none",
+                "pointer-events-none",
             )}
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
         >
@@ -131,9 +136,23 @@ function Fan({
                     const rad = (angle * Math.PI) / 180;
                     const yLift = (1 - Math.cos(rad)) * 28;
                     return (
-                        <div
+                        <button
                             key={card.id}
-                            className="absolute bottom-0 left-0"
+                            type="button"
+                            onClick={() => onCardTap(i)}
+                            aria-label={`Open ${card.name}`}
+                            className={cn(
+                                "absolute bottom-0 left-0 p-0",
+                                "pointer-events-auto",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                "transition-transform duration-150",
+                                // Higher cards (later index) sit on
+                                // top — that's where the largest tap
+                                // surface naturally lives, since the
+                                // overlapping portion of the next card
+                                // is masked by the one above it.
+                                "hover:-translate-y-1 active:translate-y-0",
+                            )}
                             style={{
                                 transform: `translateX(${x}px) translateY(${-yLift}px) rotate(${angle}deg)`,
                                 transformOrigin: "50% 100%",
@@ -158,11 +177,11 @@ function Fan({
                                     selectionIndicator="none"
                                 />
                             </div>
-                        </div>
+                        </button>
                     );
                 })}
             </div>
-        </button>
+        </div>
     );
 }
 
@@ -173,22 +192,48 @@ function HandCarousel({
     onOpenChange,
     hand,
     gameSize: $gameSize,
+    initialIndex,
 }: {
     open: boolean;
     onOpenChange: (next: boolean) => void;
     hand: Card[];
     gameSize: ReturnType<typeof gameSize.get>;
+    /** Index in `hand` to scroll to when the drawer opens. */
+    initialIndex: number;
 }) {
     // Track the currently-focused card so the action buttons below
     // act on whatever's centered in the scroll-snap row.
-    const [focusIndex, setFocusIndex] = useState(0);
+    const [focusIndex, setFocusIndex] = useState(initialIndex);
     const trackRef = useRef<HTMLDivElement | null>(null);
 
-    // Reset focus to the first card whenever the drawer opens — last
-    // round's focus shouldn't follow into a new opening.
+    // On open: clamp the requested initial index against the current
+    // hand size, set focus, then jump the track to that slide once
+    // the layout has settled. The slide must exist (rAF + nullable
+    // guard) since the drawer animates in. `scrollIntoView` with
+    // inline: "center" lines the chosen card up with the snap point.
     useEffect(() => {
-        if (open) setFocusIndex(0);
-    }, [open]);
+        if (!open) return;
+        const clamped = Math.max(
+            0,
+            Math.min(initialIndex, hand.length - 1),
+        );
+        setFocusIndex(clamped);
+        const id = requestAnimationFrame(() => {
+            const el = trackRef.current;
+            if (!el) return;
+            const slide = el.children[clamped] as
+                | HTMLElement
+                | undefined;
+            if (!slide) return;
+            // `scrollLeft` directly avoids triggering the scroll
+            // listener's snap-correction race that scrollIntoView
+            // sometimes loses to on iOS Safari.
+            el.scrollLeft =
+                slide.offsetLeft - (el.clientWidth - slide.clientWidth) / 2;
+        });
+        return () => cancelAnimationFrame(id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, initialIndex]);
 
     // Watch scroll position; whichever slide's centre is closest to
     // the viewport centre is the focused one. Throttled via rAF so
