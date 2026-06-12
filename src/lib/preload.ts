@@ -55,16 +55,35 @@ function buildJobs(): PreloadJob[] {
     const jobs: PreloadJob[] = [];
 
     // Airports + major cities — always available, both modes.
+    // All jobs pass silent=true so a failing R2 cache worker or a
+    // rate-limited mirror doesn't splatter the user with the
+    // "Could not load data from Overpass" toast during the hiding
+    // period — this is a background warm-up, not a user-initiated
+    // query, and on-demand calls have their own toast path.
     jobs.push({
         label: "airports",
         run: () =>
-            findPlacesInZone('["aeroway"="aerodrome"]["iata"]'),
+            findPlacesInZone(
+                '["aeroway"="aerodrome"]["iata"]',
+                undefined,
+                "nwr",
+                "center",
+                [],
+                0,
+                true,
+            ),
     });
     jobs.push({
         label: "major cities",
         run: () =>
             findPlacesInZone(
                 '[place=city]["population"~"^[1-9]+[0-9]{6}$"]',
+                undefined,
+                "nwr",
+                "center",
+                [],
+                0,
+                true,
             ),
     });
     // High-speed rail (measuring "highspeed-measure-shinkansen") —
@@ -78,6 +97,9 @@ function buildJobs(): PreloadJob[] {
                     undefined,
                     "nwr",
                     "geom",
+                    [],
+                    0,
+                    true,
                 ),
         });
     }
@@ -85,7 +107,15 @@ function buildJobs(): PreloadJob[] {
     jobs.push({
         label: "train stations",
         run: () =>
-            findPlacesInZone("[railway=station]", undefined, "node"),
+            findPlacesInZone(
+                "[railway=station]",
+                undefined,
+                "node",
+                "center",
+                [],
+                0,
+                true,
+            ),
     });
     // Subtype-specific *-full queries (Small + Medium games only).
     if (size !== "large") {
@@ -113,6 +143,7 @@ function buildJobs(): PreloadJob[] {
                             "center",
                             [],
                             60,
+                            true,
                         ),
                 });
             }

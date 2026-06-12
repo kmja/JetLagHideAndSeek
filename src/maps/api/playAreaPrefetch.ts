@@ -125,6 +125,10 @@ export async function prefetchCategory(
                 "center",
                 [],
                 60,
+                // silent=true — a lazy category prefetch failure
+                // should fall back to the radius walk quietly, not
+                // toast on every category miss.
+                true,
             );
             const elements = (data as { elements?: any[] })?.elements ?? [];
             const features: PrefetchedFeature[] = [];

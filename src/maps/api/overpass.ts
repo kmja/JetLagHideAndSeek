@@ -54,6 +54,13 @@ export const getOverpassData = async (
     /** User-visible label for THIS query's piece row in the loading
      *  overlay. */
     progressLabel?: string,
+    /** When true, the "Could not load data from Overpass" toast is
+     *  suppressed on total mirror failure. Background callers
+     *  (preload pass, lazy prefetch on first matching/measuring tap)
+     *  pass this so a fully-rate-limited R2 cache worker doesn't
+     *  splatter a dozen identical toasts at the user during the
+     *  hiding period. */
+    silent: boolean = false,
 ) => {
     const encodedQuery = encodeURIComponent(query);
     const primaryUrl = `${OVERPASS_API}?data=${encodedQuery}`;
@@ -192,10 +199,12 @@ export const getOverpassData = async (
         return await winner.json();
     }
 
-    toast.error(
-        "Could not load data from Overpass (all mirrors timed out or rate-limited). Try again in a minute.",
-        { toastId: "overpass-error" },
-    );
+    if (!silent) {
+        toast.error(
+            "Could not load data from Overpass (all mirrors timed out or rate-limited). Try again in a minute.",
+            { toastId: "overpass-error" },
+        );
+    }
     return { elements: [] };
 };
 
@@ -446,6 +455,11 @@ export const findPlacesInZone = async (
     outType: "center" | "geom" = "center",
     alternatives: string[] = [],
     timeoutDuration: number = 0,
+    /** Suppress the user-visible Overpass-failure toast. Background
+     *  callers (hiding-period preload, lazy category prefetch) pass
+     *  this so a downed cache worker doesn't show the same scary
+     *  toast a dozen times before the seeker can even ask anything. */
+    silent: boolean = false,
 ) => {
     let query = "";
     const $polyGeoJSON = polyGeoJSON.get();
@@ -515,6 +529,10 @@ out ${outType};
         query,
         loadingText,
         CacheType.ZONE_CACHE,
+        undefined,
+        false,
+        undefined,
+        silent,
     );
     const subtractedEntries = additionalMapGeoLocations
         .get()

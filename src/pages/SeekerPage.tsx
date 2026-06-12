@@ -1,5 +1,4 @@
-import { useStore } from "@nanostores/react";
-import { Suspense, useEffect } from "react";
+import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
@@ -34,10 +33,7 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
-import { mapGeoLocation } from "@/lib/context";
-import { setupCompleted } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
-import { prefetchAllStandardCategories } from "@/maps/api/playAreaPrefetch";
 
 // Dialogs / overlays / wizards that only render once the user
 // actually triggers them — lazy so a freshly-landed seeker doesn't
@@ -111,21 +107,14 @@ export function SeekerPage() {
     // game state, so it's a no-op outside an active seeker session.
     useSeekerLocationBroadcast();
 
-    // Warm the play-area-wide amenity cache once setup is finished
-    // and a play area exists. This converts the first matching /
-    // measuring tap from a several-second around-radius walk against
-    // the rate-limited public Overpass mirrors into an instant local
-    // `nearestPoint` over a pre-fetched FeatureCollection.
-    const $setupDone = useStore(setupCompleted);
-    const $playArea = useStore(mapGeoLocation);
-    const playAreaId = $playArea?.properties?.osm_id ?? "";
-    useEffect(() => {
-        if (!$setupDone) return;
-        if (!playAreaId) return;
-        prefetchAllStandardCategories().catch((e) =>
-            console.warn("playArea prefetch warm-up failed:", e),
-        );
-    }, [$setupDone, playAreaId]);
+    // NB: play-area-wide amenity warming lives in `lib/preload.ts`
+    // (`preloadCommonQuestionData`), kicked off during the hiding
+    // period by GameStartWatcher. v178 briefly added a second
+    // warm-up pass here; v179 reverted that because the two passes
+    // were doubling each other and overloading the R2 cache worker
+    // on game start. The lazy `prefetchCategory` call inside
+    // `tryCacheNearest` still gives us instant per-tap reuse from
+    // whichever pass landed the underlying findPlacesInZone first.
 
     return (
         <div className="bg-jetlag">
