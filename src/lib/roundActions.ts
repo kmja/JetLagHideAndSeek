@@ -17,9 +17,14 @@ import {
     seekingStartFiredFor,
     setupCompleted,
     setupDialogOpen,
+    welcomeSeen,
 } from "@/lib/gameSetup";
-import { resetHiderRoundState, roundFoundAt } from "@/lib/hiderRole";
-import { hostPushSetup } from "@/lib/multiplayer/store";
+import {
+    playerRole,
+    resetHiderRoundState,
+    roundFoundAt,
+} from "@/lib/hiderRole";
+import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
 
 /**
  * Round / game lifecycle actions, shared by the seeker (BottomNav)
@@ -112,4 +117,37 @@ export function startNewGame() {
     resetMapOverlays();
     setupCompleted.set(false);
     setupDialogOpen.set(true);
+}
+
+/**
+ * Leave any current multiplayer room and reset the local app all the
+ * way back to the landing screen. Used by both the inline InvitePanel
+ * "Leave online game" button and the bigger GameLobbyDialog's "Leave
+ * game" button — historically each called `leaveGame()` and tinkered
+ * with a different subset of atoms, which is why the user could end
+ * up on a half-empty seeker view with the lobby gone instead of back
+ * at the start/join landing.
+ *
+ * Wipes round state via `startNewGame()` (clears questions, hiding
+ * period, map polygon, …), then deliberately closes the setup wizard
+ * and flips `welcomeSeen` off + `playerRole` to null so that on the
+ * next render Welcome takes the foreground. Finally navigates to `/`
+ * so the hider's `/h` URL doesn't keep them on the read-only hider
+ * surface.
+ */
+export function returnToLandingPage(): void {
+    leaveGame();
+    startNewGame();
+    // startNewGame opens the wizard for the in-game "new game" flow;
+    // that's the wrong UX for a leave-game flow, where Welcome should
+    // be the first thing the user sees.
+    setupDialogOpen.set(false);
+    welcomeSeen.set(false);
+    playerRole.set(null);
+    if (typeof window !== "undefined") {
+        // Force a navigation rather than a soft route — multiplayer
+        // listeners + persisted shadow atoms are easier to reason
+        // about after a fresh boot than after a half-cleanup race.
+        window.location.assign("/");
+    }
 }

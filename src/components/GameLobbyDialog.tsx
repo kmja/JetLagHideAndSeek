@@ -21,6 +21,7 @@ import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { appConfirm } from "@/lib/confirm";
 import {
     mapGeoJSON,
     polyGeoJSON,
@@ -36,7 +37,6 @@ import {
     TRANSIT_LABELS,
     welcomeSeen,
 } from "@/lib/gameSetup";
-import { appConfirm } from "@/lib/confirm";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
 import { loadingProgress } from "@/lib/loadingProgress";
@@ -57,6 +57,7 @@ import {
     leaveGame,
     promoteCoHider,
 } from "@/lib/multiplayer/store";
+import { returnToLandingPage } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
 import {
@@ -740,20 +741,13 @@ export function GameLobbyDialog() {
                                     destructive: true,
                                 });
                                 if (!ok) return;
-                                // Reset the local session all the way
-                                // back to Welcome so the user doesn't
-                                // end up in a dead-end hider view with
-                                // nothing to do. Clears: connection,
-                                // welcome dismissal, wizard completion,
-                                // player role. Navigate to / so a hider
-                                // on /h ends up on the welcome surface.
-                                leaveGame();
-                                welcomeSeen.set(false);
-                                setupCompleted.set(false);
-                                playerRole.set(null);
-                                if (typeof window !== "undefined") {
-                                    window.location.assign("/");
-                                }
+                                // Single shared cleanup — also wipes
+                                // the round state (questions, hiding
+                                // period, map polygon) that the old
+                                // inline reset missed, so the user
+                                // actually lands on Welcome instead
+                                // of a half-emptied seeker view.
+                                returnToLandingPage();
                             }}
                             className="w-full gap-1.5 text-muted-foreground"
                         >

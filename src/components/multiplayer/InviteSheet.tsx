@@ -1,9 +1,22 @@
 import { useStore } from "@nanostores/react";
-import { Copy, LogOut, Share2 } from "lucide-react";
-import { useMemo } from "react";
+import {
+    Copy,
+    Footprints,
+    LogOut,
+    Share2,
+    Users,
+    VenetianMask,
+} from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { appConfirm } from "@/lib/confirm";
 import {
     currentGameCode,
@@ -11,7 +24,8 @@ import {
     participants,
     transportStatus,
 } from "@/lib/multiplayer/session";
-import { leaveGame } from "@/lib/multiplayer/store";
+import type { Participant } from "@/lib/multiplayer/types";
+import { returnToLandingPage } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,12 +33,26 @@ import { cn } from "@/lib/utils";
  * BottomNav's "More" sheet without its own modal. Shows the active
  * code, a copy/share row, the participant roster, and a "leave"
  * affordance.
+ *
+ * Roster sort + role icons follow the rolebook convention used by
+ * RolePicker.tsx:
+ *
+ *     Footprints   — seeker
+ *     VenetianMask — hider (main)
+ *     Users        — co-hider
+ *
+ * Order: the hider team first (main hider, then co-hiders), seekers
+ * after — mirrors how players actually talk about the round ("the
+ * hider and their crew") and groups teammates visually. Self is
+ * marked with a "(you)" suffix but stays in its natural team slot
+ * so the roster reflects the game, not the device.
  */
 export function InvitePanel() {
     const $code = useStore(currentGameCode);
     const $participants = useStore(participants);
     const $status = useStore(transportStatus);
     const $displayName = useStore(displayNameAtom);
+    const [qrOpen, setQrOpen] = useState(false);
 
     const shareUrl = useMemo(() => {
         if (!$code || typeof window === "undefined") return "";
@@ -34,8 +62,8 @@ export function InvitePanel() {
     if (!$code) {
         return (
             <p className="text-xs text-muted-foreground italic">
-                Not in an online game. Use "Play online" to host or
-                join one.
+                Not in an online game. Use &quot;Play online&quot; to host
+                or join one.
             </p>
         );
     }
@@ -78,33 +106,66 @@ export function InvitePanel() {
         const ok = await appConfirm({
             title: "Leave the online game?",
             description:
-                "Your local progress stays, but you'll need the code to rejoin.",
+                "You'll go back to the start screen. Local progress on this device is cleared.",
             confirmLabel: "Leave game",
             destructive: true,
         });
         if (!ok) return;
-        leaveGame();
-        toast.info("Disconnected from online game.", { autoClose: 2000 });
+        // Single shared cleanup that disconnects, wipes round state,
+        // and routes the user back to the landing surface — the
+        // previous flow only ran `leaveGame()`, leaving the seeker
+        // map / hider timer still in view with the lobby gone.
+        returnToLandingPage();
     };
+
+    const sorted = sortRoster($participants);
 
     return (
         <div className="space-y-3">
-            <div className="rounded-md border-2 border-primary bg-primary/5 px-4 py-3">
-                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                    Game code
+            {/* Game code + QR side by side. The QR is a 64px inline
+                preview that doubles as the "show large" trigger —
+                visible affordance for in-room scanning AND a fast
+                tap target to open the readable version. */}
+            <div className="rounded-md border-2 border-primary bg-primary/5 px-4 py-3 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        Game code
+                    </div>
+                    <div className="mt-1 font-mono font-black tracking-[0.25em] text-2xl text-primary truncate">
+                        {$code}
+                    </div>
+                    <div className="mt-1 text-[10px] uppercase tracking-wider font-poppins font-semibold text-muted-foreground">
+                        {$status === "open"
+                            ? "Connected"
+                            : $status === "reconnecting"
+                              ? "Reconnecting…"
+                              : $status === "connecting"
+                                ? "Connecting…"
+                                : "Offline"}
+                    </div>
                 </div>
-                <div className="mt-1 font-mono font-black tracking-[0.25em] text-2xl text-primary">
-                    {$code}
-                </div>
-                <div className="mt-1 text-[10px] uppercase tracking-wider font-poppins font-semibold text-muted-foreground">
-                    {$status === "open"
-                        ? "Connected"
-                        : $status === "reconnecting"
-                          ? "Reconnecting…"
-                          : $status === "connecting"
-                            ? "Connecting…"
-                            : "Offline"}
-                </div>
+                {shareUrl && (
+                    <button
+                        type="button"
+                        onClick={() => setQrOpen(true)}
+                        className={cn(
+                            "shrink-0 bg-white rounded-md p-1.5 cursor-pointer",
+                            "hover:ring-2 hover:ring-primary/60 transition-shadow",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                        )}
+                        aria-label="Show large QR code"
+                        title="Tap for a scannable QR code"
+                    >
+                        <QRCodeSVG
+                            value={shareUrl}
+                            size={64}
+                            level="M"
+                            marginSize={0}
+                            bgColor="#ffffff"
+                            fgColor="#0f172a"
+                        />
+                    </button>
+                )}
             </div>
 
             <div className="flex gap-2">
@@ -127,51 +188,18 @@ export function InvitePanel() {
                 </Button>
             </div>
 
-            {$participants.length > 0 && (
+            {sorted.length > 0 && (
                 <div className="space-y-1.5">
                     <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                        In this game ({$participants.length})
+                        In this game ({sorted.length})
                     </div>
                     <ul className="space-y-1">
-                        {$participants.map((p) => (
-                            <li
+                        {sorted.map((p) => (
+                            <ParticipantRow
                                 key={p.id}
-                                className={cn(
-                                    "flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
-                                    "bg-secondary/40 border border-border",
-                                    "text-xs",
-                                )}
-                            >
-                                <span
-                                    className={cn(
-                                        "w-2 h-2 rounded-full shrink-0",
-                                        p.online
-                                            ? "bg-emerald-400"
-                                            : "bg-muted-foreground/40",
-                                    )}
-                                    aria-hidden="true"
-                                />
-                                <span className="font-poppins font-semibold truncate flex-1">
-                                    {p.displayName || "(no name)"}
-                                </span>
-                                {p.role && (
-                                    <span
-                                        className={cn(
-                                            "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm font-bold",
-                                            p.role === "hider"
-                                                ? "bg-purple-500/20 text-purple-300"
-                                                : "bg-primary/15 text-primary",
-                                        )}
-                                    >
-                                        {p.role}
-                                    </span>
-                                )}
-                                {p.displayName === $displayName && (
-                                    <span className="text-[10px] text-muted-foreground">
-                                        (you)
-                                    </span>
-                                )}
-                            </li>
+                                p={p}
+                                isSelf={p.displayName === $displayName}
+                            />
                         ))}
                     </ul>
                 </div>
@@ -186,8 +214,137 @@ export function InvitePanel() {
                 <LogOut className="w-3.5 h-3.5" />
                 Leave online game
             </Button>
+
+            {shareUrl && (
+                <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+                    <DialogContent
+                        className={cn(
+                            "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
+                            "sm:max-w-xs flex flex-col items-center p-6 gap-4",
+                        )}
+                    >
+                        <DialogTitle className="font-poppins font-bold uppercase text-base tracking-[0.10em]">
+                            Scan to join
+                        </DialogTitle>
+                        <div
+                            className="bg-white rounded-md p-3"
+                            aria-label="Scan to join this game"
+                        >
+                            <QRCodeSVG
+                                value={shareUrl}
+                                size={240}
+                                level="M"
+                                marginSize={0}
+                                bgColor="#ffffff"
+                                fgColor="#0f172a"
+                            />
+                        </div>
+                        <div className="text-center">
+                            <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
+                                Room code
+                            </div>
+                            <div className="font-mono font-black tracking-[0.25em] text-xl text-primary mt-1">
+                                {$code}
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            )}
         </div>
     );
+}
+
+function ParticipantRow({ p, isSelf }: { p: Participant; isSelf: boolean }) {
+    const meta = roleMeta(p.role);
+    const Icon = meta.icon;
+    return (
+        <li
+            className={cn(
+                "flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
+                "bg-secondary/40 border border-border",
+                "text-xs",
+            )}
+        >
+            <span
+                className={cn(
+                    "w-2 h-2 rounded-full shrink-0",
+                    p.online ? "bg-emerald-400" : "bg-muted-foreground/40",
+                )}
+                aria-hidden="true"
+            />
+            <Icon
+                className={cn("w-3.5 h-3.5 shrink-0", meta.iconCls)}
+                aria-hidden="true"
+            />
+            <span className="font-poppins font-semibold truncate flex-1">
+                {p.displayName || "(no name)"}
+            </span>
+            {p.role && (
+                <span
+                    className={cn(
+                        "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm font-bold",
+                        meta.chipCls,
+                    )}
+                >
+                    {meta.label}
+                </span>
+            )}
+            {isSelf && (
+                <span className="text-[10px] text-muted-foreground">
+                    (you)
+                </span>
+            )}
+        </li>
+    );
+}
+
+/** Order: hider → co-hider(s) → seekers. Within a team, alphabetic
+ *  on the display name for stable rendering across re-renders. */
+function sortRoster(list: Participant[]): Participant[] {
+    const order: Record<string, number> = {
+        hider: 0,
+        coHider: 1,
+        seeker: 2,
+    };
+    return [...list].sort((a, b) => {
+        const ra = a.role ? (order[a.role] ?? 9) : 9;
+        const rb = b.role ? (order[b.role] ?? 9) : 9;
+        if (ra !== rb) return ra - rb;
+        return (a.displayName ?? "").localeCompare(b.displayName ?? "");
+    });
+}
+
+function roleMeta(role: Participant["role"]) {
+    if (role === "hider") {
+        return {
+            label: "Hider",
+            icon: VenetianMask,
+            iconCls: "text-purple-300",
+            chipCls: "bg-purple-500/20 text-purple-300",
+        };
+    }
+    if (role === "coHider") {
+        return {
+            label: "Co-hider",
+            icon: Users,
+            iconCls: "text-purple-300/80",
+            chipCls: "bg-purple-500/15 text-purple-300/90",
+        };
+    }
+    if (role === "seeker") {
+        return {
+            label: "Seeker",
+            icon: Footprints,
+            iconCls: "text-primary",
+            chipCls: "bg-primary/15 text-primary",
+        };
+    }
+    return {
+        label: "—",
+        icon: Footprints,
+        iconCls: "text-muted-foreground",
+        chipCls: "bg-secondary/40 text-muted-foreground",
+    };
 }
 
 export default InvitePanel;
