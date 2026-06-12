@@ -1,14 +1,18 @@
 import { useStore } from "@nanostores/react";
-import { Flag, Timer } from "lucide-react";
+import { Flag, Footprints, Timer } from "lucide-react";
 import { useState } from "react";
+import { toast } from "react-toastify";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { shareFoundLink } from "@/lib/foundShare";
 import {
     endgameStartedAt,
     formatTimeRemaining,
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
+import { roundFoundAt } from "@/lib/hiderRole";
+import { seekerMarkFound, seekerStartEndgame } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,6 +34,29 @@ export function HiderTimer() {
     const $endsAt = useStore(hidingPeriodEndsAt);
     const $setupCompleted = useStore(setupCompleted);
     const $endgameStartedAt = useStore(endgameStartedAt);
+    const $foundAt = useStore(roundFoundAt);
+
+    const handleTriggerEndgame = () => {
+        if (
+            !confirm(
+                "Trigger endgame? The hider sees a banner asking them to lock down to a final spot. Only do this when you're closing in.",
+            )
+        ) {
+            return;
+        }
+        seekerStartEndgame();
+        toast.success("Endgame triggered — hider notified.", {
+            autoClose: 2500,
+        });
+    };
+
+    const handleMarkFound = () => {
+        const ts = Date.now();
+        roundFoundAt.set(ts);
+        // Mirror through multiplayer; no-op when offline.
+        seekerMarkFound(ts);
+        void shareFoundLink(ts);
+    };
 
     // Tick every second whenever the timer is meaningful, but
     // pause while the tab is hidden so the CPU isn't woken on
@@ -84,25 +111,76 @@ export function HiderTimer() {
                 </div>
             </div>
 
-            {/* Endgame indicator — surfaces on the seeker's map the
-                moment the trigger fires, so they don't need to open
-                the Settings sheet to confirm the hider has been told
-                to lock down. */}
-            {!inHidingPeriod && $endgameStartedAt !== null && (
-                <div
-                    className={cn(
-                        "flex items-center gap-1.5",
-                        "px-2 py-1 rounded-md",
-                        "bg-yellow-500/15 border-2 border-yellow-500/70",
-                        "text-yellow-300",
+            {/* Round-end action surface. Three exclusive states once
+                the hiding period is over (and only then — seekers
+                can't trigger the endgame or mark the hider found
+                while the hider is still en route):
+                  1. Endgame not armed yet → "Trigger endgame" button
+                     (the rulebook step before the physical find).
+                  2. Endgame armed, not found yet → "Endgame armed"
+                     badge + "Mark hider found" button.
+                  3. Already found → render nothing; the FoundSummary
+                     recap card lives in the Settings sheet.
+                Moved here from BottomNav's settings sheet so the
+                seeker doesn't have to dig through Settings during the
+                most time-sensitive moment of the game. */}
+            {!inHidingPeriod && !$foundAt && (
+                <>
+                    {$endgameStartedAt === null ? (
+                        <button
+                            type="button"
+                            onClick={handleTriggerEndgame}
+                            title="Trigger endgame — tell the hider to lock to a final spot"
+                            className={cn(
+                                "flex items-center justify-center gap-1.5 w-full",
+                                "px-2.5 py-1.5 rounded-md",
+                                "bg-yellow-500/15 border-2 border-yellow-500/60",
+                                "text-yellow-300 hover:bg-yellow-500/25 active:bg-yellow-500/30",
+                                "transition-colors shadow-md",
+                                "text-[10px] font-poppins font-bold uppercase tracking-wider",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                        >
+                            <Flag className="w-3 h-3" strokeWidth={2.5} />
+                            Trigger endgame
+                        </button>
+                    ) : (
+                        <>
+                            <div
+                                className={cn(
+                                    "flex items-center gap-1.5",
+                                    "px-2 py-1 rounded-md",
+                                    "bg-yellow-500/15 border-2 border-yellow-500/70",
+                                    "text-yellow-300",
+                                )}
+                                title="Endgame triggered — the hider has been told to lock to a final spot."
+                            >
+                                <Flag className="w-3 h-3" strokeWidth={2.5} />
+                                <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.15em]">
+                                    Endgame armed
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleMarkFound}
+                                title="Mark hider found — freeze the score and share the round-end link"
+                                className={cn(
+                                    "flex items-center justify-center gap-1.5 w-full",
+                                    "px-2.5 py-1.5 rounded-md",
+                                    "bg-primary text-primary-foreground",
+                                    "hover:bg-primary/90 active:bg-primary/80",
+                                    "border-2 border-primary shadow-md",
+                                    "transition-colors",
+                                    "text-[10px] font-poppins font-bold uppercase tracking-wider",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                )}
+                            >
+                                <Footprints className="w-3 h-3" strokeWidth={2.5} />
+                                Mark hider found
+                            </button>
+                        </>
                     )}
-                    title="Endgame triggered — the hider has been told to lock to a final spot."
-                >
-                    <Flag className="w-3 h-3" strokeWidth={2.5} />
-                    <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.15em]">
-                        Endgame armed
-                    </span>
-                </div>
+                </>
             )}
         </div>
     );

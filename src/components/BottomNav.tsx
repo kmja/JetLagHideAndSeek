@@ -74,12 +74,8 @@ import {
     participants,
     seekerLocationSharing,
 } from "@/lib/multiplayer/session";
-import {
-    seekerMarkFound,
-    seekerRotateHider,
-    seekerStartEndgame,
-} from "@/lib/multiplayer/store";
-import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
+import { seekerRotateHider } from "@/lib/multiplayer/store";
+import { copyFoundLink, shareFoundLink } from "@/lib/foundShare";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
@@ -399,61 +395,12 @@ export const BottomNav = () => {
                                     </div>
                                 )}
 
-                                {/* Endgame trigger / banner. Once the hider
-                                    is committed (locked spot), the seeker
-                                    can flip the endgame flag — the hider's
-                                    home banner-bars then surface so they
-                                    know to lock down to a stationary final
-                                    spot per the rulebook. Idempotent: tapping
-                                    after it's armed shows the current state
-                                    but doesn't re-trigger. */}
-                                {!hiding &&
-                                    $setupCompleted &&
-                                    $hidingEndsAt !== null &&
-                                    !$foundAt && (
-                                        <div className="mt-4">
-                                            {$endgameStartedAt ? (
-                                                <div
-                                                    className={cn(
-                                                        "rounded-md border-2 border-yellow-500/70 bg-yellow-500/10",
-                                                        "px-3 py-2.5 flex items-center gap-2.5",
-                                                    )}
-                                                >
-                                                    <Flag className="w-4 h-4 text-yellow-500 shrink-0" />
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="text-[9px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-500">
-                                                            Endgame armed
-                                                        </div>
-                                                        <div className="text-[11px] text-muted-foreground leading-snug">
-                                                            Hider has been told to lock to a
-                                                            stationary spot.
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                        if (
-                                                            !confirm(
-                                                                "Trigger endgame? The hider sees a banner asking them to lock down to a final spot. Only do this when you're closing in.",
-                                                            )
-                                                        )
-                                                            return;
-                                                        seekerStartEndgame();
-                                                        toast.success(
-                                                            "Endgame triggered — hider notified.",
-                                                            { autoClose: 2500 },
-                                                        );
-                                                    }}
-                                                    className="w-full gap-2 border-yellow-500/60 text-yellow-400 hover:bg-yellow-500/10"
-                                                >
-                                                    <Flag className="w-4 h-4" />
-                                                    Trigger endgame
-                                                </Button>
-                                            )}
-                                        </div>
-                                    )}
+                                {/* Endgame trigger and Mark-hider-found
+                                    moved out of this sheet into the
+                                    HiderTimer surface (top-left, below
+                                    the round timer) so they're visible
+                                    on the main map without opening the
+                                    settings sheet. */}
 
                                 {/* Location sharing — per rulebook p5 every
                                     seeker shares their GPS with the hider for
@@ -506,26 +453,20 @@ export const BottomNav = () => {
 
                                 {/* Round-end controls. Only meaningful once
                                     the hiding period has ended (we're in the
-                                    seeking phase). The "Mark hider found"
-                                    primary action sets `roundFoundAt` and
-                                    offers a share-link the seeker hands the
-                                    hider so both sides agree the round is
-                                    over and the final score is frozen.
-                                    Gated on `endgameStartedAt` so the
-                                    Mark-found CTA doesn't show before the
-                                    seeker has triggered the endgame —
-                                    that's the rulebook order (endgame first
-                                    so the hider locks down, THEN the
-                                    physical find), and rendering both at
-                                    once just clutters the sheet. The
-                                    Trigger endgame button above takes over
-                                    until endgame is armed. */}
+                                    seeking phase). The pre-found
+                                    "Mark hider found" CTA moved into
+                                    the HiderTimer (top-left of the
+                                    map). The post-found FoundSummary
+                                    stays here because it's a recap
+                                    card (final score, new-round / new-
+                                    game actions) — best read inside
+                                    Settings rather than crammed under
+                                    the timer. */}
                                 {!hiding &&
                                     $setupCompleted &&
                                     $hidingEndsAt !== null &&
-                                    ($foundAt || $endgameStartedAt) && (
+                                    $foundAt && (
                                         <div className="mt-4">
-                                            {$foundAt ? (
                                                 <FoundSummary
                                                     foundAt={$foundAt}
                                                     hidingEndsAt={$hidingEndsAt}
@@ -552,21 +493,6 @@ export const BottomNav = () => {
                                                         startNewGame();
                                                     }}
                                                 />
-                                            ) : (
-                                                <MarkFoundCta
-                                                    onTap={() => {
-                                                        const ts = Date.now();
-                                                        roundFoundAt.set(ts);
-                                                        // Mirror through
-                                                        // multiplayer; no-op
-                                                        // when offline.
-                                                        seekerMarkFound(ts);
-                                                        void shareFoundLink(
-                                                            ts,
-                                                        );
-                                                    }}
-                                                />
-                                            )}
                                         </div>
                                     )}
 
@@ -841,65 +767,10 @@ export const BottomNav = () => {
  * link contains the seeker-decided `foundAt` timestamp, so both sides agree
  * on the elapsed-time numerator used for scoring.
  */
-async function shareFoundLink(foundAt: number) {
-    const url = encodeFoundLink(foundAt);
-    const result = await shareOrCopy({
-        title: "Round ended",
-        text: `I found the hider! Tap to end your timer: ${url}`,
-        url,
-    });
-    if (result.method === "copy") {
-        toast.success("Round-ended link copied", { autoClose: 1500 });
-    } else if (result.method === "failed") {
-        toast.error("Could not share the round-end link");
-    }
-}
+// Round-end share helpers extracted to src/lib/foundShare.ts so
+// HiderTimer can share them — both surfaces fire the same flow.
 
-/**
- * Manual fallback for the round-end link: writes the URL directly
- * to the clipboard. Surfaced as an outline button next to the
- * Share button in `FoundSummary` so the seeker has a guaranteed
- * recovery path when the OS share sheet kept getting dismissed
- * — same end-state without going through navigator.share at all.
- */
-async function copyFoundLink(foundAt: number) {
-    const url = encodeFoundLink(foundAt);
-    try {
-        await navigator.clipboard.writeText(url);
-        toast.success("Round-ended link copied", { autoClose: 1500 });
-    } catch {
-        toast.error("Couldn't copy the link — try the Share button.");
-    }
-}
-
-function MarkFoundCta({ onTap }: { onTap: () => void }) {
-    return (
-        <div
-            className={cn(
-                "rounded-sm border border-dashed border-border",
-                "bg-secondary/30 px-4 py-3",
-            )}
-        >
-            <div className="flex items-start gap-3">
-                <Flag className="w-5 h-5 text-primary mt-0.5 shrink-0" />
-                <div className="min-w-0 flex-1">
-                    <div className="text-xs font-inter-tight font-bold uppercase tracking-[0.16em] mb-1">
-                        Round end
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-snug">
-                        Tap once you've physically spotted the hider. This
-                        freezes the time-bonus tally for scoring and shares a
-                        link so the hider can lock their device too.
-                    </p>
-                </div>
-            </div>
-            <Button onClick={onTap} className="w-full mt-3 gap-2">
-                <Flag className="w-4 h-4" />
-                Mark hider found · Share link
-            </Button>
-        </div>
-    );
-}
+// MarkFoundCta moved into HiderTimer as a compact inline button.
 
 function FoundSummary({
     foundAt,
