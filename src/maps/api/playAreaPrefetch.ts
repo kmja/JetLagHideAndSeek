@@ -295,6 +295,7 @@ export async function prefetchFamiliesInOneQuery(
             true,
         );
         const elements = (data as { elements?: any[] })?.elements ?? [];
+        const emptyFamilies: FamilyKey[] = [];
         for (const family of todo) {
             const feats: PrefetchedFeature[] = [];
             for (const el of elements) {
@@ -302,8 +303,43 @@ export async function prefetchFamiliesInOneQuery(
                 const feat = featureFromElement(el);
                 if (feat) feats.push(feat);
             }
-            cache.set(cacheKey(family), feats);
-            bumpStatus({ warmedKey: cacheKey(family), count: feats.length });
+            if (feats.length === 0) {
+                // The combined query came back without anything for
+                // this family. Two real reasons this happens:
+                //   1. The play area genuinely has no instances (no
+                //      aquariums in a forest county, no airports in a
+                //      neighborhood — fine, the cache should record 0).
+                //   2. The unioned Overpass query was too big for the
+                //      mirror and got truncated — symptom is "8 of 8
+                //      categories warm, 0 in each except railway"
+                //      (railway came first in the union and finished
+                //      under the server's budget; the rest fell off).
+                // We can't tell the two apart from one response, so we
+                // re-issue per-family for any 0-result family. A
+                // single-family query is small (sub-second on a
+                // healthy mirror) and the existing prefetchCategory
+                // path already R2-caches + dedups in-flight + reports
+                // status — so falling through to it is the natural
+                // fix. Don't pre-emptively write 0 to the cache yet;
+                // prefetchCategory will write the authoritative count.
+                emptyFamilies.push(family);
+            } else {
+                cache.set(cacheKey(family), feats);
+                bumpStatus({
+                    warmedKey: cacheKey(family),
+                    count: feats.length,
+                });
+            }
+        }
+        if (emptyFamilies.length > 0) {
+            console.debug(
+                `[preload] ${emptyFamilies.length} families empty in combined query — re-fetching individually`,
+            );
+            for (const f of emptyFamilies) {
+                prefetchCategory(f).catch(() => {
+                    bumpStatus({ failedKey: cacheKey(f) });
+                });
+            }
         }
     } catch {
         // Whole-batch failure: mark each family failed so the status

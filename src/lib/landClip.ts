@@ -162,13 +162,25 @@ export async function clipPolygonToLand(
         if (pieces.length === 1) {
             acc = pieces[0];
         } else {
-            // Union the per-island clips so downstream code (mask,
-            // preview, hiding-zone checks) sees a single Feature.
-            acc = pieces[0];
-            for (let i = 1; i < pieces.length; i++) {
+            // Drop tiny, distant fragments before unioning. An OSM
+            // admin boundary like "Tokyo Metropolis" legally includes
+            // the Izu and Ogasawara island chains hundreds of km
+            // south of the actual city — playable in the legal sense,
+            // ridiculous in the hide-and-seek sense. We keep the
+            // largest piece by area and any other piece that's either
+            // (a) reasonably large vs the largest (>= 10 %), or
+            // (b) close to the largest (centroid within 60 km).
+            // Both heuristics together preserve cases like the UK +
+            // Northern Ireland (large + far is kept by area) and
+            // Stockholm + adjacent suburbs (small + close is kept by
+            // distance), while dropping legal exclaves no one will
+            // travel to mid-game.
+            const filtered = filterMeaningfulPieces(pieces);
+            acc = filtered[0];
+            for (let i = 1; i < filtered.length; i++) {
                 try {
                     const u = turf.union(
-                        turf.featureCollection([acc, pieces[i]]),
+                        turf.featureCollection([acc, filtered[i]]),
                     ) as Feature<Polygon | MultiPolygon> | null;
                     if (u) acc = u;
                 } catch {
@@ -214,4 +226,68 @@ export async function clipPolygonToLand(
         console.warn("clipPolygonToLand failed:", e);
         return null;
     }
+}
+
+/** Min size of a piece relative to the largest piece, for the keep
+ *  decision below. Tokyo's Izu islands sit at 1-15 % of mainland;
+ *  this cutoff (10 %) drops the small ones while keeping comparably-
+ *  sized siblings (UK + N. Ireland, large dual-island countries). */
+const MIN_RELATIVE_AREA = 0.1;
+/** Max centroid distance from the largest piece, in km, for a piece
+ *  to be kept under the "small but close" branch. 60 km comfortably
+ *  covers suburbs/satellite islands of any reasonable city but
+ *  excludes far-flung legal exclaves. */
+const MAX_PIECE_DISTANCE_KM = 60;
+
+/**
+ * Keep only the meaningful pieces of a freshly-land-clipped
+ * play-area: the largest piece, plus any other piece that's
+ * substantial on its own merits OR close enough to the main piece
+ * that a seeker could plausibly reach it.
+ *
+ * Returns the input unchanged when it's already a single piece, when
+ * the area heuristic fails (e.g. degenerate geometry), or when every
+ * piece happens to qualify — so this can never make things worse,
+ * only drop true outliers like Tokyo Metropolis's Pacific island
+ * chain.
+ */
+function filterMeaningfulPieces(
+    pieces: Feature<Polygon | MultiPolygon>[],
+): Feature<Polygon | MultiPolygon>[] {
+    if (pieces.length <= 1) return pieces;
+    let withMeta: { piece: Feature<Polygon | MultiPolygon>; area: number; center: Feature<{ type: "Point"; coordinates: [number, number] }> | null }[];
+    try {
+        withMeta = pieces.map((p) => {
+            const a = turf.area(p);
+            let c: any = null;
+            try {
+                c = turf.centroid(p);
+            } catch {
+                c = null;
+            }
+            return { piece: p, area: a, center: c };
+        });
+    } catch {
+        return pieces;
+    }
+    withMeta.sort((a, b) => b.area - a.area);
+    const largest = withMeta[0];
+    if (!largest.center || largest.area <= 0) return pieces;
+
+    const largestCenter = largest.center;
+    const kept = withMeta.filter((it, idx) => {
+        if (idx === 0) return true;
+        if (it.area / largest.area >= MIN_RELATIVE_AREA) return true;
+        if (!it.center) return false;
+        try {
+            const km = turf.distance(largestCenter, it.center, {
+                units: "kilometers",
+            });
+            return km <= MAX_PIECE_DISTANCE_KM;
+        } catch {
+            return false;
+        }
+    });
+    if (kept.length === withMeta.length) return pieces;
+    return kept.map((it) => it.piece);
 }

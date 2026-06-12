@@ -19,12 +19,17 @@ const polygonCache = new Map<
 >();
 
 /**
- * Tiny map preview for the wizard's PlayAreaStep — shows the
- * selected Photon result. Renders the bbox rectangle instantly as a
- * cheap first paint, then upgrades to the real boundary polygon as
- * soon as polygons.openstreetmap.fr responds (~1-5 s) — fully async,
- * no perceived delay vs the rectangle-only version. If polygons.osm.fr
- * 404s or times out, the rectangle stays.
+ * Tiny map preview for the wizard's PlayAreaStep — shows the selected
+ * Photon result. Renders nothing on top of the base tiles until the
+ * real polygon lands; we don't draw the bbox rectangle as a
+ * placeholder anymore. The bbox over-approximates everywhere (Dalarna
+ * County's bbox includes parts of Norway and Uppsala, etc.) so
+ * showing it as the actual shape is misleading. Leaving the tiles
+ * bare for a beat is better than implying a wrong outline.
+ *
+ * The map still pans / zooms to fit the bbox so the user sees the
+ * right region while the polygon loads; only the polygon overlay
+ * itself is gated on real data.
  *
  * Renders as `client:only`-safe — MapLibre's window deps are
  * imported lazily at this leaf, so a static import in the wizard
@@ -42,6 +47,8 @@ export function PlayAreaPreviewMap({
     // Photon's extent we normalised to [maxLat, minLng, minLat, maxLng].
     // Fall back to the centroid + a small box if extent is missing
     // (rare — usually only Point-shaped entries without a polygon).
+    // The bbox is now ONLY used for camera framing, never drawn as an
+    // overlay — see the file header for the rationale.
     const bbox = useMemo(() => {
         const extent = (value.properties as { extent?: number[] }).extent;
         if (extent && extent.length === 4) {
@@ -62,32 +69,7 @@ export function PlayAreaPreviewMap({
         };
     }, [value]);
 
-    // Rectangle polygon for the bbox outline. Closed loop so the
-    // line layer renders all four sides. This is the instant first
-    // paint; the real boundary polygon swaps in below when
-    // polygons.osm.fr returns.
-    const bboxPolygon = useMemo<GeoJSON.Feature<GeoJSON.Polygon> | null>(() => {
-        if (!bbox) return null;
-        const { minLng, minLat, maxLng, maxLat } = bbox;
-        return {
-            type: "Feature",
-            properties: {},
-            geometry: {
-                type: "Polygon",
-                coordinates: [
-                    [
-                        [minLng, minLat],
-                        [maxLng, minLat],
-                        [maxLng, maxLat],
-                        [minLng, maxLat],
-                        [minLng, minLat],
-                    ],
-                ],
-            },
-        };
-    }, [bbox]);
-
-    // Async upgrade to the real OSM relation boundary via
+    // Async fetch of the real OSM relation boundary via
     // polygons.openstreetmap.fr. Only fires when Photon's result is a
     // Relation (osm_type === "R") — Way / Node results don't have a
     // pre-computed polygon to fetch. Cached in-module so repeated
@@ -118,25 +100,23 @@ export function PlayAreaPreviewMap({
                 setRealPolygon(geom);
             })
             .catch(() => {
-                /* swallowed — rectangle is the fallback */
+                /* swallowed — overlay stays empty */
             });
         return () => ctrl.abort();
     }, [osmId, osmType]);
 
-    // Render the real polygon when we have it; otherwise the bbox.
+    // The overlay is the real polygon or nothing. No bbox fallback.
     const polygon = useMemo<
         | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
         | null
     >(() => {
-        if (realPolygon) {
-            return {
-                type: "Feature",
-                properties: {},
-                geometry: realPolygon,
-            };
-        }
-        return bboxPolygon;
-    }, [realPolygon, bboxPolygon]);
+        if (!realPolygon) return null;
+        return {
+            type: "Feature",
+            properties: {},
+            geometry: realPolygon,
+        };
+    }, [realPolygon]);
 
     // Once the real polygon lands, re-fit the camera to its actual
     // extent (the bbox extent was an over-approximation for irregular
