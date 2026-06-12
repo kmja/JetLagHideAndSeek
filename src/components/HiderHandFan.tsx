@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Sparkles, Trash2, X, Zap } from "lucide-react";
+import { Sparkles, Trash2, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
@@ -427,57 +427,46 @@ function HandCarousel({
             shouldScaleBackground={false}
         >
             <VaulDrawer.Portal>
-                <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/80" />
+                {/* Dim the UI behind so the focused card pops, but
+                    no opaque sheet — this isn't a separate page,
+                    it's "lift your cards up to your eyes". Tapping
+                    the dim layer closes (Vaul wires that up via the
+                    Overlay element). */}
+                <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/55 backdrop-blur-sm" />
                 <VaulDrawer.Content
                     className={cn(
                         "fixed inset-0 z-[1051]",
-                        "flex flex-col",
-                        "bg-background text-foreground",
-                        "pb-[env(safe-area-inset-bottom)]",
+                        // Transparent container — no panel chrome
+                        // (no background, border, drag handle, or
+                        // page header). The card + its action row
+                        // float over the dimmed UI.
+                        "flex flex-col items-stretch justify-center",
+                        "bg-transparent text-foreground",
+                        "px-4 py-6",
+                        "pb-[max(env(safe-area-inset-bottom),24px)]",
                     )}
                 >
-                    {/* Drag handle */}
-                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
-
-                    {/* Header */}
-                    <div className="flex items-center justify-between px-5 pt-2 pb-3 shrink-0">
-                        <div className="flex items-center gap-2">
-                            <VaulDrawer.Title className="text-sm font-poppins font-bold uppercase tracking-[0.16em]">
-                                Hand
-                            </VaulDrawer.Title>
-                            <span className="text-[11px] tabular-nums text-muted-foreground">
-                                {focusIndex + 1} / {hand.length}
-                            </span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => onOpenChange(false)}
-                            className={cn(
-                                "inline-flex items-center justify-center w-8 h-8",
-                                "rounded-md text-muted-foreground",
-                                "hover:bg-accent hover:text-foreground",
-                            )}
-                            aria-label="Close hand"
-                        >
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
+                    {/* SR-only title — required by Vaul/Radix for
+                        accessibility, but visually we keep the
+                        carousel chrome-less to preserve the
+                        "raising cards to eyes" feel. */}
+                    <VaulDrawer.Title className="sr-only">
+                        Hand · {focusIndex + 1} of {hand.length}
+                    </VaulDrawer.Title>
 
                     {/* Carousel — horizontal scroll-snap row. Each
                         slide takes the full carousel width (with
                         small side-peek so the neighbour shows it can
                         be swiped to). Card maintains its natural
-                        ~3:4 aspect with the height capped at the
-                        available track height so it doesn't push
-                        past the action row on short viewports. */}
+                        ~3:4 aspect. */}
                     <div
                         ref={trackRef}
                         role="region"
                         aria-label="Hand cards"
                         className={cn(
-                            "flex-1 min-h-0 flex overflow-x-auto",
+                            "flex overflow-x-auto",
                             "snap-x snap-mandatory scroll-smooth",
-                            "no-scrollbar gap-4 px-[10%] py-4",
+                            "no-scrollbar gap-4 px-[10%] py-2",
                         )}
                     >
                         {hand.map((card, i) => (
@@ -501,7 +490,7 @@ function HandCarousel({
                                 aria-current={i === focusIndex}
                             >
                                 <div
-                                    className="w-full max-h-full"
+                                    className="w-full"
                                     style={{ aspectRatio: "3 / 4" }}
                                 >
                                     <CardTile
@@ -515,27 +504,13 @@ function HandCarousel({
                         ))}
                     </div>
 
-                    {/* Pagination dots */}
-                    <div
-                        className="flex items-center justify-center gap-1.5 shrink-0 py-2"
-                        aria-hidden
-                    >
-                        {hand.map((_, i) => (
-                            <span
-                                key={i}
-                                className={cn(
-                                    "rounded-full transition-all duration-200",
-                                    i === focusIndex
-                                        ? "w-4 h-1.5 bg-primary"
-                                        : "w-1.5 h-1.5 bg-muted-foreground/40",
-                                )}
-                            />
-                        ))}
-                    </div>
-
-                    {/* Action row — operates on the focused card. */}
-                    <div className="shrink-0 px-5 pt-2 pb-4 border-t border-border">
-                        {focused ? (
+                    {/* Action row sits IMMEDIATELY below the card,
+                        not stuck to the bottom of the viewport — the
+                        card + actions read as a single object you've
+                        brought up. Centered with the same max width
+                        as the card. */}
+                    {focused && (
+                        <div className="mx-auto w-[80%] max-w-[360px] mt-3 px-[10%] sm:px-0">
                             <CardActions
                                 card={focused}
                                 onPickerOpen={() => onOpenChange(false)}
@@ -549,8 +524,30 @@ function HandCarousel({
                                     }
                                 }}
                             />
-                        ) : null}
-                    </div>
+                        </div>
+                    )}
+
+                    {/* Pagination dots, small and centred below the
+                        actions. Cheap navigation hint that costs
+                        almost nothing visually. */}
+                    {hand.length > 1 && (
+                        <div
+                            className="flex items-center justify-center gap-1.5 mt-4"
+                            aria-hidden
+                        >
+                            {hand.map((_, i) => (
+                                <span
+                                    key={i}
+                                    className={cn(
+                                        "rounded-full transition-all duration-200",
+                                        i === focusIndex
+                                            ? "w-4 h-1.5 bg-primary"
+                                            : "w-1.5 h-1.5 bg-white/40",
+                                    )}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </VaulDrawer.Content>
             </VaulDrawer.Portal>
         </VaulDrawer.Root>
