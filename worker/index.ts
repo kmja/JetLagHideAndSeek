@@ -32,11 +32,13 @@ export { GameRoom } from "./GameRoom";
 
 /* ────────────────── Game-code generation ────────────────── */
 
-// Omit ambiguous characters (I/O/0/1, lowercase l) so codes are easy
-// to read out loud over voice. 30 chars × 6 positions = ~729M codes;
-// collision risk inside a 30 min idle window is negligible at the
-// scales we care about (small groups of friends).
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+// Letters only — typing a code on mobile shouldn't force the user to
+// flip between the letter and number keyboards. Omit ambiguous
+// characters (I/O, lowercase l) so codes are easy to read out loud
+// over voice. 22 chars × 6 positions = ~113M codes; collision risk
+// inside a 30 min idle window is negligible at the scales we care
+// about (small groups of friends).
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 const CODE_LENGTH = 6;
 
 function generateGameCode(): string {

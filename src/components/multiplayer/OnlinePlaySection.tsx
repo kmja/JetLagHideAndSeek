@@ -67,7 +67,7 @@ export function OnlinePlaySection() {
 
     const trimmedName = name.trim();
     const trimmedCode = code.trim().toUpperCase();
-    const validCode = /^[A-Z0-9]{4,8}$/.test(trimmedCode);
+    const validCode = /^[A-Z]{4,8}$/.test(trimmedCode);
     const canHost = trimmedName.length > 0 && !busyHost;
     const canJoin = trimmedName.length > 0 && validCode;
 
@@ -198,7 +198,7 @@ export function OnlinePlaySection() {
                         }}
                     />
                     <p className="text-[10px] text-muted-foreground">
-                        Letters and digits only. Case-insensitive.
+                        Letters only. Case-insensitive.
                     </p>
                 </div>
             )}

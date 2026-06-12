@@ -68,7 +68,7 @@ export function Welcome() {
 
     const trimmedName = name.trim();
     const trimmedCode = code.trim().toUpperCase();
-    const validCode = /^[A-Z0-9]{4,8}$/.test(trimmedCode);
+    const validCode = /^[A-Z]{4,8}$/.test(trimmedCode);
     const canContinue = trimmedName.length > 0 && validCode;
 
     // Group participants by role so the picker can show
