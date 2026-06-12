@@ -1710,7 +1710,7 @@ export function Map({ className }: MapProps) {
                     if (!o) setSelectedMarker(null);
                 }}
             >
-                <DialogContent className="!bg-[hsl(var(--sidebar-background))] !text-white">
+                <DialogContent className="!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]">
                     {selectedMarker &&
                         $questions
                             .filter(

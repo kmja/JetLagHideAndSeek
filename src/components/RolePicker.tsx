@@ -116,7 +116,7 @@ export function RolePicker() {
         >
             <DialogContent
                 className={cn(
-                    "!bg-[hsl(var(--sidebar-background))] !text-white",
+                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0",
                 )}
             >

@@ -453,13 +453,13 @@ export const OptionDrawers = ({
                                     Paste Hiding Zone
                                 </Button>
                             </div>
-                            <Separator className="bg-slate-300 w-[280px]" />
+                            <Separator className="bg-border w-[280px]" />
                             <Label>Default Unit</Label>
                             <UnitSelect
                                 unit={$defaultUnit}
                                 onChange={defaultUnit.set}
                             />
-                            <Separator className="bg-slate-300 w-[280px]" />
+                            <Separator className="bg-border w-[280px]" />
                             <Label>New Custom Question Defaults</Label>
                             <Select
                                 trigger="New custom default"
@@ -473,7 +473,7 @@ export const OptionDrawers = ({
                                     customInitPreference.set(v as any)
                                 }
                             />
-                            <Separator className="bg-slate-300 w-[280px]" />
+                            <Separator className="bg-border w-[280px]" />
                             <Label>Base map style</Label>
                             <Select
                                 trigger="Base map style"
@@ -517,7 +517,7 @@ export const OptionDrawers = ({
                                     Don&apos;t worry, it&apos;s free.
                                 </p>
                             </div>
-                            <Separator className="bg-slate-300 w-[280px]" />
+                            <Separator className="bg-border w-[280px]" />
                             <div className="flex flex-col items-center gap-2">
                                 <Label>Pastebin API Key</Label>
                                 <Input
@@ -543,7 +543,7 @@ export const OptionDrawers = ({
                                     .
                                 </p>
                             </div>
-                            <Separator className="bg-slate-300 w-[280px]" />
+                            <Separator className="bg-border w-[280px]" />
                             <Label>Permanent Map Overlay</Label>
                             <div className="flex flex-row max-[330px]:flex-col gap-4">
                                 <Button
@@ -574,7 +574,7 @@ export const OptionDrawers = ({
                                     Paste GeoJSON
                                 </Button>
                             </div>
-                            <Separator className="bg-slate-300 w-[280px]" />
+                            <Separator className="bg-border w-[280px]" />
                             <div className="flex flex-row items-center gap-2">
                                 <label className="text-2xl font-semibold font-poppins">
                                     Animate map movements?

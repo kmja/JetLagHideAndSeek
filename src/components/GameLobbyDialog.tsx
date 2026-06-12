@@ -301,7 +301,7 @@ export function GameLobbyDialog() {
             <DialogContent
                 closeIcon={$manualOpen}
                 className={cn(
-                    "!bg-[hsl(var(--sidebar-background))] !text-white",
+                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0 sm:max-w-md",
                 )}
             >
@@ -464,7 +464,7 @@ export function GameLobbyDialog() {
                         <Dialog open={qrOpen} onOpenChange={setQrOpen}>
                             <DialogContent
                                 className={cn(
-                                    "!bg-[hsl(var(--sidebar-background))] !text-white",
+                                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                                     "sm:max-w-xs flex flex-col items-center p-6 gap-4",
                                 )}
                             >
@@ -698,7 +698,7 @@ export function GameLobbyDialog() {
                     ) : (
                         <div className="text-center py-3 space-y-1">
                             <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
-                            <div className="text-sm text-slate-300">
+                            <div className="text-sm text-current/80">
                                 Waiting for the host to start the game…
                             </div>
                             {isHiderRole && (

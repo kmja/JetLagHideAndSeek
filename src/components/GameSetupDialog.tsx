@@ -539,7 +539,7 @@ export function GameSetupDialog() {
         >
             <DialogContent
                 className={cn(
-                    "!bg-[hsl(var(--sidebar-background))] !text-white",
+                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0",
                 )}
             >
@@ -1106,7 +1106,7 @@ function PlayAreaStep({
                 <Dialog open={adjacentOpen} onOpenChange={setAdjacentOpen}>
                     <DialogContent
                         className={cn(
-                            "!bg-[hsl(var(--sidebar-background))] !text-white",
+                            "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                             "flex flex-col p-0 max-h-[85vh]",
                         )}
                     >

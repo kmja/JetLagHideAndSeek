@@ -233,44 +233,58 @@ div.leaflet-control-attribution.leaflet-control {
 }
 
 @layer base {
-    html {
-        @apply text-slate-50;
-    }
     :root,
     .light {
+        /* Surfaces */
         --background: 0 0% 100%;
         --foreground: 222.2 84% 4.9%;
         --card: 0 0% 100%;
         --card-foreground: 222.2 84% 4.9%;
         --popover: 0 0% 100%;
         --popover-foreground: 222.2 84% 4.9%;
-        --primary: 222.2 47.4% 11.2%;
-        --primary-foreground: 210 40% 98%;
+        /* Jet Lag brand red — same hue in light + dark so primary
+         * buttons stay on-brand regardless of mode. Foreground is
+         * white for contrast against the red. */
+        --primary: 5 69% 55%;
+        --primary-foreground: 0 0% 100%;
+        /* Supporting brand accents — identical between modes (these
+         * are box / dice / card-stripe colours, not surface colours).
+         * Previously they were only defined under .dark, which made
+         * `hsl(var(--accent-yellow))` etc. resolve to nothing in
+         * light mode. */
+        --accent-yellow: 44 87% 50%; /* SMALL pill, "LAG" highlight; bumped down a notch for contrast on white */
+        --accent-orange: 22 82% 50%;
+        --accent-red: 5 69% 55%;
+        --accent-peach: 18 75% 60%;
+        --accent-purple: 263 35% 45%;
+        /* Neutrals */
         --secondary: 210 40% 96.1%;
         --secondary-foreground: 222.2 47.4% 11.2%;
         --muted: 210 40% 96.1%;
-        --muted-foreground: 215.4 16.3% 46.9%;
-        --accent: 210 40% 96.1%;
+        --muted-foreground: 215.4 16.3% 35%; /* darker than shadcn default so muted text is readable on white */
+        --accent: 210 40% 92%;
         --accent-foreground: 222.2 47.4% 11.2%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 210 40% 98%;
-        --border: 214.3 31.8% 91.4%;
-        --input: 214.3 31.8% 91.4%;
-        --ring: 222.2 84% 4.9%;
-        --chart-1: 12 76% 61%;
+        --destructive: 0 84.2% 50%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 214.3 31.8% 85%; /* darker than shadcn default so borders are visible */
+        --input: 214.3 31.8% 85%;
+        --ring: 5 69% 55%; /* match primary so focus rings carry brand */
+        --chart-1: 12 76% 55%;
         --chart-2: 173 58% 39%;
         --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
+        --chart-4: 43 74% 56%;
+        --chart-5: 27 87% 57%;
         --radius: 0.5rem;
-        --sidebar-background: 0 0% 98%;
-        --sidebar-foreground: 240 5.3% 26.1%;
-        --sidebar-primary: 240 5.9% 10%;
-        --sidebar-primary-foreground: 0 0% 98%;
-        --sidebar-accent: 240 4.8% 95.9%;
+        /* Sidebar — light surface in light mode. Foreground reads
+         * dark for contrast. */
+        --sidebar-background: 0 0% 97%;
+        --sidebar-foreground: 240 10% 15%;
+        --sidebar-primary: 5 69% 55%;
+        --sidebar-primary-foreground: 0 0% 100%;
+        --sidebar-accent: 240 4.8% 92%;
         --sidebar-accent-foreground: 240 5.9% 10%;
-        --sidebar-border: 220 13% 91%;
-        --sidebar-ring: 217.2 91.2% 59.8%;
+        --sidebar-border: 220 13% 85%;
+        --sidebar-ring: 5 69% 55%;
     }
     .dark {
         --background: 222.2 84% 4.9%;
@@ -300,7 +314,7 @@ div.leaflet-control-attribution.leaflet-control {
         --destructive-foreground: 210 40% 98%;
         --border: 217.2 32.6% 17.5%;
         --input: 217.2 32.6% 17.5%;
-        --ring: 212.7 26.8% 83.9%;
+        --ring: 5 69% 55%; /* match primary so focus rings carry brand */
         --chart-1: 220 70% 50%;
         --chart-2: 160 60% 45%;
         --chart-3: 30 80% 55%;
@@ -308,12 +322,20 @@ div.leaflet-control-attribution.leaflet-control {
         --chart-5: 340 75% 55%;
         --sidebar-background: 240 5.9% 10%;
         --sidebar-foreground: 240 4.8% 95.9%;
-        --sidebar-primary: 224.3 76.3% 48%;
+        --sidebar-primary: 5 69% 55%;
         --sidebar-primary-foreground: 0 0% 100%;
         --sidebar-accent: 240 3.7% 15.9%;
         --sidebar-accent-foreground: 240 4.8% 95.9%;
         --sidebar-border: 240 3.7% 15.9%;
-        --sidebar-ring: 217.2 91.2% 59.8%;
+        --sidebar-ring: 5 69% 55%;
+    }
+
+    /* Theme-aware default text colour. Previously this forced
+     * `text-slate-50` (near-white) on `html`, which was correct for
+     * the locked-dark legacy UI but unreadable in light mode. Use
+     * the foreground CSS variable so it tracks both modes. */
+    html {
+        color: hsl(var(--foreground));
     }
 
     main:not(.fullscreen)

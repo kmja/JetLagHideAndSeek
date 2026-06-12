@@ -148,7 +148,7 @@ export function Welcome() {
         >
             <DialogContent
                 className={cn(
-                    "!bg-[hsl(var(--sidebar-background))] !text-white",
+                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0 sm:max-w-md",
                 )}
                 // Hide the default radix close X — no escape hatch.
@@ -165,7 +165,7 @@ export function Welcome() {
 
                 {mode === "intro" ? (
                     <>
-                        <div className="px-6 pb-5 text-sm leading-relaxed text-slate-200 space-y-2">
+                        <div className="px-6 pb-5 text-sm leading-relaxed text-current/85 space-y-2">
                             <p>
                                 A seeker's map-elimination companion for the
                                 Jet Lag: The Game board game.
@@ -177,7 +177,7 @@ export function Welcome() {
                                 and rule the map out region by region until
                                 only the hider's spot is left.
                             </p>
-                            <p className="text-slate-300/80">
+                            <p className="text-current/60">
                                 Whoever hides the longest wins.
                             </p>
                         </div>
@@ -202,7 +202,7 @@ export function Welcome() {
                     </>
                 ) : mode === "join-form" ? (
                     <>
-                        <div className="px-6 pb-5 text-sm leading-relaxed text-slate-200 space-y-1">
+                        <div className="px-6 pb-5 text-sm leading-relaxed text-current/85 space-y-1">
                             <p>
                                 Got a code from a friend? Pick a display name
                                 so the rest of the game knows who you are,
@@ -273,7 +273,7 @@ export function Welcome() {
                        roster has populated, user picks role from the
                        informed set of available options. */
                     <>
-                        <div className="px-6 pb-3 text-sm leading-relaxed text-slate-200 space-y-1">
+                        <div className="px-6 pb-3 text-sm leading-relaxed text-current/85 space-y-1">
                             <p>
                                 <span className="font-semibold text-white">
                                     {$code ?? trimmedCode}
@@ -502,7 +502,7 @@ function RosterGroup({
                 </span>
             </div>
             {entries.length > 0 ? (
-                <ul className="text-xs text-slate-200 leading-snug pl-3.5 space-y-0.5">
+                <ul className="text-xs text-current/85 leading-snug pl-3.5 space-y-0.5">
                     {entries.map((e, i) => (
                         <li
                             key={`${e.name}-${i}`}
