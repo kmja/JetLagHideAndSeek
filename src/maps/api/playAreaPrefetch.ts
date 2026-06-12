@@ -4,7 +4,6 @@ import { atom } from "nanostores";
 import {
     additionalMapGeoLocations,
     mapGeoLocation,
-    polyGeoJSON,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
@@ -92,14 +91,6 @@ function filterForFamily(family: FamilyKey): string {
     if (family === "airport") return '["aeroway"="aerodrome"]["iata"]';
     if (family === "rail-station") return '["railway"="station"]';
     throw new Error(`unknown family ${family}`);
-}
-
-/** Search type per family — `nwr` for most amenity tags (some
- *  museums and parks are mapped as ways/relations rather than
- *  nodes), `node` for railway stations (always nodes). */
-function searchTypeForFamily(family: FamilyKey): "nwr" | "node" {
-    if (family === "rail-station") return "node";
-    return "nwr";
 }
 
 /**
@@ -325,6 +316,33 @@ out center;
         true,
     );
     return ((data as { elements?: any[] })?.elements ?? []) as any[];
+}
+
+/** Pad for the high-speed-rail bbox query. Bigger than the 50 km
+ *  reference pad because the HSR network is sparse — the nearest
+ *  line to a city often sits 50-100 km out. Beyond this the client's
+ *  `fetchNearestHighspeedRail` falls back to its radius walk. The
+ *  cron uses the SAME pad so the cached entry's key matches. */
+export const HSR_PAD_KM = 100;
+
+/**
+ * The high-speed-rail query string — `way[railway=rail][highspeed=yes]`
+ * over the play-area bbox + HSR pad, `out geom` (we need the line
+ * geometry, not centroids, to find the nearest POINT ON the line).
+ * Returns null when no play area / extent is available.
+ *
+ * MUST stay byte-identical to the cron's `buildHsrBboxQuery` in
+ * overpass-cache/src/index.ts — same as every other shared query,
+ * the R2 cache key is a hash of this string.
+ */
+export function buildHsrBboxQuery(): string | null {
+    const bboxFilter = buildPaddedBboxFilter(HSR_PAD_KM);
+    if (!bboxFilter) return null;
+    return `
+[out:json][timeout:120]${bboxFilter};
+way["railway"="rail"]["highspeed"="yes"];
+out geom;
+`;
 }
 
 /** Synchronous cache lookup. Returns null if nothing has been

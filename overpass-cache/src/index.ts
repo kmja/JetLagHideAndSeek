@@ -34,7 +34,7 @@ import {
     cityNamesMissingExtent,
     getPopularCities,
     unresolvedCandidates,
-    updateDiscoveredCity,
+    upsertDiscoveredCity,
 } from "./cities";
 import type { Env } from "./envTypes";
 import { handleJourneyArrivals } from "./journey";
@@ -208,7 +208,8 @@ export default {
                 try {
                     const r = await resolveNameViaPhoton(name);
                     if (r?.extent) {
-                        await updateDiscoveredCity(env, name, {
+                        await upsertDiscoveredCity(env, {
+                            name,
                             relationId: r.relationId,
                             extent: r.extent,
                         });
@@ -246,7 +247,11 @@ export default {
                 //    (legacy pre-v193 entries — the discovery pass
                 //    backfills them in the same cron tick).
                 if (city.extent) {
-                    await prewarmReferencesForCity(env, ctx, city, ttlMs);
+                    await prewarmReferencesForCity(env, city, ttlMs);
+                    // 3. High-speed rail — `out geom` over a wider
+                    //    bbox (sparse network). Same R2 key the client
+                    //    HSR lookup hits.
+                    await prewarmHsrForCity(env, city, ttlMs);
                 }
             } catch (e) {
                 console.warn(
@@ -672,15 +677,17 @@ const REFERENCE_FAMILY_FILTERS: { family: string; filter: string }[] = [
     { family: "rail-station", filter: '["railway"="station"]' },
 ];
 const PAD_KM = 50;
+/** HSR uses a wider pad than the point references because the network
+ *  is sparse. MUST match HSR_PAD_KM in src/maps/api/playAreaPrefetch.ts. */
+const HSR_PAD_KM = 100;
 
-/**
- * Build the EXACT query string the client emits for a multi-family
- * bbox prefetch. Whitespace, ordering, and numeric formatting all
- * matter — `r2KeyForQuery` hashes the string, so a single extra
- * newline diverges the cache key.
- */
-function buildReferenceBboxQuery(
+/** Build the `[bbox:s,w,n,e]` filter from a Photon extent + pad,
+ *  formatted EXACTLY as the client's `buildPaddedBboxFilter` does
+ *  (3-decimal coordinates). The R2 cache key hashes the full query
+ *  string, so any formatting drift diverges client and cron. */
+function buildBboxFilter(
     extent: [number, number, number, number],
+    padKm: number,
 ): string {
     // Photon extent: [maxLat, minLng, minLat, maxLng]
     const [maxLat, minLng, minLat, maxLng] = extent;
@@ -688,22 +695,28 @@ function buildReferenceBboxQuery(
     const west = minLng;
     const north = maxLat;
     const east = maxLng;
-    const latPad = PAD_KM / 111;
+    const latPad = padKm / 111;
     const midLat = (south + north) / 2;
-    const lngPad = PAD_KM / (111 * Math.cos((midLat * Math.PI) / 180));
-    // 3-decimal precision (~110 m) is plenty for a 50 km-padded bbox
-    // and gives both sides a deterministic string regardless of any
-    // floating-point wobble in earlier steps.
+    const lngPad = padKm / (111 * Math.cos((midLat * Math.PI) / 180));
     const s = (south - latPad).toFixed(3);
     const w = (west - lngPad).toFixed(3);
     const n = (north + latPad).toFixed(3);
     const e = (east + lngPad).toFixed(3);
-    const bboxFilter = `[bbox:${s},${w},${n},${e}]`;
+    return `[bbox:${s},${w},${n},${e}]`;
+}
+
+/**
+ * Build the EXACT reference-prefetch query string the client emits.
+ * Whitespace, ordering, and numeric formatting all matter — mirrors
+ * `runBboxOverpassFetch` in src/maps/api/playAreaPrefetch.ts.
+ */
+function buildReferenceBboxQuery(
+    extent: [number, number, number, number],
+): string {
+    const bboxFilter = buildBboxFilter(extent, PAD_KM);
     const body = REFERENCE_FAMILY_FILTERS.map(
         ({ filter }) => `nwr${filter};`,
     ).join("\n");
-    // Indentation / newlines must match `runBboxOverpassFetch` in
-    // src/maps/api/playAreaPrefetch.ts exactly.
     return `
 [out:json][timeout:120]${bboxFilter};
 (
@@ -713,31 +726,40 @@ out center;
 `;
 }
 
+/** HSR query — byte-identical to `buildHsrBboxQuery` in
+ *  src/maps/api/playAreaPrefetch.ts. */
+function buildHsrBboxQuery(
+    extent: [number, number, number, number],
+): string {
+    const bboxFilter = buildBboxFilter(extent, HSR_PAD_KM);
+    return `
+[out:json][timeout:120]${bboxFilter};
+way["railway"="rail"]["highspeed"="yes"];
+out geom;
+`;
+}
+
 /**
- * Prewarm the per-city reference cache: one combined Overpass query
- * for every standard reference family (museums / hospitals /
- * airports / …) covering the city's padded bbox. The query goes
- * through `fetchAndCacheUpstream` so the result lands in R2 keyed
- * on the same SHA-256 hash the client will hit when it runs its own
- * combined prefetch.
- *
- * Cheap to call repeatedly — the inner coalescing + R2 freshness
- * check make a re-run a no-op until the entry stales out.
+ * Prewarm an arbitrary Overpass query into R2, keyed on the same
+ * SHA-256 hash of the query string the client computes. Skips the
+ * upstream fetch when a fresh entry already exists. Shared by the
+ * per-city reference prewarm and the HSR prewarm — the only thing
+ * that differs between them is the query string and the metadata
+ * `kind` tag.
  */
-async function prewarmReferencesForCity(
+async function prewarmQuery(
     env: Env,
-    ctx: ExecutionContext,
+    query: string,
     city: CityEntry,
     ttlMs: number,
+    kind: string,
 ): Promise<{ status: string; ageMs?: number; sizeBytes?: number }> {
-    if (!city.extent) return { status: "skipped-no-extent" };
-    const query = buildReferenceBboxQuery(city.extent);
     const cacheKey = await r2KeyForQuery(query);
     let r2Hit: R2ObjectBody | null = null;
     try {
         r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
     } catch (e) {
-        console.warn("R2 get failed during reference prewarm:", e);
+        console.warn(`R2 get failed during ${kind} prewarm:`, e);
     }
     if (r2Hit) {
         const cachedAt = parseInt(
@@ -762,13 +784,47 @@ async function prewarmReferencesForCity(
                 sourceName: city.name,
                 sourceRelationId: String(city.relationId),
                 prewarmed: "true",
-                kind: "references",
+                kind,
             },
         });
     } catch (e) {
-        console.warn("R2 put failed during reference prewarm:", e);
+        console.warn(`R2 put failed during ${kind} prewarm:`, e);
     }
     return { status: "stored", sizeBytes: body.length };
+}
+
+/** Per-city reference cache — one combined query covering every
+ *  standard reference family (museums / hospitals / airports / …). */
+async function prewarmReferencesForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ status: string }> {
+    if (!city.extent) return { status: "skipped-no-extent" };
+    return prewarmQuery(
+        env,
+        buildReferenceBboxQuery(city.extent),
+        city,
+        ttlMs,
+        "references",
+    );
+}
+
+/** Per-city high-speed-rail cache — `out geom` over the city's
+ *  HSR-padded bbox. */
+async function prewarmHsrForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ status: string }> {
+    if (!city.extent) return { status: "skipped-no-extent" };
+    return prewarmQuery(
+        env,
+        buildHsrBboxQuery(city.extent),
+        city,
+        ttlMs,
+        "hsr",
+    );
 }
 
 /* ─────────────────────── Admin endpoints ─────────────────────── */
@@ -1274,13 +1330,34 @@ async function handleAdminStatus(
 
 function checkAdminAuth(request: Request, env: Env): boolean {
     if (!env.ADMIN_SECRET) return false;
-    const got = request.headers.get("Authorization") || "";
-    const expected = `Bearer ${env.ADMIN_SECRET}`;
-    // Constant-time compare to avoid timing attacks on the secret.
-    if (got.length !== expected.length) return false;
+    // Primary path: Authorization: Bearer <secret> header.
+    const header = request.headers.get("Authorization");
+    if (header && constantTimeEqual(header, `Bearer ${env.ADMIN_SECRET}`)) {
+        return true;
+    }
+    // Convenience path: `?secret=<secret>` query param, so the admin
+    // endpoints can be triggered from a plain browser URL bar / phone
+    // (which can't set request headers). Less secure — the secret
+    // lands in browser history and any intermediary logs — so it's
+    // intended for the occasional manual prewarm nudge, not automated
+    // use. URL-encode the secret if it contains reserved characters.
+    try {
+        const param = new URL(request.url).searchParams.get("secret");
+        if (param && constantTimeEqual(param, env.ADMIN_SECRET)) {
+            return true;
+        }
+    } catch {
+        /* malformed URL — fall through to deny */
+    }
+    return false;
+}
+
+/** Length-checked constant-time string compare. */
+function constantTimeEqual(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
     let diff = 0;
-    for (let i = 0; i < got.length; i++) {
-        diff |= got.charCodeAt(i) ^ expected.charCodeAt(i);
+    for (let i = 0; i < a.length; i++) {
+        diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
     }
     return diff === 0;
 }

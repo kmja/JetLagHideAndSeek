@@ -200,7 +200,12 @@ export async function getPopularCities(
     env: Env,
 ): Promise<CityEntry[]> {
     const discovered = await loadDiscoveredCities(env);
-    return mergeUnique(HAND_CURATED, BULK_CITIES as CityEntry[], discovered);
+    // `discovered` FIRST so a re-resolved entry (which carries the new
+    // `extent` field, added in v193) overrides the bundled
+    // HAND_CURATED / BULK_CITIES copy of the same relation. mergeUnique
+    // is first-wins-by-relationId, so this is how the backfill upgrades
+    // legacy extentless entries in place without anyone clearing R2.
+    return mergeUnique(discovered, HAND_CURATED, BULK_CITIES as CityEntry[]);
 }
 
 /**
@@ -225,34 +230,40 @@ export async function appendDiscoveredCities(
 }
 
 /**
- * Names of cities that were resolved before the v193 schema added the
- * `extent` field. The cron uses this to backfill — one Photon re-resolve
- * per name per tick — so the per-city reference prewarm can target a
- * real bbox. Only returns the discovered (R2-stored) entries; the
- * bundled HAND_CURATED + BULK_CITIES lists ship with extents from the
- * v193 schema bump.
+ * Names of EVERY known city (bundled or discovered) that's missing
+ * the `extent` field — i.e. resolved before the v193 schema bump.
+ * The cron re-resolves these one Photon call per name per tick and
+ * upserts the result (with extent) into the discovered list, where —
+ * thanks to the discovered-first merge in `getPopularCities` — it
+ * overrides the bundled extentless copy. So the entire ~250 bundled
+ * cities + any legacy discovered ones all get the extent + per-city
+ * reference-prewarm treatment over a few days, with nothing to clear
+ * by hand.
  */
 export async function cityNamesMissingExtent(env: Env): Promise<string[]> {
-    const discovered = await loadDiscoveredCities(env);
-    return discovered
+    const all = await getPopularCities(env);
+    return all
         .filter((c) => !c.extent || c.extent.length !== 4)
         .map((c) => c.name);
 }
 
-/** Replace one discovered city's record with a freshly-Photon-resolved
- *  copy (carrying its new `extent`). No-op when the named city isn't
- *  in the discovered list — the bundled lists are immutable. */
-export async function updateDiscoveredCity(
+/** Upsert a city into the discovered list by relationId: overwrite the
+ *  existing entry (preferring the new fields) or append if absent.
+ *  Used by the backfill to add `extent` to legacy entries. */
+export async function upsertDiscoveredCity(
     env: Env,
-    name: string,
-    updates: Partial<CityEntry>,
+    entry: CityEntry,
 ): Promise<void> {
     const existing = await loadDiscoveredCities(env);
-    const next = existing.map((c) =>
-        c.name.toLowerCase() === name.toLowerCase()
-            ? { ...c, ...updates }
-            : c,
-    );
+    let found = false;
+    const next = existing.map((c) => {
+        if (c.relationId === entry.relationId) {
+            found = true;
+            return { ...c, ...entry };
+        }
+        return c;
+    });
+    if (!found) next.push(entry);
     await env.CACHE.put(
         DISCOVERED_R2_KEY,
         JSON.stringify(next),

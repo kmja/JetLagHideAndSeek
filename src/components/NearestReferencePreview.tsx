@@ -10,6 +10,7 @@ import {
     getOverpassData,
 } from "@/maps/api/overpass";
 import {
+    buildHsrBboxQuery,
     type FamilyKey,
     nearestFromCache,
     prefetchCategory,
@@ -578,10 +579,69 @@ out;
  * speed track will resolve. Returns the closest point on the line
  * via `turf.nearestPointOnLine`, same as the coastline fetcher.
  */
+function nearestOnHsrWays(
+    elements: any[],
+    lat: number,
+    lng: number,
+): NearestRef | null {
+    const target = turf.point([lng, lat]);
+    let best: NearestRef | null = null;
+    for (const way of elements) {
+        const g = way.geometry as
+            | Array<{ lat: number; lon: number }>
+            | undefined;
+        if (!g || g.length < 2) continue;
+        try {
+            const line = turf.lineString(g.map((p) => [p.lon, p.lat]));
+            const nearest = turf.nearestPointOnLine(line, target);
+            const d = turf.distance(target, nearest, { units: "meters" });
+            if (!best || d < best.distanceMeters) {
+                const coords = nearest.geometry.coordinates as [
+                    number,
+                    number,
+                ];
+                const nm =
+                    (way.tags?.["name:en"] as string | undefined) ??
+                    (way.tags?.["name"] as string | undefined) ??
+                    "High-speed rail";
+                best = {
+                    name: nm,
+                    lat: coords[1],
+                    lng: coords[0],
+                    distanceMeters: d,
+                };
+            }
+        } catch {
+            /* skip malformed way */
+        }
+    }
+    return best;
+}
+
 async function fetchNearestHighspeedRail(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
+    // First try the play-area bbox query — same string the cron warms
+    // and the preload primes, so it's usually an instant R2 / in-memory
+    // cache hit. Only when that returns nothing (no HSR within the
+    // play-area pad) do we fall through to the wider radius walk below.
+    const bboxQuery = buildHsrBboxQuery();
+    if (bboxQuery) {
+        const data = await getOverpassData(
+            bboxQuery,
+            undefined,
+            CacheType.ZONE_CACHE,
+        );
+        const els = (data as { elements?: any[] }).elements ?? [];
+        const ref = nearestOnHsrWays(els, lat, lng);
+        if (ref) return ref;
+    }
+
+    // Radius-walk fallback: the nearest HSR line is outside the
+    // play-area bbox (sparse network, or the play area is far from any
+    // HSR). Not cacheable by the cron — the `around:` center is the
+    // seeker's exact position — but it's the rare far case.
     for (const km of [50, 200, 500, 1500]) {
         const query = `
 [out:json][timeout:60];

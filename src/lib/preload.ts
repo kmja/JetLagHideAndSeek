@@ -7,13 +7,15 @@ import {
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
 import type { JourneyStop } from "@/lib/journey/types";
-import { findPlacesInZone } from "@/maps/api/overpass";
+import { getOverpassData } from "@/maps/api/overpass";
 import {
+    buildHsrBboxQuery,
     getCachedCategory,
     prefetchCategory,
     prefetchFamiliesInOneQuery,
     STANDARD_REFERENCE_FAMILIES,
 } from "@/maps/api/playAreaPrefetch";
+import { CacheType } from "@/maps/api/types";
 
 /**
  * Single hiding-period preload orchestrator.
@@ -61,19 +63,24 @@ export function preloadDuringHidingPeriod(): void {
     );
     void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
 
-    // 2. High-speed rail — separate, since it needs out:geom. Small/
-    //    medium only per rulebook. Silent + best-effort. Same R2
-    //    write-back path as above.
+    // 2. High-speed rail — separate query (needs out:geom over the
+    //    play-area bbox, can't ride the out:center union). Same string
+    //    the cron warms and the on-tap lookup issues, so this primes
+    //    the exact R2 key both will hit. Small/medium only per
+    //    rulebook. Silent + best-effort.
     if (size !== "large") {
-        void findPlacesInZone(
-            "[highspeed=yes]",
-            undefined,
-            "nwr",
-            "geom",
-            [],
-            0,
-            true,
-        ).catch(() => {});
+        const hsrQuery = buildHsrBboxQuery();
+        if (hsrQuery) {
+            void getOverpassData(
+                hsrQuery,
+                undefined,
+                CacheType.ZONE_CACHE,
+                undefined,
+                false,
+                undefined,
+                true,
+            ).catch(() => {});
+        }
     }
 
     // 3. Transit arrival times — the Travel Times overlay. We can't
