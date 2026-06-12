@@ -68,6 +68,16 @@ const GoGoGoOverlay = lazyWithRetry(() =>
         default: m.GoGoGoOverlay,
     })),
 );
+const SeekingStartOverlay = lazyWithRetry(() =>
+    import("@/components/SeekingStartOverlay").then((m) => ({
+        default: m.SeekingStartOverlay,
+    })),
+);
+const SeekingStartWatcher = lazyWithRetry(() =>
+    import("@/components/SeekingStartOverlay").then((m) => ({
+        default: m.SeekingStartWatcher,
+    })),
+);
 const RolePicker = lazyWithRetry(() =>
     import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
 );
@@ -166,6 +176,8 @@ export function SeekerPage() {
                         <DebugPhaseControls />
                         <StaleSessionPrompt />
                         <GoGoGoOverlay />
+                        <SeekingStartOverlay />
+                        <SeekingStartWatcher />
                     </Suspense>
                     <GameStartWatcher />
                     <MultiplayerBoot />

@@ -242,6 +242,34 @@ export const endgameStartedAt = persistentAtom<number | null>(
 export const gameStartCelebrationAt = atom<number | null>(null);
 
 /**
+ * Volatile celebration trigger — unix ms set the moment the hiding
+ * period CLOCK actually hits zero (either by the timer counting down
+ * or by the hider tapping End hiding early). The SeekingStartOverlay
+ * watches this and shows the "seeking phase starts NOW" banner for a
+ * few seconds before clearing itself. Both seeker and hider see it
+ * because it's the round's other major beat.
+ *
+ * Not persisted: a reload should NOT replay the banner.
+ */
+export const seekingStartCelebrationAt = atom<number | null>(null);
+
+/**
+ * Persistent record of the `hidingPeriodEndsAt` value we already
+ * fired the seeking-start celebration for. Stops the watcher from
+ * re-firing across reloads or React strict-mode re-renders. Cleared
+ * (set to null) by startNewRound/Game so the next round can fire
+ * cleanly.
+ */
+export const seekingStartFiredFor = persistentAtom<number | null>(
+    "jlhs:seekingStartFiredFor",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
  * GPS position captured the moment the hiding period starts — the
  * shared departure point for both hider and all seekers. Used as the
  * travel-times anchor: "which stations could the hider reach from here

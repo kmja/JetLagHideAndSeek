@@ -30,6 +30,16 @@ const GoGoGoOverlay = lazyWithRetry(() =>
         default: m.GoGoGoOverlay,
     })),
 );
+const SeekingStartOverlay = lazyWithRetry(() =>
+    import("@/components/SeekingStartOverlay").then((m) => ({
+        default: m.SeekingStartOverlay,
+    })),
+);
+const SeekingStartWatcher = lazyWithRetry(() =>
+    import("@/components/SeekingStartOverlay").then((m) => ({
+        default: m.SeekingStartWatcher,
+    })),
+);
 const RolePicker = lazyWithRetry(() =>
     import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
 );
@@ -71,6 +81,11 @@ export function HiderPage() {
                 <GameLobbyDialog />
                 {/* Hiding-period gate + GO GO GO moment. */}
                 <GoGoGoOverlay />
+                {/* Seeking-phase start moment (the hiding clock hit
+                    zero). Mirror of the GO GO GO beat, fired for both
+                    roles. */}
+                <SeekingStartOverlay />
+                <SeekingStartWatcher />
             </Suspense>
             {/* Hearthstone-style fanned hand pinned to the bottom of
                 the viewport. Auto-hides when the hand is empty.

@@ -13,6 +13,7 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     resetMapOverlays,
+    seekingStartFiredFor,
     setupCompleted,
     setupDialogOpen,
 } from "@/lib/gameSetup";
@@ -59,6 +60,7 @@ export function startNewRound() {
     hidingPeriodEndsAt.set(null);
     pendingHidingDurationMin.set(minutes);
     gameStartPosition.set(null);
+    seekingStartFiredFor.set(null);
 }
 
 /**
@@ -99,6 +101,7 @@ export function startNewGame() {
     hidingPeriodEndsAt.set(null);
     pendingHidingDurationMin.set(null);
     gameStartPosition.set(null);
+    seekingStartFiredFor.set(null);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);
