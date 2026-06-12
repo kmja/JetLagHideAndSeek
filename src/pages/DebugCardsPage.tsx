@@ -57,6 +57,36 @@ const COMMON = {
     createdAt: Date.now() - 4 * 60_000,
 };
 
+/** Hardcoded Point features for the tentacles `custom` branch — see
+ *  the comment in the Tentacles section below for why we pin to
+ *  custom here rather than the rulebook subtypes. */
+const SAMPLE_PLACES = [
+    {
+        type: "Feature" as const,
+        geometry: {
+            type: "Point" as const,
+            coordinates: [18.0686, 59.3293],
+        },
+        properties: { name: "Stockholm City Hall" },
+    },
+    {
+        type: "Feature" as const,
+        geometry: {
+            type: "Point" as const,
+            coordinates: [18.09, 59.34],
+        },
+        properties: { name: "Vasa Museum" },
+    },
+    {
+        type: "Feature" as const,
+        geometry: {
+            type: "Point" as const,
+            coordinates: [18.05, 59.32],
+        },
+        properties: { name: "Stockholm Concert Hall" },
+    },
+];
+
 const SECTIONS: { title: string; specimens: Specimen[] }[] = [
     {
         title: "Radius (radar)",
@@ -199,9 +229,20 @@ const SECTIONS: { title: string; specimens: Specimen[] }[] = [
     {
         title: "Tentacles",
         specimens: [
+            // NB: rulebook tentacles (locationType "theme_park" /
+            // "museum" / etc.) would fire `findTentacleLocations()`
+            // *during JSX construction* — the call is a prop value,
+            // so it runs whether or not the surrounding
+            // `ManualAnswerDisclosure` renders the child tree. That's
+            // why a freshly-opened gallery used to stack a dozen
+            // "Determining tentacle locations…" toasts and burn
+            // through Overpass quota. We pin the gallery to the
+            // `custom` branch (Promise.resolve over `data.places`)
+            // with hardcoded sample features instead — same visual
+            // chrome, zero network.
             {
                 key: k(),
-                label: "15-mile (theme parks)",
+                label: "Custom — 15-mile variant",
                 render: (key) => (
                     <TentacleQuestionComponent
                         questionKey={key}
@@ -211,9 +252,9 @@ const SECTIONS: { title: string; specimens: Specimen[] }[] = [
                                 radius: 15,
                                 unit: "miles",
                                 location: false,
-                                locationType: "theme_park",
+                                locationType: "custom",
                                 drag: true,
-                                places: [],
+                                places: SAMPLE_PLACES,
                             } as unknown as TentacleQuestion
                         }
                     />
@@ -221,7 +262,7 @@ const SECTIONS: { title: string; specimens: Specimen[] }[] = [
             },
             {
                 key: k(),
-                label: "1-mile (museums)",
+                label: "Custom — 1-mile variant",
                 render: (key) => (
                     <TentacleQuestionComponent
                         questionKey={key}
@@ -231,9 +272,9 @@ const SECTIONS: { title: string; specimens: Specimen[] }[] = [
                                 radius: 1,
                                 unit: "miles",
                                 location: false,
-                                locationType: "museum",
+                                locationType: "custom",
                                 drag: true,
-                                places: [],
+                                places: SAMPLE_PLACES,
                             } as unknown as TentacleQuestion
                         }
                     />
