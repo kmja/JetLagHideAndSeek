@@ -38,6 +38,15 @@ export interface CityEntry {
     name: string;
     /** OSM relation id (numeric, no prefix). */
     relationId: number;
+    /** Photon's normalized bounding-box extent, lat-major:
+     *  [maxLat, minLng, minLat, maxLng]. Optional because legacy
+     *  entries from before v193 don't carry it; the cron lazily
+     *  backfills these via a re-resolve. Used by the cron to
+     *  prewarm the per-city reference caches (museums / hospitals /
+     *  airports / …) with the SAME bbox the client derives from
+     *  `mapGeoLocation.properties.extent`, so the R2 entries land
+     *  on cache keys the client will actually hit. */
+    extent?: [number, number, number, number];
 }
 
 const HAND_CURATED: CityEntry[] = [
@@ -212,6 +221,44 @@ export async function appendDiscoveredCities(
         { httpMetadata: { contentType: "application/json" } },
     );
     _discoveredCache = merged;
+    _discoveredCacheLoadedFor = env.CACHE;
+}
+
+/**
+ * Names of cities that were resolved before the v193 schema added the
+ * `extent` field. The cron uses this to backfill — one Photon re-resolve
+ * per name per tick — so the per-city reference prewarm can target a
+ * real bbox. Only returns the discovered (R2-stored) entries; the
+ * bundled HAND_CURATED + BULK_CITIES lists ship with extents from the
+ * v193 schema bump.
+ */
+export async function cityNamesMissingExtent(env: Env): Promise<string[]> {
+    const discovered = await loadDiscoveredCities(env);
+    return discovered
+        .filter((c) => !c.extent || c.extent.length !== 4)
+        .map((c) => c.name);
+}
+
+/** Replace one discovered city's record with a freshly-Photon-resolved
+ *  copy (carrying its new `extent`). No-op when the named city isn't
+ *  in the discovered list — the bundled lists are immutable. */
+export async function updateDiscoveredCity(
+    env: Env,
+    name: string,
+    updates: Partial<CityEntry>,
+): Promise<void> {
+    const existing = await loadDiscoveredCities(env);
+    const next = existing.map((c) =>
+        c.name.toLowerCase() === name.toLowerCase()
+            ? { ...c, ...updates }
+            : c,
+    );
+    await env.CACHE.put(
+        DISCOVERED_R2_KEY,
+        JSON.stringify(next),
+        { httpMetadata: { contentType: "application/json" } },
+    );
+    _discoveredCache = next;
     _discoveredCacheLoadedFor = env.CACHE;
 }
 

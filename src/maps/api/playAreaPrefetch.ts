@@ -102,6 +102,39 @@ function searchTypeForFamily(family: FamilyKey): "nwr" | "node" {
     return "nwr";
 }
 
+/**
+ * Canonical list of reference families both client and cron must use
+ * to produce identical R2 cache keys. Sorted alphabetically because
+ * `runBboxOverpassFetch` also sorts before serialising — the body
+ * must come out the same on both sides or the SHA-256 cache key
+ * differs and the cron's pre-warmed entry silently misses.
+ *
+ * The list is INTENTIONALLY game-size-agnostic. A large game can't
+ * ask a `-full` matching question, but warming those families anyway
+ * costs almost nothing (a few extra features in one combined Overpass
+ * response) and means every game size lands on the same R2 entry.
+ *
+ * Mirrored byte-for-byte in `REFERENCE_FAMILY_FILTERS` in
+ * `overpass-cache/src/index.ts` — keep them in lockstep.
+ */
+export const STANDARD_REFERENCE_FAMILIES: FamilyKey[] = [
+    "airport",
+    "api:aquarium" as FamilyKey,
+    "api:cinema" as FamilyKey,
+    "api:consulate" as FamilyKey,
+    "api:golf_course" as FamilyKey,
+    "api:hospital" as FamilyKey,
+    "api:library" as FamilyKey,
+    "api:museum" as FamilyKey,
+    "api:park" as FamilyKey,
+    "api:peak" as FamilyKey,
+    "api:theme_park" as FamilyKey,
+    "api:zoo" as FamilyKey,
+    "brand:Q259340" as FamilyKey, // 7-Eleven
+    "brand:Q38076" as FamilyKey, // McDonald's
+    "rail-station",
+];
+
 /** Map a matching/measuring subtype string to the cache family that
  *  serves it, or null when it isn't a play-area-cacheable family
  *  (city / coastline / high-speed rail / custom geometry — those use
@@ -130,61 +163,58 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
 
 /**
  * Build an Overpass `[bbox:south,west,north,east]` filter string for
- * the current play area, padded by `padKm` so the seeker's nearest
- * reference near the play-area edge can still be just outside the
- * strict boundary.
+ * the current play area, padded by `padKm`.
  *
- * Why bbox and not the proper poly: filter? The nearest-reference
- * lookup doesn't care whether the museum/zoo/airport is inside the
- * play area — only that it's THE NEAREST to the seeker. Using the
- * polygon would make us miss references just outside the play-area
- * edge, and (more importantly) the polygon serialised into the query
- * string is enormous for complex shapes and trips the public mirrors'
- * request-size limit — that was the v190 "8/8 warm but no results"
- * bug. The bbox is two coordinates regardless of polygon complexity.
- * The matching/measuring elimination path STILL uses the polygon
- * (that path cares about "in the play area" for the Voronoi math) —
- * just not this lookup.
+ * Sources the bbox from `mapGeoLocation.properties.extent` (Photon's
+ * raw OSM relation bbox), NOT from the land-clipped polyGeoJSON.
+ * Two reasons:
  *
- * Returns null when no play area is set (no bbox to derive from).
+ *   1. The cron mirror in `overpass-cache/src/index.ts`
+ *      (`buildReferenceBboxQuery`) starts from the same Photon
+ *      extent stored on each `CityEntry`. Both sides MUST produce
+ *      byte-identical query strings — the R2 cache key is a SHA-256
+ *      hash of the string — so we standardise on the Photon extent,
+ *      `[bbox:s,w,n,e]` with 3-decimal coordinates, and identical
+ *      whitespace/newlines. Any divergence and the cron's
+ *      lovingly pre-warmed reference entries silently miss the
+ *      client's cache.
+ *
+ *   2. The nearest-reference lookup doesn't care whether the
+ *      museum is inside the play area, only that it's the closest
+ *      to the seeker — so the OSM relation bbox is the right
+ *      reference frame anyway, and the land-clip / island-filter
+ *      from `landClip.ts` would just make the bbox arbitrarily
+ *      different from what the cron computes.
+ *
+ * Returns null when no play area is set or no extent is available.
  */
 function buildPaddedBboxFilter(padKm: number): string | null {
-    const $polyGeoJSON = polyGeoJSON.get();
-    let bbox: [number, number, number, number] | null = null;
-    if ($polyGeoJSON) {
-        try {
-            bbox = turf.bbox($polyGeoJSON as any) as [
-                number,
-                number,
-                number,
-                number,
-            ];
-        } catch {
-            bbox = null;
-        }
+    const primary = mapGeoLocation.get();
+    const extent = (primary?.properties as { extent?: number[] })?.extent;
+    if (!extent || extent.length !== 4) return null;
+    // extent is [maxLat, minLng, minLat, maxLng] post-normalize
+    // (see src/maps/api/geocode.ts).
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const south = minLat;
+    const west = minLng;
+    const north = maxLat;
+    const east = maxLng;
+    if (![south, west, north, east].every((v) => Number.isFinite(v))) {
+        return null;
     }
-    if (!bbox) {
-        // No polygon yet — fall back to the play-area Photon extent
-        // (which is roughly a country/region bbox). Better than
-        // nothing; the actual fetch will refine on the next round.
-        const primary = mapGeoLocation.get();
-        const extent = (primary?.properties as { extent?: number[] })
-            ?.extent;
-        if (extent && extent.length === 4) {
-            // extent is [maxLat, minLng, minLat, maxLng] post-normalize.
-            const [maxLat, minLng, minLat, maxLng] = extent;
-            bbox = [minLng, minLat, maxLng, maxLat];
-        }
-    }
-    if (!bbox) return null;
-    const [west, south, east, north] = bbox;
     // Pad: ~111 km per degree of latitude; longitude shrinks with
     // cos(latitude). The pad is a soft buffer — exact precision
     // doesn't matter, only that it adds tens of km on every side.
     const latPad = padKm / 111;
     const midLat = (south + north) / 2;
     const lngPad = padKm / (111 * Math.cos((midLat * Math.PI) / 180));
-    return `[bbox:${south - latPad},${west - lngPad},${north + latPad},${east + lngPad}]`;
+    // 3-decimal precision matches the cron's prewarm format exactly
+    // — see `buildReferenceBboxQuery` in overpass-cache/src/index.ts.
+    const s = (south - latPad).toFixed(3);
+    const w = (west - lngPad).toFixed(3);
+    const n = (north + latPad).toFixed(3);
+    const e = (east + lngPad).toFixed(3);
+    return `[bbox:${s},${w},${n},${e}]`;
 }
 
 /** Turn a raw Overpass element into a cache feature, or null when it
@@ -236,26 +266,17 @@ export async function prefetchCategory(
     const racing = inFlight.get(key);
     if (racing) return racing;
 
-    bumpStatus({ inFlightDelta: 1 });
+    // Route the lazy single-family fetch through the SAME combined
+    // query the preload uses, so we hit the R2 entry the cron warmed.
+    // `prefetchFamiliesInOneQuery` owns the status bumps + per-family
+    // cache writes for everything it touches; we just await it and
+    // read whatever it put in the cache for our specific family.
     const promise = (async () => {
         try {
-            const elements = await runBboxOverpassFetch([
-                filterForFamily(family),
-            ]);
-            const features: PrefetchedFeature[] = [];
-            for (const el of elements) {
-                const feat = featureFromElement(el);
-                if (feat) features.push(feat);
-            }
-            cache.set(key, features);
-            bumpStatus({ warmedKey: key, count: features.length });
-            return features;
-        } catch (e) {
-            bumpStatus({ failedKey: key });
-            throw e;
+            await prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
+            return cache.get(key) ?? [];
         } finally {
             inFlight.delete(key);
-            bumpStatus({ inFlightDelta: -1 });
         }
     })();
     inFlight.set(key, promise);
@@ -278,7 +299,13 @@ async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
     if (filters.length === 0) return [];
     const bboxFilter = buildPaddedBboxFilter(50);
     if (!bboxFilter) return [];
-    const body = filters.map((f) => `nwr${f};`).join("\n");
+    // Sort lexically so the body string is order-independent w.r.t.
+    // the caller's family iteration order. The cron's
+    // REFERENCE_FAMILY_FILTERS list is alphabetically sorted for the
+    // exact same reason — both sides MUST produce the same body, or
+    // the R2 key (hash of the full query string) won't match.
+    const orderedFilters = [...filters].sort();
+    const body = orderedFilters.map((f) => `nwr${f};`).join("\n");
     const query = `
 [out:json][timeout:120]${bboxFilter};
 (

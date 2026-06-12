@@ -31,8 +31,10 @@
 import {
     appendDiscoveredCities,
     type CityEntry,
+    cityNamesMissingExtent,
     getPopularCities,
     unresolvedCandidates,
+    updateDiscoveredCity,
 } from "./cities";
 import type { Env } from "./envTypes";
 import { handleJourneyArrivals } from "./journey";
@@ -195,12 +197,57 @@ export default {
         } catch (e) {
             console.warn("Discovery pass failed:", e);
         }
+        // Backfill pass: pre-v193 discovered entries don't have an
+        // `extent` field, which means the new reference-prewarm step
+        // skips them. One Photon re-resolve per tick (~1 s of wall
+        // clock) gradually fills them in. Up to 5/tick keeps the
+        // wall-clock budget unburdened for the bigger prewarm work.
+        try {
+            const missing = (await cityNamesMissingExtent(env)).slice(0, 5);
+            for (const name of missing) {
+                try {
+                    const r = await resolveNameViaPhoton(name);
+                    if (r?.extent) {
+                        await updateDiscoveredCity(env, name, {
+                            relationId: r.relationId,
+                            extent: r.extent,
+                        });
+                    }
+                } catch (e) {
+                    console.warn(`Backfill failed for "${name}":`, e);
+                }
+                // Photon courtesy delay (1 req/s).
+                await new Promise((r) => setTimeout(r, 1000));
+            }
+            if (missing.length > 0) {
+                console.log(
+                    `[backfill] re-resolved ${missing.length} legacy entries to add extent`,
+                );
+            }
+        } catch (e) {
+            console.warn("Backfill pass failed:", e);
+        }
         const cities = await getPopularCities(env);
         const shuffled = [...cities].sort(() => Math.random() - 0.5);
         const picked = shuffled.slice(0, batch);
         for (const city of picked) {
             try {
+                // 1. Boundary polygon — the play-area outline. Always
+                //    done; this is the original cron job.
                 await prewarmCity(env, ctx, city, ttlMs);
+                // 2. Per-city reference cache — museums / hospitals /
+                //    airports / brand shops / train stations. ONE
+                //    combined Overpass query keyed on the city's
+                //    Photon bbox + 50 km pad; the result lands on the
+                //    same R2 key the client's combined prefetch will
+                //    request, so the client never touches Overpass for
+                //    that city's references either. Silently skipped
+                //    when the city entry is missing the extent field
+                //    (legacy pre-v193 entries — the discovery pass
+                //    backfills them in the same cron tick).
+                if (city.extent) {
+                    await prewarmReferencesForCity(env, ctx, city, ttlMs);
+                }
             } catch (e) {
                 console.warn(
                     `Prewarm failed for ${city.name} (${city.relationId}):`,
@@ -594,6 +641,136 @@ async function prewarmRelation(
     return { status: "stored", sizeBytes: body.length };
 }
 
+/* ─────────────────────── Reference prewarm ─────────────────────── */
+
+/**
+ * Reference families the cron prewarms per-city. MUST stay byte-
+ * identical to the client's standard list in
+ * `src/maps/api/playAreaPrefetch.ts` — same `nwr[…]` filter strings,
+ * sorted in the same order — because the R2 cache key is the SHA-256
+ * of the full query string. Any divergence and the cron's lovingly
+ * pre-warmed entries silently miss the client's cache.
+ *
+ * Order is alphabetical by family key, matching the client's
+ * `families.sort()` call before query construction.
+ */
+const REFERENCE_FAMILY_FILTERS: { family: string; filter: string }[] = [
+    { family: "airport", filter: '["aeroway"="aerodrome"]["iata"]' },
+    { family: "api:aquarium", filter: '["tourism"="aquarium"]' },
+    { family: "api:cinema", filter: '["amenity"="cinema"]' },
+    { family: "api:consulate", filter: '["diplomatic"="consulate"]' },
+    { family: "api:golf_course", filter: '["leisure"="golf_course"]' },
+    { family: "api:hospital", filter: '["amenity"="hospital"]' },
+    { family: "api:library", filter: '["amenity"="library"]' },
+    { family: "api:museum", filter: '["tourism"="museum"]' },
+    { family: "api:park", filter: '["leisure"="park"]' },
+    { family: "api:peak", filter: '["natural"="peak"]' },
+    { family: "api:theme_park", filter: '["tourism"="theme_park"]' },
+    { family: "api:zoo", filter: '["tourism"="zoo"]' },
+    { family: "brand:Q259340", filter: '["brand:wikidata"="Q259340"]' },
+    { family: "brand:Q38076", filter: '["brand:wikidata"="Q38076"]' },
+    { family: "rail-station", filter: '["railway"="station"]' },
+];
+const PAD_KM = 50;
+
+/**
+ * Build the EXACT query string the client emits for a multi-family
+ * bbox prefetch. Whitespace, ordering, and numeric formatting all
+ * matter — `r2KeyForQuery` hashes the string, so a single extra
+ * newline diverges the cache key.
+ */
+function buildReferenceBboxQuery(
+    extent: [number, number, number, number],
+): string {
+    // Photon extent: [maxLat, minLng, minLat, maxLng]
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const south = minLat;
+    const west = minLng;
+    const north = maxLat;
+    const east = maxLng;
+    const latPad = PAD_KM / 111;
+    const midLat = (south + north) / 2;
+    const lngPad = PAD_KM / (111 * Math.cos((midLat * Math.PI) / 180));
+    // 3-decimal precision (~110 m) is plenty for a 50 km-padded bbox
+    // and gives both sides a deterministic string regardless of any
+    // floating-point wobble in earlier steps.
+    const s = (south - latPad).toFixed(3);
+    const w = (west - lngPad).toFixed(3);
+    const n = (north + latPad).toFixed(3);
+    const e = (east + lngPad).toFixed(3);
+    const bboxFilter = `[bbox:${s},${w},${n},${e}]`;
+    const body = REFERENCE_FAMILY_FILTERS.map(
+        ({ filter }) => `nwr${filter};`,
+    ).join("\n");
+    // Indentation / newlines must match `runBboxOverpassFetch` in
+    // src/maps/api/playAreaPrefetch.ts exactly.
+    return `
+[out:json][timeout:120]${bboxFilter};
+(
+${body}
+);
+out center;
+`;
+}
+
+/**
+ * Prewarm the per-city reference cache: one combined Overpass query
+ * for every standard reference family (museums / hospitals /
+ * airports / …) covering the city's padded bbox. The query goes
+ * through `fetchAndCacheUpstream` so the result lands in R2 keyed
+ * on the same SHA-256 hash the client will hit when it runs its own
+ * combined prefetch.
+ *
+ * Cheap to call repeatedly — the inner coalescing + R2 freshness
+ * check make a re-run a no-op until the entry stales out.
+ */
+async function prewarmReferencesForCity(
+    env: Env,
+    ctx: ExecutionContext,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ status: string; ageMs?: number; sizeBytes?: number }> {
+    if (!city.extent) return { status: "skipped-no-extent" };
+    const query = buildReferenceBboxQuery(city.extent);
+    const cacheKey = await r2KeyForQuery(query);
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("R2 get failed during reference prewarm:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(
+            r2Hit.customMetadata?.cachedAt ?? "0",
+            10,
+        );
+        const ageMs = Date.now() - cachedAt;
+        if (cachedAt && ageMs < ttlMs) {
+            return { status: "skipped-fresh", ageMs };
+        }
+    }
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(query),
+    );
+    if (!upstream) return { status: "upstream-failed" };
+    const body = await upstream.text();
+    try {
+        await env.CACHE.put(`overpass/${cacheKey}`, body, {
+            customMetadata: {
+                cachedAt: String(Date.now()),
+                sizeBytes: String(body.length),
+                sourceName: city.name,
+                sourceRelationId: String(city.relationId),
+                prewarmed: "true",
+                kind: "references",
+            },
+        });
+    } catch (e) {
+        console.warn("R2 put failed during reference prewarm:", e);
+    }
+    return { status: "stored", sizeBytes: body.length };
+}
+
 /* ─────────────────────── Admin endpoints ─────────────────────── */
 
 interface AdminPrewarmRequest {
@@ -838,7 +1015,10 @@ const PHOTON_API = "https://photon.komoot.io/api/";
 async function resolveNameViaPhoton(
     name: string,
     timeoutMs = 8_000,
-): Promise<{ relationId: number } | null> {
+): Promise<{
+    relationId: number;
+    extent?: [number, number, number, number];
+} | null> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
@@ -852,6 +1032,7 @@ async function resolveNameViaPhoton(
                 properties?: {
                     osm_type?: string;
                     osm_id?: number;
+                    extent?: number[];
                 };
             }>;
         };
@@ -861,7 +1042,27 @@ async function resolveNameViaPhoton(
                 typeof f.properties.osm_id === "number" &&
                 f.properties.osm_id > 0
             ) {
-                return { relationId: f.properties.osm_id };
+                // Photon's raw `extent` is [minLng, maxLat, maxLng, minLat]
+                // (lng-major, NW corner first). The client side normalises
+                // this on receipt to lat-major [maxLat, minLng, minLat, maxLng]
+                // in src/maps/api/geocode.ts; we mirror that normalisation
+                // here so a CityEntry's `extent` is bit-identical to what
+                // the client carries on `mapGeoLocation.properties.extent`.
+                let extent:
+                    | [number, number, number, number]
+                    | undefined;
+                const raw = f.properties.extent;
+                if (Array.isArray(raw) && raw.length === 4) {
+                    const [minLng, maxLat, maxLng, minLat] = raw;
+                    if (
+                        [minLng, maxLat, maxLng, minLat].every((v) =>
+                            Number.isFinite(v),
+                        )
+                    ) {
+                        extent = [maxLat, minLng, minLat, maxLng];
+                    }
+                }
+                return { relationId: f.properties.osm_id, extent };
             }
         }
         return null;
@@ -890,7 +1091,11 @@ async function discoverCandidates(
         try {
             const r = await resolveNameViaPhoton(name);
             if (r) {
-                fresh.push({ name, relationId: r.relationId });
+                fresh.push({
+                    name,
+                    relationId: r.relationId,
+                    extent: r.extent,
+                });
             }
         } catch (e) {
             console.warn(`Photon resolve failed for "${name}":`, e);

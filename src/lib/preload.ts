@@ -7,14 +7,12 @@ import {
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
 import type { JourneyStop } from "@/lib/journey/types";
-import { getSubtypes } from "@/lib/subtypes";
 import { findPlacesInZone } from "@/maps/api/overpass";
 import {
-    cacheableFamilyForType,
-    type FamilyKey,
     getCachedCategory,
     prefetchCategory,
     prefetchFamiliesInOneQuery,
+    STANDARD_REFERENCE_FAMILIES,
 } from "@/maps/api/playAreaPrefetch";
 
 /**
@@ -50,18 +48,18 @@ export function preloadDuringHidingPeriod(): void {
     if (!playArea.get()) return;
     const size = gameSize.get();
 
-    // 1. Question references — one combined query for everything the
-    //    matching/measuring picker can actually offer at this size.
-    //    Routes through findPlacesInZone → getOverpassData → primary
-    //    URL = jlhs-overpass-cache worker, so the response body
-    //    lands in R2 once and every later seeker hits cache.
-    const families = referenceFamiliesForSize(size);
-    if (families.length > 0) {
-        console.debug(
-            `[preload] warming ${families.length} reference families in one query`,
-        );
-        void prefetchFamiliesInOneQuery(families);
-    }
+    // 1. Question references — one combined query for the canonical
+    //    family set, which BOTH this preload and the worker cron
+    //    use. They produce the same query string → same R2 key →
+    //    if the cron warmed this city, the client gets a cache hit
+    //    here and skips the Overpass round-trip entirely. The list
+    //    is the same regardless of game size; a large game can't
+    //    ask the -full subtypes but warming them anyway is one
+    //    extra response field, not a separate request.
+    console.debug(
+        `[preload] warming ${STANDARD_REFERENCE_FAMILIES.length} reference families in one query`,
+    );
+    void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
 
     // 2. High-speed rail — separate, since it needs out:geom. Small/
     //    medium only per rulebook. Silent + best-effort. Same R2
@@ -171,24 +169,6 @@ function stationStopsFromCache(): JourneyStop[] {
 
 /** Backwards-compatible alias for the old export name. */
 export const preloadCommonQuestionData = preloadDuringHidingPeriod;
-
-/**
- * The set of cacheable reference families the picker can offer at the
- * given game size — derived straight from `getSubtypes`, so we only
- * ever warm what's actually askable (e.g. the -full subtypes for
- * small/medium, the base set for large). City / coastline / high-
- * speed-rail map to null here and are handled elsewhere.
- */
-function referenceFamiliesForSize(size: ReturnType<typeof gameSize.get>): FamilyKey[] {
-    const set = new Set<FamilyKey>();
-    for (const cat of ["matching", "measuring"] as const) {
-        for (const s of getSubtypes(cat, size) ?? []) {
-            const fam = cacheableFamilyForType(s.value);
-            if (fam) set.add(fam);
-        }
-    }
-    return [...set];
-}
 
 /**
  * Whether a hiding period is currently active (for the hooking site
