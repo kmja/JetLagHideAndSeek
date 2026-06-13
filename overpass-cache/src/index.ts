@@ -466,6 +466,12 @@ async function handleRequest(
         if (url.pathname === "/admin/diagnose") {
             return handleAdminDiagnose(request, env, cors);
         }
+        if (url.pathname === "/admin/list-cities") {
+            return handleAdminListCities(request, env, cors);
+        }
+        if (url.pathname === "/admin/store-prewarmed") {
+            return handleAdminStorePrewarmed(request, env, cors);
+        }
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
         }
@@ -2488,6 +2494,144 @@ async function handleAdminDiagnose(
             relationId: id,
             userAgent: USER_AGENT,
             results,
+        },
+        200,
+        cors,
+    );
+}
+
+/**
+ * `GET /admin/list-cities?secret=<…>` — returns the merged
+ * (HAND_CURATED + BULK_CITIES + discovered) city list as JSON. The
+ * laptop-prewarm script reads this so it doesn't have to maintain
+ * its own copy of the city table. Each entry is `{name, relationId,
+ * extent?}` — same shape as `CityEntry`.
+ */
+async function handleAdminListCities(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    const cities = await getPopularCities(env);
+    return jsonResponse(
+        {
+            count: cities.length,
+            cities,
+            queryBuilders: {
+                boundary: "[out:json][timeout:120];relation(${relationId});out geom;",
+                referencePad: PAD_KM,
+                hsrPad: HSR_PAD_KM,
+                referenceFamilies: REFERENCE_FAMILY_FILTERS,
+            },
+        },
+        200,
+        cors,
+    );
+}
+
+/**
+ * `POST /admin/store-prewarmed` — accept a pre-fetched Overpass
+ * response from an external runner and store it under the R2 cache
+ * key the worker (and any client) would compute from the query.
+ *
+ * Why this endpoint exists: overpass-api.de aggressively per-IP
+ * rate-limits the worker's Cloudflare-edge IP (shared with countless
+ * other Workers), so the cron's effective throughput is far below
+ * what a residential / VPS IP gets. Offloading the upstream fetch to
+ * a home machine and uploading the result here lets us bypass the
+ * shared-IP ceiling entirely — same R2 cache, same byte-shape, same
+ * key, just a different machine doing the work.
+ *
+ * Body: JSON
+ *   {
+ *     "query":  "<exact Overpass QL string>",
+ *     "body":   <Overpass JSON response object, as-is>,
+ *     "kind":   "boundary" | "references" | "hsr"  (metadata only)
+ *     "sourceName":       "City, Country"           (optional)
+ *     "sourceRelationId": "123456"                  (optional)
+ *   }
+ *
+ * The worker SHA-256-hashes `query` (same algorithm the request
+ * handler uses) and stores `body` under `overpass/<hash>` so a
+ * subsequent client request hashing the same query string gets a
+ * cache hit. Overwrites any existing entry.
+ */
+async function handleAdminStorePrewarmed(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: {
+        query?: string;
+        body?: unknown;
+        kind?: string;
+        sourceName?: string;
+        sourceRelationId?: string;
+    };
+    try {
+        payload = await request.json();
+    } catch {
+        return jsonResponse({ error: "invalid JSON" }, 400, cors);
+    }
+    if (!payload?.query || typeof payload.query !== "string") {
+        return jsonResponse(
+            { error: "missing or non-string 'query'" },
+            400,
+            cors,
+        );
+    }
+    if (payload.body === undefined || payload.body === null) {
+        return jsonResponse({ error: "missing 'body'" }, 400, cors);
+    }
+    const cacheKey = await r2KeyForQuery(payload.query);
+    const bodyStr =
+        typeof payload.body === "string"
+            ? payload.body
+            : JSON.stringify(payload.body);
+    try {
+        await env.CACHE.put(`overpass/${cacheKey}`, bodyStr, {
+            customMetadata: {
+                cachedAt: String(Date.now()),
+                sizeBytes: String(bodyStr.length),
+                prewarmed: "true",
+                source: "external-runner",
+                ...(payload.kind ? { kind: payload.kind } : {}),
+                ...(payload.sourceName
+                    ? { sourceName: payload.sourceName }
+                    : {}),
+                ...(payload.sourceRelationId
+                    ? { sourceRelationId: payload.sourceRelationId }
+                    : {}),
+            },
+        });
+    } catch (e) {
+        return jsonResponse(
+            {
+                error: "R2 put failed",
+                detail: e instanceof Error ? e.message : String(e),
+            },
+            500,
+            cors,
+        );
+    }
+    return jsonResponse(
+        {
+            status: "stored",
+            cacheKey,
+            sizeBytes: bodyStr.length,
+            kind: payload.kind,
         },
         200,
         cors,
