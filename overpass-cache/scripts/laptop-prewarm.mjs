@@ -59,8 +59,86 @@ const DO_HSR = !args["skip-hsr"];
 const UA =
     "jlhs-laptop-prewarm/1.0 (https://github.com/kmja/jetlaghideandseek)";
 const OVERPASS = "https://overpass-api.de/api/interpreter";
+const OVERPASS_STATUS = "https://overpass-api.de/api/status";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ------------------- Overpass slot coordination ------------------- *
+ *
+ * The overpass-api.de docs (https://wiki.openstreetmap.org/wiki/
+ * Overpass_API/Overpass_QL) describe a SLOT system: each IP gets a
+ * small number of concurrent execution slots, and when they're all
+ * busy your queries return 429. The /api/status endpoint reports
+ * how many slots are currently free AND, when none are, exactly how
+ * long until the next one will be.
+ *
+ * Using it = the difference between "submit, get 429, retry blindly,
+ * compound the problem" and "wait the precise interval the server is
+ * telling us, never get rate-limited at all." That's the bursts of
+ * 429s we were seeing on Vancouver / LA / Chicago — heavy queries
+ * (NYC's refs took 62 s) hogged all the slots and the script kept
+ * firing while the server was still chewing.
+ *
+ * Output format (plain text):
+ *
+ *   Connected as: 1234567890
+ *   Current time: 2026-06-13T14:50:00Z
+ *   Rate limit: 6
+ *   2 slots available now.
+ *   Slot available after: 2026-06-13T14:50:10Z, in 10 seconds.
+ *   Slot available after: 2026-06-13T14:50:25Z, in 25 seconds.
+ *   Currently running queries: ...
+ */
+
+async function fetchOverpassStatus() {
+    try {
+        const resp = await fetch(OVERPASS_STATUS, {
+            headers: { "User-Agent": UA },
+        });
+        if (!resp.ok) return null;
+        return await resp.text();
+    } catch {
+        return null;
+    }
+}
+
+/** Block until overpass-api.de says we have at least one free slot.
+ *  When no slot is free, the status response tells us when the next
+ *  one will free; we sleep that long + a 1 s safety pad, then re-check. */
+async function waitForSlot(label) {
+    let attempts = 0;
+    while (true) {
+        attempts++;
+        const status = await fetchOverpassStatus();
+        if (!status) {
+            // /api/status itself unreachable — sleep modestly and try
+            // the query anyway. Either the server's down (we'll fail
+            // gracefully) or this is a transient blip.
+            console.log(`  ⏸ ${label} — /api/status unreachable, waiting 10 s`);
+            await sleep(10_000);
+            return;
+        }
+        const m = status.match(/(\d+)\s+slots available now/i);
+        const available = m ? parseInt(m[1], 10) : 0;
+        if (available > 0) {
+            if (attempts > 1) {
+                console.log(`  ▶ ${label} slot free, going`);
+            }
+            return;
+        }
+        // No slot. Find the smallest "in N seconds" wait the server
+        // reports across all queued slots — that's when the next one
+        // will free. Default to 10 s if parsing fails.
+        const waits = [
+            ...status.matchAll(/in\s+(\d+)\s+seconds?/gi),
+        ].map((m) => parseInt(m[1], 10));
+        const nextFreeSec = waits.length > 0 ? Math.min(...waits) : 10;
+        console.log(
+            `  ⏸ ${label} — 0 slots free, waiting ${nextFreeSec + 1} s`,
+        );
+        await sleep((nextFreeSec + 1) * 1000);
+    }
+}
 
 /* ------------------------- Query builders ------------------------- *
  * MUST stay byte-identical to the worker's equivalents (see
@@ -130,37 +208,59 @@ function hsrQuery(extent) {
 /* ------------------------- Network helpers ------------------------ */
 
 async function fetchOverpass(query, label) {
-    const t0 = Date.now();
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 180_000);
-    try {
-        const resp = await fetch(OVERPASS, {
-            method: "POST",
-            signal: ctrl.signal,
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": UA,
-            },
-            body: `data=${encodeURIComponent(query)}`,
-        });
-        const dur = Date.now() - t0;
-        if (!resp.ok) {
+    // Up to 3 attempts. Between attempts we re-check /api/status so a
+    // 429 from a transient burst doesn't make us give up immediately —
+    // but we don't loop forever either, since a persistent 429 means
+    // the server genuinely wants us to back off and the cron / next
+    // run will catch this city later.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        await waitForSlot(label);
+        const t0 = Date.now();
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 180_000);
+        try {
+            const resp = await fetch(OVERPASS, {
+                method: "POST",
+                signal: ctrl.signal,
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": UA,
+                },
+                body: `data=${encodeURIComponent(query)}`,
+            });
+            const dur = Date.now() - t0;
+            if (resp.status === 429) {
+                // Read Retry-After if present, otherwise fall back to
+                // waiting for the next free slot via /api/status on
+                // the next attempt.
+                const ra = parseInt(resp.headers.get("Retry-After") ?? "", 10);
+                const waitSec = Number.isFinite(ra) ? ra : 10;
+                console.warn(
+                    `  ⚠ ${label} 429, retry ${attempt}/3 after ${waitSec} s`,
+                );
+                await sleep(waitSec * 1000);
+                continue;
+            }
+            if (!resp.ok) {
+                console.warn(
+                    `  ✗ ${label} overpass ${resp.status} ${resp.statusText} (${dur} ms)`,
+                );
+                return null;
+            }
+            const text = await resp.text();
+            return { text, ms: dur };
+        } catch (e) {
+            const dur = Date.now() - t0;
             console.warn(
-                `  ✗ ${label} overpass returned ${resp.status} ${resp.statusText} (${dur} ms)`,
+                `  ✗ ${label} overpass threw: ${e?.message ?? e} (${dur} ms)`,
             );
             return null;
+        } finally {
+            clearTimeout(timer);
         }
-        const text = await resp.text();
-        return { text, ms: dur };
-    } catch (e) {
-        const dur = Date.now() - t0;
-        console.warn(
-            `  ✗ ${label} overpass threw: ${e?.message ?? e} (${dur} ms)`,
-        );
-        return null;
-    } finally {
-        clearTimeout(timer);
     }
+    console.warn(`  ✗ ${label} gave up after 3 attempts`);
+    return null;
 }
 
 async function uploadToWorker({ query, body, kind, sourceName, sourceRelationId }) {
