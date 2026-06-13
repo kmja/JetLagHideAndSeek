@@ -349,25 +349,56 @@ export default {
             }
         }
 
-        // Phase 2: REFERENCES + HSR, per-city.
-        // These are bbox-bounded — each city has its OWN bbox, and
-        // the returned amenities don't carry a "which city" tag, so
-        // splitting a batched response would mean re-bucketing every
-        // amenity into the right bbox client-side. Not worth the
-        // complexity right now; per-city stays.
-        for (let i = 0; i < picked.length; i++) {
-            const city = picked[i];
-            if (!city.extent) continue; // backfill will catch this on a later tick
+        // Phase 2: REFERENCES, batched.
+        // v203: each batched query unions one nwr sub-statement per
+        // (city × family) tuple. Response gets split by bbox-
+        // containment at write time so each city's R2 entry matches
+        // exactly what a single-city query would return. 10 cities
+        // per batch matches the boundary batch size.
+        const refCities = picked.filter((c) => c.extent);
+        const refChunks: CityEntry[][] = [];
+        for (let i = 0; i < refCities.length; i += REFERENCE_BATCH_SIZE) {
+            refChunks.push(refCities.slice(i, i + REFERENCE_BATCH_SIZE));
+        }
+        for (let i = 0; i < refChunks.length; i++) {
             try {
-                await prewarmReferencesForCity(env, city, ttlMs);
-                await prewarmHsrForCity(env, city, ttlMs);
+                const r = await prewarmReferencesBatch(
+                    env,
+                    refChunks[i],
+                    ttlMs,
+                );
+                if (r.stored > 0) {
+                    console.log(
+                        `[prewarm] refs batch ${i + 1}/${refChunks.length}: stored ${r.stored} city ref-sets`,
+                    );
+                }
             } catch (e) {
-                console.warn(
-                    `Per-city prewarm failed for ${city.name} (${city.relationId}):`,
-                    e,
+                console.warn(`[prewarm] refs batch ${i + 1} threw:`, e);
+            }
+            if (i < refChunks.length - 1) {
+                await new Promise((r) =>
+                    setTimeout(r, CRON_CITY_DELAY_MS),
                 );
             }
-            if (i < picked.length - 1) {
+        }
+
+        // Phase 3: HSR, batched.
+        const hsrChunks: CityEntry[][] = [];
+        for (let i = 0; i < refCities.length; i += HSR_BATCH_SIZE) {
+            hsrChunks.push(refCities.slice(i, i + HSR_BATCH_SIZE));
+        }
+        for (let i = 0; i < hsrChunks.length; i++) {
+            try {
+                const r = await prewarmHsrBatch(env, hsrChunks[i], ttlMs);
+                if (r.stored > 0) {
+                    console.log(
+                        `[prewarm] HSR batch ${i + 1}/${hsrChunks.length}: stored ${r.stored} city HSR-sets`,
+                    );
+                }
+            } catch (e) {
+                console.warn(`[prewarm] HSR batch ${i + 1} threw:`, e);
+            }
+            if (i < hsrChunks.length - 1) {
                 await new Promise((r) =>
                     setTimeout(r, CRON_CITY_DELAY_MS),
                 );
@@ -1005,16 +1036,26 @@ async function prewarmRelation(
 }
 
 /**
- * Cap on how many relation IDs we union into a single batched
- * boundary query. 5 is conservative: each city polygon is typically
- * 500 KB-2 MB of `out geom` data, so 5 cities = ~10 MB peak response.
- * That fits the worker's response-size budget with headroom, keeps
- * the per-batch wall-clock under ~3 s on a healthy mirror, and is
- * still small enough that a single slow/broken relation in the
- * batch can't poison too many siblings. Counts AGAINST overpass-
- * api.de's per-request rate limit as ONE request, which is the win.
+ * How many cities we union into a single Overpass query for each
+ * prewarm type. Tuned in v203 against the actual constraints:
+ *
+ *   - Each batched query counts ONCE against overpass-api.de's
+ *     per-request rate limit, so bigger batches = fewer requests
+ *     = less throttling pressure.
+ *   - Bigger batches also mean a slow/broken relation in the batch
+ *     drags more siblings down with it, so we don't go unbounded.
+ *   - Response size matters too: a city boundary is ~0.5-2 MB of
+ *     `out geom` data; references are ~100-500 KB per city's bbox;
+ *     HSR is much smaller (most cities have no high-speed rail).
+ *
+ * Boundaries at 10 → ~5-20 MB response, comfortable for the worker.
+ * References + HSR at 10 → response is dominated by reference count,
+ * still well inside budgets. v202 stopped at 5/boundary out of pure
+ * caution; v203 doubles it and adds the same batching to refs+HSR.
  */
-const BOUNDARY_BATCH_SIZE = 5;
+const BOUNDARY_BATCH_SIZE = 10;
+const REFERENCE_BATCH_SIZE = 10;
+const HSR_BATCH_SIZE = 10;
 
 /**
  * Result of a batched boundary prewarm. `stored` is the list of
@@ -1154,6 +1195,315 @@ async function prewarmBoundariesBatch(
  *  R2 cache key the client will hit. */
 function singleRelationQuery(relationId: number): string {
     return `[out:json][timeout:120];relation(${relationId});out geom;`;
+}
+
+/**
+ * Compute the [south, west, north, east] tuple for a city's bbox
+ * with a given pad. Same arithmetic as `buildBboxFilter`, just
+ * returning the numeric corners instead of an Overpass filter
+ * string. Used by the batched ref/HSR splitter to test whether a
+ * returned element belongs to a given city.
+ */
+function paddedBboxCorners(
+    extent: [number, number, number, number],
+    padKm: number,
+): { south: number; west: number; north: number; east: number } {
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const latPad = padKm / 111;
+    const midLat = (minLat + maxLat) / 2;
+    const lngPad = padKm / (111 * Math.cos((midLat * Math.PI) / 180));
+    return {
+        south: parseFloat((minLat - latPad).toFixed(3)),
+        west: parseFloat((minLng - lngPad).toFixed(3)),
+        north: parseFloat((maxLat + latPad).toFixed(3)),
+        east: parseFloat((maxLng + lngPad).toFixed(3)),
+    };
+}
+
+/** Is (lat, lon) inside [south, west, north, east]? Closed interval
+ *  on every edge — Overpass's `(bbox)` filter is inclusive too. */
+function pointInBbox(
+    lat: number,
+    lon: number,
+    bbox: { south: number; west: number; north: number; east: number },
+): boolean {
+    return (
+        lat >= bbox.south &&
+        lat <= bbox.north &&
+        lon >= bbox.west &&
+        lon <= bbox.east
+    );
+}
+
+/** Pick a representative (lat, lon) for an Overpass element so the
+ *  bbox-containment check can decide which city it belongs to.
+ *  Nodes carry lat/lon directly; ways/relations from `out center`
+ *  carry a `center` block; ways from `out geom` carry an array of
+ *  points where we use the first as a proxy. Returns null if none
+ *  match — element gets dropped from the per-city splits. */
+function elementRepresentativePoint(
+    el: any,
+): { lat: number; lon: number } | null {
+    if (typeof el?.lat === "number" && typeof el?.lon === "number") {
+        return { lat: el.lat, lon: el.lon };
+    }
+    if (
+        typeof el?.center?.lat === "number" &&
+        typeof el?.center?.lon === "number"
+    ) {
+        return { lat: el.center.lat, lon: el.center.lon };
+    }
+    if (Array.isArray(el?.geometry) && el.geometry.length > 0) {
+        const p = el.geometry[0];
+        if (typeof p?.lat === "number" && typeof p?.lon === "number") {
+            return { lat: p.lat, lon: p.lon };
+        }
+    }
+    return null;
+}
+
+/**
+ * Prewarm references for many cities in ONE unioned Overpass query,
+ * then split the response by per-city bbox and store each slice
+ * under that city's individual reference cache key.
+ *
+ * The split logic is straightforward: each amenity has a center
+ * coord (from `out center`); test it against every input city's
+ * padded bbox; bucket it into every city whose bbox contains it.
+ * Overlapping bboxes (which happen because of the 50 km pad) cause
+ * a single amenity to land in multiple per-city caches — that's
+ * correct: each city's cache should match exactly what a
+ * single-city query for that city would have returned.
+ */
+async function prewarmReferencesBatch(
+    env: Env,
+    cities: CityEntry[],
+    ttlMs: number,
+): Promise<{ stored: number; upstreamFailed: boolean }> {
+    const out = { stored: 0, upstreamFailed: false };
+    if (cities.length === 0) return out;
+
+    // Skip already-fresh cities to avoid wasted upstream work.
+    const stale: CityEntry[] = [];
+    const perCityKey = new Map<number, string>();
+    for (const city of cities) {
+        if (!city.extent) continue;
+        const singleQuery = buildReferenceBboxQuery(city.extent);
+        const cacheKey = await r2KeyForQuery(singleQuery);
+        let r2Hit: R2ObjectBody | null = null;
+        try {
+            r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+        } catch {
+            /* miss */
+        }
+        if (r2Hit) {
+            const cachedAt = parseInt(
+                r2Hit.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) continue;
+        }
+        stale.push(city);
+        perCityKey.set(city.relationId, cacheKey);
+    }
+    if (stale.length === 0) return out;
+
+    // Build the unioned batch query. One sub-block per city × per
+    // family — the same shape the client query has for a single
+    // city, just repeated.
+    const subBlocks: string[] = [];
+    for (const city of stale) {
+        const bbox = paddedBboxCorners(city.extent!, PAD_KM);
+        const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+        for (const { filter } of REFERENCE_FAMILY_FILTERS) {
+            subBlocks.push(`  nwr${filter}(${bboxStr});`);
+        }
+    }
+    const batchQuery = `
+[out:json][timeout:180];
+(
+${subBlocks.join("\n")}
+);
+out center;
+`;
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(batchQuery),
+    );
+    if (!upstream) {
+        out.upstreamFailed = true;
+        return out;
+    }
+    let json: any;
+    try {
+        json = await upstream.json();
+    } catch {
+        out.upstreamFailed = true;
+        return out;
+    }
+    const elements = Array.isArray(json?.elements) ? json.elements : [];
+
+    // Compute each city's bbox once, then bucket every returned
+    // element into every city whose bbox contains its representative
+    // point. A single amenity can land in multiple caches; that's
+    // intended (overlapping bboxes from the 50 km pad).
+    const cityBboxes = stale.map((city) => ({
+        city,
+        bbox: paddedBboxCorners(city.extent!, PAD_KM),
+        bucket: [] as any[],
+    }));
+    for (const el of elements) {
+        const pt = elementRepresentativePoint(el);
+        if (!pt) continue;
+        for (const cb of cityBboxes) {
+            if (pointInBbox(pt.lat, pt.lon, cb.bbox)) cb.bucket.push(el);
+        }
+    }
+
+    for (const cb of cityBboxes) {
+        const cacheKey = perCityKey.get(cb.city.relationId);
+        if (!cacheKey) continue;
+        const wrapped = {
+            version: json.version ?? 0.6,
+            generator: json.generator ?? "jlhs-overpass-cache (batched)",
+            osm3s: json.osm3s,
+            elements: cb.bucket,
+        };
+        const body = JSON.stringify(wrapped);
+        try {
+            await env.CACHE.put(`overpass/${cacheKey}`, body, {
+                customMetadata: {
+                    cachedAt: String(Date.now()),
+                    sizeBytes: String(body.length),
+                    sourceName: cb.city.name,
+                    sourceRelationId: String(cb.city.relationId),
+                    prewarmed: "true",
+                    batched: "true",
+                    kind: "references",
+                },
+            });
+            out.stored++;
+        } catch (e) {
+            console.warn(
+                `R2 put failed during batched ref prewarm of ${cb.city.name}:`,
+                e,
+            );
+        }
+    }
+    return out;
+}
+
+/**
+ * Batched HSR prewarm. Same shape as references but with
+ * `out geom` and the wider HSR_PAD_KM bbox. Splitting picks the
+ * way's first geometry point as its representative.
+ */
+async function prewarmHsrBatch(
+    env: Env,
+    cities: CityEntry[],
+    ttlMs: number,
+): Promise<{ stored: number; upstreamFailed: boolean }> {
+    const out = { stored: 0, upstreamFailed: false };
+    if (cities.length === 0) return out;
+
+    const stale: CityEntry[] = [];
+    const perCityKey = new Map<number, string>();
+    for (const city of cities) {
+        if (!city.extent) continue;
+        const singleQuery = buildHsrBboxQuery(city.extent);
+        const cacheKey = await r2KeyForQuery(singleQuery);
+        let r2Hit: R2ObjectBody | null = null;
+        try {
+            r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+        } catch {
+            /* miss */
+        }
+        if (r2Hit) {
+            const cachedAt = parseInt(
+                r2Hit.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) continue;
+        }
+        stale.push(city);
+        perCityKey.set(city.relationId, cacheKey);
+    }
+    if (stale.length === 0) return out;
+
+    const subBlocks: string[] = [];
+    for (const city of stale) {
+        const bbox = paddedBboxCorners(city.extent!, HSR_PAD_KM);
+        const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+        subBlocks.push(
+            `  way["railway"="rail"]["highspeed"="yes"](${bboxStr});`,
+        );
+    }
+    const batchQuery = `
+[out:json][timeout:180];
+(
+${subBlocks.join("\n")}
+);
+out geom;
+`;
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(batchQuery),
+    );
+    if (!upstream) {
+        out.upstreamFailed = true;
+        return out;
+    }
+    let json: any;
+    try {
+        json = await upstream.json();
+    } catch {
+        out.upstreamFailed = true;
+        return out;
+    }
+    const elements = Array.isArray(json?.elements) ? json.elements : [];
+
+    const cityBboxes = stale.map((city) => ({
+        city,
+        bbox: paddedBboxCorners(city.extent!, HSR_PAD_KM),
+        bucket: [] as any[],
+    }));
+    for (const el of elements) {
+        const pt = elementRepresentativePoint(el);
+        if (!pt) continue;
+        for (const cb of cityBboxes) {
+            if (pointInBbox(pt.lat, pt.lon, cb.bbox)) cb.bucket.push(el);
+        }
+    }
+
+    for (const cb of cityBboxes) {
+        const cacheKey = perCityKey.get(cb.city.relationId);
+        if (!cacheKey) continue;
+        const wrapped = {
+            version: json.version ?? 0.6,
+            generator: json.generator ?? "jlhs-overpass-cache (batched)",
+            osm3s: json.osm3s,
+            elements: cb.bucket,
+        };
+        const body = JSON.stringify(wrapped);
+        try {
+            await env.CACHE.put(`overpass/${cacheKey}`, body, {
+                customMetadata: {
+                    cachedAt: String(Date.now()),
+                    sizeBytes: String(body.length),
+                    sourceName: cb.city.name,
+                    sourceRelationId: String(cb.city.relationId),
+                    prewarmed: "true",
+                    batched: "true",
+                    kind: "hsr",
+                },
+            });
+            out.stored++;
+        } catch (e) {
+            console.warn(
+                `R2 put failed during batched HSR prewarm of ${cb.city.name}:`,
+                e,
+            );
+        }
+    }
+    return out;
 }
 
 /* ─────────────────────── Reference prewarm ─────────────────────── */
