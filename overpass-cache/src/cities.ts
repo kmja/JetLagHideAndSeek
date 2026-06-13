@@ -231,20 +231,68 @@ export async function appendDiscoveredCities(
 
 /**
  * Names of EVERY known city (bundled or discovered) that's missing
- * the `extent` field — i.e. resolved before the v193 schema bump.
- * The cron re-resolves these one Photon call per name per tick and
- * upserts the result (with extent) into the discovered list, where —
- * thanks to the discovered-first merge in `getPopularCities` — it
- * overrides the bundled extentless copy. So the entire ~250 bundled
- * cities + any legacy discovered ones all get the extent + per-city
- * reference-prewarm treatment over a few days, with nothing to clear
- * by hand.
+ * the `extent` field. The cron computes extents directly from the
+ * known relationId via polygons.openstreetmap.fr — no Photon name
+ * lookup, so it's immune to "Stockholm in Sweden vs Maine"
+ * ambiguities. Returns at most `limit` entries with `{name, relationId}`.
  */
-export async function cityNamesMissingExtent(env: Env): Promise<string[]> {
+export async function missingExtentRelations(
+    env: Env,
+    limit: number,
+): Promise<{ name: string; relationId: number }[]> {
     const all = await getPopularCities(env);
-    return all
-        .filter((c) => !c.extent || c.extent.length !== 4)
-        .map((c) => c.name);
+    const out: { name: string; relationId: number }[] = [];
+    for (const c of all) {
+        if (out.length >= limit) break;
+        if (c.extent && c.extent.length === 4) continue;
+        if (!Number.isFinite(c.relationId) || c.relationId <= 0) continue;
+        out.push({ name: c.name, relationId: c.relationId });
+    }
+    return out;
+}
+
+/**
+ * One-time-safe repair of the discovered-cities R2 doc: drop any
+ * entry whose name (case-insensitive, comma-trimmed) collides with
+ * the bundled HAND_CURATED or BULK_CITIES list but whose relationId
+ * does NOT match the bundled canonical id. Those are the entries
+ * left by an earlier bug where `resolveNameViaPhoton("Stockholm")`
+ * resolved to Stockholm, Maine instead of Stockholm, Sweden.
+ *
+ * Returns the number of entries dropped. Idempotent — running it
+ * again finds nothing to repair.
+ */
+export async function repairBogusDiscoveredEntries(
+    env: Env,
+): Promise<number> {
+    const discovered = await loadDiscoveredCities(env);
+    if (discovered.length === 0) return 0;
+    const canonical = new Map<string, number>();
+    const cityKey = (name: string) =>
+        name.split(",")[0].trim().toLowerCase();
+    for (const c of HAND_CURATED) {
+        canonical.set(cityKey(c.name), c.relationId);
+    }
+    for (const c of BULK_CITIES as CityEntry[]) {
+        if (!canonical.has(cityKey(c.name))) {
+            canonical.set(cityKey(c.name), c.relationId);
+        }
+    }
+    const next = discovered.filter((c) => {
+        const want = canonical.get(cityKey(c.name));
+        if (want === undefined) return true; // not a bundled name
+        return c.relationId === want; // keep only correct matches
+    });
+    const removed = discovered.length - next.length;
+    if (removed === 0) return 0;
+    await env.CACHE.put(
+        DISCOVERED_R2_KEY,
+        JSON.stringify(next),
+        { httpMetadata: { contentType: "application/json" } },
+    );
+    _discoveredCache = next;
+    _discoveredCacheLoadedFor = env.CACHE;
+    return removed;
 }
 
 /** Upsert a city into the discovered list by relationId: overwrite the

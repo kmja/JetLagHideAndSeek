@@ -31,8 +31,9 @@
 import {
     appendDiscoveredCities,
     type CityEntry,
-    cityNamesMissingExtent,
     getPopularCities,
+    missingExtentRelations,
+    repairBogusDiscoveredEntries,
     unresolvedCandidates,
     upsertDiscoveredCity,
 } from "./cities";
@@ -197,32 +198,56 @@ export default {
         } catch (e) {
             console.warn("Discovery pass failed:", e);
         }
-        // Backfill pass: pre-v193 discovered entries don't have an
-        // `extent` field, which means the new reference-prewarm step
-        // skips them. One Photon re-resolve per tick (~1 s of wall
-        // clock) gradually fills them in. Up to 5/tick keeps the
-        // wall-clock budget unburdened for the bigger prewarm work.
+        // Repair pass: a previous version of this cron called
+        // `resolveNameViaPhoton(name)` to backfill extents on bare
+        // names like "Stockholm". Photon's first relation match for
+        // an ambiguous name is whichever it sorts first — for
+        // "Stockholm" that's the village in Maine, not the city in
+        // Sweden. So the discovered-cities R2 doc accumulated entries
+        // with wrong relationIds and wrong extents, on TOP of the
+        // perfectly-good HAND_CURATED entries. Wipe any discovered
+        // entry whose name (case-insensitive, first-comma-trimmed)
+        // collides with a HAND_CURATED or BULK_CITIES name but whose
+        // relationId does NOT match the bundled canonical id. Safe to
+        // run every tick — if there's nothing to repair, it's a no-op.
         try {
-            const missing = (await cityNamesMissingExtent(env)).slice(0, 5);
-            for (const name of missing) {
+            const repaired = await repairBogusDiscoveredEntries(env);
+            if (repaired > 0) {
+                console.log(`[repair] removed ${repaired} bogus discovered entries`);
+            }
+        } catch (e) {
+            console.warn("Repair pass failed:", e);
+        }
+        // Backfill pass: legacy entries are missing the `extent`
+        // field, which makes the reference + HSR prewarms skip them.
+        // We compute the extent directly from polygons.openstreetmap.fr
+        // using the EXISTING relationId — no Photon involved, so
+        // there's no name-ambiguity surface. ~3-5 relations per tick
+        // (each takes ~500-1500 ms once polygons.osm.fr has the
+        // polygon cached) keeps the wall budget free for the prewarm
+        // pass below.
+        try {
+            const missing = await missingExtentRelations(env, 5);
+            for (const entry of missing) {
                 try {
-                    const r = await resolveNameViaPhoton(name);
-                    if (r?.extent) {
+                    const extent = await bboxFromRelation(entry.relationId);
+                    if (extent) {
                         await upsertDiscoveredCity(env, {
-                            name,
-                            relationId: r.relationId,
-                            extent: r.extent,
+                            name: entry.name,
+                            relationId: entry.relationId,
+                            extent,
                         });
                     }
                 } catch (e) {
-                    console.warn(`Backfill failed for "${name}":`, e);
+                    console.warn(
+                        `Backfill failed for "${entry.name}" (r${entry.relationId}):`,
+                        e,
+                    );
                 }
-                // Photon courtesy delay (1 req/s).
-                await new Promise((r) => setTimeout(r, 1000));
             }
             if (missing.length > 0) {
                 console.log(
-                    `[backfill] re-resolved ${missing.length} legacy entries to add extent`,
+                    `[backfill] computed extents for ${missing.length} relation(s) via polygons.osm.fr`,
                 );
             }
         } catch (e) {
@@ -1061,6 +1086,98 @@ async function handleAdminTriggerPrewarm(
 /* ─────────────────────── Discovery ─────────────────────── */
 
 const PHOTON_API = "https://photon.komoot.io/api/";
+
+/** polygons.openstreetmap.fr fetches the pre-computed polygon for an
+ *  OSM relation. We use it for two backfill jobs: computing the
+ *  authoritative bbox for a known relation (no name ambiguity), and
+ *  triggering a build for relations not yet computed. */
+const POLYGONS_OSM_FR_GET =
+    "https://polygons.openstreetmap.fr/get_geojson.py";
+
+/**
+ * Compute the bounding box of an OSM relation directly from its
+ * polygon geometry via polygons.openstreetmap.fr. Deterministic —
+ * the same relationId always produces the same bbox — so this is
+ * what the backfill uses to add `extent` fields to HAND_CURATED
+ * entries whose names alone are ambiguous on Photon ("Stockholm"
+ * the city in Sweden vs the town in Maine). Returns null on any
+ * failure or the "None" sentinel (relation not yet built).
+ */
+async function bboxFromRelation(
+    relationId: number,
+    timeoutMs = 8000,
+): Promise<[number, number, number, number] | null> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let text: string;
+    try {
+        const resp = await fetch(
+            `${POLYGONS_OSM_FR_GET}?id=${relationId}&params=0`,
+            { method: "GET", signal: ctrl.signal },
+        );
+        if (!resp.ok) return null;
+        text = await resp.text();
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+    const trimmed = text.trim();
+    if (!trimmed || trimmed === "None" || trimmed.startsWith("<")) {
+        return null;
+    }
+    let parsed: any;
+    try {
+        parsed = JSON.parse(trimmed);
+    } catch {
+        return null;
+    }
+    // Walk every Position pair to find the min/max lat/lng.
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    const consumeCoord = (lng: number, lat: number) => {
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+    };
+    const visit = (node: any) => {
+        if (!node) return;
+        if (Array.isArray(node)) {
+            // Leaf [lng, lat] vs nested coord array — detect by
+            // checking if first two elements are numbers AND length
+            // is 2 (or 3 incl. altitude).
+            if (
+                node.length >= 2 &&
+                typeof node[0] === "number" &&
+                typeof node[1] === "number"
+            ) {
+                consumeCoord(node[0], node[1]);
+                return;
+            }
+            for (const child of node) visit(child);
+            return;
+        }
+        if (node.geometry) visit(node.geometry);
+        if (node.coordinates) visit(node.coordinates);
+        if (Array.isArray(node.features)) {
+            for (const f of node.features) visit(f);
+        }
+    };
+    visit(parsed);
+    if (
+        !Number.isFinite(minLat) ||
+        !Number.isFinite(maxLat) ||
+        !Number.isFinite(minLng) ||
+        !Number.isFinite(maxLng)
+    ) {
+        return null;
+    }
+    // Photon shape: [maxLat, minLng, minLat, maxLng].
+    return [maxLat, minLng, minLat, maxLng];
+}
 
 /**
  * Resolve a "City, Country" string to an OSM relation ID via Photon.
