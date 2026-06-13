@@ -82,12 +82,15 @@ ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https
 # Cache freshness. Boundaries change rarely on OSM — anything
 # fresher than a month is fine to serve straight from R2.
 CACHE_TTL_DAYS = "30"
-# How many cities the cron pre-warms per run. Dropped from 60 to 30
-# in v198: the original size assumed polygons.osm.fr could handle
-# burst load like the public Overpass mirrors, but it's a much
-# smaller community service with stricter per-IP throttling. 30
-# per hourly tick × 1500 ms pacing per city = ~45 s wall clock per
-# run, steady enough that the remote rate-limit window never fills.
-# Full ~1350-entry list cycles in ~2 days instead of 1, which is
-# fine — the goal is reliability, not speed.
-PREWARM_BATCH_SIZE = "30"
+# How many cities the cron pre-warms per run. Dropped to 10 in v201
+# after the /admin/diagnose endpoint showed:
+#   - 2 of 3 public Overpass mirrors hang past our 15-20 s timeout
+#   - polygons.osm.fr is currently returning HTTP 500
+# Effectively we have ONE working upstream (overpass-api.de) until
+# any of those recover, and a single mirror needs to be paced
+# carefully or it 429s after a handful of requests. 10/run × 4 s
+# pacing = 40 s wall clock per cron tick; over the day that's 240
+# cities/run × 24 = 5760 budget against overpass-api.de's published
+# ~10K/day per-IP guidance. Full ~1350-city list cycles in ~6 days,
+# but the cache that fills DOES fill reliably.
+PREWARM_BATCH_SIZE = "10"

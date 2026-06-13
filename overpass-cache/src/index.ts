@@ -40,10 +40,21 @@ import {
 import type { Env } from "./envTypes";
 import { handleJourneyArrivals } from "./journey";
 
+/**
+ * Public Overpass mirrors we race for non-boundary queries.
+ *
+ * Down to ONE: overpass-api.de. v200's /admin/diagnose run revealed
+ * that `overpass.private.coffee` and `overpass.kumi.systems` both
+ * hang past our 15-20 s timeout — not "rate-limited," "hung." So
+ * they were eating a race slot AND the timeout budget for nothing.
+ * The remaining mirror returns 200 OK in 1-2 s when not throttled.
+ *
+ * If either of the dropped mirrors comes back online (or someone
+ * else's mirror enters wide use), re-add it here — the race code
+ * scales to any number of entries.
+ */
 const OVERPASS_MIRRORS = [
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
 ];
 
 /** Per-attempt client-side timeout. Was 45 s (matching the
@@ -116,13 +127,14 @@ function ufetch(url: string, init: RequestInit = {}): Promise<Response> {
  *  steadily across an hour. 4 was bursting them into 429s. */
 const MAX_CONCURRENT_UPSTREAM = 2;
 /** Min wall-clock spacing between cities in the scheduled cron
- *  loop. Sequential `await prewarmReferencesForCity(...)` calls
- *  ran back-to-back with no gap, so even at concurrency-2 a 60-
- *  city batch presented as a 30-second burst from polygons.osm.fr's
- *  point of view. 1500 ms × 60 cities = 90 s of wall clock, well
- *  inside the scheduled-handler budget, and steady enough that the
- *  remote rate-limit window never fills. */
-const CRON_CITY_DELAY_MS = 1500;
+ *  loop. Bumped to 4000 ms in v201 once the diagnose endpoint
+ *  showed overpass-api.de is our ONLY functioning upstream — two
+ *  of the three public mirrors hang forever and polygons.osm.fr is
+ *  currently 500'ing. Pacing at 4 s/city × 10 cities/run = 40 s
+ *  wall clock per hour and ~0.25 req/s averaged, which is
+ *  comfortably inside overpass-api.de's published "be polite"
+ *  guidance (sustained ≤ 1 req/s, lower from cloud egress IPs). */
+const CRON_CITY_DELAY_MS = 4000;
 
 /** A minimal fair counting semaphore. `run` acquires a slot, awaits
  *  `fn`, then hands the slot directly to the next waiter (no
