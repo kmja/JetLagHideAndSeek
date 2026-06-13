@@ -56,6 +56,31 @@ const UPSTREAM_TIMEOUT_MS = 20_000;
 
 const CACHE_API_TTL_SECS = 24 * 60 * 60; // 24 h at the edge
 
+/**
+ * User-Agent we send on every upstream fetch from this worker. OSM
+ * ecosystem services (Overpass mirrors, polygons.osm.fr, Photon)
+ * explicitly ask for a meaningful UA identifying the application —
+ * their usage policies cite anonymous / default UAs as grounds for
+ * rate-limiting or outright blocking. The Workers runtime's default
+ * UA looked like "Mozilla/5.0 ... Cloudflare-Workers" which is the
+ * sort of thing rate-limiters love to add to their drop list.
+ *
+ * Including a contact URL gives an operator a place to complain (or
+ * grant us a higher quota) before reaching for the block button.
+ */
+const USER_AGENT =
+    "jetlaghideandseek-cache/1.0 (https://github.com/kmja/jetlaghideandseek)";
+
+/** Convenience: outbound fetch with our identifying User-Agent
+ *  merged into the headers. Use everywhere we hit a public service
+ *  from this worker — single chokepoint so a future UA tweak
+ *  doesn't have to thread through a dozen call sites. */
+function ufetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    if (!headers.has("User-Agent")) headers.set("User-Agent", USER_AGENT);
+    return fetch(url, { ...init, headers });
+}
+
 /* ───────────────── Upstream load control ─────────────────
  *
  * The cache only fills if upstream fetches succeed — and they were
@@ -358,6 +383,9 @@ async function handleRequest(
         if (url.pathname === "/admin/status") {
             return handleAdminStatus(request, env, cors);
         }
+        if (url.pathname === "/admin/diagnose") {
+            return handleAdminDiagnose(request, env, cors);
+        }
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
         }
@@ -557,7 +585,7 @@ async function fetchBoundaryFromPolygonsOsmFr(
     const timer = setTimeout(() => ctrl.abort(), 8000);
     let resp: Response;
     try {
-        resp = await fetch(
+        resp = await ufetch(
             `${POLYGONS_OSM_FR_GET}?id=${relationId}&params=0`,
             { method: "GET", signal: ctrl.signal },
         );
@@ -692,7 +720,7 @@ async function fetchFromMirrorChain(query: string): Promise<Response | null> {
     // to avoid amplifying load on an already-throttled server.
     if (!winner && polyFiredNone && boundaryRelationId !== null) {
         try {
-            void fetch(
+            void ufetch(
                 `https://polygons.openstreetmap.fr/?id=${boundaryRelationId}`,
                 { method: "GET" },
             );
@@ -757,7 +785,7 @@ async function fetchFromOverpassMirrors(
 
     const attempts = OVERPASS_MIRRORS.map((base, i) =>
         (usePost
-            ? fetch(base, {
+            ? ufetch(base, {
                   method: "POST",
                   headers: {
                       "Content-Type": "application/x-www-form-urlencoded",
@@ -765,7 +793,7 @@ async function fetchFromOverpassMirrors(
                   body: `data=${encoded}`,
                   signal: controllers[i].signal,
               })
-            : fetch(`${base}?data=${encoded}`, {
+            : ufetch(`${base}?data=${encoded}`, {
                   method: "GET",
                   signal: controllers[i].signal,
               })
@@ -1377,7 +1405,7 @@ async function bboxFromRelation(
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     let text: string;
     try {
-        const resp = await fetch(
+        const resp = await ufetch(
             `${POLYGONS_OSM_FR_GET}?id=${relationId}&params=0`,
             { method: "GET", signal: ctrl.signal },
         );
@@ -1461,7 +1489,7 @@ async function resolveNameViaPhoton(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-        const resp = await fetch(
+        const resp = await ufetch(
             `${PHOTON_API}?q=${encodeURIComponent(name)}&limit=5`,
             { signal: ctrl.signal },
         );
@@ -1708,6 +1736,117 @@ async function handleAdminStatus(
             status: 200,
             headers: { ...cors, "Content-Type": "application/json" },
         },
+    );
+}
+
+/** Local lightweight jsonResponse — journey.ts has a similar helper
+ *  but lives in a different module; not worth a cross-file import
+ *  for one diagnostic endpoint. */
+function jsonResponse(
+    body: unknown,
+    status: number,
+    cors: HeadersInit,
+): Response {
+    const headers = new Headers(cors);
+    headers.set("Content-Type", "application/json");
+    return new Response(JSON.stringify(body, null, 2), { status, headers });
+}
+
+/**
+ * `GET /admin/diagnose?id=<relationId>&secret=<…>` — probe each
+ * upstream individually and report exactly what it returned.
+ *
+ * Built after a 100-relation prewarm run came back 97/100
+ * `upstream-failed` with identical ~1.3 s durations — that pattern
+ * was suspicious enough that "treat null as null" stopped being
+ * good enough. This endpoint runs ONE relation against:
+ *   - polygons.openstreetmap.fr/get_geojson.py?id=<rel>
+ *   - overpass-api.de/api/interpreter (with the cron's boundary
+ *     query shape)
+ *   - overpass.private.coffee/api/interpreter
+ *   - overpass.kumi.systems/api/interpreter
+ * Reports the HTTP status, response time, response headers, and a
+ * short body preview for each. Lets the operator see whether
+ * failures are 429, 403, 5xx, network-level, or something else.
+ *
+ * Defaults to relation 175905 (NYC) if no id is given.
+ */
+async function handleAdminDiagnose(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    const u = new URL(request.url);
+    const id = parseInt(u.searchParams.get("id") ?? "175905", 10);
+    if (!Number.isFinite(id) || id <= 0) {
+        return jsonResponse({ error: "bad id" }, 400, cors);
+    }
+    const overpassQuery = `[out:json][timeout:120];relation(${id});out geom;`;
+    const targets = [
+        {
+            label: "polygons.osm.fr",
+            url: `${POLYGONS_OSM_FR_GET}?id=${id}&params=0`,
+            init: { method: "GET" as const },
+        },
+        ...OVERPASS_MIRRORS.map((base) => ({
+            label: base.replace(/^https?:\/\//, "").split("/")[0],
+            url: `${base}?data=${encodeURIComponent(overpassQuery)}`,
+            init: { method: "GET" as const },
+        })),
+    ];
+    const results = await Promise.all(
+        targets.map(async (t) => {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 15000);
+            const t0 = Date.now();
+            try {
+                const resp = await ufetch(t.url, {
+                    ...t.init,
+                    signal: ctrl.signal,
+                });
+                const elapsedMs = Date.now() - t0;
+                const headers: Record<string, string> = {};
+                resp.headers.forEach((v, k) => {
+                    headers[k] = v;
+                });
+                let bodyPreview = "";
+                try {
+                    const text = await resp.text();
+                    bodyPreview = text.slice(0, 500);
+                } catch {
+                    /* read failed */
+                }
+                return {
+                    label: t.label,
+                    status: resp.status,
+                    statusText: resp.statusText,
+                    elapsedMs,
+                    headers,
+                    bodyPreview,
+                };
+            } catch (e) {
+                return {
+                    label: t.label,
+                    error: e instanceof Error ? e.message : String(e),
+                    name: e instanceof Error ? e.name : undefined,
+                    elapsedMs: Date.now() - t0,
+                };
+            } finally {
+                clearTimeout(timer);
+            }
+        }),
+    );
+    return jsonResponse(
+        {
+            relationId: id,
+            userAgent: USER_AGENT,
+            results,
+        },
+        200,
+        cors,
     );
 }
 
