@@ -310,10 +310,15 @@ async function fetchCached(query) {
 /** Ask the worker whether a given Overpass query is already cached
  *  and within TTL. Returns true if we should SKIP the upstream fetch.
  *  Treats network errors as "not fresh" so a worker hiccup never
- *  silently turns the run into a no-op. */
-async function isFresh(query) {
+ *  silently turns the run into a no-op.
+ *
+ *  Logs every check so a run where the endpoint isn't deployed (404)
+ *  or where R2 unexpectedly returns nothing is visible at a glance —
+ *  otherwise the script would just silently re-fetch everything. */
+async function isFresh(query, label) {
+    let resp;
     try {
-        const resp = await fetch(`${WORKER}/admin/check-fresh`, {
+        resp = await fetch(`${WORKER}/admin/check-fresh`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -321,12 +326,34 @@ async function isFresh(query) {
             },
             body: JSON.stringify({ query }),
         });
-        if (!resp.ok) return false;
-        const data = await resp.json();
-        return Boolean(data?.fresh);
-    } catch {
+    } catch (e) {
+        console.log(`  · check-fresh ${label} threw: ${e?.message ?? e}`);
         return false;
     }
+    if (!resp.ok) {
+        const text = await resp.text().catch(() => "");
+        console.log(
+            `  · check-fresh ${label} HTTP ${resp.status} ${resp.statusText}${text ? ` — ${text.slice(0, 120)}` : ""}`,
+        );
+        return false;
+    }
+    let data;
+    try {
+        data = await resp.json();
+    } catch {
+        console.log(`  · check-fresh ${label} returned non-JSON`);
+        return false;
+    }
+    if (!data?.fresh) {
+        const ageH =
+            typeof data?.ageMs === "number"
+                ? Math.round(data.ageMs / 3_600_000)
+                : null;
+        console.log(
+            `  · check-fresh ${label}: exists=${data?.exists ?? false}${ageH != null ? ` ageH=${ageH}` : ""}`,
+        );
+    }
+    return Boolean(data?.fresh);
 }
 
 async function listCities() {
@@ -360,7 +387,7 @@ async function processCity(city) {
 
     if (DO_BOUNDARIES) {
         const q = boundaryQuery(city.relationId);
-        if (await isFresh(q)) {
+        if (await isFresh(q, "boundary")) {
             console.log(`  ⤼ boundary already cached — skipping`);
             // Still pull the extent from the cached boundary so refs+HSR
             // can run. We don't actually need to download it from
@@ -423,7 +450,7 @@ async function processCity(city) {
 
     if (effectiveExtent && DO_REFS) {
         const q = referenceQuery(effectiveExtent);
-        if (await isFresh(q)) {
+        if (await isFresh(q, "refs")) {
             console.log(`  ⤼ refs already cached — skipping`);
         } else {
         const res = await fetchOverpass(q, "references");
@@ -452,7 +479,7 @@ async function processCity(city) {
 
     if (effectiveExtent && DO_HSR) {
         const q = hsrQuery(effectiveExtent);
-        if (await isFresh(q)) {
+        if (await isFresh(q, "hsr")) {
             console.log(`  ⤼ hsr already cached — skipping`);
             return;
         }
