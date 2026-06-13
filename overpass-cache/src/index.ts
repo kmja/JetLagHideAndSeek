@@ -473,7 +473,151 @@ async function handleRequest(
  *  request at ~30 s wall clock. Serial (3 × 20 s = 60 s worst
  *  case) blows past that. Parallel resolves in max(per-mirror
  *  RTT) — typically 2–10 s when at least one mirror is healthy. */
+/**
+ * Pull the relation id out of the canonical
+ * `[out:json][timeout:NNN];relation(ID);out geom;` boundary
+ * query shape that the cron emits. Returns null when the query is
+ * anything more elaborate (multi-relation, area-based POI fetches,
+ * bbox prefetches) — those go straight to Overpass.
+ *
+ * Mirrors `extractBoundaryRelationId` in src/maps/api/polygonsOsmFr.ts.
+ */
+function extractBoundaryRelationId(query: string): number | null {
+    const m =
+        /^\s*\[out:json\][^;]*;\s*relation\((\d+)\)\s*;\s*out\s+geom\s*;\s*$/i.exec(
+            query,
+        );
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Fetch the polygon for a known relation via polygons.openstreetmap.fr
+ * and wrap it in an Overpass-shaped `{ elements: [...] }` response so
+ * the downstream code path doesn't care which upstream won.
+ *
+ * Why this exists: the public Overpass mirrors have been fast-failing
+ * on boundary queries from this worker's IP (every single prewarm in
+ * the user's 100-relation test came back `upstream-failed` in ~1.3 s
+ * — all three mirrors 429'd in unison). The client side already
+ * mitigates the same condition by racing polygons.osm.fr in tier 1;
+ * we now mirror that on the server. polygons.osm.fr returns
+ * pre-computed polygons in 1-5 s without per-IP rate limits, so most
+ * boundary prewarms now skip Overpass entirely.
+ *
+ * Returns null on any failure, the "None" sentinel (relation not yet
+ * built — caller can `triggerPolygonsOsmFrBuild`), or unparseable
+ * GeoJSON.
+ */
+async function fetchBoundaryFromPolygonsOsmFr(
+    relationId: number,
+): Promise<Response | null> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    let text: string;
+    try {
+        const resp = await fetch(
+            `${POLYGONS_OSM_FR_GET}?id=${relationId}&params=0`,
+            { method: "GET", signal: ctrl.signal },
+        );
+        if (!resp.ok) return null;
+        text = await resp.text();
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+    const trimmed = text.trim();
+    if (!trimmed || trimmed === "None" || trimmed.startsWith("<")) {
+        return null;
+    }
+    let geom: any;
+    try {
+        geom = JSON.parse(trimmed);
+    } catch {
+        return null;
+    }
+    const normalized = normalizeToPolyGeometry(geom);
+    if (!normalized) return null;
+    const wrapped = {
+        elements: [
+            {
+                type: "relation",
+                id: relationId,
+                tags: { type: "boundary", boundary: "administrative" },
+                members: synthesisMembersFromGeometry(normalized, relationId),
+            },
+        ],
+    };
+    return new Response(JSON.stringify(wrapped), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+    });
+}
+
+function normalizeToPolyGeometry(raw: any): any | null {
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.type === "Polygon" || raw.type === "MultiPolygon") return raw;
+    if (raw.type === "Feature" && raw.geometry) {
+        const t = raw.geometry.type;
+        if (t === "Polygon" || t === "MultiPolygon") return raw.geometry;
+    }
+    if (raw.type === "FeatureCollection" && Array.isArray(raw.features)) {
+        for (const f of raw.features) {
+            const t = f?.geometry?.type;
+            if (t === "Polygon" || t === "MultiPolygon") return f.geometry;
+        }
+    }
+    return null;
+}
+
+function synthesisMembersFromGeometry(geom: any, relationId: number) {
+    const polygons =
+        geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+    const out: Array<{
+        type: "way";
+        ref: number;
+        role: "outer" | "inner";
+        geometry: Array<{ lat: number; lon: number }>;
+    }> = [];
+    let synthRef = relationId * 100;
+    for (const poly of polygons) {
+        poly.forEach((ring: number[][], idx: number) => {
+            out.push({
+                type: "way",
+                ref: synthRef++,
+                role: idx === 0 ? "outer" : "inner",
+                geometry: ring.map((p) => ({ lat: p[1], lon: p[0] })),
+            });
+        });
+    }
+    return out;
+}
+
 async function fetchFromMirrorChain(query: string): Promise<Response | null> {
+    // Tier 1: polygons.openstreetmap.fr fast-path for boundary
+    // queries (~80 % of the cron's traffic). Pre-computed polygons
+    // return in 1-5 s without per-IP rate limits, so this skips the
+    // public mirrors entirely for the heavy hitters. Falls through to
+    // the mirror race below on null (cold relation, parse error,
+    // timeout) — exactly the same fallback shape the client uses.
+    const boundaryRelationId = extractBoundaryRelationId(query);
+    if (boundaryRelationId !== null) {
+        const fast = await fetchBoundaryFromPolygonsOsmFr(boundaryRelationId);
+        if (fast) return fast;
+        // Side effect: kick a build trigger so the NEXT cron tick has
+        // the polygon pre-computed. Best-effort, fire-and-forget.
+        try {
+            void fetch(
+                `https://polygons.openstreetmap.fr/?id=${boundaryRelationId}`,
+                { method: "GET" },
+            );
+        } catch {
+            /* noop */
+        }
+    }
+
     const encoded = encodeURIComponent(query);
     const controllers = OVERPASS_MIRRORS.map(() => new AbortController());
     const timers: ReturnType<typeof setTimeout>[] = controllers.map((c) =>
