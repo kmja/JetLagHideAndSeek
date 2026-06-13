@@ -1857,56 +1857,118 @@ async function handleAdminTriggerPrewarm(
     const cities = await getPopularCities(env);
     const shuffled = [...cities].sort(() => Math.random() - 0.5);
     const picked = shuffled.slice(0, batch);
-    const results: Array<{
-        relationId: number;
-        name?: string;
-        status: string;
-        sizeBytes?: number;
-        ageMs?: number;
+
+    // v203: this endpoint now drives the SAME batched code path the
+    // scheduled cron uses, so a manual trigger actually exercises
+    // what runs nightly. Three phases:
+    //   1. Boundaries — `relation(N1);relation(N2);…;out geom;`,
+    //      BOUNDARY_BATCH_SIZE per query.
+    //   2. References — unioned `nwr<filter>(bbox)` over every
+    //      (city × family) tuple, response split by bbox.
+    //   3. HSR — same shape but `out geom` for line geometry.
+    // Each phase's batches are spaced `delay` ms apart so a
+    // big manual trigger doesn't blow through overpass-api.de's
+    // per-IP burst limit.
+
+    const phaseResults: Array<{
+        phase: string;
+        batch: number;
+        outOf: number;
+        stored: number;
+        notInResponse?: number[];
+        upstreamFailed: boolean;
         durationMs: number;
     }> = [];
-    for (let i = 0; i < picked.length; i++) {
-        const city = picked[i];
-        const t0 = Date.now();
-        try {
-            const r = await prewarmRelation(
-                env,
-                ctx,
-                city.relationId,
-                ttlMs,
-                city.name,
-            );
-            results.push({
-                relationId: city.relationId,
-                name: city.name,
-                status: r.status,
-                sizeBytes:
-                    "sizeBytes" in r ? r.sizeBytes : undefined,
-                ageMs: "ageMs" in r ? r.ageMs : undefined,
-                durationMs: Date.now() - t0,
-            });
-        } catch (e) {
-            results.push({
-                relationId: city.relationId,
-                name: city.name,
-                status: "error",
-                durationMs: Date.now() - t0,
-            });
-            console.warn(
-                `Trigger-prewarm error for ${city.name} (${city.relationId}):`,
-                e,
-            );
+
+    const runPhase = async <T>(
+        label: string,
+        chunkSize: number,
+        cityList: CityEntry[],
+        runChunk: (
+            chunk: CityEntry[],
+        ) => Promise<T & { upstreamFailed: boolean }>,
+        extract: (r: T) => {
+            stored: number;
+            notInResponse?: number[];
+        },
+    ) => {
+        const chunks: CityEntry[][] = [];
+        for (let i = 0; i < cityList.length; i += chunkSize) {
+            chunks.push(cityList.slice(i, i + chunkSize));
         }
-        if (i < picked.length - 1 && delay > 0) {
-            await new Promise((r) => setTimeout(r, delay));
+        for (let i = 0; i < chunks.length; i++) {
+            const t0 = Date.now();
+            try {
+                const r = await runChunk(chunks[i]);
+                const e = extract(r as T);
+                phaseResults.push({
+                    phase: label,
+                    batch: i + 1,
+                    outOf: chunks.length,
+                    stored: e.stored,
+                    notInResponse: e.notInResponse,
+                    upstreamFailed: r.upstreamFailed,
+                    durationMs: Date.now() - t0,
+                });
+            } catch (err) {
+                phaseResults.push({
+                    phase: label,
+                    batch: i + 1,
+                    outOf: chunks.length,
+                    stored: 0,
+                    upstreamFailed: true,
+                    durationMs: Date.now() - t0,
+                });
+                console.warn(`[trigger] ${label} batch ${i + 1} threw:`, err);
+            }
+            if (i < chunks.length - 1 && delay > 0) {
+                await new Promise((r) => setTimeout(r, delay));
+            }
         }
-    }
+    };
+
+    await runPhase(
+        "boundaries",
+        BOUNDARY_BATCH_SIZE,
+        picked,
+        (chunk) => prewarmBoundariesBatch(env, chunk, ttlMs),
+        (r) => ({
+            stored: r.stored.length,
+            notInResponse: r.notInResponse.length > 0 ? r.notInResponse : undefined,
+        }),
+    );
+
+    const withExtent = picked.filter((c) => c.extent);
+    await runPhase(
+        "references",
+        REFERENCE_BATCH_SIZE,
+        withExtent,
+        (chunk) => prewarmReferencesBatch(env, chunk, ttlMs),
+        (r) => ({ stored: r.stored }),
+    );
+    await runPhase(
+        "hsr",
+        HSR_BATCH_SIZE,
+        withExtent,
+        (chunk) => prewarmHsrBatch(env, chunk, ttlMs),
+        (r) => ({ stored: r.stored }),
+    );
+
+    const totalStored = phaseResults.reduce(
+        (acc, p) => acc + p.stored,
+        0,
+    );
+    const upstreamFailures = phaseResults.filter(
+        (p) => p.upstreamFailed,
+    ).length;
     return new Response(
         JSON.stringify(
             {
                 picked: picked.length,
                 totalCandidates: cities.length,
-                results,
+                totalStored,
+                upstreamFailedBatches: upstreamFailures,
+                phases: phaseResults,
             },
             null,
             2,
