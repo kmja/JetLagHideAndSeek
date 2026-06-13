@@ -57,13 +57,16 @@ const OVERPASS_MIRRORS = [
     "https://overpass-api.de/api/interpreter",
 ];
 
-/** Per-attempt client-side timeout. Was 45 s (matching the
- *  browser-side default), but the Workers Free plan caps a
- *  single request at ~30 s wall clock, and we now race all
- *  three mirrors in parallel — so each individual attempt
- *  doesn't need a generous timeout. 20 s gets the fastest
- *  mirror's headers in well under the worker cap. */
-const UPSTREAM_TIMEOUT_MS = 20_000;
+/** Per-attempt client-side timeout. Bumped 20 s → 60 s in v205
+ *  because the batched reference + HSR queries hit 20 s server-side
+ *  budget on the v204 test run and got killed by the worker before
+ *  Overpass could finish. 60 s comfortably covers a 5-city × 11-
+ *  family unioned query (the worst case we send) while still
+ *  bounding any one stuck mirror to a minute. The query string
+ *  itself asks for [timeout:180] server-side, so this is just our
+ *  patience on top of that. Boundary queries respond in 1-5 s and
+ *  never get near this. */
+const UPSTREAM_TIMEOUT_MS = 60_000;
 
 const CACHE_API_TTL_SECS = 24 * 60 * 60; // 24 h at the edge
 
@@ -1054,8 +1057,14 @@ async function prewarmRelation(
  * caution; v203 doubles it and adds the same batching to refs+HSR.
  */
 const BOUNDARY_BATCH_SIZE = 10;
-const REFERENCE_BATCH_SIZE = 10;
-const HSR_BATCH_SIZE = 10;
+/** References + HSR dropped to 5 in v205 once the v204 test showed
+ *  a 10-city batch (110 unioned sub-statements) blew past the
+ *  upstream timeout. At 5 cities × 11 families = 55 statements, the
+ *  server reliably finishes inside our new 60 s budget. Boundary
+ *  batches stay at 10 — they're single `relation(N)` statements,
+ *  much lighter per-statement work than bbox-filtered amenity finds. */
+const REFERENCE_BATCH_SIZE = 5;
+const HSR_BATCH_SIZE = 5;
 
 /**
  * Result of a batched boundary prewarm. `stored` is the list of
