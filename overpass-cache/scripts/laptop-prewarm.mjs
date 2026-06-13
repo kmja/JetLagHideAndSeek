@@ -300,9 +300,19 @@ async function listCities() {
 /* ----------------------------- Main ------------------------------ */
 
 async function processCity(city) {
-    console.log(
-        `[${city.name}] r${city.relationId}${city.extent ? "" : " (no extent — skipping refs/HSR)"}`,
-    );
+    console.log(`[${city.name}] r${city.relationId}`);
+
+    // Most bundled HAND_CURATED / BULK_CITIES entries ship without an
+    // extent — only cities the worker's cron has already backfilled
+    // carry one. But we don't need to wait for the backfill: the
+    // boundary query we're about to run returns the full polygon
+    // geometry, and the bbox of that geometry IS the extent. So we
+    // fetch the boundary first, then derive a fallback extent locally
+    // from its members[].geometry coords, then use that for the
+    // refs+HSR queries below. End result: every city the laptop
+    // script touches gets all three queries primed, not just the
+    // ~10 % that happen to have a server-side extent already.
+    let effectiveExtent = city.extent ?? null;
 
     if (DO_BOUNDARIES) {
         const q = boundaryQuery(city.relationId);
@@ -324,6 +334,15 @@ async function processCity(city) {
                 } catch (e) {
                     console.warn(`  ✗ boundary upload: ${e.message}`);
                 }
+                if (!effectiveExtent) {
+                    const derived = extentFromBoundaryResponse(parsed);
+                    if (derived) {
+                        effectiveExtent = derived;
+                        console.log(
+                            `  ⌐ extent derived from boundary geom: [${derived.map((n) => n.toFixed(3)).join(", ")}]`,
+                        );
+                    }
+                }
             } else {
                 console.warn(`  ⚠ boundary response empty / unparseable`);
             }
@@ -331,8 +350,12 @@ async function processCity(city) {
         }
     }
 
-    if (city.extent && DO_REFS) {
-        const q = referenceQuery(city.extent);
+    if (!effectiveExtent && (DO_REFS || DO_HSR)) {
+        console.log(`  ⤼ no extent available — skipping refs/HSR`);
+    }
+
+    if (effectiveExtent && DO_REFS) {
+        const q = referenceQuery(effectiveExtent);
         const res = await fetchOverpass(q, "references");
         if (res) {
             const parsed = safeJSON(res.text);
@@ -356,8 +379,8 @@ async function processCity(city) {
         }
     }
 
-    if (city.extent && DO_HSR) {
-        const q = hsrQuery(city.extent);
+    if (effectiveExtent && DO_HSR) {
+        const q = hsrQuery(effectiveExtent);
         const res = await fetchOverpass(q, "hsr");
         if (res) {
             const parsed = safeJSON(res.text);
@@ -388,6 +411,55 @@ function safeJSON(text) {
     } catch {
         return null;
     }
+}
+
+/**
+ * Compute the city's bounding box from the boundary geometry we just
+ * fetched. The Overpass `relation(N);out geom;` response inlines
+ * each member way's coordinates under `members[].geometry`, so we
+ * walk every point and track min/max lat/lon. Returned in Photon's
+ * `[maxLat, minLng, minLat, maxLng]` shape because that's what the
+ * worker and the client query builders expect.
+ *
+ * This is what unblocks refs+HSR for the bundled HAND_CURATED /
+ * BULK_CITIES entries that ship without an extent field — the user
+ * pointed out the screenshot showing every major city saying "no
+ * extent — skipping refs/HSR." We already have the geometry in hand
+ * after the boundary query; computing the bbox is local + free.
+ */
+function extentFromBoundaryResponse(parsed) {
+    if (!Array.isArray(parsed?.elements)) return null;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    for (const el of parsed.elements) {
+        if (el?.type !== "relation" || !Array.isArray(el.members)) continue;
+        for (const m of el.members) {
+            const g = m?.geometry;
+            if (!Array.isArray(g)) continue;
+            for (const p of g) {
+                if (
+                    typeof p?.lat === "number" &&
+                    typeof p?.lon === "number"
+                ) {
+                    if (p.lat < minLat) minLat = p.lat;
+                    if (p.lat > maxLat) maxLat = p.lat;
+                    if (p.lon < minLng) minLng = p.lon;
+                    if (p.lon > maxLng) maxLng = p.lon;
+                }
+            }
+        }
+    }
+    if (
+        !Number.isFinite(minLat) ||
+        !Number.isFinite(maxLat) ||
+        !Number.isFinite(minLng) ||
+        !Number.isFinite(maxLng)
+    ) {
+        return null;
+    }
+    return [maxLat, minLng, minLat, maxLng];
 }
 
 async function main() {
