@@ -82,15 +82,12 @@ ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https
 # Cache freshness. Boundaries change rarely on OSM — anything
 # fresher than a month is fine to serve straight from R2.
 CACHE_TTL_DAYS = "30"
-# How many cities the cron pre-warms per run. Dropped to 10 in v201
-# after the /admin/diagnose endpoint showed:
-#   - 2 of 3 public Overpass mirrors hang past our 15-20 s timeout
-#   - polygons.osm.fr is currently returning HTTP 500
-# Effectively we have ONE working upstream (overpass-api.de) until
-# any of those recover, and a single mirror needs to be paced
-# carefully or it 429s after a handful of requests. 10/run × 4 s
-# pacing = 40 s wall clock per cron tick; over the day that's 240
-# cities/run × 24 = 5760 budget against overpass-api.de's published
-# ~10K/day per-IP guidance. Full ~1350-city list cycles in ~6 days,
-# but the cache that fills DOES fill reliably.
-PREWARM_BATCH_SIZE = "10"
+# How many cities the cron pre-warms per run. Bumped 10 → 25 in
+# v202 once boundary fetches batch 5-per-query: a 25-city run is
+# now only 5 boundary requests + 25 reference + 25 HSR = 55
+# requests against overpass-api.de's per-tick budget, vs 75 before.
+# Counter-intuitively: MORE coverage with FEWER upstream hits,
+# because the boundary fetch (formerly 1 query per city) is now
+# 1 query per 5 cities. 25 × 24 ticks/day = 600 cities/day, full
+# ~1350-city list cycles in just over 2 days.
+PREWARM_BATCH_SIZE = "25"

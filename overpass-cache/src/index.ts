@@ -308,38 +308,65 @@ export default {
         const cities = await getPopularCities(env);
         const shuffled = [...cities].sort(() => Math.random() - 0.5);
         const picked = shuffled.slice(0, batch);
-        for (let i = 0; i < picked.length; i++) {
-            const city = picked[i];
+
+        // Phase 1: BOUNDARIES, batched.
+        // The old per-city loop fired one Overpass query per city,
+        // so 10 cities = 10 hits on overpass-api.de in quick
+        // succession — exactly the burst that trips their per-IP
+        // rate limit. v202 collapses each group of
+        // BOUNDARY_BATCH_SIZE cities into ONE unioned
+        // `relation(N1);relation(N2);…;out geom;` query and splits
+        // the response back into per-relation R2 entries. Same
+        // boundary coverage at 1/Nth the request count.
+        const boundaryChunks: CityEntry[][] = [];
+        for (let i = 0; i < picked.length; i += BOUNDARY_BATCH_SIZE) {
+            boundaryChunks.push(picked.slice(i, i + BOUNDARY_BATCH_SIZE));
+        }
+        for (let i = 0; i < boundaryChunks.length; i++) {
             try {
-                // 1. Boundary polygon — the play-area outline. Always
-                //    done; this is the original cron job.
-                await prewarmCity(env, ctx, city, ttlMs);
-                // 2. Per-city reference cache — museums / hospitals /
-                //    airports / brand shops / train stations. ONE
-                //    combined Overpass query keyed on the city's
-                //    Photon bbox + 50 km pad; the result lands on the
-                //    same R2 key the client's combined prefetch will
-                //    request, so the client never touches Overpass for
-                //    that city's references either. Silently skipped
-                //    when the city entry is missing the extent field
-                //    (legacy pre-v193 entries — the discovery pass
-                //    backfills them in the same cron tick).
-                if (city.extent) {
-                    await prewarmReferencesForCity(env, city, ttlMs);
-                    // 3. High-speed rail — `out geom` over a wider
-                    //    bbox (sparse network). Same R2 key the client
-                    //    HSR lookup hits.
-                    await prewarmHsrForCity(env, city, ttlMs);
+                const r = await prewarmBoundariesBatch(
+                    env,
+                    boundaryChunks[i],
+                    ttlMs,
+                );
+                if (r.stored.length > 0) {
+                    console.log(
+                        `[prewarm] batch ${i + 1}/${boundaryChunks.length}: stored ${r.stored.length} boundaries`,
+                    );
+                }
+                if (r.notInResponse.length > 0) {
+                    console.warn(
+                        `[prewarm] batch ${i + 1}: ${r.notInResponse.length} relations missing from upstream response`,
+                    );
                 }
             } catch (e) {
+                console.warn(`[prewarm] batch ${i + 1} threw:`, e);
+            }
+            if (i < boundaryChunks.length - 1) {
+                await new Promise((r) =>
+                    setTimeout(r, CRON_CITY_DELAY_MS),
+                );
+            }
+        }
+
+        // Phase 2: REFERENCES + HSR, per-city.
+        // These are bbox-bounded — each city has its OWN bbox, and
+        // the returned amenities don't carry a "which city" tag, so
+        // splitting a batched response would mean re-bucketing every
+        // amenity into the right bbox client-side. Not worth the
+        // complexity right now; per-city stays.
+        for (let i = 0; i < picked.length; i++) {
+            const city = picked[i];
+            if (!city.extent) continue; // backfill will catch this on a later tick
+            try {
+                await prewarmReferencesForCity(env, city, ttlMs);
+                await prewarmHsrForCity(env, city, ttlMs);
+            } catch (e) {
                 console.warn(
-                    `Prewarm failed for ${city.name} (${city.relationId}):`,
+                    `Per-city prewarm failed for ${city.name} (${city.relationId}):`,
                     e,
                 );
             }
-            // Pace requests so polygons.osm.fr's per-IP throttle has
-            // room to recover between cities. Skip after the last one
-            // since there's nothing to space against.
             if (i < picked.length - 1) {
                 await new Promise((r) =>
                     setTimeout(r, CRON_CITY_DELAY_MS),
@@ -975,6 +1002,158 @@ async function prewarmRelation(
         console.warn("R2 put failed during prewarm:", e);
     }
     return { status: "stored", sizeBytes: body.length };
+}
+
+/**
+ * Cap on how many relation IDs we union into a single batched
+ * boundary query. 5 is conservative: each city polygon is typically
+ * 500 KB-2 MB of `out geom` data, so 5 cities = ~10 MB peak response.
+ * That fits the worker's response-size budget with headroom, keeps
+ * the per-batch wall-clock under ~3 s on a healthy mirror, and is
+ * still small enough that a single slow/broken relation in the
+ * batch can't poison too many siblings. Counts AGAINST overpass-
+ * api.de's per-request rate limit as ONE request, which is the win.
+ */
+const BOUNDARY_BATCH_SIZE = 5;
+
+/**
+ * Result of a batched boundary prewarm. `stored` is the list of
+ * relation IDs we successfully cached; `notInResponse` is the list
+ * Overpass omitted (relation doesn't exist, or the query timed out
+ * before reaching it); `upstreamFailed` is true if the whole batch
+ * call failed and the caller should re-queue all of them.
+ */
+interface BatchPrewarmResult {
+    stored: number[];
+    notInResponse: number[];
+    upstreamFailed: boolean;
+}
+
+/**
+ * Prewarm boundaries for many cities in ONE Overpass query, then
+ * split the response and cache each relation under its single-
+ * relation R2 key. Same key the client (and `prewarmRelation`) hits
+ * for a single relation, so the batching is transparent: the client
+ * never knows we cheated.
+ *
+ * Why this exists: prewarmRelation issues one Overpass request per
+ * city, so a 10-city cron tick is 10 hits on overpass-api.de —
+ * exactly the burst pattern that trips their rate limit. v202's
+ * batched form makes that 2 hits (10 cities / 5 per batch) for the
+ * same coverage, well inside the "be polite" budget.
+ */
+async function prewarmBoundariesBatch(
+    env: Env,
+    cities: CityEntry[],
+    ttlMs: number,
+): Promise<BatchPrewarmResult> {
+    const result: BatchPrewarmResult = {
+        stored: [],
+        notInResponse: [],
+        upstreamFailed: false,
+    };
+    if (cities.length === 0) return result;
+
+    // Skip anything already fresh in R2 so we don't re-pay an
+    // upstream request for cities we already have.
+    const stale: CityEntry[] = [];
+    for (const city of cities) {
+        const singleQuery = singleRelationQuery(city.relationId);
+        const cacheKey = await r2KeyForQuery(singleQuery);
+        let r2Hit: R2ObjectBody | null = null;
+        try {
+            r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+        } catch {
+            /* treat as miss */
+        }
+        if (r2Hit) {
+            const cachedAt = parseInt(
+                r2Hit.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            const ageMs = Date.now() - cachedAt;
+            if (cachedAt && ageMs < ttlMs) continue; // fresh, skip
+        }
+        stale.push(city);
+    }
+    if (stale.length === 0) return result;
+
+    // Build the batched query. Sorted for a stable key — not
+    // strictly necessary (we don't cache the batched response, only
+    // its split parts), but makes log grepping nicer.
+    const ids = stale.map((c) => c.relationId).sort((a, b) => a - b);
+    const stmts = ids.map((id) => `  relation(${id});`).join("\n");
+    const batchQuery = `[out:json][timeout:180];\n(\n${stmts}\n);\nout geom;\n`;
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(batchQuery),
+    );
+    if (!upstream) {
+        result.upstreamFailed = true;
+        return result;
+    }
+    let json: any;
+    try {
+        json = await upstream.json();
+    } catch {
+        result.upstreamFailed = true;
+        return result;
+    }
+    const elements = Array.isArray(json?.elements) ? json.elements : [];
+    // Bucket the response by relation id; preserve only the
+    // metadata stub Overpass needs for shape parity with the single-
+    // relation response (osm3s + version, then one elements entry).
+    const byId = new Map<number, any>();
+    for (const el of elements) {
+        if (el?.type === "relation" && typeof el.id === "number") {
+            byId.set(el.id, el);
+        }
+    }
+    const cityById = new Map<number, CityEntry>(
+        stale.map((c) => [c.relationId, c]),
+    );
+    for (const id of ids) {
+        const el = byId.get(id);
+        if (!el) {
+            result.notInResponse.push(id);
+            continue;
+        }
+        // Wrap as a single-relation response, byte-shaped like
+        // prewarmRelation's single-call body so the client gets the
+        // exact same JSON regardless of which path warmed it.
+        const wrapped = {
+            version: json.version ?? 0.6,
+            generator: json.generator ?? "jlhs-overpass-cache (batched)",
+            osm3s: json.osm3s,
+            elements: [el],
+        };
+        const body = JSON.stringify(wrapped);
+        const singleQuery = singleRelationQuery(id);
+        const cacheKey = await r2KeyForQuery(singleQuery);
+        const city = cityById.get(id);
+        try {
+            await env.CACHE.put(`overpass/${cacheKey}`, body, {
+                customMetadata: {
+                    cachedAt: String(Date.now()),
+                    sizeBytes: String(body.length),
+                    ...(city?.name ? { sourceName: city.name } : {}),
+                    sourceRelationId: String(id),
+                    prewarmed: "true",
+                    batched: "true",
+                },
+            });
+            result.stored.push(id);
+        } catch (e) {
+            console.warn(`R2 put failed during batched prewarm of ${id}:`, e);
+        }
+    }
+    return result;
+}
+
+/** The canonical single-relation boundary query. Same shape both
+ *  the client and `prewarmRelation` emit, so its SHA-256 hash is the
+ *  R2 cache key the client will hit. */
+function singleRelationQuery(relationId: number): string {
+    return `[out:json][timeout:120];relation(${relationId});out geom;`;
 }
 
 /* ─────────────────────── Reference prewarm ─────────────────────── */
