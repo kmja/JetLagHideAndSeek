@@ -33,6 +33,7 @@ import {
     type CityEntry,
     getPopularCities,
     missingExtentRelations,
+    recordFailedResolves,
     repairBogusDiscoveredEntries,
     unresolvedCandidates,
     upsertDiscoveredCity,
@@ -2280,6 +2281,7 @@ async function discoverCandidates(
     if (limit <= 0) return [];
     const todo = (await unresolvedCandidates(env)).slice(0, limit);
     const fresh: CityEntry[] = [];
+    const failed: string[] = [];
     for (let i = 0; i < todo.length; i++) {
         const name = todo[i];
         try {
@@ -2290,8 +2292,11 @@ async function discoverCandidates(
                     relationId: r.relationId,
                     extent: r.extent,
                 });
+            } else {
+                failed.push(name);
             }
         } catch (e) {
+            failed.push(name);
             console.warn(`Photon resolve failed for "${name}":`, e);
         }
         // Photon courtesy delay; skip after the last item.
@@ -2301,6 +2306,9 @@ async function discoverCandidates(
     }
     if (fresh.length > 0) {
         await appendDiscoveredCities(env, fresh);
+    }
+    if (failed.length > 0) {
+        await recordFailedResolves(env, failed);
     }
     return fresh;
 }
@@ -2376,6 +2384,14 @@ async function handleAdminDiscover(
     }
     if (fresh.length > 0) {
         await appendDiscoveredCities(env, fresh);
+    }
+    if (skipped.length > 0) {
+        // Park names Photon couldn't resolve so they stop blocking the
+        // front of the queue on subsequent calls (see
+        // DISCOVER_ATTEMPTS_R2_KEY). Explicit `names`-array calls also
+        // count — a name fed directly that still won't resolve is just
+        // as dead as one pulled from the candidate list.
+        await recordFailedResolves(env, skipped);
     }
     const remaining = await unresolvedCandidates(env);
     return new Response(

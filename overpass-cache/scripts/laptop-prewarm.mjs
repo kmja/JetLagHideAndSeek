@@ -13,10 +13,14 @@
  *     --worker https://jlhs-overpass-cache.<sub>.workers.dev \
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
- *     [--skip-boundaries] [--skip-references] [--skip-hsr] \
+ *     [--skip-discover] [--skip-boundaries] [--skip-references] [--skip-hsr] \
  *     [--delay-ms 2000]
  *
  * What it does:
+ *   0. Discovery (once, first) — drains the bundled candidate
+ *      city-NAME backlog into relation ids via /admin/discover, so
+ *      the city loop below sees the full ~1300-city list instead of
+ *      just the ~170 already resolved. --skip-discover to bypass.
  *   Per city (from /admin/list-cities):
  *     1. Boundary — `relation(N);out geom;` against overpass-api.de,
  *                   upload to R2 if 200 + non-empty.
@@ -60,6 +64,7 @@ const DELAY_MS = args["delay-ms"] ? parseInt(args["delay-ms"], 10) : 2000;
 const DO_BOUNDARIES = !args["skip-boundaries"];
 const DO_REFS = !args["skip-references"];
 const DO_HSR = !args["skip-hsr"];
+const DO_DISCOVER = !args["skip-discover"];
 
 const UA =
     "jlhs-laptop-prewarm/1.0 (https://github.com/kmja/jetlaghideandseek)";
@@ -582,42 +587,143 @@ function safeJSON(text) {
  * after the boundary query; computing the bbox is local + free.
  */
 function extentFromBoundaryResponse(parsed) {
-    if (!Array.isArray(parsed?.elements)) return null;
     let minLat = Infinity;
     let maxLat = -Infinity;
     let minLng = Infinity;
     let maxLng = -Infinity;
-    for (const el of parsed.elements) {
-        if (el?.type !== "relation" || !Array.isArray(el.members)) continue;
-        for (const m of el.members) {
-            const g = m?.geometry;
-            if (!Array.isArray(g)) continue;
-            for (const p of g) {
-                if (
-                    typeof p?.lat === "number" &&
-                    typeof p?.lon === "number"
-                ) {
-                    if (p.lat < minLat) minLat = p.lat;
-                    if (p.lat > maxLat) maxLat = p.lat;
-                    if (p.lon < minLng) minLng = p.lon;
-                    if (p.lon > maxLng) maxLng = p.lon;
-                }
+    let found = false;
+
+    const consume = (lat, lon) => {
+        if (typeof lat !== "number" || typeof lon !== "number") return;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        // Range sanity — guards against picking up unrelated numeric
+        // fields and against [lng,lat]/[lat,lng] swaps producing
+        // garbage corners.
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+        found = true;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lon < minLng) minLng = lon;
+        if (lon > maxLng) maxLng = lon;
+    };
+
+    // Walk the whole response for coordinates rather than assuming a
+    // fixed shape. Boundaries reach R2 in several Overpass shapes:
+    // a relation with `members[].geometry[]` (out geom), top-level
+    // ways with their own `geometry[]`, bare `{lat,lon}` nodes, and —
+    // for some admin areas — geometry nested under sub-members. An
+    // earlier rigid `type==="relation"` + `members[].geometry` walk
+    // silently returned null for the shapes it didn't anticipate
+    // (e.g. Nairobi returned "no extent" while Lagos worked); finding
+    // ANY in-range coordinate is both simpler and correct, since the
+    // bbox of every coordinate IS the extent regardless of nesting.
+    const visit = (node) => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) {
+            // Leaf GeoJSON coordinate pair: [lon, lat(, alt)].
+            if (
+                node.length >= 2 &&
+                typeof node[0] === "number" &&
+                typeof node[1] === "number"
+            ) {
+                consume(node[1], node[0]);
+                return;
             }
+            for (const child of node) visit(child);
+            return;
         }
-    }
-    if (
-        !Number.isFinite(minLat) ||
-        !Number.isFinite(maxLat) ||
-        !Number.isFinite(minLng) ||
-        !Number.isFinite(maxLng)
-    ) {
-        return null;
-    }
+        // Overpass point shape: {lat, lon} on bare nodes + node members.
+        if (typeof node.lat === "number" && typeof node.lon === "number") {
+            consume(node.lat, node.lon);
+        }
+        if (node.geometry) visit(node.geometry);
+        if (node.members) visit(node.members);
+        if (node.elements) visit(node.elements);
+        if (node.coordinates) visit(node.coordinates);
+    };
+    visit(parsed);
+
+    if (!found) return null;
     return [maxLat, minLng, minLat, maxLng];
+}
+
+/**
+ * Drain the discovery backlog: repeatedly tell the worker to resolve
+ * the next batch of bundled candidate city-NAMES into OSM relation
+ * ids (via Photon, server-side), until the unresolved count stops
+ * dropping. `list-cities` only returns names that have a relation id,
+ * so until this runs the prewarmer only sees the ~170 pre-resolved
+ * cities — the other ~1150 are bare names waiting here.
+ *
+ * The worker parks names Photon can't resolve after a few attempts
+ * (v215), so a run of dead names no longer blocks the queue — but we
+ * still stop once `stillUnresolved` flatlines, since the remainder is
+ * either dead or will need more cron ticks to age out.
+ */
+async function drainDiscovery() {
+    console.log(`=== draining discovery backlog ===`);
+    let lastRemaining = Infinity;
+    let stalls = 0;
+    for (let call = 0; call < 300; call++) {
+        let resp;
+        try {
+            resp = await fetch(`${WORKER}/admin/discover`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${SECRET}`,
+                },
+                body: JSON.stringify({ batch: 25 }),
+            });
+        } catch (e) {
+            console.warn(`  discover call threw: ${e?.message ?? e}`);
+            break;
+        }
+        if (!resp.ok) {
+            console.warn(`  discover HTTP ${resp.status} — stopping`);
+            break;
+        }
+        const data = await resp.json().catch(() => null);
+        if (!data) break;
+        const resolved = Array.isArray(data.resolved) ? data.resolved.length : 0;
+        const remaining = data.stillUnresolved ?? 0;
+        console.log(
+            `  call ${call + 1}: +${resolved} resolved, ${remaining} unresolved`,
+        );
+        if (remaining === 0) {
+            console.log(`  discovery backlog empty`);
+            break;
+        }
+        // Stall detection: if the unresolved count isn't dropping, the
+        // front of the queue is either dead names mid-parking or names
+        // that need more cron ticks to park. Either way the laptop
+        // can't make further progress this run — bail rather than spin.
+        if (remaining >= lastRemaining && resolved === 0) {
+            stalls++;
+            if (stalls >= 4) {
+                console.log(
+                    `  unresolved count flatlined at ${remaining} — stopping discovery`,
+                );
+                break;
+            }
+        } else {
+            stalls = 0;
+        }
+        lastRemaining = remaining;
+    }
 }
 
 async function main() {
     console.log(`=== laptop-prewarm against ${WORKER} ===`);
+
+    if (DO_DISCOVER) {
+        try {
+            await drainDiscovery();
+        } catch (e) {
+            console.warn(`! discovery drain failed:`, e?.message ?? e);
+        }
+    }
+
     const cities = await listCities();
     console.log(`fetched ${cities.length} cities; processing up to ${MAX_CITIES}`);
 

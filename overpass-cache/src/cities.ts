@@ -330,18 +330,87 @@ export const CANDIDATE_NAMES: string[] = (
 ).filter((n) => typeof n === "string" && n.length > 0);
 
 /**
+ * R2 key under which Photon-resolution attempt counts accumulate,
+ * keyed by lowercase head-name. A candidate that Photon can't resolve
+ * (returns no relation) would otherwise sit at the front of the
+ * unresolved queue forever — `unresolvedCandidates` only drops names
+ * once they're KNOWN, and a failed name never becomes known. Every
+ * discover call would re-attempt the same dead front names and never
+ * reach the ones behind them, which is why the discovered list stalls.
+ *
+ * Parking failed names after MAX_DISCOVER_ATTEMPTS tries (so a
+ * transient Photon blip gets a few chances first) lets the queue
+ * advance past genuinely-unresolvable names. Clearable by deleting
+ * this R2 object if a name should be retried from scratch.
+ */
+export const DISCOVER_ATTEMPTS_R2_KEY = "_meta/discover-attempts.json";
+const MAX_DISCOVER_ATTEMPTS = 3;
+
+let _attemptsCache: Record<string, number> | null = null;
+let _attemptsCacheLoadedFor: R2Bucket | null = null;
+
+async function loadDiscoverAttempts(
+    env: Env,
+): Promise<Record<string, number>> {
+    if (_attemptsCache !== null && _attemptsCacheLoadedFor === env.CACHE) {
+        return _attemptsCache;
+    }
+    try {
+        const obj = await env.CACHE.get(DISCOVER_ATTEMPTS_R2_KEY);
+        const parsed = obj ? ((await obj.json()) as unknown) : {};
+        _attemptsCache =
+            parsed && typeof parsed === "object" && !Array.isArray(parsed)
+                ? (parsed as Record<string, number>)
+                : {};
+    } catch (e) {
+        console.warn("loadDiscoverAttempts failed:", e);
+        _attemptsCache = {};
+    }
+    _attemptsCacheLoadedFor = env.CACHE;
+    return _attemptsCache;
+}
+
+/**
+ * Record a failed Photon resolution for each of `names` (by lowercase
+ * head-name), incrementing its attempt count. Once a name's count
+ * reaches MAX_DISCOVER_ATTEMPTS, `unresolvedCandidates` stops
+ * returning it and the queue advances.
+ */
+export async function recordFailedResolves(
+    env: Env,
+    names: string[],
+): Promise<void> {
+    if (names.length === 0) return;
+    const attempts = { ...(await loadDiscoverAttempts(env)) };
+    for (const raw of names) {
+        const head = raw.split(",")[0].trim().toLowerCase();
+        if (!head) continue;
+        attempts[head] = (attempts[head] ?? 0) + 1;
+    }
+    await env.CACHE.put(DISCOVER_ATTEMPTS_R2_KEY, JSON.stringify(attempts), {
+        httpMetadata: { contentType: "application/json" },
+    });
+    _attemptsCache = attempts;
+    _attemptsCacheLoadedFor = env.CACHE;
+}
+
+/**
  * Names that haven't been resolved into a relation ID yet. Drops
  * anything whose name (case-insensitive substring match, before the
  * first comma) appears in the merged HAND_CURATED + BULK_CITIES +
- * R2-stored set.
+ * R2-stored set, AND anything parked after MAX_DISCOVER_ATTEMPTS
+ * failed Photon resolutions (see DISCOVER_ATTEMPTS_R2_KEY).
  */
 export async function unresolvedCandidates(
     env: Env,
 ): Promise<string[]> {
     const known = await getPopularCities(env);
     const knownLower = new Set(known.map((c) => c.name.toLowerCase()));
+    const attempts = await loadDiscoverAttempts(env);
     return CANDIDATE_NAMES.filter((raw) => {
         const headLower = raw.split(",")[0].trim().toLowerCase();
-        return !knownLower.has(headLower);
+        if (knownLower.has(headLower)) return false;
+        if ((attempts[headLower] ?? 0) >= MAX_DISCOVER_ATTEMPTS) return false;
+        return true;
     });
 }
