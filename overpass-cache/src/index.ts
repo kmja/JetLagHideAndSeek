@@ -1064,15 +1064,26 @@ async function prewarmRelation(
  * caution; v203 doubles it and adds the same batching to refs+HSR.
  */
 const BOUNDARY_BATCH_SIZE = 10;
-/** References dropped to 3 in v206 after a 5-city × 11-family
- *  reference batch (55 sub-statements) still timed out at our 60 s
- *  worker abort on the v205 test. The server was actively computing
- *  but couldn't finish that many bbox-filtered amenity statements in
- *  time. 3 × 11 = 33 statements empirically resolves in ~20-40 s,
- *  comfortable in the budget. HSR stays at 5 because each city
- *  contributes only ONE statement (single filter), so 5 cities ≈ 5
- *  statements is fine. */
-const REFERENCE_BATCH_SIZE = 3;
+/**
+ * References don't batch usefully. The v204→v205→v206 test runs all
+ * timed out at the server's compute budget once a reference query
+ * unioned more than one city's per-family bbox sub-statements. Reason:
+ * Overpass's server-side bbox-filtered amenity finds are near-linear
+ * in statement count — 33 sub-statements (3 cities × 11 families)
+ * already exceeded the 60 s window. The batching savings we got for
+ * boundaries (one relation lookup is light) don't generalise.
+ *
+ * Setting this to 1 means "each city's reference query goes as a
+ * single per-city Overpass request" — same shape as the original
+ * client query, no splitting, no risk of partial timeout. We accept
+ * more per-IP request volume in exchange for actually getting
+ * results stored. The 4 s per-batch pacing + 6 s phase pause keeps
+ * the rate-limit pressure manageable.
+ *
+ * HSR stays at 5 — it uses one filter per city (vs 11), so a 5-city
+ * batch is only 5 statements and resolves comfortably.
+ */
+const REFERENCE_BATCH_SIZE = 1;
 const HSR_BATCH_SIZE = 5;
 /** Pause between cron phases (boundaries → references → HSR). The
  *  v205 test showed HSR fast-failing 9 s after references hit a 60 s

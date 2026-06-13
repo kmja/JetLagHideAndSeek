@@ -82,15 +82,15 @@ ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https
 # Cache freshness. Boundaries change rarely on OSM — anything
 # fresher than a month is fine to serve straight from R2.
 CACHE_TTL_DAYS = "30"
-# How many cities the cron pre-warms per run. Bumped 25 → 50 in
-# v203 once references + HSR also batch (10 cities per query, same
-# as boundaries). A 50-city run is:
-#   - 5 boundary batches  (50 / 10)
-#   - 5 references batches (50 / 10)
-#   - 5 HSR batches        (50 / 10)
-#   = 15 upstream requests total
-# vs the v202 setup of 50 cities ≈ 5 + 50 + 50 = 105 requests, or
-# the v201 per-city setup of 50 × 3 = 150. Way fewer hits on
-# overpass-api.de's rate limit, much more coverage per tick.
-# 50 × 24 = 1200 cities/day → ~1350-city list cycles every ~28 hours.
-PREWARM_BATCH_SIZE = "50"
+# How many cities the cron pre-warms per run. Dropped 50 → 25 in
+# v207 once we accepted that references can't usefully batch (each
+# city's reference query has to be its own Overpass request). A
+# 25-city tick now is:
+#   - 3 boundary batches (10 cities each, last one short)
+#   - 25 reference requests  ← the rate-limit bottleneck
+#   - 5 HSR batches (5 cities each)
+# = 33 upstream hits per tick, comfortably inside what overpass-
+# api.de tolerates from a shared cloud-egress IP with 4 s pacing
+# and 6 s phase pauses. 25 × 24 ticks/day = 600 cities/day → full
+# ~1350-city list cycles every ~56 hours.
+PREWARM_BATCH_SIZE = "25"
