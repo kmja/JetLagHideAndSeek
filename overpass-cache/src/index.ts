@@ -478,30 +478,36 @@ export default {
             }
         }
 
-        // Phase 3: HSR, batched.
-        const hsrChunks: CityEntry[][] = [];
-        for (let i = 0; i < refCities.length; i += HSR_BATCH_SIZE) {
-            hsrChunks.push(refCities.slice(i, i + HSR_BATCH_SIZE));
-        }
-        for (let i = 0; i < hsrChunks.length; i++) {
+        // Phase 3: HSR, per-COUNTRY (v214). HSR is an inter-city
+        // network, so one `area["ISO3166-1"=XX]` query per country is
+        // complete and gap-free where per-city bboxes overlapped and
+        // left gaps. There are only ~25 HSR countries total and they
+        // change slowly, so we refresh a small rotating slice each
+        // tick rather than all of them — the continuously-running
+        // laptop prewarmer covers the full set far faster anyway.
+        const hsrSlice = [...HSR_COUNTRIES]
+            .sort(() => Math.random() - 0.5)
+            .slice(0, HSR_COUNTRIES_PER_TICK);
+        for (let i = 0; i < hsrSlice.length; i++) {
+            const iso = hsrSlice[i];
             const slotOk = await waitForOverpassSlot(
-                `HSR ${i + 1}/${hsrChunks.length}`,
+                `HSR ${iso} (${i + 1}/${hsrSlice.length})`,
             );
             if (!slotOk) {
                 console.warn(
-                    `[prewarm] HSR batch ${i + 1} skipped — slot wait exceeded cap`,
+                    `[prewarm] HSR ${iso} skipped — slot wait exceeded cap`,
                 );
                 continue;
             }
             try {
-                const r = await prewarmHsrBatch(env, hsrChunks[i], ttlMs);
-                if (r.stored > 0) {
+                const r = await prewarmHsrCountry(env, iso, ttlMs);
+                if (r.status === "stored") {
                     console.log(
-                        `[prewarm] HSR batch ${i + 1}/${hsrChunks.length}: stored ${r.stored} city HSR-sets`,
+                        `[prewarm] HSR ${iso}: stored (${r.sizeBytes} B)`,
                     );
                 }
             } catch (e) {
-                console.warn(`[prewarm] HSR batch ${i + 1} threw:`, e);
+                console.warn(`[prewarm] HSR ${iso} threw:`, e);
             }
         }
     },
@@ -1183,7 +1189,6 @@ const BOUNDARY_BATCH_SIZE = 10;
  * batch is only 5 statements and resolves comfortably.
  */
 const REFERENCE_BATCH_SIZE = 1;
-const HSR_BATCH_SIZE = 5;
 /** Pause between cron phases (boundaries → references → HSR). The
  *  v205 test showed HSR fast-failing 9 s after references hit a 60 s
  *  timeout — the timeout left overpass-api.de's rate-limit window
@@ -1527,119 +1532,6 @@ out center;
     return out;
 }
 
-/**
- * Batched HSR prewarm. Same shape as references but with
- * `out geom` and the wider HSR_PAD_KM bbox. Splitting picks the
- * way's first geometry point as its representative.
- */
-async function prewarmHsrBatch(
-    env: Env,
-    cities: CityEntry[],
-    ttlMs: number,
-): Promise<{ stored: number; upstreamFailed: boolean }> {
-    const out = { stored: 0, upstreamFailed: false };
-    if (cities.length === 0) return out;
-
-    const stale: CityEntry[] = [];
-    const perCityKey = new Map<number, string>();
-    for (const city of cities) {
-        if (!city.extent) continue;
-        const singleQuery = buildHsrBboxQuery(city.extent);
-        const cacheKey = await r2KeyForQuery(singleQuery);
-        let r2Hit: R2ObjectBody | null = null;
-        try {
-            r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
-        } catch {
-            /* miss */
-        }
-        if (r2Hit) {
-            const cachedAt = parseInt(
-                r2Hit.customMetadata?.cachedAt ?? "0",
-                10,
-            );
-            if (cachedAt && Date.now() - cachedAt < ttlMs) continue;
-        }
-        stale.push(city);
-        perCityKey.set(city.relationId, cacheKey);
-    }
-    if (stale.length === 0) return out;
-
-    const subBlocks: string[] = [];
-    for (const city of stale) {
-        const bbox = paddedBboxCorners(city.extent!, HSR_PAD_KM);
-        const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
-        subBlocks.push(
-            `  way["railway"="rail"]["highspeed"="yes"](${bboxStr});`,
-        );
-    }
-    const batchQuery = `
-[out:json][timeout:180];
-(
-${subBlocks.join("\n")}
-);
-out geom;
-`;
-    const upstream = await upstreamSemaphore.run(() =>
-        fetchFromMirrorChainWithRetry(batchQuery),
-    );
-    if (!upstream) {
-        out.upstreamFailed = true;
-        return out;
-    }
-    let json: any;
-    try {
-        json = await upstream.json();
-    } catch {
-        out.upstreamFailed = true;
-        return out;
-    }
-    const elements = Array.isArray(json?.elements) ? json.elements : [];
-
-    const cityBboxes = stale.map((city) => ({
-        city,
-        bbox: paddedBboxCorners(city.extent!, HSR_PAD_KM),
-        bucket: [] as any[],
-    }));
-    for (const el of elements) {
-        const pt = elementRepresentativePoint(el);
-        if (!pt) continue;
-        for (const cb of cityBboxes) {
-            if (pointInBbox(pt.lat, pt.lon, cb.bbox)) cb.bucket.push(el);
-        }
-    }
-
-    for (const cb of cityBboxes) {
-        const cacheKey = perCityKey.get(cb.city.relationId);
-        if (!cacheKey) continue;
-        const wrapped = {
-            version: json.version ?? 0.6,
-            generator: json.generator ?? "jlhs-overpass-cache (batched)",
-            osm3s: json.osm3s,
-            elements: cb.bucket,
-        };
-        const body = JSON.stringify(wrapped);
-        try {
-            await env.CACHE.put(`overpass/${cacheKey}`, body, {
-                customMetadata: {
-                    cachedAt: String(Date.now()),
-                    sizeBytes: String(body.length),
-                    sourceName: cb.city.name,
-                    sourceRelationId: String(cb.city.relationId),
-                    prewarmed: "true",
-                    batched: "true",
-                    kind: "hsr",
-                },
-            });
-            out.stored++;
-        } catch (e) {
-            console.warn(
-                `R2 put failed during batched HSR prewarm of ${cb.city.name}:`,
-                e,
-            );
-        }
-    }
-    return out;
-}
 
 /* ─────────────────────── Reference prewarm ─────────────────────── */
 
@@ -1673,8 +1565,58 @@ const REFERENCE_FAMILY_FILTERS: { family: string; filter: string }[] = [
 ];
 const PAD_KM = 50;
 /** HSR uses a wider pad than the point references because the network
- *  is sparse. MUST match HSR_PAD_KM in src/maps/api/playAreaPrefetch.ts. */
+ *  is sparse. Legacy: only the diagnose endpoint still reports it;
+ *  the live HSR prewarm is per-country (see HSR_COUNTRIES). */
 const HSR_PAD_KM = 100;
+
+/** Countries whose national HSR network is prewarmed as a single
+ *  `area["ISO3166-1"="XX"]` query. MUST stay byte-identical (same
+ *  set, same uppercase alpha-2 codes) to `HSR_COUNTRIES` in
+ *  src/maps/api/playAreaPrefetch.ts and scripts/laptop-prewarm.mjs. */
+const HSR_COUNTRIES = [
+    "JP",
+    "CN",
+    "FR",
+    "DE",
+    "ES",
+    "IT",
+    "GB",
+    "BE",
+    "NL",
+    "CH",
+    "AT",
+    "KR",
+    "TW",
+    "TR",
+    "SA",
+    "MA",
+    "SE",
+    "US",
+    "RU",
+    "PL",
+    "DK",
+    "PT",
+    "UZ",
+    "NO",
+    "FI",
+];
+
+/** How many HSR countries to refresh per hourly cron tick. The full
+ *  set changes slowly and the continuous laptop prewarmer covers it
+ *  quickly, so the cron only needs to keep a rotating slice warm. */
+const HSR_COUNTRIES_PER_TICK = 4;
+
+/** Per-country HSR query. MUST stay byte-identical to
+ *  `buildHsrCountryQuery` in src/maps/api/playAreaPrefetch.ts and
+ *  scripts/laptop-prewarm.mjs — the R2 key hashes this exact string. */
+function buildHsrCountryQuery(iso: string): string {
+    return `
+[out:json][timeout:180];
+area["ISO3166-1"="${iso}"]["admin_level"="2"]->.hsrArea;
+way["railway"="rail"]["highspeed"="yes"](area.hsrArea);
+out geom;
+`;
+}
 
 /** Build the `[bbox:s,w,n,e]` filter from a Photon extent + pad,
  *  formatted EXACTLY as the client's `buildPaddedBboxFilter` does
@@ -1721,17 +1663,52 @@ out center;
 `;
 }
 
-/** HSR query — byte-identical to `buildHsrBboxQuery` in
- *  src/maps/api/playAreaPrefetch.ts. */
-function buildHsrBboxQuery(
-    extent: [number, number, number, number],
-): string {
-    const bboxFilter = buildBboxFilter(extent, HSR_PAD_KM);
-    return `
-[out:json][timeout:120]${bboxFilter};
-way["railway"="rail"]["highspeed"="yes"];
-out geom;
-`;
+/**
+ * Prewarm one country's HSR network into R2. Skips when a fresh
+ * entry already exists. Stored under the same key the client's
+ * `buildHsrQuery` → `buildHsrCountryQuery(iso)` computes, so a
+ * seeker playing in that country gets an instant cache hit.
+ */
+async function prewarmHsrCountry(
+    env: Env,
+    iso: string,
+    ttlMs: number,
+): Promise<{ status: string; ageMs?: number; sizeBytes?: number }> {
+    const query = buildHsrCountryQuery(iso);
+    const cacheKey = await r2KeyForQuery(query);
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn(`R2 get failed during HSR prewarm of ${iso}:`, e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const ageMs = Date.now() - cachedAt;
+        if (cachedAt && ageMs < ttlMs) {
+            return { status: "skipped-fresh", ageMs };
+        }
+    }
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(query),
+    );
+    if (!upstream) return { status: "upstream-failed" };
+    const body = await upstream.text();
+    try {
+        await env.CACHE.put(`overpass/${cacheKey}`, body, {
+            customMetadata: {
+                cachedAt: String(Date.now()),
+                sizeBytes: String(body.length),
+                sourceName: iso,
+                prewarmed: "true",
+                kind: "hsr",
+            },
+        });
+    } catch (e) {
+        console.warn(`R2 put failed during HSR prewarm of ${iso}:`, e);
+        return { status: "r2-put-failed" };
+    }
+    return { status: "stored", sizeBytes: body.length };
 }
 
 /**
@@ -1802,23 +1779,6 @@ async function prewarmReferencesForCity(
         city,
         ttlMs,
         "references",
-    );
-}
-
-/** Per-city high-speed-rail cache — `out geom` over the city's
- *  HSR-padded bbox. */
-async function prewarmHsrForCity(
-    env: Env,
-    city: CityEntry,
-    ttlMs: number,
-): Promise<{ status: string }> {
-    if (!city.extent) return { status: "skipped-no-extent" };
-    return prewarmQuery(
-        env,
-        buildHsrBboxQuery(city.extent),
-        city,
-        ttlMs,
-        "hsr",
     );
 }
 
@@ -2086,13 +2046,37 @@ async function handleAdminTriggerPrewarm(
 
     await new Promise((r) => setTimeout(r, PHASE_PAUSE_MS));
 
-    await runPhase(
-        "hsr",
-        HSR_BATCH_SIZE,
-        withExtent,
-        (chunk) => prewarmHsrBatch(env, chunk, ttlMs),
-        (r) => ({ stored: r.stored }),
-    );
+    // HSR is per-country (v214), not per-city: iterate the full
+    // HSR_COUNTRIES list so a manual trigger warms every national
+    // network, spaced by `delay` to stay polite.
+    for (let i = 0; i < HSR_COUNTRIES.length; i++) {
+        const iso = HSR_COUNTRIES[i];
+        const t0 = Date.now();
+        try {
+            const r = await prewarmHsrCountry(env, iso, ttlMs);
+            phaseResults.push({
+                phase: "hsr",
+                batch: i + 1,
+                outOf: HSR_COUNTRIES.length,
+                stored: r.status === "stored" ? 1 : 0,
+                upstreamFailed: r.status === "upstream-failed",
+                durationMs: Date.now() - t0,
+            });
+        } catch (err) {
+            phaseResults.push({
+                phase: "hsr",
+                batch: i + 1,
+                outOf: HSR_COUNTRIES.length,
+                stored: 0,
+                upstreamFailed: true,
+                durationMs: Date.now() - t0,
+            });
+            console.warn(`[trigger] hsr ${iso} threw:`, err);
+        }
+        if (i < HSR_COUNTRIES.length - 1 && delay > 0) {
+            await new Promise((r) => setTimeout(r, delay));
+        }
+    }
 
     const totalStored = phaseResults.reduce(
         (acc, p) => acc + p.stored,

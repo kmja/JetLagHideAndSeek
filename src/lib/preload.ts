@@ -9,7 +9,7 @@ import { activeJourneyProvider } from "@/lib/journey/registry";
 import type { JourneyStop } from "@/lib/journey/types";
 import { getOverpassData } from "@/maps/api/overpass";
 import {
-    buildHsrBboxQuery,
+    buildHsrQuery,
     getCachedCategory,
     prefetchCategory,
     prefetchFamiliesInOneQuery,
@@ -63,13 +63,16 @@ export function preloadDuringHidingPeriod(): void {
     );
     void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
 
-    // 2. High-speed rail — separate query (needs out:geom over the
-    //    play-area bbox, can't ride the out:center union). Same string
-    //    the cron warms and the on-tap lookup issues, so this primes
-    //    the exact R2 key both will hit. Small/medium only per
-    //    rulebook. Silent + best-effort.
+    // 2. High-speed rail — separate per-country query (needs
+    //    out:geom for the line geometry, can't ride the out:center
+    //    union). Resolves to `area["ISO3166-1"=…]` for the play
+    //    area's country — the same string the cron + laptop warm and
+    //    the on-tap lookup issues, so this primes the exact R2 key
+    //    all three hit. Null when the play area's country has no
+    //    prewarmed HSR. Small/medium only per rulebook. Silent +
+    //    best-effort.
     if (size !== "large") {
-        const hsrQuery = buildHsrBboxQuery();
+        const hsrQuery = buildHsrQuery();
         if (hsrQuery) {
             void getOverpassData(
                 hsrQuery,

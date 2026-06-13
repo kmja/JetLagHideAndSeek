@@ -322,27 +322,101 @@ out center;
  *  reference pad because the HSR network is sparse — the nearest
  *  line to a city often sits 50-100 km out. Beyond this the client's
  *  `fetchNearestHighspeedRail` falls back to its radius walk. The
- *  cron uses the SAME pad so the cached entry's key matches. */
+ *  cron uses the SAME pad so the cached entry's key matches.
+ *
+ *  NOTE: only used by the legacy per-city bbox HSR query, which
+ *  v214 replaced with the per-country query below. Retained because
+ *  the radius-walk fallback comment in NearestReferencePreview still
+ *  refers to "the play-area pad" conceptually; the constant itself
+ *  is no longer wired into a live query. */
 export const HSR_PAD_KM = 100;
 
 /**
- * The high-speed-rail query string — `way[railway=rail][highspeed=yes]`
- * over the play-area bbox + HSR pad, `out geom` (we need the line
- * geometry, not centroids, to find the nearest POINT ON the line).
- * Returns null when no play area / extent is available.
+ * Countries whose national HSR network we prewarm as a single
+ * `area["ISO3166-1"="XX"]` query. MUST stay byte-identical (same
+ * set, same uppercase ISO 3166-1 alpha-2 codes) to `HSR_COUNTRIES`
+ * in overpass-cache/src/index.ts and scripts/laptop-prewarm.mjs —
+ * the client only issues the country query when its play area's
+ * country is in this set, so a code we prewarm but the client
+ * doesn't recognise (or vice versa) is a wasted cache entry.
  *
- * MUST stay byte-identical to the cron's `buildHsrBboxQuery` in
- * overpass-cache/src/index.ts — same as every other shared query,
- * the R2 cache key is a hash of this string.
+ * Inclusive on purpose: a country with little or no `highspeed=yes`
+ * track (NO, FI, PT) still gets a cheap empty cached result, which
+ * the client treats as "no HSR here" and falls through to the
+ * radius walk — same outcome as not listing it, but without a slow
+ * live country query at game time.
  */
-export function buildHsrBboxQuery(): string | null {
-    const bboxFilter = buildPaddedBboxFilter(HSR_PAD_KM);
-    if (!bboxFilter) return null;
+export const HSR_COUNTRIES = new Set<string>([
+    "JP",
+    "CN",
+    "FR",
+    "DE",
+    "ES",
+    "IT",
+    "GB",
+    "BE",
+    "NL",
+    "CH",
+    "AT",
+    "KR",
+    "TW",
+    "TR",
+    "SA",
+    "MA",
+    "SE",
+    "US",
+    "RU",
+    "PL",
+    "DK",
+    "PT",
+    "UZ",
+    "NO",
+    "FI",
+]);
+
+/**
+ * The per-country high-speed-rail query string. Resolves all
+ * `highspeed=yes` railway lines inside the country's admin-level-2
+ * boundary area, `out geom` for the line geometry (we need the
+ * nearest POINT ON the line, not a centroid).
+ *
+ * Replaces the old per-city bbox query (v214): the HSR network is
+ * fundamentally inter-city, so per-city bboxes both overlapped
+ * (Tokyo/Osaka) and left gaps (lines between cities). One query per
+ * country is complete, gap-free, and — since there are only ~25 HSR
+ * countries — far fewer upstream hits than hundreds of city bboxes.
+ *
+ * MUST stay byte-identical to `buildHsrCountryQuery` in
+ * overpass-cache/src/index.ts and scripts/laptop-prewarm.mjs. The
+ * R2 cache key is a hash of this exact string.
+ */
+export function buildHsrCountryQuery(iso: string): string {
     return `
-[out:json][timeout:120]${bboxFilter};
-way["railway"="rail"]["highspeed"="yes"];
+[out:json][timeout:180];
+area["ISO3166-1"="${iso}"]["admin_level"="2"]->.hsrArea;
+way["railway"="rail"]["highspeed"="yes"](area.hsrArea);
 out geom;
 `;
+}
+
+/**
+ * The HSR query for the CURRENT play area: look up the play area's
+ * ISO country, and — if it's a country we prewarm — return that
+ * country's HSR query (an R2 cache hit). Returns null when the play
+ * area has no country, or its country isn't in `HSR_COUNTRIES` (so
+ * the caller falls back to the uncached radius walk rather than
+ * firing a slow live country query that nothing warmed).
+ *
+ * Photon hands us a lowercase alpha-2 `countrycode`; OSM's
+ * `ISO3166-1` tag is uppercase, so we normalise before matching and
+ * building the query.
+ */
+export function buildHsrQuery(): string | null {
+    const cc = mapGeoLocation.get()?.properties?.countrycode;
+    if (!cc) return null;
+    const iso = cc.toUpperCase();
+    if (!HSR_COUNTRIES.has(iso)) return null;
+    return buildHsrCountryQuery(iso);
 }
 
 /** Synchronous cache lookup. Returns null if nothing has been

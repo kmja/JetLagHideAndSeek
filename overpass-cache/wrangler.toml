@@ -88,9 +88,10 @@ CACHE_TTL_DAYS = "30"
 # 25-city tick now is:
 #   - 3 boundary batches (10 cities each, last one short)
 #   - 25 reference requests  ← the rate-limit bottleneck
-#   - 5 HSR batches (5 cities each)
-# = 33 upstream hits per tick, comfortably inside what overpass-
-# api.de tolerates from a shared cloud-egress IP with 4 s pacing
-# and 6 s phase pauses. 25 × 24 ticks/day = 600 cities/day → full
-# ~1350-city list cycles every ~56 hours.
+#   - 4 HSR country requests (rotating slice of HSR_COUNTRIES;
+#     v214 made HSR per-country, not per-city)
+# = ~32 upstream hits per tick, each gated by overpass-api.de's
+# /api/status slot signal (v213) instead of a blind delay. 25 × 24
+# ticks/day = 600 cities/day → full ~1350-city list cycles every
+# ~56 hours; the ~25 HSR countries refresh every ~6 ticks.
 PREWARM_BATCH_SIZE = "25"

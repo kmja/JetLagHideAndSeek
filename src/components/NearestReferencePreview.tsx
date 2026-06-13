@@ -10,7 +10,7 @@ import {
     getOverpassData,
 } from "@/maps/api/overpass";
 import {
-    buildHsrBboxQuery,
+    buildHsrQuery,
     type FamilyKey,
     nearestFromCache,
     prefetchCategory,
@@ -622,14 +622,17 @@ async function fetchNearestHighspeedRail(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
-    // First try the play-area bbox query — same string the cron warms
-    // and the preload primes, so it's usually an instant R2 / in-memory
-    // cache hit. Only when that returns nothing (no HSR within the
-    // play-area pad) do we fall through to the wider radius walk below.
-    const bboxQuery = buildHsrBboxQuery();
-    if (bboxQuery) {
+    // First try the play-area COUNTRY query — same string the cron +
+    // laptop warm and the preload primes, so it's usually an instant
+    // R2 / in-memory cache hit covering the whole national network.
+    // Only when that returns nothing (the play area's country has no
+    // HSR, or isn't a prewarmed country) do we fall through to the
+    // wider radius walk below — which also catches the cross-border
+    // case where the nearest line is in a neighbouring country.
+    const countryQuery = buildHsrQuery();
+    if (countryQuery) {
         const data = await getOverpassData(
-            bboxQuery,
+            countryQuery,
             undefined,
             CacheType.ZONE_CACHE,
         );
@@ -638,9 +641,9 @@ async function fetchNearestHighspeedRail(
         if (ref) return ref;
     }
 
-    // Radius-walk fallback: the nearest HSR line is outside the
-    // play-area bbox (sparse network, or the play area is far from any
-    // HSR). Not cacheable by the cron — the `around:` center is the
+    // Radius-walk fallback: the nearest HSR line is outside the play
+    // area's own country (cross-border), or the country isn't one we
+    // prewarm. Not cacheable by the cron — the `around:` center is the
     // seeker's exact position — but it's the rare far case.
     for (const km of [50, 200, 500, 1500]) {
         const query = `

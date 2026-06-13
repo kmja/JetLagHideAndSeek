@@ -16,19 +16,24 @@
  *     [--skip-boundaries] [--skip-references] [--skip-hsr] \
  *     [--delay-ms 2000]
  *
- * What it does (per city pulled from /admin/list-cities):
- *   1. Boundary  — `relation(N);out geom;` against overpass-api.de,
- *                  upload to R2 if 200 + non-empty.
- *   2. Refs      — same per-city unioned `nwr<filter>(bbox)` query
- *                  the worker would issue. Requires the city's
- *                  `extent` to be populated.
- *   3. HSR       — same per-city `way[railway=rail][highspeed=yes]`
- *                  query. Also requires extent.
+ * What it does:
+ *   Per city (from /admin/list-cities):
+ *     1. Boundary — `relation(N);out geom;` against overpass-api.de,
+ *                   upload to R2 if 200 + non-empty.
+ *     2. Refs     — per-city unioned `nwr<filter>(bbox)` query the
+ *                   worker would issue. Requires the city's `extent`
+ *                   (derived locally from the boundary geometry when
+ *                   the list doesn't carry one).
+ *   Once, after the city loop:
+ *     3. HSR      — one `area["ISO3166-1"=XX]; way[...highspeed=yes]`
+ *                   query per country in HSR_COUNTRIES. HSR is an
+ *                   inter-city network, so it's keyed by country, not
+ *                   city (v214).
  *
- * Idempotent + skippable: a city whose R2 entry is younger than its
- * computed cache key already exists isn't re-fetched (we do a HEAD
- * via a GET to /api/interpreter and check x-cache header). To force,
- * delete the entry in the R2 dashboard.
+ * Idempotent + skippable: every query asks the worker
+ * (/admin/check-fresh) whether R2 already holds a non-stale entry for
+ * that exact query string, and skips the upstream fetch if so. To
+ * force a refetch, delete the entry in the R2 dashboard.
  *
  * Pace: defaults to 2 s between Overpass queries; overpass-api.de's
  * usage policy says ≤1 req/s sustained from a single IP, so 2 s is
@@ -142,13 +147,45 @@ async function waitForSlot(label) {
 
 /* ------------------------- Query builders ------------------------- *
  * MUST stay byte-identical to the worker's equivalents (see
- * `singleRelationQuery`, `buildReferenceBboxQuery`, `buildHsrBboxQuery`
+ * `singleRelationQuery`, `buildReferenceBboxQuery`, `buildHsrCountryQuery`
  * in overpass-cache/src/index.ts) — the R2 cache key is a hash of
  * the query string. Any whitespace drift and the upload won't match
  * the client's lookup. */
 
 const PAD_KM_REF = 50; // mirrors PAD_KM in worker
-const PAD_KM_HSR = 100; // mirrors HSR_PAD_KM in worker
+
+// HSR is prewarmed per-COUNTRY (v214), not per-city. EXACT mirror of
+// HSR_COUNTRIES in overpass-cache/src/index.ts and
+// src/maps/api/playAreaPrefetch.ts — same set, same uppercase
+// alpha-2 codes — or the country query the client issues won't hit
+// what we upload here.
+const HSR_COUNTRIES = [
+    "JP",
+    "CN",
+    "FR",
+    "DE",
+    "ES",
+    "IT",
+    "GB",
+    "BE",
+    "NL",
+    "CH",
+    "AT",
+    "KR",
+    "TW",
+    "TR",
+    "SA",
+    "MA",
+    "SE",
+    "US",
+    "RU",
+    "PL",
+    "DK",
+    "PT",
+    "UZ",
+    "NO",
+    "FI",
+];
 
 // EXACT byte-for-byte mirror of REFERENCE_FAMILY_FILTERS in
 // overpass-cache/src/index.ts. Order matters because the R2 cache
@@ -200,9 +237,11 @@ function referenceQuery(extent) {
     return `\n[out:json][timeout:120]${bb};\n(\n${body}\n);\nout center;\n`;
 }
 
-function hsrQuery(extent) {
-    const bb = bboxFilter(extent, PAD_KM_HSR);
-    return `\n[out:json][timeout:120]${bb};\nway["railway"="rail"]["highspeed"="yes"];\nout geom;\n`;
+// Byte-identical to buildHsrCountryQuery in overpass-cache/src/index.ts
+// and src/maps/api/playAreaPrefetch.ts. The R2 key hashes this exact
+// string.
+function hsrCountryQuery(iso) {
+    return `\n[out:json][timeout:180];\narea["ISO3166-1"="${iso}"]["admin_level"="2"]->.hsrArea;\nway["railway"="rail"]["highspeed"="yes"](area.hsrArea);\nout geom;\n`;
 }
 
 /* ------------------------- Network helpers ------------------------ */
@@ -380,9 +419,10 @@ async function processCity(city) {
     // geometry, and the bbox of that geometry IS the extent. So we
     // fetch the boundary first, then derive a fallback extent locally
     // from its members[].geometry coords, then use that for the
-    // refs+HSR queries below. End result: every city the laptop
-    // script touches gets all three queries primed, not just the
-    // ~10 % that happen to have a server-side extent already.
+    // reference query below. End result: every city the laptop script
+    // touches gets boundary + refs primed, not just the ~10 % that
+    // happen to have a server-side extent already. (HSR is no longer
+    // per-city — see processHsrCountries.)
     let effectiveExtent = city.extent ?? null;
 
     if (DO_BOUNDARIES) {
@@ -444,8 +484,8 @@ async function processCity(city) {
         }
     }
 
-    if (!effectiveExtent && (DO_REFS || DO_HSR)) {
-        console.log(`  ⤼ no extent available — skipping refs/HSR`);
+    if (!effectiveExtent && DO_REFS) {
+        console.log(`  ⤼ no extent available — skipping refs`);
     }
 
     if (effectiveExtent && DO_REFS) {
@@ -476,34 +516,46 @@ async function processCity(city) {
         }
         }
     }
+    // HSR is no longer per-city — see processHsrCountries(), run once
+    // after the whole city loop.
+}
 
-    if (effectiveExtent && DO_HSR) {
-        const q = hsrQuery(effectiveExtent);
-        if (await isFresh(q, "hsr")) {
-            console.log(`  ⤼ hsr already cached — skipping`);
-            return;
+/**
+ * Prewarm every country's national HSR network (v214). HSR is an
+ * inter-city dataset, so one `area["ISO3166-1"=XX]` query per country
+ * is complete and gap-free where per-city bboxes overlapped + left
+ * gaps — and there are only ~25 HSR countries, far fewer upstream
+ * hits than per-city. Runs once per script invocation, after the
+ * city loop, gated by --skip-hsr.
+ */
+async function processHsrCountries() {
+    console.log(`=== HSR by country (${HSR_COUNTRIES.length} countries) ===`);
+    for (const iso of HSR_COUNTRIES) {
+        const q = hsrCountryQuery(iso);
+        if (await isFresh(q, `hsr ${iso}`)) {
+            console.log(`[HSR ${iso}] already cached — skipping`);
+            continue;
         }
-        const res = await fetchOverpass(q, "hsr");
-        if (res) {
-            const parsed = safeJSON(res.text);
-            if (parsed) {
-                try {
-                    const r = await uploadToWorker({
-                        query: q,
-                        body: parsed,
-                        kind: "hsr",
-                        sourceName: city.name,
-                        sourceRelationId: String(city.relationId),
-                    });
-                    console.log(
-                        `  ✓ hsr stored (${r.sizeBytes} B in ${res.ms} ms, ${parsed.elements?.length ?? 0} ways)`,
-                    );
-                } catch (e) {
-                    console.warn(`  ✗ hsr upload: ${e.message}`);
-                }
+        console.log(`[HSR ${iso}] fetching`);
+        const res = await fetchOverpass(q, `hsr ${iso}`);
+        if (!res) continue;
+        const parsed = safeJSON(res.text);
+        if (parsed) {
+            try {
+                const r = await uploadToWorker({
+                    query: q,
+                    body: parsed,
+                    kind: "hsr",
+                    sourceName: iso,
+                });
+                console.log(
+                    `  ✓ HSR ${iso} stored (${r.sizeBytes} B in ${res.ms} ms, ${parsed.elements?.length ?? 0} ways)`,
+                );
+            } catch (e) {
+                console.warn(`  ✗ HSR ${iso} upload: ${e.message}`);
             }
-            await sleep(DELAY_MS);
         }
+        await sleep(DELAY_MS);
     }
 }
 
@@ -580,6 +632,18 @@ async function main() {
             console.log(`--- progress: ${i + 1}/${todo.length} ---`);
         }
     }
+
+    // HSR runs once after the city loop — it's keyed by country, not
+    // city, so iterating it per-city would just re-fetch the same ~25
+    // national networks hundreds of times.
+    if (DO_HSR) {
+        try {
+            await processHsrCountries();
+        } catch (e) {
+            console.warn(`! HSR pass failed:`, e?.message ?? e);
+        }
+    }
+
     console.log("=== done ===");
 }
 
