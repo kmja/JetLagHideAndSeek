@@ -652,33 +652,94 @@ function synthesisMembersFromGeometry(geom: any, relationId: number) {
 }
 
 async function fetchFromMirrorChain(query: string): Promise<Response | null> {
-    // Tier 1: polygons.openstreetmap.fr fast-path for boundary
-    // queries. Pre-computed polygons return in 1-5 s and skip the
-    // public Overpass mirrors entirely for the heavy hitters.
+    // Boundary queries (relation(N);out geom;) RACE the three
+    // Overpass mirrors against polygons.openstreetmap.fr as tier-1
+    // co-equals — first success wins. Previous design (v196) put
+    // polygons.osm.fr in front of the mirrors, but it's a much
+    // smaller community service with stricter per-IP throttling than
+    // the public Overpass mirrors. Crucially, our worker's outbound
+    // IP is a shared Cloudflare edge IP — so polygons.osm.fr sees us
+    // as one of many noisy neighbours and rate-limits hard, while
+    // the bigger mirrors barely register the same shared-IP traffic.
     //
-    // The build-trigger ping is ONLY fired when the service returns
-    // its "None" sentinel ("polygon not yet computed"). Earlier code
-    // fired it on every null — which meant a single 429 from
-    // polygons.osm.fr became *two* requests (the failed read + a
-    // build trigger), turning rate-limit pressure into a cascade.
-    // Other failure modes (5xx, 429, network, parse) fall through
-    // silently to the mirror race below.
+    // The race gets us the BEST of both: polygons.osm.fr wins on
+    // cached relations (the common case for pre-built popular
+    // cities), and the mirrors take over when polygons.osm.fr is
+    // throttled or returns the "None" sentinel — the throughput
+    // user-quoted ~10K/day per IP that I was originally reasoning
+    // about. Non-boundary queries skip polygons.osm.fr entirely
+    // since it can't serve them.
     const boundaryRelationId = extractBoundaryRelationId(query);
+    const racers: Array<() => Promise<Response | null>> = [];
+    let polyFiredNone = false;
     if (boundaryRelationId !== null) {
-        const fast = await fetchBoundaryFromPolygonsOsmFr(boundaryRelationId);
-        if (fast.kind === "ok") return fast.response;
-        if (fast.kind === "none") {
-            try {
-                void fetch(
-                    `https://polygons.openstreetmap.fr/?id=${boundaryRelationId}`,
-                    { method: "GET" },
-                );
-            } catch {
-                /* noop */
-            }
+        racers.push(async () => {
+            const r = await fetchBoundaryFromPolygonsOsmFr(boundaryRelationId);
+            if (r.kind === "ok") return r.response;
+            if (r.kind === "none") polyFiredNone = true;
+            return null;
+        });
+    }
+    racers.push(() => fetchFromOverpassMirrors(query));
+
+    // First non-null wins. If both racers ultimately fail, we get null
+    // here and the outer retry kicks in.
+    const winner = await raceFirstSuccess(racers);
+    // Only fire the build-trigger ping when polygons.osm.fr returned
+    // the genuine "None" sentinel AND the mirrors also failed — in
+    // that case the polygon doesn't exist yet, so kicking a build is
+    // useful for the next cron tick. Skip on every other failure mode
+    // to avoid amplifying load on an already-throttled server.
+    if (!winner && polyFiredNone && boundaryRelationId !== null) {
+        try {
+            void fetch(
+                `https://polygons.openstreetmap.fr/?id=${boundaryRelationId}`,
+                { method: "GET" },
+            );
+        } catch {
+            /* noop */
         }
     }
+    return winner;
+}
 
+/** First-success-wins race over N racers. Each runs in parallel; the
+ *  first to resolve a non-null Response wins. Returns null only when
+ *  every racer resolved to null. */
+async function raceFirstSuccess(
+    racers: Array<() => Promise<Response | null>>,
+): Promise<Response | null> {
+    if (racers.length === 0) return null;
+    return new Promise((resolve) => {
+        let pending = racers.length;
+        let resolved = false;
+        for (const run of racers) {
+            run().then(
+                (r) => {
+                    if (resolved) return;
+                    if (r) {
+                        resolved = true;
+                        resolve(r);
+                        return;
+                    }
+                    if (--pending === 0) resolve(null);
+                },
+                () => {
+                    if (resolved) return;
+                    if (--pending === 0) resolve(null);
+                },
+            );
+        }
+    });
+}
+
+/** Race the three public Overpass mirrors. First 200-OK wins; if all
+ *  three fail or timeout, returns null. Carved out of the old
+ *  `fetchFromMirrorChain` so the boundary path can race it as one of
+ *  several tier-1 racers. */
+async function fetchFromOverpassMirrors(
+    query: string,
+): Promise<Response | null> {
     const encoded = encodeURIComponent(query);
     const controllers = OVERPASS_MIRRORS.map(() => new AbortController());
     const timers: ReturnType<typeof setTimeout>[] = controllers.map((c) =>
