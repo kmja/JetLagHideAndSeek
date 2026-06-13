@@ -1,3 +1,4 @@
+import { useStore } from "@nanostores/react";
 import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
@@ -34,6 +35,7 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
+import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Dialogs / overlays / wizards that only render once the user
@@ -113,6 +115,21 @@ export function SeekerPage() {
     // `lib/preload.ts`, kicked off by GameStartWatcher when the
     // hiding period starts. Nothing warms from this page anymore.
 
+    // Gate the main map on "user has actually finished setup" so it
+    // doesn't try to fetch tiles / a boundary for the default-Japan
+    // (or any leftover) mapGeoLocation while the wizard is still
+    // open. Before this, opening the seeker on a fresh device fired
+    // dozens of cartocdn tile requests behind the wizard dialog (all
+    // 503'd by the SW offline-fallback since the play area wasn't
+    // yet known), plus a polygons.osm.fr fetch for whatever
+    // mapGeoLocation was persisted from a previous session. The
+    // wizard itself owns previewing the chosen area
+    // (PlayAreaPreviewMap), so the main map has nothing useful to
+    // show until setup completes.
+    const $welcomeSeen = useStore(welcomeSeen);
+    const $setupCompleted = useStore(setupCompleted);
+    const showMap = $welcomeSeen && $setupCompleted;
+
     return (
         <div className="bg-jetlag">
             <SidebarProviderL>
@@ -167,10 +184,18 @@ export function SeekerPage() {
                                     card. Without it those errors
                                     bubble up to the root and the
                                     whole app blanks. */}
-                                <MapErrorBoundary>
-                                    <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
-                                </MapErrorBoundary>
-                                <MapLoadingOverlay />
+                                {showMap ? (
+                                    <MapErrorBoundary>
+                                        <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                    </MapErrorBoundary>
+                                ) : (
+                                    // Placeholder backdrop while the
+                                    // wizard runs. Matches the map's
+                                    // dark base so the dialog doesn't
+                                    // sit on a flash of bare body.
+                                    <div className="w-full h-screen bg-[#0f172a]" />
+                                )}
+                                {showMap && <MapLoadingOverlay />}
                             </div>
                         </div>
                     </main>
