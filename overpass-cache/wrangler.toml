@@ -82,11 +82,12 @@ ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https
 # Cache freshness. Boundaries change rarely on OSM — anything
 # fresher than a month is fine to serve straight from R2.
 CACHE_TTL_DAYS = "30"
-# How many cities the cron pre-warms per run. 60 fits inside a 30 s
-# scheduled-handler budget (polygons.osm.fr fast-path averages
-# 200-500 ms per relation when warm, ~1-3 s cold), so with the
-# hourly cron above the worker processes ~1440 cities/day — enough
-# to fully cycle the ~1350-entry candidate list each day. The
-# scheduled-handler discovery pass (5/run) auto-drains the
-# unresolved-names backlog over the same interval.
-PREWARM_BATCH_SIZE = "60"
+# How many cities the cron pre-warms per run. Dropped from 60 to 30
+# in v198: the original size assumed polygons.osm.fr could handle
+# burst load like the public Overpass mirrors, but it's a much
+# smaller community service with stricter per-IP throttling. 30
+# per hourly tick × 1500 ms pacing per city = ~45 s wall clock per
+# run, steady enough that the remote rate-limit window never fills.
+# Full ~1350-entry list cycles in ~2 days instead of 1, which is
+# fine — the goal is reliability, not speed.
+PREWARM_BATCH_SIZE = "30"

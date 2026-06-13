@@ -82,7 +82,22 @@ const CACHE_API_TTL_SECS = 24 * 60 * 60; // 24 h at the edge
  *  the unbounded herd, low enough to stay under the mirrors' per-IP
  *  rate limit, high enough that the queue drains well inside the
  *  ~30 s Workers wall-clock budget. */
-const MAX_CONCURRENT_UPSTREAM = 4;
+/** Max concurrent upstream fetches across the whole isolate.
+ *  Dropped from 4 to 2 in v198 — the primary upstream is now
+ *  polygons.openstreetmap.fr, a community service with much
+ *  stricter per-IP throttling than the public Overpass mirrors I
+ *  originally sized this for. With 2 concurrent, a batch of 60
+ *  paces at roughly 1 req/s, which polygons.osm.fr tolerates
+ *  steadily across an hour. 4 was bursting them into 429s. */
+const MAX_CONCURRENT_UPSTREAM = 2;
+/** Min wall-clock spacing between cities in the scheduled cron
+ *  loop. Sequential `await prewarmReferencesForCity(...)` calls
+ *  ran back-to-back with no gap, so even at concurrency-2 a 60-
+ *  city batch presented as a 30-second burst from polygons.osm.fr's
+ *  point of view. 1500 ms × 60 cities = 90 s of wall clock, well
+ *  inside the scheduled-handler budget, and steady enough that the
+ *  remote rate-limit window never fills. */
+const CRON_CITY_DELAY_MS = 1500;
 
 /** A minimal fair counting semaphore. `run` acquires a slot, awaits
  *  `fn`, then hands the slot directly to the next waiter (no
@@ -256,7 +271,8 @@ export default {
         const cities = await getPopularCities(env);
         const shuffled = [...cities].sort(() => Math.random() - 0.5);
         const picked = shuffled.slice(0, batch);
-        for (const city of picked) {
+        for (let i = 0; i < picked.length; i++) {
+            const city = picked[i];
             try {
                 // 1. Boundary polygon — the play-area outline. Always
                 //    done; this is the original cron job.
@@ -282,6 +298,14 @@ export default {
                 console.warn(
                     `Prewarm failed for ${city.name} (${city.relationId}):`,
                     e,
+                );
+            }
+            // Pace requests so polygons.osm.fr's per-IP throttle has
+            // room to recover between cities. Skip after the last one
+            // since there's nothing to space against.
+            if (i < picked.length - 1) {
+                await new Promise((r) =>
+                    setTimeout(r, CRON_CITY_DELAY_MS),
                 );
             }
         }
@@ -510,36 +534,65 @@ function extractBoundaryRelationId(query: string): number | null {
  * built — caller can `triggerPolygonsOsmFrBuild`), or unparseable
  * GeoJSON.
  */
+/**
+ * Outcome of a `fetchBoundaryFromPolygonsOsmFr` call:
+ *   - "ok"    — body is the wrapped Overpass-shaped response.
+ *   - "none"  — service returned the "polygon not yet built"
+ *               sentinel. Caller SHOULD fire a build-trigger ping
+ *               so the next attempt has it ready.
+ *   - "error" — anything else (5xx, 429, network, parse). Caller
+ *               MUST NOT fire a build trigger — doing so amplifies
+ *               load on an already-stressed server and turns a
+ *               single rate-limit failure into two.
+ */
+type PolyResult =
+    | { kind: "ok"; response: Response }
+    | { kind: "none" }
+    | { kind: "error" };
+
 async function fetchBoundaryFromPolygonsOsmFr(
     relationId: number,
-): Promise<Response | null> {
+): Promise<PolyResult> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
-    let text: string;
+    let resp: Response;
     try {
-        const resp = await fetch(
+        resp = await fetch(
             `${POLYGONS_OSM_FR_GET}?id=${relationId}&params=0`,
             { method: "GET", signal: ctrl.signal },
         );
-        if (!resp.ok) return null;
-        text = await resp.text();
     } catch {
-        return null;
+        return { kind: "error" };
     } finally {
         clearTimeout(timer);
     }
+    // 429 / 5xx — server is telling us to back off. Returning "none"
+    // here would trigger a build ping that piles on; "error" makes
+    // the caller skip the trigger.
+    if (!resp.ok) return { kind: "error" };
+    let text: string;
+    try {
+        text = await resp.text();
+    } catch {
+        return { kind: "error" };
+    }
     const trimmed = text.trim();
-    if (!trimmed || trimmed === "None" || trimmed.startsWith("<")) {
-        return null;
+    // Genuine "polygon not yet computed" — the build trigger IS the
+    // right remedy for this one.
+    if (trimmed === "None") return { kind: "none" };
+    // HTML error page or empty body — server's confused, don't pile
+    // on with a build trigger.
+    if (!trimmed || trimmed.startsWith("<") || trimmed.startsWith("!")) {
+        return { kind: "error" };
     }
     let geom: any;
     try {
         geom = JSON.parse(trimmed);
     } catch {
-        return null;
+        return { kind: "error" };
     }
     const normalized = normalizeToPolyGeometry(geom);
-    if (!normalized) return null;
+    if (!normalized) return { kind: "error" };
     const wrapped = {
         elements: [
             {
@@ -550,10 +603,13 @@ async function fetchBoundaryFromPolygonsOsmFr(
             },
         ],
     };
-    return new Response(JSON.stringify(wrapped), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-    });
+    return {
+        kind: "ok",
+        response: new Response(JSON.stringify(wrapped), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+        }),
+    };
 }
 
 function normalizeToPolyGeometry(raw: any): any | null {
@@ -597,24 +653,29 @@ function synthesisMembersFromGeometry(geom: any, relationId: number) {
 
 async function fetchFromMirrorChain(query: string): Promise<Response | null> {
     // Tier 1: polygons.openstreetmap.fr fast-path for boundary
-    // queries (~80 % of the cron's traffic). Pre-computed polygons
-    // return in 1-5 s without per-IP rate limits, so this skips the
-    // public mirrors entirely for the heavy hitters. Falls through to
-    // the mirror race below on null (cold relation, parse error,
-    // timeout) — exactly the same fallback shape the client uses.
+    // queries. Pre-computed polygons return in 1-5 s and skip the
+    // public Overpass mirrors entirely for the heavy hitters.
+    //
+    // The build-trigger ping is ONLY fired when the service returns
+    // its "None" sentinel ("polygon not yet computed"). Earlier code
+    // fired it on every null — which meant a single 429 from
+    // polygons.osm.fr became *two* requests (the failed read + a
+    // build trigger), turning rate-limit pressure into a cascade.
+    // Other failure modes (5xx, 429, network, parse) fall through
+    // silently to the mirror race below.
     const boundaryRelationId = extractBoundaryRelationId(query);
     if (boundaryRelationId !== null) {
         const fast = await fetchBoundaryFromPolygonsOsmFr(boundaryRelationId);
-        if (fast) return fast;
-        // Side effect: kick a build trigger so the NEXT cron tick has
-        // the polygon pre-computed. Best-effort, fire-and-forget.
-        try {
-            void fetch(
-                `https://polygons.openstreetmap.fr/?id=${boundaryRelationId}`,
-                { method: "GET" },
-            );
-        } catch {
-            /* noop */
+        if (fast.kind === "ok") return fast.response;
+        if (fast.kind === "none") {
+            try {
+                void fetch(
+                    `https://polygons.openstreetmap.fr/?id=${boundaryRelationId}`,
+                    { method: "GET" },
+                );
+            } catch {
+                /* noop */
+            }
         }
     }
 
