@@ -472,6 +472,9 @@ async function handleRequest(
         if (url.pathname === "/admin/store-prewarmed") {
             return handleAdminStorePrewarmed(request, env, cors);
         }
+        if (url.pathname === "/admin/check-fresh") {
+            return handleAdminCheckFresh(request, env, cors);
+        }
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
         }
@@ -2633,6 +2636,83 @@ async function handleAdminStorePrewarmed(
             sizeBytes: bodyStr.length,
             kind: payload.kind,
         },
+        200,
+        cors,
+    );
+}
+
+/**
+ * `POST /admin/check-fresh` — cheap "is this query already cached
+ * and fresh?" probe for the laptop prewarmer. Lets the script skip
+ * cities that the cron (or a previous laptop run) already populated,
+ * rather than re-fetching the same boundary/refs/HSR every run.
+ *
+ * Body: `{ "query": "<exact Overpass QL string>" }`
+ *
+ * Same SHA-256 hash + TTL math the public `/api/interpreter`
+ * handler uses, but we hit R2's `head()` instead of `get()` so we
+ * don't transfer the cached body just to ask whether it exists.
+ *
+ * Response:
+ *   { "fresh": true,  "ageMs": 12345678, "ttlMs": ... }   // good, skip
+ *   { "fresh": false, "ageMs": 99999999, "ttlMs": ... }   // stale
+ *   { "fresh": false, "exists": false }                    // never cached
+ */
+async function handleAdminCheckFresh(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: { query?: string };
+    try {
+        payload = await request.json();
+    } catch {
+        return jsonResponse({ error: "invalid JSON" }, 400, cors);
+    }
+    if (!payload?.query || typeof payload.query !== "string") {
+        return jsonResponse(
+            { error: "missing or non-string 'query'" },
+            400,
+            cors,
+        );
+    }
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+    const cacheKey = await r2KeyForQuery(payload.query);
+    let head: R2Object | null = null;
+    try {
+        head = await env.CACHE.head(`overpass/${cacheKey}`);
+    } catch (e) {
+        return jsonResponse(
+            {
+                error: "R2 head failed",
+                detail: e instanceof Error ? e.message : String(e),
+            },
+            500,
+            cors,
+        );
+    }
+    if (!head) {
+        return jsonResponse(
+            { fresh: false, exists: false, ttlMs, cacheKey },
+            200,
+            cors,
+        );
+    }
+    const cachedAt = parseInt(head.customMetadata?.cachedAt ?? "0", 10);
+    const ageMs = cachedAt ? Date.now() - cachedAt : Infinity;
+    const fresh = cachedAt > 0 && ageMs < ttlMs;
+    return jsonResponse(
+        { fresh, exists: true, ageMs, ttlMs, cacheKey },
         200,
         cors,
     );

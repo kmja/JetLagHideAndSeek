@@ -285,6 +285,50 @@ async function uploadToWorker({ query, body, kind, sourceName, sourceRelationId 
     return resp.json();
 }
 
+/** Fetch an already-cached Overpass response through the worker's
+ *  public endpoint. Used only after `isFresh` returns true, so this
+ *  always hits R2 (no upstream traffic). Returns parsed JSON or null
+ *  on any error. We need the parsed body to derive a fallback extent
+ *  from the boundary geometry for cities that ship without one. */
+async function fetchCached(query) {
+    try {
+        const resp = await fetch(`${WORKER}/api/interpreter`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": UA,
+            },
+            body: `data=${encodeURIComponent(query)}`,
+        });
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch {
+        return null;
+    }
+}
+
+/** Ask the worker whether a given Overpass query is already cached
+ *  and within TTL. Returns true if we should SKIP the upstream fetch.
+ *  Treats network errors as "not fresh" so a worker hiccup never
+ *  silently turns the run into a no-op. */
+async function isFresh(query) {
+    try {
+        const resp = await fetch(`${WORKER}/admin/check-fresh`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SECRET}`,
+            },
+            body: JSON.stringify({ query }),
+        });
+        if (!resp.ok) return false;
+        const data = await resp.json();
+        return Boolean(data?.fresh);
+    } catch {
+        return false;
+    }
+}
+
 async function listCities() {
     const resp = await fetch(`${WORKER}/admin/list-cities`, {
         headers: { Authorization: `Bearer ${SECRET}` },
@@ -316,6 +360,28 @@ async function processCity(city) {
 
     if (DO_BOUNDARIES) {
         const q = boundaryQuery(city.relationId);
+        if (await isFresh(q)) {
+            console.log(`  ⤼ boundary already cached — skipping`);
+            // Still pull the extent from the cached boundary so refs+HSR
+            // can run. We don't actually need to download it from
+            // upstream — we have it in R2 — but the laptop script
+            // doesn't have a direct R2 read path. Easiest: hit the
+            // public /api/interpreter, which serves from R2 in <10 ms
+            // on a hit, and parse the geometry locally. No upstream
+            // traffic, no rate-limit cost.
+            if (!effectiveExtent) {
+                const cached = await fetchCached(q);
+                if (cached) {
+                    const derived = extentFromBoundaryResponse(cached);
+                    if (derived) {
+                        effectiveExtent = derived;
+                        console.log(
+                            `  ⌐ extent derived from cached boundary geom`,
+                        );
+                    }
+                }
+            }
+        } else {
         const res = await fetchOverpass(q, "boundary");
         if (res) {
             const parsed = safeJSON(res.text);
@@ -348,6 +414,7 @@ async function processCity(city) {
             }
             await sleep(DELAY_MS);
         }
+        }
     }
 
     if (!effectiveExtent && (DO_REFS || DO_HSR)) {
@@ -356,6 +423,9 @@ async function processCity(city) {
 
     if (effectiveExtent && DO_REFS) {
         const q = referenceQuery(effectiveExtent);
+        if (await isFresh(q)) {
+            console.log(`  ⤼ refs already cached — skipping`);
+        } else {
         const res = await fetchOverpass(q, "references");
         if (res) {
             const parsed = safeJSON(res.text);
@@ -377,10 +447,15 @@ async function processCity(city) {
             }
             await sleep(DELAY_MS);
         }
+        }
     }
 
     if (effectiveExtent && DO_HSR) {
         const q = hsrQuery(effectiveExtent);
+        if (await isFresh(q)) {
+            console.log(`  ⤼ hsr already cached — skipping`);
+            return;
+        }
         const res = await fetchOverpass(q, "hsr");
         if (res) {
             const parsed = safeJSON(res.text);
