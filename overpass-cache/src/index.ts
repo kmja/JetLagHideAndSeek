@@ -352,6 +352,9 @@ export default {
             }
         }
 
+        // Cool-down before the next phase — see PHASE_PAUSE_MS.
+        await new Promise((r) => setTimeout(r, PHASE_PAUSE_MS));
+
         // Phase 2: REFERENCES, batched.
         // v203: each batched query unions one nwr sub-statement per
         // (city × family) tuple. Response gets split by bbox-
@@ -384,6 +387,10 @@ export default {
                 );
             }
         }
+
+        // Cool-down before HSR. References commonly burns the worst
+        // of the rate-limit window so HSR especially benefits.
+        await new Promise((r) => setTimeout(r, PHASE_PAUSE_MS));
 
         // Phase 3: HSR, batched.
         const hsrChunks: CityEntry[][] = [];
@@ -1057,14 +1064,23 @@ async function prewarmRelation(
  * caution; v203 doubles it and adds the same batching to refs+HSR.
  */
 const BOUNDARY_BATCH_SIZE = 10;
-/** References + HSR dropped to 5 in v205 once the v204 test showed
- *  a 10-city batch (110 unioned sub-statements) blew past the
- *  upstream timeout. At 5 cities × 11 families = 55 statements, the
- *  server reliably finishes inside our new 60 s budget. Boundary
- *  batches stay at 10 — they're single `relation(N)` statements,
- *  much lighter per-statement work than bbox-filtered amenity finds. */
-const REFERENCE_BATCH_SIZE = 5;
+/** References dropped to 3 in v206 after a 5-city × 11-family
+ *  reference batch (55 sub-statements) still timed out at our 60 s
+ *  worker abort on the v205 test. The server was actively computing
+ *  but couldn't finish that many bbox-filtered amenity statements in
+ *  time. 3 × 11 = 33 statements empirically resolves in ~20-40 s,
+ *  comfortable in the budget. HSR stays at 5 because each city
+ *  contributes only ONE statement (single filter), so 5 cities ≈ 5
+ *  statements is fine. */
+const REFERENCE_BATCH_SIZE = 3;
 const HSR_BATCH_SIZE = 5;
+/** Pause between cron phases (boundaries → references → HSR). The
+ *  v205 test showed HSR fast-failing 9 s after references hit a 60 s
+ *  timeout — the timeout left overpass-api.de's rate-limit window
+ *  hot from the still-running server-side compute, and HSR walked
+ *  straight into a 429. A short cooldown between phases gives the
+ *  per-IP throttle room to recover. */
+const PHASE_PAUSE_MS = 6000;
 
 /**
  * Result of a batched boundary prewarm. `stored` is the list of
@@ -1947,6 +1963,8 @@ async function handleAdminTriggerPrewarm(
         }),
     );
 
+    await new Promise((r) => setTimeout(r, PHASE_PAUSE_MS));
+
     const withExtent = picked.filter((c) => c.extent);
     await runPhase(
         "references",
@@ -1955,6 +1973,9 @@ async function handleAdminTriggerPrewarm(
         (chunk) => prewarmReferencesBatch(env, chunk, ttlMs),
         (r) => ({ stored: r.stored }),
     );
+
+    await new Promise((r) => setTimeout(r, PHASE_PAUSE_MS));
+
     await runPhase(
         "hsr",
         HSR_BATCH_SIZE,
