@@ -95,6 +95,93 @@ function ufetch(url: string, init: RequestInit = {}): Promise<Response> {
     return fetch(url, { ...init, headers });
 }
 
+/* ─────────────────── Overpass slot coordination ─────────────────── *
+ *
+ * overpass-api.de gives each client IP a small pool of concurrent
+ * execution slots. When they're all busy, your next query returns 429
+ * — and bursting through the 429 just keeps the slots pinned. The
+ * server's `/api/status` endpoint reports both how many slots are free
+ * right now AND when each in-flight slot will free up, so we can
+ * sleep exactly long enough to land on a free slot every time.
+ *
+ * Used by the cron only — live request paths can't afford to wait
+ * 25 s and need to fail fast so the seeker app falls back to its
+ * stale-R2 / error UI. Direct port of the same logic the laptop
+ * prewarmer uses (scripts/laptop-prewarm.mjs).
+ *
+ * Response shape (plain text):
+ *   Connected as: 1234567890
+ *   Rate limit: 6
+ *   2 slots available now.
+ *   Slot available after: …, in 10 seconds.
+ *   Slot available after: …, in 25 seconds.
+ */
+
+const OVERPASS_STATUS_URL = "https://overpass-api.de/api/status";
+
+/** If the next free slot is more than this many milliseconds away,
+ *  bail out of the wait and skip this batch — the cron tick will
+ *  catch the work next hour. Keeps a busy/wedged Overpass from
+ *  burning the entire cron wall budget on a single sleep. */
+const SLOT_WAIT_MAX_MS = 30_000;
+
+async function fetchOverpassStatus(): Promise<string | null> {
+    try {
+        const resp = await ufetch(OVERPASS_STATUS_URL, { method: "GET" });
+        if (!resp.ok) return null;
+        return await resp.text();
+    } catch {
+        return null;
+    }
+}
+
+/** Block until overpass-api.de reports at least one free execution
+ *  slot, or give up (return false) if the wait would be too long.
+ *  Returns true when a slot is available and we should proceed with
+ *  the upstream call. */
+async function waitForOverpassSlot(label: string): Promise<boolean> {
+    for (let attempt = 0; attempt < 6; attempt++) {
+        const status = await fetchOverpassStatus();
+        if (!status) {
+            // /api/status itself unreachable. Could be a transient
+            // blip or genuine downtime — sleep briefly and try once
+            // more; if still down, just let the caller proceed (they
+            // can race the upstream call and fail fast on their own).
+            if (attempt >= 1) {
+                console.warn(
+                    `[slot] ${label}: /api/status unreachable twice, proceeding blind`,
+                );
+                return true;
+            }
+            await new Promise((r) => setTimeout(r, 3000));
+            continue;
+        }
+        const m = status.match(/(\d+)\s+slots available now/i);
+        const available = m ? parseInt(m[1], 10) : 0;
+        if (available > 0) {
+            if (attempt > 0) {
+                console.log(`[slot] ${label}: slot free, proceeding`);
+            }
+            return true;
+        }
+        const waits = [...status.matchAll(/in\s+(\d+)\s+seconds?/gi)].map(
+            (m) => parseInt(m[1], 10),
+        );
+        const nextFreeSec = waits.length > 0 ? Math.min(...waits) : 15;
+        const waitMs = (nextFreeSec + 1) * 1000;
+        if (waitMs > SLOT_WAIT_MAX_MS) {
+            console.warn(
+                `[slot] ${label}: next slot ${nextFreeSec}s away (> ${SLOT_WAIT_MAX_MS / 1000}s cap), skipping`,
+            );
+            return false;
+        }
+        console.log(`[slot] ${label}: 0 free, waiting ${nextFreeSec + 1}s`);
+        await new Promise((r) => setTimeout(r, waitMs));
+    }
+    console.warn(`[slot] ${label}: gave up after 6 attempts`);
+    return false;
+}
+
 /* ───────────────── Upstream load control ─────────────────
  *
  * The cache only fills if upstream fetches succeed — and they were
@@ -129,15 +216,6 @@ function ufetch(url: string, init: RequestInit = {}): Promise<Response> {
  *  paces at roughly 1 req/s, which polygons.osm.fr tolerates
  *  steadily across an hour. 4 was bursting them into 429s. */
 const MAX_CONCURRENT_UPSTREAM = 2;
-/** Min wall-clock spacing between cities in the scheduled cron
- *  loop. Bumped to 4000 ms in v201 once the diagnose endpoint
- *  showed overpass-api.de is our ONLY functioning upstream — two
- *  of the three public mirrors hang forever and polygons.osm.fr is
- *  currently 500'ing. Pacing at 4 s/city × 10 cities/run = 40 s
- *  wall clock per hour and ~0.25 req/s averaged, which is
- *  comfortably inside overpass-api.de's published "be polite"
- *  guidance (sustained ≤ 1 req/s, lower from cloud egress IPs). */
-const CRON_CITY_DELAY_MS = 4000;
 
 /** A minimal fair counting semaphore. `run` acquires a slot, awaits
  *  `fn`, then hands the slot directly to the next waiter (no
@@ -222,6 +300,13 @@ export default {
      * each city gets refreshed roughly once every
      * `cities.length / batch` weeks. Random shuffle each run so
      * no city is permanently last in line.
+     *
+     * Pacing: previously a blind 4 s sleep between batches plus a
+     * 6 s pause between phases. v213 replaces that with slot
+     * coordination via overpass-api.de's /api/status — each batch
+     * waits exactly long enough to land on a free execution slot
+     * (often zero, occasionally 10-25 s). Faster when the server's
+     * idle, gentler when it's busy, never 429'd.
      */
     async scheduled(
         _event: ScheduledEvent,
@@ -326,6 +411,15 @@ export default {
             boundaryChunks.push(picked.slice(i, i + BOUNDARY_BATCH_SIZE));
         }
         for (let i = 0; i < boundaryChunks.length; i++) {
+            const slotOk = await waitForOverpassSlot(
+                `boundary ${i + 1}/${boundaryChunks.length}`,
+            );
+            if (!slotOk) {
+                console.warn(
+                    `[prewarm] boundary batch ${i + 1} skipped — slot wait exceeded cap`,
+                );
+                continue;
+            }
             try {
                 const r = await prewarmBoundariesBatch(
                     env,
@@ -345,15 +439,7 @@ export default {
             } catch (e) {
                 console.warn(`[prewarm] batch ${i + 1} threw:`, e);
             }
-            if (i < boundaryChunks.length - 1) {
-                await new Promise((r) =>
-                    setTimeout(r, CRON_CITY_DELAY_MS),
-                );
-            }
         }
-
-        // Cool-down before the next phase — see PHASE_PAUSE_MS.
-        await new Promise((r) => setTimeout(r, PHASE_PAUSE_MS));
 
         // Phase 2: REFERENCES, batched.
         // v203: each batched query unions one nwr sub-statement per
@@ -367,6 +453,15 @@ export default {
             refChunks.push(refCities.slice(i, i + REFERENCE_BATCH_SIZE));
         }
         for (let i = 0; i < refChunks.length; i++) {
+            const slotOk = await waitForOverpassSlot(
+                `refs ${i + 1}/${refChunks.length}`,
+            );
+            if (!slotOk) {
+                console.warn(
+                    `[prewarm] refs batch ${i + 1} skipped — slot wait exceeded cap`,
+                );
+                continue;
+            }
             try {
                 const r = await prewarmReferencesBatch(
                     env,
@@ -381,16 +476,7 @@ export default {
             } catch (e) {
                 console.warn(`[prewarm] refs batch ${i + 1} threw:`, e);
             }
-            if (i < refChunks.length - 1) {
-                await new Promise((r) =>
-                    setTimeout(r, CRON_CITY_DELAY_MS),
-                );
-            }
         }
-
-        // Cool-down before HSR. References commonly burns the worst
-        // of the rate-limit window so HSR especially benefits.
-        await new Promise((r) => setTimeout(r, PHASE_PAUSE_MS));
 
         // Phase 3: HSR, batched.
         const hsrChunks: CityEntry[][] = [];
@@ -398,6 +484,15 @@ export default {
             hsrChunks.push(refCities.slice(i, i + HSR_BATCH_SIZE));
         }
         for (let i = 0; i < hsrChunks.length; i++) {
+            const slotOk = await waitForOverpassSlot(
+                `HSR ${i + 1}/${hsrChunks.length}`,
+            );
+            if (!slotOk) {
+                console.warn(
+                    `[prewarm] HSR batch ${i + 1} skipped — slot wait exceeded cap`,
+                );
+                continue;
+            }
             try {
                 const r = await prewarmHsrBatch(env, hsrChunks[i], ttlMs);
                 if (r.stored > 0) {
@@ -407,11 +502,6 @@ export default {
                 }
             } catch (e) {
                 console.warn(`[prewarm] HSR batch ${i + 1} threw:`, e);
-            }
-            if (i < hsrChunks.length - 1) {
-                await new Promise((r) =>
-                    setTimeout(r, CRON_CITY_DELAY_MS),
-                );
             }
         }
     },
