@@ -42,8 +42,11 @@ import { cn } from "@/lib/utils";
  *     cheap.
  */
 
+// v225: was cartocdn voyager. Switched to OSM standard tiles so the
+// preloader actually preloads what the app now displays (cartocdn was
+// blocked by Firefox ETP and Adblock Plus EasyPrivacy for many users).
 const TILE_URL = (z: number, x: number, y: number) =>
-    `https://${["a", "b", "c", "d"][(x + y) % 4]}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
+    `https://${["a", "b", "c"][(x + y) % 3]}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
 
 const CONCURRENCY = 8;
 

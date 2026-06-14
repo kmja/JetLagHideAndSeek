@@ -104,29 +104,51 @@ interface MapProps {
     className?: string;
 }
 
+/**
+ * Each entry's tiles + attribution feed the maplibre raster source.
+ * v225 swapped all cartocdn URLs (light/dark/voyager) for OSM standard
+ * tiles after confirming both Firefox ETP and Adblock Plus EasyPrivacy
+ * block `basemaps.cartocdn.com` at request time — leaving tiles
+ * silently 503'd for any user with either active. The dark feel is
+ * reconstructed via per-layer raster-paint properties in the style
+ * builder below (`dark` and `voyager` keep dimming + desaturation;
+ * `light` shows the OSM tiles as-is).
+ *
+ * OSM standard tiles aren't on any tracking blocklist and have an
+ * explicit usage policy permitting low-volume apps like ours
+ * (https://operations.osmfoundation.org/policies/tiles/).
+ */
 const RASTER_SOURCES: Record<
     string,
-    { tiles: string[]; attribution: string }
+    {
+        tiles: string[];
+        attribution: string;
+        paint?: Record<string, number>;
+    }
 > = {
     light: {
         tiles: [
-            "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-            "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-            "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-            "https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
         ],
         attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     },
     dark: {
         tiles: [
-            "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-            "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-            "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-            "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
         ],
         attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        paint: {
+            "raster-brightness-min": 0,
+            "raster-brightness-max": 0.55,
+            "raster-saturation": -0.45,
+            "raster-contrast": 0.1,
+        },
     },
     osm: {
         tiles: [
@@ -139,13 +161,19 @@ const RASTER_SOURCES: Record<
     },
     voyager: {
         tiles: [
-            "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-            "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-            "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
-            "https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+            "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
         ],
         attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        // Slight softening so it feels different from plain light/osm
+        // — voyager was the "muted" carto style, mimic with a touch of
+        // desaturation rather than full dark mode.
+        paint: {
+            "raster-saturation": -0.2,
+            "raster-brightness-max": 0.85,
+        },
     },
 };
 
@@ -198,7 +226,11 @@ function buildStyle(
     // Resolve the base layer. Thunderforest needs an API key
     // — fall back to dark if the user hasn't entered one yet
     // (matches the Leaflet branch's behaviour).
-    let base: { tiles: string[]; attribution: string };
+    let base: {
+        tiles: string[];
+        attribution: string;
+        paint?: Record<string, number>;
+    };
     if (effectiveKey === "transport" || effectiveKey === "neighbourhood") {
         if (thunderforestKey) {
             base = thunderforestSource(effectiveKey, thunderforestKey);
@@ -217,9 +249,19 @@ function buildStyle(
             attribution: base.attribution,
         },
     };
-    const layers: maplibregl.LayerSpecification[] = [
-        { id: "base", type: "raster", source: "base" },
-    ];
+    // v225: pass through the per-source raster-paint config (only the
+    // OSM-backed sources carry it — Thunderforest tiles ship their own
+    // styling). Without this the dark/voyager keys would look identical
+    // to plain light since they all point at the same OSM URLs now.
+    const baseLayer: maplibregl.LayerSpecification = {
+        id: "base",
+        type: "raster",
+        source: "base",
+        ...(base.paint
+            ? { paint: base.paint as maplibregl.RasterLayerSpecification["paint"] }
+            : {}),
+    };
+    const layers: maplibregl.LayerSpecification[] = [baseLayer];
 
     if (withSatellite) {
         sources.satellite = {

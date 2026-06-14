@@ -8,6 +8,7 @@ import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { hidingZone } from "@/lib/hiderRole";
+import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
 import {
     participants,
     seekerLocations,
@@ -137,32 +138,7 @@ export function SeekerLivePositions() {
         [$hidingZone],
     );
 
-    const mapStyle = useMemo(
-        () => ({
-            version: 8 as const,
-            sources: {
-                carto: {
-                    type: "raster" as const,
-                    tiles: [
-                        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                        "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    ],
-                    tileSize: 256,
-                    attribution: "© OSM © CARTO",
-                },
-            },
-            layers: [
-                {
-                    id: "carto-base",
-                    type: "raster" as const,
-                    source: "carto",
-                },
-            ],
-        }),
-        [],
-    );
+    const mapStyle = useMemo(() => darkOsmMapLibreStyle(), []);
 
     if (rows.length === 0) return null;
 

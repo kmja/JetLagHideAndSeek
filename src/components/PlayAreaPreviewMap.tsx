@@ -4,6 +4,7 @@ import * as turf from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
+import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
 
@@ -188,32 +189,9 @@ export function PlayAreaPreviewMap({
         return 10;
     }, [bbox]);
 
-    const mapStyle = useMemo(
-        () => ({
-            version: 8 as const,
-            sources: {
-                carto: {
-                    type: "raster" as const,
-                    tiles: [
-                        "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                        "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                        "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                        "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                    ],
-                    tileSize: 256,
-                    attribution: "© OSM © CARTO",
-                },
-            },
-            layers: [
-                {
-                    id: "carto-base",
-                    type: "raster" as const,
-                    source: "carto",
-                },
-            ],
-        }),
-        [],
-    );
+    // v225: switched from cartocdn dark_all → OSM standard with
+    // raster-paint darkening. See darkOsmMapLibreStyle for why.
+    const mapStyle = useMemo(() => darkOsmMapLibreStyle(), []);
 
     if (!bbox) return null;
 

@@ -39,6 +39,7 @@ import {
 } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
+import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
 import { loadingProgress } from "@/lib/loadingProgress";
 import {
     currentGameCode,
@@ -836,28 +837,7 @@ function LobbyMiniMap({
                     attributionControl={false}
                     dragRotate={false}
                     pitchWithRotate={false}
-                    mapStyle={{
-                        version: 8,
-                        sources: {
-                            base: {
-                                type: "raster",
-                                tiles: [
-                                    "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                                    "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                                    "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                                    "https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-                                ],
-                                tileSize: 256,
-                            },
-                        },
-                        layers: [
-                            {
-                                id: "base",
-                                type: "raster",
-                                source: "base",
-                            },
-                        ],
-                    }}
+                    mapStyle={darkOsmMapLibreStyle()}
                 >
                     {boundary && (
                         <Source
