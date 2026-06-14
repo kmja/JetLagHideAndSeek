@@ -9,7 +9,6 @@ import {
     SheetContent,
     SheetHeader,
     SheetTitle,
-    SheetTrigger,
 } from "@/components/ui/sheet";
 import {
     applyUnitTemplates,
@@ -145,7 +144,10 @@ function plainText(md: string): string {
 }
 
 interface RulebookSheetProps {
-    /** What button or label the parent renders inside More / Settings. */
+    /** What button or label the parent renders inside More / Settings.
+     *  Rendered as a sibling (NOT as a SheetTrigger child) so opening
+     *  the rulebook from inside a host Sheet doesn't tear it down with
+     *  the host's portal — see `handleTriggerClick` for the rAF dance. */
     children: React.ReactNode;
     /** Caller can close its own surface (e.g. the More sheet) before
      *  the rulebook opens so they don't stack. */
@@ -242,16 +244,32 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
         }
     }, [open]);
 
+    // Open via a sibling trigger, NOT <SheetTrigger asChild>: when the
+    // rulebook button lives inside a host Sheet (the "More" sheet),
+    // synchronously calling onOpenChange on the host AND opening this
+    // sheet in the same React tick caused the host's portal to unmount
+    // mid-open and tear this one down with it. Calling onBeforeOpen
+    // first, then deferring setOpen(true) to the next frame, lets the
+    // host's close animation start before our portal mounts — so we
+    // mount under the body root cleanly rather than as a transient
+    // child of a dying portal subtree. Mirrors HowToPlaySheet's
+    // pattern, which had the same bug for the same reason.
+    const handleTriggerClick = () => {
+        if (onBeforeOpen) {
+            onBeforeOpen();
+            requestAnimationFrame(() => setOpen(true));
+        } else {
+            setOpen(true);
+        }
+    };
+
     return (
-        <Sheet
-            open={open}
-            onOpenChange={(o) => {
-                if (o && onBeforeOpen) onBeforeOpen();
-                setOpen(o);
-            }}
-        >
-            <SheetTrigger asChild>{children}</SheetTrigger>
-            <SheetContent
+        <>
+            <span onClick={handleTriggerClick} className="contents">
+                {children}
+            </span>
+            <Sheet open={open} onOpenChange={setOpen}>
+                <SheetContent
                 side="bottom"
                 className="h-[92vh] sm:h-[88vh] rounded-t-2xl flex flex-col p-0"
             >
@@ -352,8 +370,9 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                         </div>
                     </div>
                 </div>
-            </SheetContent>
-        </Sheet>
+                </SheetContent>
+            </Sheet>
+        </>
     );
 }
 
