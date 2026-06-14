@@ -64,6 +64,23 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CACHE"
 bucket_name = "jlhs-overpass-cache"
 
+# v233: PMTiles basemap bucket. Holds the Protomaps vector basemap
+# .pmtiles file(s) the seeker app reads via the `/tiles/*` Worker
+# route. PMTiles is a single binary file format read over HTTP
+# byte-range requests, so the route just proxies Range header + body
+# through to R2. Create + upload from this directory with:
+#
+#     wrangler r2 bucket create jlhs-tiles
+#     # then upload the file — see overpass-cache/scripts/upload-pmtiles.md
+#     wrangler r2 object put jlhs-tiles/basemap.pmtiles --file path/to/file.pmtiles
+#
+# Until a .pmtiles file is uploaded the route 404s and the client
+# falls back to Protomaps' public demo bucket (default URL in
+# src/lib/protomapsStyle.ts).
+[[r2_buckets]]
+binding = "TILES"
+bucket_name = "jlhs-tiles"
+
 # Hourly pre-warm. The candidate list grew to ~1350 cities and the
 # scheduled handler drains BOTH the discovery (Photon name → OSM
 # relation id) AND prewarm (relation → R2-cached boundary) queues

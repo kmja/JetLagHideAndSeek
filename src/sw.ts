@@ -122,6 +122,24 @@ registerRoute(
     }),
 );
 
+/* v233: Protomaps glyph fonts (label rendering). Small finite set,
+ * worth caching aggressively so offline / poor-signal sessions still
+ * render labels. The actual PMTiles file isn't cached here — it uses
+ * HTTP byte-range requests which Workbox's strategies don't preserve
+ * cleanly, and the worker emits `Cache-Control: immutable` so the
+ * browser's native HTTP cache handles it correctly. */
+registerRoute(
+    ({ url }: { url: URL }) =>
+        /^https:\/\/protomaps\.github\.io\/basemaps-assets\//i.test(url.href),
+    new CacheFirst({
+        cacheName: "protomaps-glyphs",
+        plugins: [
+            new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 365 * 24 * 60 * 60 }),
+            new CacheableResponsePlugin({ statuses: [0, 200] }),
+        ],
+    }),
+);
+
 /* ────────────────── Catch handler ────────────────── */
 
 /**

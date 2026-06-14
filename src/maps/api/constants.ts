@@ -29,6 +29,12 @@ const DEFAULT_OVERPASS_API = `${JLHS_WORKER_BASE}/api/interpreter`;
  *  a secret so the seeker app doesn't need to ask each player to
  *  sign up. See overpass-cache/src/journey.ts for the impl. */
 const DEFAULT_JOURNEY_API = `${JLHS_WORKER_BASE}/api/journey/arrivals`;
+/** v233: PMTiles vector basemap served by the same worker. The path
+ *  after /tiles/ names a file in the TILES R2 bucket; today there's
+ *  one ("basemap.pmtiles"), regional shards may come later. The
+ *  client (src/lib/protomapsStyle.ts) falls back to the Protomaps
+ *  public demo bucket while this URL still 404s. */
+const DEFAULT_PMTILES_URL = `${JLHS_WORKER_BASE}/tiles/basemap.pmtiles`;
 const DEFAULT_OVERPASS_API_FALLBACK =
     "https://overpass-api.de/api/interpreter";
 const DEFAULT_OVERPASS_API_TERTIARY =
@@ -59,6 +65,14 @@ export const JOURNEY_API = readOverride(
     "jlhs:journeyApi",
     DEFAULT_JOURNEY_API,
 );
+export const PMTILES_URL = readOverride(
+    "jlhs:pmtilesUrl",
+    DEFAULT_PMTILES_URL,
+);
+/** Public fallback PMTiles file (Protomaps' own demo bucket). Used by
+ *  src/lib/protomapsStyle.ts while no file is uploaded to our R2 yet. */
+export const PMTILES_URL_FALLBACK =
+    "https://demo-bucket.protomaps.com/v4.pmtiles";
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",
     DEFAULT_OVERPASS_API_TERTIARY,

@@ -577,6 +577,9 @@ async function handleRequest(
         if (url.pathname === "/admin/evict-discovered") {
             return handleAdminEvictDiscovered(request, env, cors);
         }
+        if (url.pathname.startsWith("/tiles/")) {
+            return handleTiles(request, env, cors);
+        }
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
         }
@@ -2470,6 +2473,134 @@ async function handleAdminDiscover(
     );
 }
 
+/**
+ * GET /tiles/<key>
+ *
+ * Range-request proxy for the Protomaps vector basemap PMTiles file
+ * stored in R2 (env.TILES). PMTiles is a single binary file format —
+ * its header at offset 0 indexes a directory of (z,x,y) → byte range
+ * lookups, so the maplibre pmtiles:// protocol issues HTTP byte-range
+ * reads to walk the directory and then pull just the visible tile
+ * bytes. The Worker only needs to translate that into an R2 ranged
+ * read, with caching and CORS.
+ *
+ * Why this lives in the existing overpass-cache Worker instead of a
+ * second project: same R2 account, same Workers Builds wiring, same
+ * deploy command. One worker, one deployment story, one set of
+ * secrets — and PMTiles serving is read-only so the failure modes
+ * don't cross over into the overpass cache code.
+ *
+ * Until a .pmtiles file is uploaded under env.TILES the route 404s
+ * and the client (src/lib/protomapsStyle.ts) silently falls back to
+ * Protomaps' public demo bucket — see PROTOMAPS_PMTILES_URL there.
+ */
+async function handleTiles(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "GET, HEAD" },
+        });
+    }
+    // Key is the part after `/tiles/`. e.g. /tiles/basemap.pmtiles →
+    // "basemap.pmtiles". Reject anything that tries to escape the
+    // bucket prefix via .. or absolute paths.
+    const url = new URL(request.url);
+    const key = url.pathname.slice("/tiles/".length);
+    if (!key || key.includes("..") || key.startsWith("/")) {
+        return new Response("Bad key", { status: 400, headers: cors });
+    }
+
+    // Parse the Range header (single range only — PMTiles never
+    // requests multi-range). Format: "bytes=START-END" or
+    // "bytes=START-" (open-ended). Missing header → return the whole
+    // object. Malformed header → 416.
+    const rangeHeader = request.headers.get("Range");
+    let range: R2Range | undefined;
+    let isPartial = false;
+    if (rangeHeader) {
+        const m = /^bytes=(\d+)-(\d+)?$/.exec(rangeHeader.trim());
+        if (!m) {
+            return new Response("Malformed Range", {
+                status: 416,
+                headers: { ...cors, "Accept-Ranges": "bytes" },
+            });
+        }
+        const offset = parseInt(m[1], 10);
+        const end = m[2] !== undefined ? parseInt(m[2], 10) : undefined;
+        const length = end !== undefined ? end - offset + 1 : undefined;
+        if (!Number.isFinite(offset) || offset < 0) {
+            return new Response("Bad Range", { status: 416, headers: cors });
+        }
+        range = length !== undefined ? { offset, length } : { offset };
+        isPartial = true;
+    }
+
+    let obj: R2ObjectBody | null;
+    try {
+        obj = await env.TILES.get(key, range ? { range } : undefined);
+    } catch (e) {
+        console.warn(`TILES get failed for ${key}:`, e);
+        return new Response("R2 unreachable", {
+            status: 503,
+            headers: cors,
+        });
+    }
+    if (!obj) {
+        return new Response("Not found", {
+            status: 404,
+            headers: cors,
+        });
+    }
+
+    // For partial responses we need to know the total size so we can
+    // emit a Content-Range header maplibre/pmtiles understands. R2
+    // returns total `size` on the metadata regardless of whether the
+    // body is partial.
+    const totalSize = obj.size;
+    const respHeaders: HeadersInit = {
+        ...cors,
+        "Content-Type": "application/octet-stream",
+        "Accept-Ranges": "bytes",
+        // R2 vector tiles are immutable for a given filename — we
+        // version by changing the filename rather than mutating in
+        // place — so we can cache aggressively.
+        "Cache-Control": "public, max-age=31536000, immutable",
+        ETag: obj.httpEtag,
+    };
+
+    if (isPartial) {
+        // We only ever construct {offset} or {offset,length} above,
+        // never the suffix-form — narrow accordingly so TS lets us
+        // read .offset off the union.
+        const r = range as { offset: number; length?: number };
+        const offset = r.offset;
+        // R2 may return fewer bytes than requested at EOF; trust the
+        // requested length when known, otherwise fall back to size.
+        const returned = r.length ?? totalSize - offset;
+        const endByte = offset + returned - 1;
+        (respHeaders as Record<string, string>)["Content-Length"] =
+            String(returned);
+        (respHeaders as Record<string, string>)["Content-Range"] =
+            `bytes ${offset}-${endByte}/${totalSize}`;
+        return new Response(request.method === "HEAD" ? null : obj.body, {
+            status: 206,
+            headers: respHeaders,
+        });
+    }
+
+    (respHeaders as Record<string, string>)["Content-Length"] = String(
+        totalSize,
+    );
+    return new Response(request.method === "HEAD" ? null : obj.body, {
+        status: 200,
+        headers: respHeaders,
+    });
+}
+
 async function handleAdminStatus(
     request: Request,
     env: Env,
@@ -3076,8 +3207,16 @@ function corsHeaders(request: Request, env: Env): HeadersInit {
     return {
         "Access-Control-Allow-Origin": allow,
         "Vary": "Origin",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS, HEAD",
+        // v233: added Range so the browser sends it (preflighted as a
+        // CORS-safelist header in some specs but stricter in others —
+        // make it explicit). Authorization stays for /admin/* routes.
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, Range",
+        // Expose the bits the maplibre pmtiles:// protocol reads off
+        // the response to walk the directory + verify partial reads.
+        // Without these the browser hides them from JS.
+        "Access-Control-Expose-Headers":
+            "Content-Length, Content-Range, ETag, Accept-Ranges",
         "Access-Control-Max-Age": "86400",
     };
 }

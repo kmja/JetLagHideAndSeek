@@ -10,6 +10,11 @@ export interface Env {
      *  journey-arrival cache. Two key namespaces: `overpass/<hash>`
      *  and `journey/<hash>`. */
     CACHE: R2Bucket;
+    /** R2 bucket holding the PMTiles vector basemap file(s) the
+     *  seeker app reads via /tiles/*. Single key today
+     *  (`basemap.pmtiles`); future regional shards will live under
+     *  `regional/<iso3166>.pmtiles`. */
+    TILES: R2Bucket;
     /** Comma-separated allow-list of Origins permitted for CORS.
      *  Wildcards (`*`) become per-segment globs — see
      *  `originMatches` in index.ts. */

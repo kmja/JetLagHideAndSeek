@@ -30,17 +30,46 @@ import { layers as protomapsLayers, namedFlavor } from "@protomaps/basemaps";
 import maplibregl from "maplibre-gl";
 import { Protocol } from "pmtiles";
 
+import { PMTILES_URL, PMTILES_URL_FALLBACK } from "@/maps/api/constants";
+
 /**
- * Public URL of the PMTiles file. Initial value uses Protomaps' own
- * public demo bucket so the pipeline works without our R2 being
- * populated. Commit 4 will swap to our self-hosted file once the
- * Worker route + R2 upload land. The demo file is the worldwide
- * basemap at z0-15 — large (~50 GB seek window) but PMTiles only
- * pulls the bytes for tiles actually viewed, so the visible cost
- * per session is tiny.
+ * Resolved PMTiles source URL. Tries our worker-hosted file first;
+ * if a HEAD request 404s (no file uploaded yet) we cache the
+ * Protomaps public demo bucket URL for the rest of this session and
+ * the maps render unmodified. The probe runs at most once per page
+ * load and is async so map mount isn't blocked.
+ *
+ * Why we don't just always use the demo bucket: that's a third-party
+ * dependency, doesn't scale to our intended traffic without their
+ * permission, and disappears if Protomaps ever takes it down. Why we
+ * don't fail closed when our R2 is empty: until the user uploads the
+ * file (see overpass-cache/scripts/upload-pmtiles.md) the worker
+ * /tiles/* route 404s, and we'd rather show a working basemap than
+ * a blank screen.
  */
-const PROTOMAPS_PMTILES_URL =
-    "https://demo-bucket.protomaps.com/v4.pmtiles";
+let resolvedPmtilesUrl: string = PMTILES_URL;
+let probeFired = false;
+
+function probePmtilesAvailability(): void {
+    if (probeFired) return;
+    probeFired = true;
+    fetch(PMTILES_URL, { method: "HEAD" })
+        .then((r) => {
+            if (!r.ok) {
+                console.warn(
+                    `[protomaps] worker tiles route returned ${r.status}; falling back to Protomaps public demo. Upload our PMTiles file to switch back.`,
+                );
+                resolvedPmtilesUrl = PMTILES_URL_FALLBACK;
+            }
+        })
+        .catch((e) => {
+            console.warn(
+                "[protomaps] worker tiles probe threw; falling back to demo bucket:",
+                e,
+            );
+            resolvedPmtilesUrl = PMTILES_URL_FALLBACK;
+        });
+}
 
 /** Source id used inside the maplibre style. The basemap layer
  *  definitions all reference this; keep it stable. */
@@ -78,6 +107,7 @@ export type ProtomapsTheme =
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
     registerPMTilesProtocol();
+    probePmtilesAvailability();
     const flavor = namedFlavor(theme);
     const layers = transitFirstLayers(
         protomapsLayers(PROTOMAPS_SOURCE_ID, flavor, { lang: "en" }),
@@ -93,7 +123,7 @@ export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
         sources: {
             [PROTOMAPS_SOURCE_ID]: {
                 type: "vector",
-                url: `pmtiles://${PROTOMAPS_PMTILES_URL}`,
+                url: `pmtiles://${resolvedPmtilesUrl}`,
                 attribution:
                     '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
             },
