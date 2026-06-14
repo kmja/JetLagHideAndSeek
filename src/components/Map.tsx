@@ -1211,6 +1211,24 @@ export function Map({ className }: MapProps) {
     const darkTiles =
         effectiveTileKey === "dark" || effectiveTileKey === "voyager";
 
+    // When the osm-dark-tiles filter is active AND satellite isn't (the
+    // filter is suppressed in satellite mode — see globals.css), every
+    // colour drawn by maplibre — including geojson overlay paint — gets
+    // run through invert+hue-rotate(180°)+brightness95+contrast90. For
+    // saturated overlays (red boundary, peach radar sweep) that
+    // approximately preserves the colour. But the elimination mask's
+    // near-black `#0f172a` inverts to a light bluish-grey, exactly the
+    // bug in the user's London screenshot — the eliminated region
+    // appeared lit instead of dimmed.
+    //
+    // Fix: pre-invert the mask source when the filter will be applied,
+    // so the on-screen result stays dark. Pure white as the source
+    // becomes ≈ #0d0d0d after the filter — close enough to slate
+    // visually, and dimensionally simple. Light mode / satellite mode
+    // both keep the original dark navy.
+    const filterActive = darkTiles && !$satellite;
+    const eliminationFillColor = filterActive ? "#ffffff" : "#0f172a";
+
     return (
         <div
             className={cn(
@@ -1438,7 +1456,7 @@ export function Map({ className }: MapProps) {
                             id="elimination-fill"
                             type="fill"
                             paint={{
-                                "fill-color": "#0f172a",
+                                "fill-color": eliminationFillColor,
                                 "fill-opacity": 0.45,
                             }}
                         />
@@ -1446,7 +1464,7 @@ export function Map({ className }: MapProps) {
                             id="elimination-outline"
                             type="line"
                             paint={{
-                                "line-color": "#0f172a",
+                                "line-color": eliminationFillColor,
                                 "line-width": 1,
                                 "line-opacity": 0.55,
                             }}
