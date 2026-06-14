@@ -16,3 +16,11 @@ interface ImportMetaEnv {
 interface ImportMeta {
     readonly env: ImportMetaEnv;
 }
+
+/** Vite's `?raw` query returns the file contents as a string. Lets
+ *  us import bundled markdown (e.g. the rulebook) without a runtime
+ *  fetch. */
+declare module "*?raw" {
+    const content: string;
+    export default content;
+}

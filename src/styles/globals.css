@@ -478,3 +478,96 @@ div.leaflet-control-attribution.leaflet-control {
 .no-scrollbar::-webkit-scrollbar {
     display: none;
 }
+
+/* Rulebook content — minimal typography for the RulebookSheet
+ * viewer. Avoids @tailwindcss/typography (not installed); the
+ * rulebook is the only place we render arbitrary markdown so
+ * one-shot styles here are simpler than adding a plugin. */
+.rulebook-content h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-top: 0.5rem;
+    margin-bottom: 1rem;
+}
+.rulebook-content h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid hsl(var(--border));
+    scroll-margin-top: 0.5rem;
+}
+.rulebook-content h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    scroll-margin-top: 0.5rem;
+}
+.rulebook-content h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: 1rem;
+    margin-bottom: 0.25rem;
+    color: hsl(var(--muted-foreground));
+    scroll-margin-top: 0.5rem;
+}
+.rulebook-content p {
+    margin: 0.5rem 0;
+    line-height: 1.55;
+}
+.rulebook-content ul,
+.rulebook-content ol {
+    margin: 0.5rem 0 0.75rem 1.5rem;
+    line-height: 1.55;
+}
+.rulebook-content ul { list-style: disc; }
+.rulebook-content ol { list-style: decimal; }
+.rulebook-content li { margin: 0.2rem 0; }
+.rulebook-content li > ul,
+.rulebook-content li > ol { margin-top: 0.2rem; }
+.rulebook-content strong { font-weight: 600; }
+.rulebook-content em { font-style: italic; }
+.rulebook-content a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.rulebook-content blockquote {
+    margin: 0.75rem 0;
+    padding: 0.5rem 0.75rem;
+    border-left: 2px solid hsl(var(--border));
+    color: hsl(var(--muted-foreground));
+    font-style: italic;
+    font-size: 0.9rem;
+}
+.rulebook-content hr {
+    margin: 2rem 0;
+    border: 0;
+    border-top: 1px solid hsl(var(--border));
+}
+.rulebook-content table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    margin: 0.75rem 0;
+}
+.rulebook-content th,
+.rulebook-content td {
+    padding: 0.5rem;
+    border: 1px solid hsl(var(--border));
+    text-align: left;
+    vertical-align: top;
+}
+.rulebook-content th {
+    background: hsl(var(--secondary));
+    font-weight: 600;
+}
+.rulebook-content code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: hsl(var(--secondary));
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+}

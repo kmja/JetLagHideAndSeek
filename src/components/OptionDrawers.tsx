@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { HelpCircle, Target } from "lucide-react";
+import { BookOpen, HelpCircle, Target } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -70,6 +70,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "./ui/sidebar-l";
+import { RulebookSheet } from "./RulebookSheet";
 import { UnitSelect } from "./UnitSelect";
 
 const HIDING_ZONE_URL_PARAM = "hz";
@@ -313,6 +314,19 @@ export const OptionDrawers = ({
                 >
                     <HelpCircle className="w-4 h-4" />
                 </Button>
+            )}
+            {!compact && (
+                <RulebookSheet>
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        className="shadow-md shrink-0"
+                        title="Open Hide + Seek rulebook (searchable)"
+                        aria-label="Open rulebook"
+                    >
+                        <BookOpen className="w-4 h-4" />
+                    </Button>
+                </RulebookSheet>
             )}
             {!compact && (
                 <Button

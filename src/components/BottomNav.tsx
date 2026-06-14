@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
     Bus,
+    BookOpen,
     Copy,
     Flag,
     Footprints,
@@ -86,6 +87,7 @@ import { NotificationsToggle } from "./NotificationsToggle";
 import { OfflineTilePreloader } from "./OfflineTilePreloader";
 import { OptionDrawers } from "./OptionDrawers";
 import { PWAInstallButton } from "./PWAInstallButton";
+import { RulebookSheet } from "./RulebookSheet";
 import { Button } from "./ui/button";
 
 /**
@@ -641,6 +643,24 @@ export const BottomNav = () => {
                             <HowToPlaySheet
                                 onBeforeOpen={() => setMoreOpen(false)}
                             />
+                            <RulebookSheet
+                                onBeforeOpen={() => setMoreOpen(false)}
+                            >
+                                <button
+                                    type="button"
+                                    className={cn(
+                                        "w-full flex items-center justify-center gap-2",
+                                        "px-3 py-2 rounded-md",
+                                        "bg-secondary hover:bg-accent border border-border",
+                                        "text-sm font-semibold text-foreground transition-colors",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    )}
+                                    title="Open the official Hide + Seek rulebook (searchable)"
+                                >
+                                    <BookOpen className="w-4 h-4" />
+                                    Rulebook
+                                </button>
+                            </RulebookSheet>
                             <button
                                 type="button"
                                 onClick={() => {
