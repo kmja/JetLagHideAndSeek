@@ -1,67 +1,43 @@
 /**
- * Global app-wide preference for unit system: metric, imperial, or auto.
+ * Global app-wide preference for unit system: metric or imperial.
  *
  * Used (initially) by the rulebook viewer to render distances in the
  * player's preferred system, but designed to be the single source of
  * truth for any future place we display human-readable distances.
  *
- * "auto" resolves to imperial for US/UK/Liberia/Myanmar locales and
- * metric everywhere else, using the browser's `navigator.language`
- * region tag. Falls back to metric on SSR or when the region tag is
- * unparseable — matches the rulebook's own default (the printed book
- * we transcribed is the metric edition).
+ * Default is "metric". A previous version tried to auto-detect from
+ * `navigator.language`, but English-as-a-second-language users in
+ * metric countries (`en-AU`, `en-IN`, plain `en` on a German phone)
+ * would have been routed to imperial — overshooting by an order of
+ * magnitude. A plain default + visible toggle is simpler and right.
  */
 import { persistentAtom } from "@nanostores/persistent";
 import { computed } from "nanostores";
 
 export type UnitSystem = "metric" | "imperial";
-export type UnitPreference = UnitSystem | "auto";
+/** Kept as a separate type so future surfaces can re-introduce an
+ *  "auto" or per-region default without breaking the existing
+ *  persisted-store contract. */
+export type UnitPreference = UnitSystem;
 
-/**
- * Persistent user preference. "auto" is the default so first-time
- * visitors see the right system for their region without configuring
- * anything; explicit picks ("metric" / "imperial") stick across
- * sessions.
- */
 export const unitPreference = persistentAtom<UnitPreference>(
     "unit-preference",
-    "auto",
-    { encode: (v) => v, decode: (v) => v as UnitPreference },
+    "metric",
+    {
+        encode: (v) => v,
+        // Migrate legacy "auto" (v216 default) — without this, the
+        // existing localStorage value would pass through and every
+        // distance-conversion check (`=== "metric"`) would silently
+        // fall through to the imperial branch. Reading anything other
+        // than the two valid systems collapses to "metric".
+        decode: (v) => (v === "imperial" ? "imperial" : "metric"),
+    },
 );
 
-/** Regions whose primary unit system is imperial. Anywhere not in
- *  this list resolves to metric. Kept small and explicit — the long
- *  tail of mixed-system regions (Canada, etc.) sees metric by
- *  default, which matches typical map app behaviour. */
-const IMPERIAL_REGIONS = new Set(["US", "LR", "MM"]);
-const IMPERIAL_ROAD_REGIONS = new Set(["US", "LR", "MM", "GB"]);
-
-/** Detect from the browser's locale. Distances on UK road signage
- *  and trail markers are still in miles/yards, so GB is treated as
- *  imperial for distance display even though the country is
- *  otherwise metric. */
-function detectFromLocale(): UnitSystem {
-    if (typeof navigator === "undefined") return "metric";
-    const tags = [navigator.language, ...(navigator.languages ?? [])];
-    for (const tag of tags) {
-        if (!tag) continue;
-        // Locale tags look like "en-US", "en_GB", or just "en". The
-        // region is the uppercase part after the first separator.
-        const m = tag.match(/[-_]([A-Za-z]{2,3})/);
-        if (!m) continue;
-        const region = m[1].toUpperCase();
-        if (IMPERIAL_ROAD_REGIONS.has(region)) return "imperial";
-        if (IMPERIAL_REGIONS.has(region)) return "imperial";
-        return "metric";
-    }
-    return "metric";
-}
-
-/** Resolved unit system — "auto" expanded to a concrete metric or
- *  imperial. Reactive: re-derives whenever the preference changes. */
-export const resolvedUnits = computed(unitPreference, (pref) =>
-    pref === "auto" ? detectFromLocale() : pref,
-);
+/** Resolved unit system. Currently a 1:1 of the preference, but kept
+ *  as a `computed` so callers don't have to change if we ever
+ *  re-introduce a derived layer (per-game override, etc.). */
+export const resolvedUnits = computed(unitPreference, (pref) => pref);
 
 /** Format meters in the chosen system. Picks the most readable
  *  imperial unit (ft for <1000 ft, mi otherwise). Metric stays as

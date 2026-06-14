@@ -408,7 +408,6 @@ function UnitsSelect({ value, onChange }: UnitsSelectProps) {
             aria-label="Units"
             title="Distance units used throughout the app"
         >
-            <option value="auto">Auto units</option>
             <option value="metric">Metric (m, km)</option>
             <option value="imperial">Imperial (ft, mi)</option>
         </select>
