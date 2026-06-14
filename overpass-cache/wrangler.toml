@@ -68,11 +68,11 @@ bucket_name = "jlhs-overpass-cache"
 # .pmtiles file(s) the seeker app reads via the `/tiles/*` Worker
 # route. PMTiles is a single binary file format read over HTTP
 # byte-range requests, so the route just proxies Range header + body
-# through to R2. Create + upload from this directory with:
-#
-#     wrangler r2 bucket create jlhs-tiles
-#     # then upload the file — see overpass-cache/scripts/upload-pmtiles.md
-#     wrangler r2 object put jlhs-tiles/basemap.pmtiles --file path/to/file.pmtiles
+# through to R2. Bucket `jlhs-tiles` exists on the account; upload a
+# .pmtiles file to it (key `basemap.pmtiles`) per
+# overpass-cache/scripts/upload-pmtiles.md. A 120 GB worldwide file
+# needs multipart upload (rclone / aws s3), NOT `wrangler r2 object
+# put` (single-PUT capped at 5 GB).
 #
 # Until a .pmtiles file is uploaded the route 404s and the client
 # falls back to Protomaps' public demo bucket (default URL in
