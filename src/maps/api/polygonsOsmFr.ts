@@ -23,6 +23,8 @@
  * downstream) with no changes upstream of cacheFetch.
  */
 
+import osmtogeojson from "osmtogeojson";
+
 import { OVERPASS_API } from "./constants";
 
 const POLYGONS_OSM_FR_API =
@@ -158,13 +160,18 @@ async function fetchPolygonViaCacheWorker(
     return polygonFromOverpassResponse(json, relationId);
 }
 
-/** Walk a `relation(N);out geom;` Overpass response and assemble its
- *  outer/inner member-way geometries into a GeoJSON polygon. Doesn't
- *  attempt full ring-stitching — most admin relations have member ways
- *  already arranged as closed rings; we just gather them and group by
- *  role. Inner rings become MultiPolygon holes; outer rings each
- *  become a Polygon (combined as MultiPolygon if more than one). On
- *  any structural problem returns null so the caller falls through. */
+/** Convert a `relation(N);out geom;` Overpass response into a GeoJSON
+ *  polygon/multipolygon. Delegates to `osmtogeojson`, which is the same
+ *  library the main map's boundary loader uses — it does proper outer-
+ *  ring stitching (segments → closed loops), handles inner rings (lakes
+ *  / enclaves), and is the reason the lobby gets a clean outline.
+ *
+ *  v224 fix: the previous bespoke walker treated each member-way as its
+ *  own closed ring, which produced "scattered fragments" for any admin
+ *  boundary whose outer ring is split across multiple ways (most of
+ *  them). Reusing osmtogeojson is roughly 30 lines instead of 50 and
+ *  guarantees parity with the lobby's renderer. Returns null on any
+ *  structural problem so the caller falls through. */
 function polygonFromOverpassResponse(
     json: unknown,
     relationId: number,
@@ -172,44 +179,41 @@ function polygonFromOverpassResponse(
     if (!json || typeof json !== "object") return null;
     const elements = (json as { elements?: unknown }).elements;
     if (!Array.isArray(elements)) return null;
-    const relation = elements.find(
-        (e: any) => e?.type === "relation" && e?.id === relationId,
-    ) as { members?: any[] } | undefined;
-    if (!relation || !Array.isArray(relation.members)) return null;
-    const outers: Array<Array<[number, number]>> = [];
-    const inners: Array<Array<[number, number]>> = [];
-    for (const m of relation.members) {
-        if (m?.type !== "way" || !Array.isArray(m.geometry)) continue;
-        const ring: Array<[number, number]> = [];
-        for (const p of m.geometry) {
-            if (typeof p?.lat === "number" && typeof p?.lon === "number") {
-                ring.push([p.lon, p.lat]);
+    // osmtogeojson keys its multipolygon assembly off the relation's
+    // `type=boundary` / `boundary=administrative` tags and each member
+    // way's `role=outer|inner`. The worker's batched-prewarm path
+    // doesn't always preserve tags on the relation element, so make
+    // sure they're present before handing off — without them
+    // osmtogeojson falls back to emitting raw LineStrings, exactly the
+    // pre-fix symptom.
+    const annotated = {
+        elements: (elements as any[]).map((el) => {
+            if (el?.type === "relation" && el?.id === relationId) {
+                return {
+                    ...el,
+                    tags: {
+                        type: "boundary",
+                        boundary: "administrative",
+                        ...(el.tags ?? {}),
+                    },
+                };
             }
-        }
-        if (ring.length < 3) continue;
-        // Close the ring if Overpass left it open.
-        const first = ring[0];
-        const last = ring[ring.length - 1];
-        if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
-        if (m.role === "inner") inners.push(ring);
-        else outers.push(ring);
-    }
-    if (outers.length === 0) return null;
-    // Each outer ring becomes a polygon; inner rings attach to whichever
-    // outer ring they sit inside. We don't do point-in-polygon
-    // assignment here because the wizard preview only needs an
-    // approximate outline — drop inner rings onto the first outer is a
-    // worst-case visual nit, not a correctness bug.
-    if (outers.length === 1) {
-        return {
-            type: "Polygon",
-            coordinates: [outers[0], ...inners],
-        };
-    }
-    return {
-        type: "MultiPolygon",
-        coordinates: outers.map((o, i) => (i === 0 ? [o, ...inners] : [o])),
+            return el;
+        }),
     };
+    let fc: GeoJSON.FeatureCollection;
+    try {
+        fc = osmtogeojson(annotated) as GeoJSON.FeatureCollection;
+    } catch {
+        return null;
+    }
+    for (const f of fc.features ?? []) {
+        const g = f.geometry;
+        if (g?.type === "Polygon" || g?.type === "MultiPolygon") {
+            return g as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+        }
+    }
+    return null;
 }
 
 interface AttemptResult {
