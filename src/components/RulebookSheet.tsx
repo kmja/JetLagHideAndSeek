@@ -2,14 +2,9 @@ import { useStore } from "@nanostores/react";
 import { marked } from "marked";
 import { BookOpen, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Drawer as VaulDrawer } from "vaul";
 
 import RULEBOOK_MD from "@/content/rulebook.md?raw";
-import {
-    Sheet,
-    SheetContent,
-    SheetHeader,
-    SheetTitle,
-} from "@/components/ui/sheet";
 import {
     applyUnitTemplates,
     resolvedUnits,
@@ -268,110 +263,132 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
             <span onClick={handleTriggerClick} className="contents">
                 {children}
             </span>
-            <Sheet open={open} onOpenChange={setOpen}>
-                <SheetContent
-                side="bottom"
-                className="h-[92vh] sm:h-[88vh] rounded-t-2xl flex flex-col p-0"
+            {/* v234: was a shadcn Sheet (Radix Dialog under the hood);
+                opening it from inside the More sheet caused the host's
+                focus-scope cleanup to steal focus back and dismiss the
+                rulebook on the very next frame. Vaul Drawer manages
+                portal + focus independently per drawer instance, so
+                stacking it on top of the More Sheet is fine — same
+                pattern HowToPlaySheet has used reliably. */}
+            <VaulDrawer.Root
+                open={open}
+                onOpenChange={setOpen}
+                shouldScaleBackground={false}
             >
-                <SheetHeader className="px-4 pt-4 pb-2 border-b border-border">
-                    <SheetTitle className="flex items-center gap-2">
-                        <BookOpen className="w-5 h-5" />
-                        Hide + Seek Rulebook
-                    </SheetTitle>
-                    <div className="mt-2 flex items-center gap-2">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input
-                                type="search"
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                placeholder="Search the rulebook…"
-                                className={cn(
-                                    "w-full pl-8 pr-8 py-1.5 rounded-md text-sm",
-                                    "bg-secondary border border-border",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                )}
-                            />
-                            {query && (
-                                <button
-                                    type="button"
-                                    aria-label="Clear search"
-                                    onClick={() => setQuery("")}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                >
-                                    <X className="w-4 h-4" />
-                                </button>
-                            )}
-                        </div>
-                        <UnitsSelect value={pref} onChange={unitPreference.set} />
-                    </div>
-                    {q && matchedIds && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                            {[...matchedIds].filter(
-                                (id) =>
-                                    !SECTIONS.find((s) => s.id === id)
-                                        ?.parentId ||
-                                    searchIndex
-                                        .find((e) => e.section.id === id)
-                                        ?.haystack.includes(q),
-                            ).length}{" "}
-                            section{matchedIds.size === 1 ? "" : "s"} match
-                        </p>
-                    )}
-                </SheetHeader>
-
-                <div className="flex-1 flex min-h-0">
-                    <nav
+                <VaulDrawer.Portal>
+                    <VaulDrawer.Overlay className="fixed inset-0 z-[1055] bg-black/60" />
+                    <VaulDrawer.Content
                         className={cn(
-                            "hidden md:block w-64 shrink-0 overflow-y-auto",
-                            "border-r border-border bg-secondary/30 py-3",
+                            "fixed inset-x-0 bottom-0 z-[1060]",
+                            "flex flex-col h-[92vh] sm:h-[88vh]",
+                            "rounded-t-2xl border bg-background text-foreground",
+                            "pb-[env(safe-area-inset-bottom)]",
                         )}
                     >
-                        <TableOfContents
-                            sections={tocSections}
-                            activeId={activeId}
-                            onJump={handleJump}
-                        />
-                    </nav>
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                        <div className="px-4 pt-3 pb-2 border-b border-border shrink-0">
+                            <VaulDrawer.Title className="flex items-center gap-2 text-lg font-semibold">
+                                <BookOpen className="w-5 h-5" />
+                                Hide + Seek Rulebook
+                            </VaulDrawer.Title>
+                            <VaulDrawer.Description className="sr-only">
+                                Searchable transcription of the official rulebook.
+                            </VaulDrawer.Description>
+                            <div className="mt-2 flex items-center gap-2">
+                                <div className="relative flex-1">
+                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                    <input
+                                        type="search"
+                                        value={query}
+                                        onChange={(e) => setQuery(e.target.value)}
+                                        placeholder="Search the rulebook…"
+                                        className={cn(
+                                            "w-full pl-8 pr-8 py-1.5 rounded-md text-sm",
+                                            "bg-secondary border border-border",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                        )}
+                                    />
+                                    {query && (
+                                        <button
+                                            type="button"
+                                            aria-label="Clear search"
+                                            onClick={() => setQuery("")}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                </div>
+                                <UnitsSelect value={pref} onChange={unitPreference.set} />
+                            </div>
+                            {q && matchedIds && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    {[...matchedIds].filter(
+                                        (id) =>
+                                            !SECTIONS.find((s) => s.id === id)
+                                                ?.parentId ||
+                                            searchIndex
+                                                .find((e) => e.section.id === id)
+                                                ?.haystack.includes(q),
+                                    ).length}{" "}
+                                    section{matchedIds.size === 1 ? "" : "s"} match
+                                </p>
+                            )}
+                        </div>
 
-                    <div className="flex-1 flex flex-col min-w-0">
-                        {/* Mobile-only TOC at the top of the scroller —
-                            collapsible details so it doesn't push the
-                            content way down. */}
-                        <details className="md:hidden border-b border-border bg-secondary/30 px-4 py-2 text-sm">
-                            <summary className="font-semibold cursor-pointer">
-                                Contents
-                            </summary>
-                            <div className="mt-2">
+                        <div className="flex-1 flex min-h-0">
+                            <nav
+                                className={cn(
+                                    "hidden md:block w-64 shrink-0 overflow-y-auto",
+                                    "border-r border-border bg-secondary/30 py-3",
+                                )}
+                            >
                                 <TableOfContents
                                     sections={tocSections}
                                     activeId={activeId}
-                                    onJump={(id) => {
-                                        handleJump(id);
-                                        // Collapse after pick on mobile.
-                                        (
-                                            scrollRef.current?.closest(
-                                                "details",
-                                            ) as HTMLDetailsElement | null
-                                        )?.removeAttribute("open");
-                                    }}
+                                    onJump={handleJump}
                                 />
-                            </div>
-                        </details>
+                            </nav>
 
-                        <div
-                            ref={scrollRef}
-                            className="flex-1 overflow-y-auto px-4 sm:px-6 py-4"
-                        >
-                            <article
-                                className="rulebook-content max-w-3xl mx-auto"
-                                dangerouslySetInnerHTML={{ __html: rendered }}
-                            />
+                            <div className="flex-1 flex flex-col min-w-0">
+                                {/* Mobile-only TOC at the top of the scroller —
+                                    collapsible details so it doesn't push the
+                                    content way down. */}
+                                <details className="md:hidden border-b border-border bg-secondary/30 px-4 py-2 text-sm">
+                                    <summary className="font-semibold cursor-pointer">
+                                        Contents
+                                    </summary>
+                                    <div className="mt-2">
+                                        <TableOfContents
+                                            sections={tocSections}
+                                            activeId={activeId}
+                                            onJump={(id) => {
+                                                handleJump(id);
+                                                // Collapse after pick on mobile.
+                                                (
+                                                    scrollRef.current?.closest(
+                                                        "details",
+                                                    ) as HTMLDetailsElement | null
+                                                )?.removeAttribute("open");
+                                            }}
+                                        />
+                                    </div>
+                                </details>
+
+                                <div
+                                    ref={scrollRef}
+                                    className="flex-1 overflow-y-auto px-4 sm:px-6 py-4"
+                                >
+                                    <article
+                                        className="rulebook-content max-w-3xl mx-auto"
+                                        dangerouslySetInnerHTML={{ __html: rendered }}
+                                    />
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-                </SheetContent>
-            </Sheet>
+                    </VaulDrawer.Content>
+                </VaulDrawer.Portal>
+            </VaulDrawer.Root>
         </>
     );
 }
