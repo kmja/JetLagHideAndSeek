@@ -50,6 +50,13 @@ export function preloadDuringHidingPeriod(): void {
     if (!playArea.get()) return;
     const size = gameSize.get();
 
+    // Diagnostic (v220) for the cache-pill stall.
+    console.warn("[cache-pill] preloadDuringHidingPeriod fired", {
+        playArea: playArea.get(),
+        size,
+        at: new Date().toISOString(),
+    });
+
     // 1. Question references — one combined query for the canonical
     //    family set, which BOTH this preload and the worker cron
     //    use. They produce the same query string → same R2 key →

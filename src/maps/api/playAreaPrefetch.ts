@@ -614,6 +614,19 @@ function bumpStatus(args: {
 }): void {
     const sig = playAreaSignature();
     const current = prefetchStatus.get();
+    // Diagnostic (v220): the cache pill drops from "0/30" → "0/225"
+    // → "0/0" mid-game. Hypothesis is that this signature flips
+    // during the game (e.g. multiplayer sync rehydrating the play
+    // area with a slightly-different feature object), causing every
+    // bumpStatus call to start over. Log every reset so we can
+    // confirm and see exactly what changed.
+    if (current.signature && current.signature !== sig) {
+        const lost = Object.keys(current.perFamily).length;
+        console.warn(
+            `[cache-pill] signature changed — perFamily reset (lost ${lost} entries)`,
+            { from: current.signature, to: sig, args },
+        );
+    }
     const next: PrefetchStatus =
         current.signature === sig
             ? { ...current, perFamily: { ...current.perFamily } }

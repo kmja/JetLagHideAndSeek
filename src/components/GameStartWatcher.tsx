@@ -41,6 +41,12 @@ export function GameStartWatcher() {
         const wasNull = prev.current === null;
         const isSet = $endsAt !== null;
         prev.current = $endsAt;
+        // Diagnostic (v220) for the cache-pill stall: log every
+        // hiding-period transition so we can correlate with the
+        // signature-reset warnings.
+        console.warn(
+            `[cache-pill] hiding-period transition: wasNull=${wasNull} isSet=${isSet} endsAt=${$endsAt}`,
+        );
         if (!wasNull || !isSet) return;
         // Only fire if the celebration isn't already open (we don't
         // want to re-pop on a dismiss-then-mount cycle).
