@@ -4,6 +4,7 @@ import {
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     playArea,
+    preloadChoices,
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
 import type { JourneyStop } from "@/lib/journey/types";
@@ -48,36 +49,71 @@ import { CacheType } from "@/maps/api/types";
  */
 export function preloadDuringHidingPeriod(): void {
     if (!playArea.get()) return;
-    const size = gameSize.get();
+    const choices = preloadChoices.get();
 
     // Diagnostic (v220) for the cache-pill stall.
     console.warn("[cache-pill] preloadDuringHidingPeriod fired", {
         playArea: playArea.get(),
-        size,
+        size: gameSize.get(),
+        choices,
         at: new Date().toISOString(),
     });
 
-    // 1. Question references — one combined query for the canonical
-    //    family set, which BOTH this preload and the worker cron
-    //    use. They produce the same query string → same R2 key →
-    //    if the cron warmed this city, the client gets a cache hit
-    //    here and skips the Overpass round-trip entirely. The list
-    //    is the same regardless of game size; a large game can't
-    //    ask the -full subtypes but warming them anyway is one
-    //    extra response field, not a separate request.
+    // v236: each bucket is gated on the user's preloadChoices. A
+    // disabled bucket is silently skipped — the lazy on-tap fetch
+    // still covers it later, and the user can also flip the toggle
+    // back on from Settings mid-game to trigger `runPreloadForBucket`
+    // explicitly.
+    if (choices.references) runReferencesPreload();
+    if (choices.transit) runTransitPreload();
+    // The "map" bucket is the play-area boundary + tiles — boundary
+    // is already done by Map.tsx at play-area-pick time. Tile preload
+    // (OfflineTilePreloader) is user-driven from the More menu and
+    // isn't kicked off here, so there's nothing extra to fire for the
+    // `map` bucket during the hiding period; the toggle stays for
+    // symmetry + so users can opt out of the (separate) tile preload
+    // when it's offered.
+}
+
+/**
+ * Trigger a single bucket on demand — e.g. from the Settings UI when
+ * the user un-deferred a bucket mid-game. Safe to call any time;
+ * each bucket internally dedupes against in-flight + cached state.
+ */
+export function runPreloadForBucket(
+    bucket: "map" | "references" | "transit",
+): void {
+    if (!playArea.get()) return;
+    if (bucket === "references") runReferencesPreload();
+    else if (bucket === "transit") runTransitPreload();
+    // `map` is a no-op for the same reason as above — the boundary is
+    // owned by Map.tsx and the offline tile preloader is its own UI.
+}
+
+function runReferencesPreload(): void {
+    // Question references — one combined query for the canonical
+    // family set, which BOTH this preload and the worker cron use.
+    // They produce the same query string → same R2 key → if the cron
+    // warmed this city, the client gets a cache hit here and skips
+    // the Overpass round-trip entirely. The list is the same
+    // regardless of game size; a large game can't ask the -full
+    // subtypes but warming them anyway is one extra response field,
+    // not a separate request.
     console.debug(
         `[preload] warming ${STANDARD_REFERENCE_FAMILIES.length} reference families in one query`,
     );
     void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
+}
 
-    // 2. High-speed rail — separate per-country query (needs
-    //    out:geom for the line geometry, can't ride the out:center
-    //    union). Resolves to `area["ISO3166-1"=…]` for the play
-    //    area's country — the same string the cron + laptop warm and
-    //    the on-tap lookup issues, so this primes the exact R2 key
-    //    all three hit. Null when the play area's country has no
-    //    prewarmed HSR. Small/medium only per rulebook. Silent +
-    //    best-effort.
+function runTransitPreload(): void {
+    const size = gameSize.get();
+    // High-speed rail — separate per-country query (needs out:geom
+    // for the line geometry, can't ride the out:center union).
+    // Resolves to `area["ISO3166-1"=…]` for the play area's country —
+    // the same string the cron + laptop warm and the on-tap lookup
+    // issues, so this primes the exact R2 key all three hit. Null
+    // when the play area's country has no prewarmed HSR. Small/medium
+    // only per rulebook. Silent + best-effort.
     if (size !== "large") {
         const hsrQuery = buildHsrQuery();
         if (hsrQuery) {
@@ -93,15 +129,15 @@ export function preloadDuringHidingPeriod(): void {
         }
     }
 
-    // 3. Transit arrival times — the Travel Times overlay. We can't
-    //    fire this synchronously because it needs (a) the station
-    //    list, which gets warmed by step 1, and (b) the seeker's
-    //    GPS, which GameStartWatcher captures asynchronously a
-    //    fraction of a second after this function runs. So spin up
-    //    a one-shot scheduler that polls both inputs and fires the
-    //    fetch the moment they're both ready. Caches in the journey
-    //    worker's R2 (per-stop, per 5-min depart bucket) so toggling
-    //    the overlay on mid-game is instant.
+    // Transit arrival times — the Travel Times overlay. We can't fire
+    // this synchronously because it needs (a) the station list, which
+    // gets warmed by the references bucket, and (b) the seeker's GPS,
+    // which GameStartWatcher captures asynchronously a fraction of a
+    // second after this function runs. So spin up a one-shot
+    // scheduler that polls both inputs and fires the fetch the moment
+    // they're both ready. Caches in the journey worker's R2 (per-stop,
+    // per 5-min depart bucket) so toggling the overlay on mid-game is
+    // instant.
     scheduleTransitPreload();
 }
 

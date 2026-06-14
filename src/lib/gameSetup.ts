@@ -123,6 +123,65 @@ export const showSubwayRoutes = persistentAtom<boolean>(
 );
 
 /**
+ * What to preload during the hiding period.
+ *
+ * Players on slow connections / pay-per-MB plans may not want the
+ * full ~5-20 MB pre-warm — they'd rather defer some categories to
+ * lazy fetch on tap. The wizard's Step 4 lets them pick which
+ * buckets to pre-warm, and the same toggles live in
+ * Settings so they can flip them mid-game (a deferred bucket can
+ * still be loaded later from the Settings sheet).
+ *
+ * Three coarse buckets, mapping to the real fetch boundaries:
+ *
+ *   `map`        — play-area boundary polygon + base map tiles.
+ *                  Already runs at play-area pick time (Map.tsx);
+ *                  toggling this off SKIPS the on-demand tile
+ *                  preload that the user kicks off via the existing
+ *                  OfflineTilePreloader path. Default ON since the
+ *                  boundary is a few hundred KB max.
+ *   `references` — all 15 reference families
+ *                  (STANDARD_REFERENCE_FAMILIES). The big bucket
+ *                  — a dense city like London is 1-5 MB depending
+ *                  on POI density. Default ON because every
+ *                  matching/measuring question depends on it.
+ *   `transit`    — the OpenRailwayMap raster overlay + HSR country
+ *                  data + transit arrival times via the journey
+ *                  worker. Bundled together because they're all
+ *                  "transit-related extras" that some games don't
+ *                  use. Default ON since most games answer at least
+ *                  one HSR/transit question.
+ *
+ * `prefetchFamiliesInOneQuery` is the actual cost driver; the
+ * other two are tiny by comparison. We expose all three to keep the
+ * UI obvious — players can flip any bucket without surprise.
+ */
+export interface PreloadChoices {
+    map: boolean;
+    references: boolean;
+    transit: boolean;
+}
+export const preloadChoices = persistentAtom<PreloadChoices>(
+    "preloadChoices",
+    { map: true, references: true, transit: true },
+    {
+        encode: JSON.stringify,
+        decode: (s) => {
+            try {
+                const parsed = JSON.parse(s);
+                return {
+                    map: parsed?.map !== false,
+                    references: parsed?.references !== false,
+                    transit: parsed?.transit !== false,
+                };
+            } catch {
+                return { map: true, references: true, transit: true };
+            }
+        },
+    },
+);
+
+/**
  * Reset every map display overlay to its default OFF state. Called on
  * new game / new round / settings change so a fresh game never inherits
  * a stale overlay (e.g. a transit layer left on from a previous game).

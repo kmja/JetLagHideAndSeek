@@ -86,6 +86,7 @@ import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import { NotificationsToggle } from "./NotificationsToggle";
 import { OfflineTilePreloader } from "./OfflineTilePreloader";
 import { OptionDrawers } from "./OptionDrawers";
+import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 import { PWAInstallButton } from "./PWAInstallButton";
 import { RulebookSheet } from "./RulebookSheet";
 import { Button } from "./ui/button";
@@ -607,6 +608,23 @@ export const BottomNav = () => {
                                                     : "Set up game"}
                                             </Button>
                                         </div>
+                                        {/* v236: preload preferences. Same
+                                            three-bucket panel the wizard uses;
+                                            flipping a bucket from off → on
+                                            here triggers `runPreloadForBucket`
+                                            immediately so deferred data
+                                            arrives without waiting for the
+                                            next hiding period. */}
+                                        {$setupCompleted && (
+                                            <div className="pt-2 border-t border-border">
+                                                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2 mt-3">
+                                                    Preload during hiding
+                                                </div>
+                                                <PreloadChoicesPanel
+                                                    runImmediatelyOnEnable
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>

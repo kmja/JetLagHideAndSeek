@@ -75,6 +75,7 @@ import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
+import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 
 /**
  * Three-step game setup. Auto-opens on first load (setupCompleted=false)
@@ -233,7 +234,7 @@ export function GameSetupDialog() {
         if (!setupCompleted.get()) setupDialogOpen.set(true);
     }, [$welcomeSeen]);
 
-    const [step, setStep] = useState<1 | 2 | 3>(1);
+    const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
     // Direction of the most recent step change, for the slide
     // animation on the step body: "fwd" (Next) slides the new step in
     // from the right (movement left→right through the wizard), "back"
@@ -653,8 +654,9 @@ export function GameSetupDialog() {
                                     {step === 1 && "Where are you playing?"}
                                     {step === 2 && "What transit is allowed?"}
                                     {step === 3 && "How big is the game?"}
+                                    {step === 4 && "What should we preload?"}
                                 </DialogTitle>
-                                <SectionPill>Step {step} / 3</SectionPill>
+                                <SectionPill>Step {step} / 4</SectionPill>
                             </div>
                             <DialogDescription className="text-xs leading-snug">
                                 {step === 1 &&
@@ -663,6 +665,8 @@ export function GameSetupDialog() {
                                     "Which public transit modes the hider can use."}
                                 {step === 3 &&
                                     "Larger games span more ground and last longer."}
+                                {step === 4 &&
+                                    "We'll warm these caches at the start of the hiding period so seekers don't see loading spinners mid-game. You can flip any of these later in Settings."}
                             </DialogDescription>
                         </div>
 
@@ -726,6 +730,9 @@ export function GameSetupDialog() {
                                     </div>
                                 </div>
                             )}
+                            {step === 4 && (
+                                <PreloadChoicesPanel />
+                            )}
                             </div>
                         </div>
 
@@ -735,7 +742,7 @@ export function GameSetupDialog() {
                                 onClick={() =>
                                     setStep((s) =>
                                         s > 1
-                                            ? ((s - 1) as 1 | 2 | 3)
+                                            ? ((s - 1) as 1 | 2 | 3 | 4)
                                             : s,
                                     )
                                 }
@@ -745,13 +752,13 @@ export function GameSetupDialog() {
                                 <ChevronLeft className="w-4 h-4" />
                                 Back
                             </Button>
-                            {step < 3 ? (
+                            {step < 4 ? (
                                 <Button
                                     disabled={!canContinue}
                                     onClick={() =>
                                         setStep(
                                             (s) =>
-                                                ((s + 1) as 1 | 2 | 3),
+                                                ((s + 1) as 1 | 2 | 3 | 4),
                                         )
                                     }
                                 >
