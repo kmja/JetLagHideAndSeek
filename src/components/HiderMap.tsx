@@ -167,7 +167,7 @@ export function HiderMap({
     );
 
     return (
-        <div className="relative w-full h-[55vh] min-h-[300px] rounded-md overflow-hidden border border-border">
+        <div className="osm-dark-tiles relative w-full h-[55vh] min-h-[300px] rounded-md overflow-hidden border border-border">
             <Map
                 ref={mapRef}
                 initialViewState={{

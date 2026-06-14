@@ -224,7 +224,7 @@ export function PlayAreaPreviewMap({
 
     return (
         <div
-            className={`w-full ${height} rounded-md overflow-hidden border border-border`}
+            className={`osm-dark-tiles w-full ${height} rounded-md overflow-hidden border border-border`}
         >
             <MapGL
                 ref={mapRef}

@@ -571,3 +571,29 @@ div.leaflet-control-attribution.leaflet-control {
     padding: 0.1rem 0.3rem;
     border-radius: 3px;
 }
+
+/* OSM dark-tile filter — same recipe openstreetmap.org ships in
+ * production (PR #5325, merged Nov 2024). Applied at the map container
+ * level via a wrapping class so any map that opts in becomes dark
+ * without per-component paint tuning.
+ *
+ * Why the filter on the maplibre CANVAS works for overlays too:
+ * the invert + hue-rotate(180°) pair is designed so that saturated
+ * colours rotate roughly back to themselves while greys invert. A red
+ * boundary line stays red, blue water stays blue, but the beige land
+ * and dark labels swap to dark navy + light text — exactly what we
+ * want. Saturated overlays like the play-area outline are preserved
+ * within ~one shade.
+ *
+ * Two carve-outs:
+ *   .osm-dark-tiles[data-satellite-on="true"]  — skip the filter while
+ *     satellite imagery is active (inverted aerial photos look awful).
+ *   .osm-dark-tiles .maplibregl-ctrl, .maplibregl-control-container
+ *     children — leave attribution + zoom controls alone so they
+ *     don't get the inversion too. */
+.osm-dark-tiles .maplibregl-canvas {
+    filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+.osm-dark-tiles[data-satellite-on="true"] .maplibregl-canvas {
+    filter: none;
+}

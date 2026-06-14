@@ -109,10 +109,14 @@ interface MapProps {
  * v225 swapped all cartocdn URLs (light/dark/voyager) for OSM standard
  * tiles after confirming both Firefox ETP and Adblock Plus EasyPrivacy
  * block `basemaps.cartocdn.com` at request time — leaving tiles
- * silently 503'd for any user with either active. The dark feel is
- * reconstructed via per-layer raster-paint properties in the style
- * builder below (`dark` and `voyager` keep dimming + desaturation;
- * `light` shows the OSM tiles as-is).
+ * silently 503'd for any user with either active.
+ *
+ * v227: the dark-style rebuild via raster-paint properties is gone.
+ * "dark" now ships the same OSM tiles as "light" and "voyager" and is
+ * inverted at the container level via the `osm-dark-tiles` CSS class
+ * (see globals.css) — same approach openstreetmap.org itself uses on
+ * its own site (PR #5325). Removes the muted look the paint approach
+ * produced and gives true dark navy land + readable light labels.
  *
  * OSM standard tiles aren't on any tracking blocklist and have an
  * explicit usage policy permitting low-volume apps like ours
@@ -120,11 +124,7 @@ interface MapProps {
  */
 const RASTER_SOURCES: Record<
     string,
-    {
-        tiles: string[];
-        attribution: string;
-        paint?: Record<string, number>;
-    }
+    { tiles: string[]; attribution: string }
 > = {
     light: {
         tiles: [
@@ -143,12 +143,6 @@ const RASTER_SOURCES: Record<
         ],
         attribution:
             '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        paint: {
-            "raster-brightness-min": 0,
-            "raster-brightness-max": 0.55,
-            "raster-saturation": -0.45,
-            "raster-contrast": 0.1,
-        },
     },
     osm: {
         tiles: [
@@ -167,13 +161,6 @@ const RASTER_SOURCES: Record<
         ],
         attribution:
             '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        // Slight softening so it feels different from plain light/osm
-        // — voyager was the "muted" carto style, mimic with a touch of
-        // desaturation rather than full dark mode.
-        paint: {
-            "raster-saturation": -0.2,
-            "raster-brightness-max": 0.85,
-        },
     },
 };
 
@@ -226,11 +213,7 @@ function buildStyle(
     // Resolve the base layer. Thunderforest needs an API key
     // — fall back to dark if the user hasn't entered one yet
     // (matches the Leaflet branch's behaviour).
-    let base: {
-        tiles: string[];
-        attribution: string;
-        paint?: Record<string, number>;
-    };
+    let base: { tiles: string[]; attribution: string };
     if (effectiveKey === "transport" || effectiveKey === "neighbourhood") {
         if (thunderforestKey) {
             base = thunderforestSource(effectiveKey, thunderforestKey);
@@ -249,19 +232,9 @@ function buildStyle(
             attribution: base.attribution,
         },
     };
-    // v225: pass through the per-source raster-paint config (only the
-    // OSM-backed sources carry it — Thunderforest tiles ship their own
-    // styling). Without this the dark/voyager keys would look identical
-    // to plain light since they all point at the same OSM URLs now.
-    const baseLayer: maplibregl.LayerSpecification = {
-        id: "base",
-        type: "raster",
-        source: "base",
-        ...(base.paint
-            ? { paint: base.paint as maplibregl.RasterLayerSpecification["paint"] }
-            : {}),
-    };
-    const layers: maplibregl.LayerSpecification[] = [baseLayer];
+    const layers: maplibregl.LayerSpecification[] = [
+        { id: "base", type: "raster", source: "base" },
+    ];
 
     if (withSatellite) {
         sources.satellite = {
@@ -1223,8 +1196,30 @@ export function Map({ className }: MapProps) {
         };
     }, [$drawingQuestionKey]);
 
+    // v227: when the active base layer resolves to "dark" (either an
+    // explicit pick or "auto" + dark theme), opt the container into the
+    // osm-dark-tiles CSS rule that inverts the maplibre canvas to match
+    // openstreetmap.org's own dark style. Suppressed automatically when
+    // satellite imagery is active via the data attribute (inverted
+    // aerial photos look awful).
+    const effectiveTileKey =
+        $tileKey === "auto"
+            ? $theme === "dark"
+                ? "dark"
+                : "light"
+            : $tileKey;
+    const darkTiles =
+        effectiveTileKey === "dark" || effectiveTileKey === "voyager";
+
     return (
-        <div className={cn("relative w-full h-screen", className)}>
+        <div
+            className={cn(
+                "relative w-full h-screen",
+                darkTiles && "osm-dark-tiles",
+                className,
+            )}
+            data-satellite-on={$satellite ? "true" : undefined}
+        >
             <MapGL
                 ref={mapRef}
                 initialViewState={initialView}

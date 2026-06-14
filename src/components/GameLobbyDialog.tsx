@@ -814,7 +814,7 @@ function LobbyMiniMap({
     return (
         // No outer wrapper — the parent map-slot already provides
         // fixed-size, border, rounded, overflow. We just fill it.
-        <div className="absolute inset-0">
+        <div className="osm-dark-tiles absolute inset-0">
             {(hasBounds || hasFallback) && (
                 <MapGL
                     initialViewState={

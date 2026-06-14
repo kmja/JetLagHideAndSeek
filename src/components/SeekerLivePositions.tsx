@@ -160,7 +160,7 @@ export function SeekerLivePositions() {
                 </span>
             </div>
 
-            <div className="w-full h-[220px] rounded-md overflow-hidden border border-border">
+            <div className="osm-dark-tiles w-full h-[220px] rounded-md overflow-hidden border border-border">
                 <Map
                     ref={mapRef}
                     initialViewState={{

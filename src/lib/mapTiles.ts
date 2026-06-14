@@ -113,28 +113,24 @@ export function getTileLayerConfig(
 
 /**
  * Maplibre Style for the inline preview / lobby / hider / live-positions
- * maps. v225 switched the base from CartoCDN dark_all → OSM standard
- * tiles because cartocdn.com is on Firefox Enhanced Tracking
- * Protection's blocklist AND on EasyPrivacy (Adblock Plus / uBlock
- * Origin default list), so a meaningful fraction of users had their
- * tile fetches blocked at the browser layer (0ms 503 from the SW's
- * catchHandler). OSM standard tiles aren't on any tracking blocklist.
+ * maps. v225 originally switched from CartoCDN dark_all → OSM standard
+ * tiles after confirming both Firefox ETP and Adblock Plus EasyPrivacy
+ * block `basemaps.cartocdn.com` at request time.
  *
- * The dark look is reconstructed via maplibre raster paint properties
- * (lower brightness, desaturate, slight contrast bump) rather than a
- * CSS `filter: invert` on the canvas — invert would also flip every
- * overlay (boundary outlines, markers, the user's selection halo),
- * defeating the purpose. The paint approach only touches the tile
- * layer, so overlays keep their intended colours.
+ * v227: the dark look is no longer reconstructed via maplibre raster
+ * paint properties — instead we ship the OSM tiles unmodified here and
+ * apply openstreetmap.org's own dark-mode CSS filter at the map
+ * container level (see the `osm-dark-tiles` rule in globals.css).
+ * That's the exact filter osm.org runs in production
+ * (`invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%)`,
+ * PR openstreetmap-website#5325, merged Nov 2024). The math leaves
+ * saturated colours (the red boundary outline, blue water) close to
+ * the original while inverting greys — so labels stay readable
+ * light-on-dark and we don't need any per-layer paint tuning.
  *
- * Returns the maplibre Style object directly so callers can drop it
- * into `<MapGL mapStyle={…} />` without further work. Memoise at the
- * call site (useMemo) — the value is stable across renders.
+ * Callers that don't want the dark filter (e.g. a satellite view)
+ * simply omit the `osm-dark-tiles` class on the map container.
  */
-// Returned as `any` so callers can drop it into the maplibre `mapStyle`
-// prop without importing the maplibregl types — the actual shape is a
-// valid Style at runtime; the `as` casts at every call site would just
-// add noise.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function darkOsmMapLibreStyle(): any {
     return {
@@ -154,20 +150,7 @@ export function darkOsmMapLibreStyle(): any {
             },
         },
         layers: [
-            {
-                id: "osm-base",
-                type: "raster",
-                source: "osm",
-                paint: {
-                    // Tuned to roughly match cartocdn dark_all's visual
-                    // weight: ~half brightness, ~half saturation, a touch
-                    // more contrast so road outlines stay legible.
-                    "raster-brightness-min": 0,
-                    "raster-brightness-max": 0.55,
-                    "raster-saturation": -0.45,
-                    "raster-contrast": 0.1,
-                },
-            },
+            { id: "osm-base", type: "raster", source: "osm" },
         ],
     };
 }
