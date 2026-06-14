@@ -8,7 +8,7 @@ import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { hidingZone } from "@/lib/hiderRole";
-import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import {
     participants,
@@ -142,7 +142,10 @@ export function SeekerLivePositions() {
         [$hidingZone],
     );
 
-    const mapStyle = useMemo(() => darkOsmMapLibreStyle(), []);
+    const mapStyle = useMemo(
+        () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
+        [darkTiles],
+    );
 
     if (rows.length === 0) return null;
 
@@ -164,7 +167,7 @@ export function SeekerLivePositions() {
                 </span>
             </div>
 
-            <div className={`${darkTiles ? "osm-dark-tiles " : ""}w-full h-[220px] rounded-md overflow-hidden border border-border`}>
+            <div className="w-full h-[220px] rounded-md overflow-hidden border border-border">
                 <Map
                     ref={mapRef}
                     initialViewState={{

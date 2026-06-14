@@ -39,7 +39,7 @@ import {
 } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
-import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { loadingProgress } from "@/lib/loadingProgress";
 import {
@@ -819,7 +819,7 @@ function LobbyMiniMap({
     return (
         // No outer wrapper — the parent map-slot already provides
         // fixed-size, border, rounded, overflow. We just fill it.
-        <div className={darkTiles ? "osm-dark-tiles absolute inset-0" : "absolute inset-0"}>
+        <div className="absolute inset-0">
             {(hasBounds || hasFallback) && (
                 <MapGL
                     initialViewState={
@@ -842,7 +842,7 @@ function LobbyMiniMap({
                     attributionControl={false}
                     dragRotate={false}
                     pitchWithRotate={false}
-                    mapStyle={darkOsmMapLibreStyle()}
+                    mapStyle={protomapsMapLibreStyle(darkTiles ? "dark" : "light")}
                 >
                     {boundary && (
                         <Source

@@ -11,7 +11,7 @@ import Map, {
 } from "react-map-gl/maplibre";
 
 import { buildMarkerHtml, type CategoryId } from "@/lib/categories";
-import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import type { Question } from "@/maps/schema";
 
@@ -174,9 +174,7 @@ export function HiderMap({
     const darkTiles = $theme === "dark";
 
     return (
-        <div
-            className={`${darkTiles ? "osm-dark-tiles " : ""}relative w-full h-[55vh] min-h-[300px] rounded-md overflow-hidden border border-border`}
-        >
+        <div className="relative w-full h-[55vh] min-h-[300px] rounded-md overflow-hidden border border-border">
             <Map
                 ref={mapRef}
                 initialViewState={{
@@ -185,7 +183,7 @@ export function HiderMap({
                     zoom: 12,
                 }}
                 style={{ width: "100%", height: "100%" }}
-                mapStyle={darkOsmMapLibreStyle()}
+                mapStyle={protomapsMapLibreStyle(darkTiles ? "dark" : "light")}
                 attributionControl={false}
                 scrollZoom={false}
             >

@@ -60,6 +60,7 @@ import { travelTimesFC } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
 import { createMapShim } from "@/lib/mapShim";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
+import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
@@ -201,40 +202,51 @@ function buildStyle(
     thunderforestKey: string,
     resolvedThemeMode: "light" | "dark" = "dark",
 ): maplibregl.StyleSpecification {
-    // "auto" follows the UI theme — light_all when the user's in light
-    // mode, dark_all when dark. Resolve before the rest of the switch
-    // so the downstream lookup is a normal RASTER_SOURCES read.
+    // v230+: the "auto"/"light"/"dark"/"voyager"/"osm" keys all
+    // resolve to the Protomaps vector basemap with our transit-first
+    // style. Theme follows the UI ("auto") or the explicit pick.
+    // Thunderforest keys (transport/neighbourhood) are still served
+    // as raster, since the user provided an API key specifically for
+    // those styles and overriding them with Protomaps would defeat
+    // the purpose.
     const effectiveKey =
         baseKey === "auto"
             ? resolvedThemeMode === "dark"
                 ? "dark"
                 : "light"
             : baseKey;
-    // Resolve the base layer. Thunderforest needs an API key
-    // — fall back to dark if the user hasn't entered one yet
-    // (matches the Leaflet branch's behaviour).
-    let base: { tiles: string[]; attribution: string };
-    if (effectiveKey === "transport" || effectiveKey === "neighbourhood") {
-        if (thunderforestKey) {
-            base = thunderforestSource(effectiveKey, thunderforestKey);
-        } else {
-            base = RASTER_SOURCES.dark;
-        }
+
+    let base: maplibregl.StyleSpecification;
+    if (
+        (effectiveKey === "transport" || effectiveKey === "neighbourhood") &&
+        thunderforestKey
+    ) {
+        const tf = thunderforestSource(effectiveKey, thunderforestKey);
+        base = {
+            version: 8,
+            sources: {
+                base: {
+                    type: "raster",
+                    tiles: tf.tiles,
+                    tileSize: 256,
+                    attribution: tf.attribution,
+                },
+            },
+            layers: [{ id: "base", type: "raster", source: "base" }],
+        };
     } else {
-        base = RASTER_SOURCES[effectiveKey] ?? RASTER_SOURCES.dark;
+        // Protomaps vector basemap. The style ships a flat sources +
+        // layers shape that we can extend with satellite/rail
+        // overlays below — they just go on top.
+        base = protomapsMapLibreStyle(
+            effectiveKey === "dark" ? "dark" : "light",
+        ) as maplibregl.StyleSpecification;
     }
 
     const sources: maplibregl.StyleSpecification["sources"] = {
-        base: {
-            type: "raster",
-            tiles: base.tiles,
-            tileSize: 256,
-            attribution: base.attribution,
-        },
+        ...base.sources,
     };
-    const layers: maplibregl.LayerSpecification[] = [
-        { id: "base", type: "raster", source: "base" },
-    ];
+    const layers: maplibregl.LayerSpecification[] = [...base.layers];
 
     if (withSatellite) {
         sources.satellite = {
@@ -268,6 +280,7 @@ function buildStyle(
 
     return {
         version: 8,
+        glyphs: base.glyphs,
         sources,
         layers,
     };
@@ -1196,48 +1209,15 @@ export function Map({ className }: MapProps) {
         };
     }, [$drawingQuestionKey]);
 
-    // v227: when the active base layer resolves to "dark" (either an
-    // explicit pick or "auto" + dark theme), opt the container into the
-    // osm-dark-tiles CSS rule that inverts the maplibre canvas to match
-    // openstreetmap.org's own dark style. Suppressed automatically when
-    // satellite imagery is active via the data attribute (inverted
-    // aerial photos look awful).
-    const effectiveTileKey =
-        $tileKey === "auto"
-            ? $theme === "dark"
-                ? "dark"
-                : "light"
-            : $tileKey;
-    const darkTiles =
-        effectiveTileKey === "dark" || effectiveTileKey === "voyager";
-
-    // When the osm-dark-tiles filter is active AND satellite isn't (the
-    // filter is suppressed in satellite mode — see globals.css), every
-    // colour drawn by maplibre — including geojson overlay paint — gets
-    // run through invert+hue-rotate(180°)+brightness95+contrast90. For
-    // saturated overlays (red boundary, peach radar sweep) that
-    // approximately preserves the colour. But the elimination mask's
-    // near-black `#0f172a` inverts to a light bluish-grey, exactly the
-    // bug in the user's London screenshot — the eliminated region
-    // appeared lit instead of dimmed.
-    //
-    // Fix: pre-invert the mask source when the filter will be applied,
-    // so the on-screen result stays dark. Pure white as the source
-    // becomes ≈ #0d0d0d after the filter — close enough to slate
-    // visually, and dimensionally simple. Light mode / satellite mode
-    // both keep the original dark navy.
-    const filterActive = darkTiles && !$satellite;
-    const eliminationFillColor = filterActive ? "#ffffff" : "#0f172a";
+    // v230+: the OSM-raster + CSS-invert chain is gone. The basemap
+    // is Protomaps vector with native light/dark flavors, so we don't
+    // need to filter the canvas, pre-invert overlays, or carve
+    // satellite out. The elimination mask renders as plain dark slate
+    // in every mode.
+    const eliminationFillColor = "#0f172a";
 
     return (
-        <div
-            className={cn(
-                "relative w-full h-screen",
-                darkTiles && "osm-dark-tiles",
-                className,
-            )}
-            data-satellite-on={$satellite ? "true" : undefined}
-        >
+        <div className={cn("relative w-full h-screen", className)}>
             <MapGL
                 ref={mapRef}
                 initialViewState={initialView}
