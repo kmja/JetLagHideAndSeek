@@ -4,6 +4,7 @@ import * as turf from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
+import { clipPolygonToLand } from "@/lib/landClip";
 import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
@@ -95,10 +96,36 @@ export function PlayAreaPreviewMap({
         }
         const ctrl = new AbortController();
         fetchRawBoundaryPolygon(osmId, ctrl.signal)
-            .then((geom) => {
+            .then(async (geom) => {
                 if (ctrl.signal.aborted) return;
-                polygonCache.set(osmId, geom);
+                // Show the raw polygon immediately so the preview isn't
+                // blank while we (lazily) load the coastline + lakes
+                // masks. Then clip — same `clipPolygonToLand` the main
+                // map uses — so the preview matches the real play
+                // surface (no ocean/lake bite, e.g. Lausanne's slice of
+                // Lac Léman). Cache only the CLIPPED result so repeat
+                // previews of the same area skip both the fetch and the
+                // clip. If clipping fails or returns null, keep the raw
+                // polygon — a preview with a lake is better than none.
+                if (!geom) {
+                    polygonCache.set(osmId, geom);
+                    setRealPolygon(geom);
+                    return;
+                }
                 setRealPolygon(geom);
+                try {
+                    const clipped = await clipPolygonToLand({
+                        type: "Feature",
+                        properties: {},
+                        geometry: geom,
+                    });
+                    if (ctrl.signal.aborted) return;
+                    const finalGeom = clipped?.geometry ?? geom;
+                    polygonCache.set(osmId, finalGeom);
+                    setRealPolygon(finalGeom);
+                } catch {
+                    polygonCache.set(osmId, geom);
+                }
             })
             .catch(() => {
                 /* swallowed — overlay stays empty */

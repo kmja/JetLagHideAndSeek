@@ -123,6 +123,100 @@ function bboxesOverlap(
     return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
 }
 
+/* ───────────────────────── Inland lakes ─────────────────────────
+ *
+ * The coastline mask above is Natural Earth's OCEAN coastline — it
+ * knows nothing about inland lakes. But OSM admin boundaries for
+ * lakeside places legally include their slice of the lake (Lausanne's
+ * commune extends into Lac Léman; Chicago into Lake Michigan; Geneva,
+ * Zürich, Como, Constance, …), so a coastline-only clip leaves a big
+ * water bite in the play area — exactly the "ocean part not trimmed"
+ * the user reported for Lausanne.
+ *
+ * Fix: subtract major lakes too. `public/lakes50.geojson` is Natural
+ * Earth 1:50m lakes, stripped to {name} + geometry and simplified to
+ * ~200 m (423 KB, fetched on demand + permanently cached, same as the
+ * coastline). After intersecting the boundary with land we difference
+ * out any lake whose bbox overlaps it. */
+type LakePoly = {
+    feature: Feature<Polygon | MultiPolygon>;
+    bbox: [number, number, number, number];
+};
+let lakePolysPromise: Promise<LakePoly[]> | null = null;
+
+async function loadLakePolys(): Promise<LakePoly[]> {
+    if (lakePolysPromise) return lakePolysPromise;
+    lakePolysPromise = (async () => {
+        const url = (import.meta.env.BASE_URL ?? "/") + "lakes50.geojson";
+        const resp = await cacheFetch(
+            url,
+            undefined,
+            CacheType.PERMANENT_CACHE,
+        );
+        const fc = (await resp.json()) as FeatureCollection;
+        const out: LakePoly[] = [];
+        for (const f of fc.features) {
+            const g = f.geometry;
+            if (
+                !g ||
+                (g.type !== "Polygon" && g.type !== "MultiPolygon")
+            ) {
+                continue;
+            }
+            const feature = f as Feature<Polygon | MultiPolygon>;
+            try {
+                out.push({
+                    feature,
+                    bbox: turf.bbox(feature) as [
+                        number,
+                        number,
+                        number,
+                        number,
+                    ],
+                });
+            } catch {
+                /* skip malformed lake */
+            }
+        }
+        return out;
+    })();
+    return lakePolysPromise;
+}
+
+/** Subtract every overlapping lake from a (already land-clipped)
+ *  feature. Best-effort: any failed difference is skipped so a single
+ *  bad lake polygon can't break the clip. Returns the input unchanged
+ *  when no lakes overlap or the lakes file can't be loaded. */
+async function subtractLakes(
+    feature: Feature<Polygon | MultiPolygon>,
+): Promise<Feature<Polygon | MultiPolygon>> {
+    let lakes: LakePoly[];
+    try {
+        lakes = await loadLakePolys();
+    } catch (e) {
+        console.warn("loadLakePolys failed; skipping lake subtraction", e);
+        return feature;
+    }
+    const fBbox = turf.bbox(feature) as [number, number, number, number];
+    const overlapping = lakes.filter((l) => bboxesOverlap(fBbox, l.bbox));
+    if (overlapping.length === 0) return feature;
+    let acc = feature;
+    for (const lake of overlapping) {
+        try {
+            const diff = turf.difference(
+                turf.featureCollection([acc, lake.feature]),
+            ) as Feature<Polygon | MultiPolygon> | null;
+            // `difference` returns null when the lake fully covers the
+            // feature — that'd mean the whole play area is water, which
+            // is never right, so keep the previous accumulator.
+            if (diff && diff.geometry) acc = diff;
+        } catch {
+            /* skip any lake that fails the topology check */
+        }
+    }
+    return acc;
+}
+
 /**
  * Clip a play-area polygon (Polygon or MultiPolygon) to land only.
  * Returns the clipped geometry as a Feature, or `null` if the input
@@ -188,6 +282,14 @@ export async function clipPolygonToLand(
                 }
             }
         }
+
+        // Subtract inland lakes from the land-clipped shape. Done
+        // after the land intersect + piece-union so we difference
+        // against the final single feature once, and before the area
+        // sanity check below so a lake bite counts toward the
+        // kept-area ratio (a play area that's mostly lake SHOULD trip
+        // the guard and fall back to raw, same as a mostly-ocean one).
+        acc = await subtractLakes(acc);
 
         // Sanity check — if the clip removed more than (1-MIN_KEEP)
         // of the input area, treat it as a bug and bail. Two known
