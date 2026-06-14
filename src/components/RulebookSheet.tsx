@@ -239,23 +239,30 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
         }
     }, [open]);
 
-    // Open via a sibling trigger, NOT <SheetTrigger asChild>: when the
-    // rulebook button lives inside a host Sheet (the "More" sheet),
-    // synchronously calling onOpenChange on the host AND opening this
-    // sheet in the same React tick caused the host's portal to unmount
-    // mid-open and tear this one down with it. Calling onBeforeOpen
-    // first, then deferring setOpen(true) to the next frame, lets the
-    // host's close animation start before our portal mounts — so we
-    // mount under the body root cleanly rather than as a transient
-    // child of a dying portal subtree. Mirrors HowToPlaySheet's
-    // pattern, which had the same bug for the same reason.
+    // v234.1: don't close the host More sheet at all — just stack on
+    // top. v234's Vaul conversion was supposed to fix the
+    // "rulebook dismisses instantly" bug but the user reports it
+    // still happens. Stripping the rAF + onBeforeOpen dance entirely
+    // narrows the search: if the rulebook stays open now, the host's
+    // close animation was somehow tearing it down (we'll re-add the
+    // close-on-open behaviour with a more robust mechanism). If it
+    // still dismisses with NO host-state change, the dismissal is
+    // coming from somewhere else (Vaul's own pointer detection?
+    // event bubble landing on its overlay?) and the diagnostic logs
+    // below will tell us what called onOpenChange(false).
     const handleTriggerClick = () => {
-        if (onBeforeOpen) {
-            onBeforeOpen();
-            requestAnimationFrame(() => setOpen(true));
-        } else {
-            setOpen(true);
+        console.warn("[rulebook] trigger clicked → setOpen(true)");
+        setOpen(true);
+    };
+
+    const handleOpenChange = (next: boolean) => {
+        if (!next) {
+            console.warn(
+                "[rulebook] onOpenChange(false) fired — stack trace:",
+                new Error("stack only").stack,
+            );
         }
+        setOpen(next);
     };
 
     return (
@@ -272,7 +279,7 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                 pattern HowToPlaySheet has used reliably. */}
             <VaulDrawer.Root
                 open={open}
-                onOpenChange={setOpen}
+                onOpenChange={handleOpenChange}
                 shouldScaleBackground={false}
             >
                 <VaulDrawer.Portal>
