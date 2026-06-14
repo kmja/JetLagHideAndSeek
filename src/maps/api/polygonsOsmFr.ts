@@ -23,6 +23,8 @@
  * downstream) with no changes upstream of cacheFetch.
  */
 
+import { OVERPASS_API } from "./constants";
+
 const POLYGONS_OSM_FR_API =
     "https://polygons.openstreetmap.fr/get_geojson.py";
 /** "Index" endpoint that triggers an on-demand build for relations
@@ -82,9 +84,22 @@ export async function fetchRawBoundaryPolygon(
 ): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
     const first = await fetchPolygonAttempt(relationId, signal);
     if (first.geom) return first.geom;
-    // Only retry on the "polygon not yet computed" sentinel — any
-    // other failure (timeout, network, 5xx) is unlikely to clear up
-    // in 2.5 s.
+
+    // polygons.osm.fr fast path didn't help — either it 5xx'd, CORS-
+    // hiccuped (residential IPs get throttled hard), or returned the
+    // "not yet computed" sentinel. Fall through to the cache worker
+    // before giving up: it serves boundaries from R2 in ~10 ms for
+    // any prewarmed area (every city in the curated list — which the
+    // wizard mostly picks from) and otherwise races Overpass. This
+    // is the same upstream the main map uses post-wizard, so the
+    // wizard preview and the lobby preview can't disagree anymore.
+    const workerGeom = await fetchPolygonViaCacheWorker(relationId, signal);
+    if (workerGeom) return workerGeom;
+
+    // Both paths failed. Only retry polygons.osm.fr with a build
+    // trigger if the FIRST attempt was specifically the "None"
+    // sentinel (the trigger does nothing for other failure modes,
+    // and the worker fallback already exhausted Overpass).
     if (!first.shouldBuildAndRetry) return null;
     if (signal?.aborted) return null;
 
@@ -94,6 +109,107 @@ export async function fetchRawBoundaryPolygon(
 
     const second = await fetchPolygonAttempt(relationId, signal);
     return second.geom;
+}
+
+/** Fetch the boundary through the cache worker's /api/interpreter
+ *  endpoint, then assemble the resulting Overpass relation members
+ *  back into a single GeoJSON polygon. Used as a fallback when
+ *  polygons.openstreetmap.fr is throttling the user's IP — the
+ *  worker's R2 cache is the same one the main map hits, so a
+ *  prewarmed city gets the wizard polygon for free. Returns null on
+ *  any failure so the caller treats it the same as the primary
+ *  fast path missing. */
+async function fetchPolygonViaCacheWorker(
+    relationId: number,
+    signal?: AbortSignal,
+): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
+    // Byte-identical to overpass-cache/src/index.ts's
+    // singleRelationQuery — the R2 key is a hash of this string, so
+    // any whitespace drift misses the cached entry.
+    const query = `[out:json][timeout:120];relation(${relationId});out geom;`;
+    const url = `${OVERPASS_API}?data=${encodeURIComponent(query)}`;
+    const ctrl = new AbortController();
+    const onAbort = () => ctrl.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+
+    let resp: Response;
+    try {
+        resp = await fetch(url, {
+            method: "GET",
+            signal: ctrl.signal,
+            mode: "cors",
+            headers: { Accept: "application/json" },
+        });
+    } catch {
+        return null;
+    } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+    }
+    if (!resp.ok) return null;
+
+    let json: unknown;
+    try {
+        json = await resp.json();
+    } catch {
+        return null;
+    }
+    return polygonFromOverpassResponse(json, relationId);
+}
+
+/** Walk a `relation(N);out geom;` Overpass response and assemble its
+ *  outer/inner member-way geometries into a GeoJSON polygon. Doesn't
+ *  attempt full ring-stitching — most admin relations have member ways
+ *  already arranged as closed rings; we just gather them and group by
+ *  role. Inner rings become MultiPolygon holes; outer rings each
+ *  become a Polygon (combined as MultiPolygon if more than one). On
+ *  any structural problem returns null so the caller falls through. */
+function polygonFromOverpassResponse(
+    json: unknown,
+    relationId: number,
+): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
+    if (!json || typeof json !== "object") return null;
+    const elements = (json as { elements?: unknown }).elements;
+    if (!Array.isArray(elements)) return null;
+    const relation = elements.find(
+        (e: any) => e?.type === "relation" && e?.id === relationId,
+    ) as { members?: any[] } | undefined;
+    if (!relation || !Array.isArray(relation.members)) return null;
+    const outers: Array<Array<[number, number]>> = [];
+    const inners: Array<Array<[number, number]>> = [];
+    for (const m of relation.members) {
+        if (m?.type !== "way" || !Array.isArray(m.geometry)) continue;
+        const ring: Array<[number, number]> = [];
+        for (const p of m.geometry) {
+            if (typeof p?.lat === "number" && typeof p?.lon === "number") {
+                ring.push([p.lon, p.lat]);
+            }
+        }
+        if (ring.length < 3) continue;
+        // Close the ring if Overpass left it open.
+        const first = ring[0];
+        const last = ring[ring.length - 1];
+        if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+        if (m.role === "inner") inners.push(ring);
+        else outers.push(ring);
+    }
+    if (outers.length === 0) return null;
+    // Each outer ring becomes a polygon; inner rings attach to whichever
+    // outer ring they sit inside. We don't do point-in-polygon
+    // assignment here because the wizard preview only needs an
+    // approximate outline — drop inner rings onto the first outer is a
+    // worst-case visual nit, not a correctness bug.
+    if (outers.length === 1) {
+        return {
+            type: "Polygon",
+            coordinates: [outers[0], ...inners],
+        };
+    }
+    return {
+        type: "MultiPolygon",
+        coordinates: outers.map((o, i) => (i === 0 ? [o, ...inners] : [o])),
+    };
 }
 
 interface AttemptResult {
