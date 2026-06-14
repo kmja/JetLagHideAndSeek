@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
 import { clipPolygonToLand } from "@/lib/landClip";
-import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
@@ -223,15 +223,20 @@ export function PlayAreaPreviewMap({
         return 10;
     }, [bbox]);
 
-    // v225: switched from cartocdn dark_all → OSM standard with
-    // raster-paint darkening. See darkOsmMapLibreStyle for why.
-    const mapStyle = useMemo(() => darkOsmMapLibreStyle(), []);
+    // v230: switched from OSM standard raster (which we couldn't
+    // de-clutter) to Protomaps vector tiles. Style is rebuilt when
+    // the theme changes so a system-level light/dark swap is
+    // immediate.
+    const mapStyle = useMemo(
+        () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
+        [darkTiles],
+    );
 
     if (!bbox) return null;
 
     return (
         <div
-            className={`${darkTiles ? "osm-dark-tiles " : ""}w-full ${height} rounded-md overflow-hidden border border-border`}
+            className={`w-full ${height} rounded-md overflow-hidden border border-border`}
         >
             <MapGL
                 ref={mapRef}
