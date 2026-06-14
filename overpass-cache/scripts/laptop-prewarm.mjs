@@ -182,7 +182,8 @@ const HSR_COUNTRIES = [
     "SA",
     "MA",
     "SE",
-    "US",
+    // US omitted — the country-wide area query times out at 180 s
+    // every run (see HSR_COUNTRIES in overpass-cache/src/index.ts).
     "RU",
     "PL",
     "DK",
@@ -327,6 +328,31 @@ async function uploadToWorker({ query, body, kind, sourceName, sourceRelationId 
         throw new Error(`store-prewarmed failed: ${resp.status} ${text}`);
     }
     return resp.json();
+}
+
+/** Ask the worker to evict a discovered city whose boundary came back
+ *  empty (Photon resolved its name to a non-boundary relation). The
+ *  name then re-enters the discovery queue for a corrected re-resolve.
+ *  Best-effort: a failure here just means the entry sticks around to
+ *  be retried next run. */
+async function evictDiscovered(city) {
+    try {
+        const resp = await fetch(`${WORKER}/admin/evict-discovered`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SECRET}`,
+            },
+            body: JSON.stringify({ relationId: Number(city.relationId) }),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json().catch(() => null);
+        if (data?.removed) {
+            console.log(`  ⌫ evicted discovered entry r${city.relationId}`);
+        }
+    } catch {
+        /* best-effort */
+    }
 }
 
 /** Fetch an already-cached Overpass response through the worker's
@@ -483,6 +509,14 @@ async function processCity(city) {
                 }
             } else {
                 console.warn(`  ⚠ boundary response empty / unparseable`);
+                // An empty boundary from a non-bundled (discovered)
+                // city means Photon resolved its name to a
+                // non-boundary relation. Evict it so the name returns
+                // to the discovery queue and gets re-resolved
+                // correctly. Bundled cities (HAND_CURATED / BULK)
+                // aren't in the discovered doc, so evicting them is a
+                // harmless no-op (removed:false).
+                await evictDiscovered(city);
             }
             await sleep(DELAY_MS);
         }
@@ -694,15 +728,20 @@ async function drainDiscovery() {
             console.log(`  discovery backlog empty`);
             break;
         }
-        // Stall detection: if the unresolved count isn't dropping, the
-        // front of the queue is either dead names mid-parking or names
-        // that need more cron ticks to park. Either way the laptop
-        // can't make further progress this run — bail rather than spin.
-        if (remaining >= lastRemaining && resolved === 0) {
+        // Stall detection: stop once the unresolved count stops
+        // dropping, REGARDLESS of the resolved count. The old guard
+        // also required `resolved === 0`, but the overnight log hit a
+        // case where every call reported "+25 resolved, 1257
+        // unresolved" — names resolved server-side but didn't leave
+        // the queue (the head-vs-full matching bug, now fixed in the
+        // worker). With resolved>0 the stall guard never tripped and
+        // the loop burned all 300 calls for nothing. Progress is
+        // measured by `remaining` falling, full stop.
+        if (remaining >= lastRemaining) {
             stalls++;
             if (stalls >= 4) {
                 console.log(
-                    `  unresolved count flatlined at ${remaining} — stopping discovery`,
+                    `  unresolved count flatlined at ${remaining} (no progress over ${stalls} calls) — stopping discovery`,
                 );
                 break;
             }

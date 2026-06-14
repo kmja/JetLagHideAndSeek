@@ -34,6 +34,7 @@ import {
     getPopularCities,
     missingExtentRelations,
     recordFailedResolves,
+    removeDiscoveredByRelationId,
     repairBogusDiscoveredEntries,
     unresolvedCandidates,
     upsertDiscoveredCity,
@@ -571,6 +572,9 @@ async function handleRequest(
         }
         if (url.pathname === "/admin/check-fresh") {
             return handleAdminCheckFresh(request, env, cors);
+        }
+        if (url.pathname === "/admin/evict-discovered") {
+            return handleAdminEvictDiscovered(request, env, cors);
         }
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
@@ -1592,7 +1596,14 @@ const HSR_COUNTRIES = [
     "SA",
     "MA",
     "SE",
-    "US",
+    // US deliberately omitted: `area["ISO3166-1"="US"]` is a
+    // continent-scale area construction that times out at the 180 s
+    // Overpass ceiling on every run (the overnight log aborted US
+    // 4/4 times at 180 010 ms). US "high speed" rail is just the
+    // Acela corridor and is mostly not tagged highspeed=yes anyway;
+    // the client's radius-walk fallback still resolves any nearby
+    // tagged track. RU is also continent-scale but completes (~148 s),
+    // so it stays.
     "RU",
     "PL",
     "DK",
@@ -2227,6 +2238,7 @@ async function resolveNameViaPhoton(
                 properties?: {
                     osm_type?: string;
                     osm_id?: number;
+                    osm_key?: string;
                     extent?: number[];
                 };
             }>;
@@ -2235,7 +2247,18 @@ async function resolveNameViaPhoton(
             if (
                 f.properties?.osm_type === "R" &&
                 typeof f.properties.osm_id === "number" &&
-                f.properties.osm_id > 0
+                f.properties.osm_id > 0 &&
+                // Only accept place / boundary relations — a bare
+                // first-R-result picks up route relations, building
+                // complexes, etc. whose `relation(N);out geom;` comes
+                // back with no usable boundary geometry. The overnight
+                // log showed ~23 discovered cities (Aarhus, Adelaide,
+                // Bergen…) stored with such ids, then failing their
+                // boundary fetch as "empty / unparseable" every run.
+                // This mirrors the client-side geocode.ts filter
+                // (osm_key === "place" || "boundary").
+                (f.properties.osm_key === "place" ||
+                    f.properties.osm_key === "boundary")
             ) {
                 // Photon's raw `extent` is [minLng, maxLat, maxLng, minLat]
                 // (lng-major, NW corner first). The client side normalises
@@ -2806,6 +2829,60 @@ async function handleAdminCheckFresh(
         200,
         cors,
     );
+}
+
+/**
+ * `POST /admin/evict-discovered` — remove a discovered city by
+ * relation id. The external prewarmer calls this when a discovered
+ * entry's boundary fetch returns empty (a sign Photon resolved the
+ * name to a non-boundary relation). Eviction returns the name to the
+ * unresolved queue so the boundary-filtered resolver can re-resolve
+ * it correctly on the next discover pass.
+ *
+ * Body: `{ "relationId": 123456 }`
+ */
+async function handleAdminEvictDiscovered(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: { relationId?: number };
+    try {
+        payload = await request.json();
+    } catch {
+        return jsonResponse({ error: "invalid JSON" }, 400, cors);
+    }
+    const relationId = Number(payload?.relationId);
+    if (!Number.isFinite(relationId) || relationId <= 0) {
+        return jsonResponse(
+            { error: "missing or invalid 'relationId'" },
+            400,
+            cors,
+        );
+    }
+    let removed = false;
+    try {
+        removed = await removeDiscoveredByRelationId(env, relationId);
+    } catch (e) {
+        return jsonResponse(
+            {
+                error: "evict failed",
+                detail: e instanceof Error ? e.message : String(e),
+            },
+            500,
+            cors,
+        );
+    }
+    return jsonResponse({ status: "ok", relationId, removed }, 200, cors);
 }
 
 function checkAdminAuth(request: Request, env: Env): boolean {

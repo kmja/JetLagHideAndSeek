@@ -364,7 +364,10 @@ export const HSR_COUNTRIES = new Set<string>([
     "SA",
     "MA",
     "SE",
-    "US",
+    // US omitted — see HSR_COUNTRIES in overpass-cache/src/index.ts:
+    // the country-wide area query times out upstream, so we never
+    // prewarm it; issuing it from the client would just be a slow
+    // miss. The radius-walk fallback covers any US play area.
     "RU",
     "PL",
     "DK",

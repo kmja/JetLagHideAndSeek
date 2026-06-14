@@ -230,6 +230,32 @@ export async function appendDiscoveredCities(
 }
 
 /**
+ * Remove a discovered entry by relation id. Used to evict entries
+ * whose Photon-resolved relation turned out NOT to be an admin
+ * boundary — their `relation(N);out geom;` fetch comes back empty,
+ * so they fail every prewarm run. Removing them returns the name to
+ * the unresolved queue, where the (now boundary-filtered) resolver
+ * re-resolves it to the correct relation. Returns true if an entry
+ * was actually removed. Only touches the discovered R2 doc; bundled
+ * HAND_CURATED / BULK_CITIES entries are never evicted (they're not
+ * in this doc).
+ */
+export async function removeDiscoveredByRelationId(
+    env: Env,
+    relationId: number,
+): Promise<boolean> {
+    const existing = await loadDiscoveredCities(env);
+    const next = existing.filter((c) => c.relationId !== relationId);
+    if (next.length === existing.length) return false;
+    await env.CACHE.put(DISCOVERED_R2_KEY, JSON.stringify(next), {
+        httpMetadata: { contentType: "application/json" },
+    });
+    _discoveredCache = next;
+    _discoveredCacheLoadedFor = env.CACHE;
+    return true;
+}
+
+/**
  * Names of EVERY known city (bundled or discovered) that's missing
  * the `extent` field. The cron computes extents directly from the
  * known relationId via polygons.openstreetmap.fr — no Photon name
@@ -405,11 +431,24 @@ export async function unresolvedCandidates(
     env: Env,
 ): Promise<string[]> {
     const known = await getPopularCities(env);
-    const knownLower = new Set(known.map((c) => c.name.toLowerCase()));
+    // Compare HEAD-to-HEAD (the part before the first comma). The
+    // candidate names carry a country qualifier ("Aarhus, Denmark")
+    // and so do the discovered entries we store for them — but the
+    // bundled HAND_CURATED / BULK_CITIES names are bare ("Aarhus").
+    // The previous code matched the candidate's head against each
+    // known entry's FULL name, so a discovered "Aarhus, Denmark"
+    // never matched the candidate's head "aarhus" and the name was
+    // re-resolved on every discover call forever — the front of the
+    // queue jammed and the unresolved count never dropped (the
+    // overnight laptop log showed 300 calls all "+25 resolved, 1257
+    // unresolved"). Normalising both sides to the head fixes it.
+    const knownHeads = new Set(
+        known.map((c) => c.name.split(",")[0].trim().toLowerCase()),
+    );
     const attempts = await loadDiscoverAttempts(env);
     return CANDIDATE_NAMES.filter((raw) => {
         const headLower = raw.split(",")[0].trim().toLowerCase();
-        if (knownLower.has(headLower)) return false;
+        if (knownHeads.has(headLower)) return false;
         if ((attempts[headLower] ?? 0) >= MAX_DISCOVER_ATTEMPTS) return false;
         return true;
     });
