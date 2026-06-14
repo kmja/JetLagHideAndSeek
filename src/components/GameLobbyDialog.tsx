@@ -40,6 +40,7 @@ import {
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
 import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { resolvedTheme } from "@/lib/theme";
 import { loadingProgress } from "@/lib/loadingProgress";
 import {
     currentGameCode,
@@ -787,6 +788,10 @@ function LobbyMiniMap({
      *  Shows the map centered on the play area's coordinates. */
     centerFallback?: { lat: number; lng: number };
 }) {
+    // v228: follow the OS / app theme — dark filter on in dark mode,
+    // off in light mode.
+    const $theme = useStore(resolvedTheme);
+    const darkTiles = $theme === "dark";
     const bounds = useMemo(() => {
         if (!boundary || !boundary.features?.length) return null;
         try {
@@ -814,7 +819,7 @@ function LobbyMiniMap({
     return (
         // No outer wrapper — the parent map-slot already provides
         // fixed-size, border, rounded, overflow. We just fill it.
-        <div className="osm-dark-tiles absolute inset-0">
+        <div className={darkTiles ? "osm-dark-tiles absolute inset-0" : "absolute inset-0"}>
             {(hasBounds || hasFallback) && (
                 <MapGL
                     initialViewState={

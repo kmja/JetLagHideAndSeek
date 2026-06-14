@@ -1,5 +1,6 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
+import { useStore } from "@nanostores/react";
 import { circle, distance, point } from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
@@ -11,6 +12,7 @@ import Map, {
 
 import { buildMarkerHtml, type CategoryId } from "@/lib/categories";
 import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { resolvedTheme } from "@/lib/theme";
 import type { Question } from "@/maps/schema";
 
 /**
@@ -166,8 +168,15 @@ export function HiderMap({
         [question.id],
     );
 
+    // v228: follow OS / app theme — dark filter only when resolved
+    // theme is dark.
+    const $theme = useStore(resolvedTheme);
+    const darkTiles = $theme === "dark";
+
     return (
-        <div className="osm-dark-tiles relative w-full h-[55vh] min-h-[300px] rounded-md overflow-hidden border border-border">
+        <div
+            className={`${darkTiles ? "osm-dark-tiles " : ""}relative w-full h-[55vh] min-h-[300px] rounded-md overflow-hidden border border-border`}
+        >
             <Map
                 ref={mapRef}
                 initialViewState={{

@@ -1,11 +1,13 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
+import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
 import { clipPolygonToLand } from "@/lib/landClip";
 import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { resolvedTheme } from "@/lib/theme";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
 
@@ -45,6 +47,11 @@ export function PlayAreaPreviewMap({
     height?: string;
 }) {
     const mapRef = useRef<MapRef | null>(null);
+    // v228: opt into the dark-tile CSS filter only when the resolved
+    // theme is dark — so the preview map follows the OS / app theme
+    // setting instead of always being dark.
+    const $theme = useStore(resolvedTheme);
+    const darkTiles = $theme === "dark";
 
     // Photon's extent we normalised to [maxLat, minLng, minLat, maxLng].
     // Fall back to the centroid + a small box if extent is missing
@@ -224,7 +231,7 @@ export function PlayAreaPreviewMap({
 
     return (
         <div
-            className={`osm-dark-tiles w-full ${height} rounded-md overflow-hidden border border-border`}
+            className={`${darkTiles ? "osm-dark-tiles " : ""}w-full ${height} rounded-md overflow-hidden border border-border`}
         >
             <MapGL
                 ref={mapRef}

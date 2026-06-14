@@ -9,6 +9,7 @@ import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { hidingZone } from "@/lib/hiderRole";
 import { darkOsmMapLibreStyle } from "@/lib/mapTiles";
+import { resolvedTheme } from "@/lib/theme";
 import {
     participants,
     seekerLocations,
@@ -35,6 +36,9 @@ export function SeekerLivePositions() {
     const $locations = useStore(seekerLocations);
     const $participants = useStore(participants);
     const $hidingZone = useStore(hidingZone);
+    // v228: follow OS / app theme.
+    const $theme = useStore(resolvedTheme);
+    const darkTiles = $theme === "dark";
 
     // 1 Hz tick for the relative-time labels. Visibility-aware so the
     // hider's phone doesn't keep waking the CPU once a second.
@@ -160,7 +164,7 @@ export function SeekerLivePositions() {
                 </span>
             </div>
 
-            <div className="osm-dark-tiles w-full h-[220px] rounded-md overflow-hidden border border-border">
+            <div className={`${darkTiles ? "osm-dark-tiles " : ""}w-full h-[220px] rounded-md overflow-hidden border border-border`}>
                 <Map
                     ref={mapRef}
                     initialViewState={{
