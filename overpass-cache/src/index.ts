@@ -33,6 +33,7 @@ import {
     type CityEntry,
     getPopularCities,
     missingExtentRelations,
+    parkNames,
     recordFailedResolves,
     removeDiscoveredByRelationId,
     repairBogusDiscoveredEntries,
@@ -2303,18 +2304,30 @@ async function discoverCandidates(
 ): Promise<CityEntry[]> {
     if (limit <= 0) return [];
     const todo = (await unresolvedCandidates(env)).slice(0, limit);
+    const knownRelationIds = new Set(
+        (await getPopularCities(env)).map((c) => c.relationId),
+    );
     const fresh: CityEntry[] = [];
     const failed: string[] = [];
+    const duplicates: string[] = [];
     for (let i = 0; i < todo.length; i++) {
         const name = todo[i];
         try {
             const r = await resolveNameViaPhoton(name);
             if (r) {
-                fresh.push({
-                    name,
-                    relationId: r.relationId,
-                    extent: r.extent,
-                });
+                if (knownRelationIds.has(r.relationId)) {
+                    // Resolved to a relation we already have under
+                    // another name — can't store (dedup), so park it
+                    // to keep the queue from re-serving it forever.
+                    duplicates.push(name);
+                } else {
+                    fresh.push({
+                        name,
+                        relationId: r.relationId,
+                        extent: r.extent,
+                    });
+                    knownRelationIds.add(r.relationId);
+                }
             } else {
                 failed.push(name);
             }
@@ -2332,6 +2345,9 @@ async function discoverCandidates(
     }
     if (failed.length > 0) {
         await recordFailedResolves(env, failed);
+    }
+    if (duplicates.length > 0) {
+        await parkNames(env, duplicates);
     }
     return fresh;
 }
@@ -2386,14 +2402,26 @@ async function handleAdminDiscover(
                 : 20;
         names = (await unresolvedCandidates(env)).slice(0, batch);
     }
+    // Relation ids already claimed by a stored city. A candidate that
+    // Photon resolves to one of these can't be stored (dedup by
+    // relation id) and would loop forever, so we park it instead.
+    const knownRelationIds = new Set(
+        (await getPopularCities(env)).map((c) => c.relationId),
+    );
     const fresh: CityEntry[] = [];
     const skipped: string[] = [];
+    const duplicates: string[] = [];
     for (let i = 0; i < names.length; i++) {
         const name = names[i];
         try {
             const r = await resolveNameViaPhoton(name);
             if (r) {
-                fresh.push({ name, relationId: r.relationId });
+                if (knownRelationIds.has(r.relationId)) {
+                    duplicates.push(name);
+                } else {
+                    fresh.push({ name, relationId: r.relationId });
+                    knownRelationIds.add(r.relationId);
+                }
             } else {
                 skipped.push(name);
             }
@@ -2416,6 +2444,12 @@ async function handleAdminDiscover(
         // as dead as one pulled from the candidate list.
         await recordFailedResolves(env, skipped);
     }
+    if (duplicates.length > 0) {
+        // Resolved, but to a relation id we already have under another
+        // name — park immediately so the queue advances (otherwise
+        // these re-resolve every call and never leave).
+        await parkNames(env, duplicates);
+    }
     const remaining = await unresolvedCandidates(env);
     return new Response(
         JSON.stringify(
@@ -2423,6 +2457,7 @@ async function handleAdminDiscover(
                 attempted: names.length,
                 resolved: fresh,
                 skipped,
+                duplicates,
                 stillUnresolved: remaining.length,
             },
             null,

@@ -397,6 +397,33 @@ async function loadDiscoverAttempts(
 }
 
 /**
+ * Park candidate names immediately (set their attempt count straight
+ * to the max) so `unresolvedCandidates` stops returning them. Used
+ * for names that DO resolve via Photon but to a relation id already
+ * claimed by another entry — `appendDiscoveredCities` dedupes them
+ * by relation id so they're never stored, their head never enters
+ * the known set, and they'd otherwise loop forever (resolved every
+ * call, never excluded). Parking ends the loop in one pass.
+ */
+export async function parkNames(
+    env: Env,
+    names: string[],
+): Promise<void> {
+    if (names.length === 0) return;
+    const attempts = { ...(await loadDiscoverAttempts(env)) };
+    for (const raw of names) {
+        const head = raw.split(",")[0].trim().toLowerCase();
+        if (!head) continue;
+        attempts[head] = MAX_DISCOVER_ATTEMPTS;
+    }
+    await env.CACHE.put(DISCOVER_ATTEMPTS_R2_KEY, JSON.stringify(attempts), {
+        httpMetadata: { contentType: "application/json" },
+    });
+    _attemptsCache = attempts;
+    _attemptsCacheLoadedFor = env.CACHE;
+}
+
+/**
  * Record a failed Photon resolution for each of `names` (by lowercase
  * head-name), incrementing its attempt count. Once a name's count
  * reaches MAX_DISCOVER_ATTEMPTS, `unresolvedCandidates` stops

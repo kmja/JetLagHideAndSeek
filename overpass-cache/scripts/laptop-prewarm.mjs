@@ -720,9 +720,10 @@ async function drainDiscovery() {
         const data = await resp.json().catch(() => null);
         if (!data) break;
         const resolved = Array.isArray(data.resolved) ? data.resolved.length : 0;
+        const dupes = Array.isArray(data.duplicates) ? data.duplicates.length : 0;
         const remaining = data.stillUnresolved ?? 0;
         console.log(
-            `  call ${call + 1}: +${resolved} resolved, ${remaining} unresolved`,
+            `  call ${call + 1}: +${resolved} resolved${dupes ? `, ${dupes} parked (dup)` : ""}, ${remaining} unresolved`,
         );
         if (remaining === 0) {
             console.log(`  discovery backlog empty`);
