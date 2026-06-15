@@ -48,6 +48,17 @@ $MAXZOOM       = 15           # Protomaps source ceiling
 $WORKER        = "https://jlhs-overpass-cache.karl-mj-andersson.workers.dev"
 $CITY_BOX_DEG  = 0.30         # ~33 km half-box around each outlier city
 
+# Fail fast if any value is still a placeholder — otherwise you get a
+# confusing wall of 401 + DNS errors far below.
+foreach ($pair in @(
+    @("R2_ACCESS_KEY", $R2_ACCESS_KEY), @("R2_SECRET", $R2_SECRET),
+    @("R2_ACCOUNT_ID", $R2_ACCOUNT_ID), @("ADMIN_SECRET", $ADMIN_SECRET)
+)) {
+    if ($pair[1] -match '^<.*>$' -or [string]::IsNullOrWhiteSpace($pair[1])) {
+        throw "Fill in `$$($pair[0]) before running — it's still the placeholder."
+    }
+}
+
 $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $work = "$env:USERPROFILE\jlhs-pmtiles"
@@ -138,7 +149,13 @@ foreach ($c in $cities) {
 Write-Host "Added $boxed city boxes outside EU/NA."
 
 $region = @{ type = "FeatureCollection"; features = $features.ToArray() }
-$region | ConvertTo-Json -Depth 8 -Compress | Set-Content "$work\region.geojson" -Encoding utf8
+$json = $region | ConvertTo-Json -Depth 10 -Compress
+# Write BOM-less UTF-8. Windows PowerShell 5.1's `Set-Content -Encoding
+# utf8` prepends a UTF-8 BOM (EF BB BF), and go-pmtiles' JSON parser
+# rejects it with "invalid character 'ï' looking for beginning of
+# value". WriteAllText with a UTF8Encoding($false) writes no BOM on
+# both PS 5.1 and 7.
+[System.IO.File]::WriteAllText("$work\region.geojson", $json, (New-Object System.Text.UTF8Encoding $false))
 Write-Host "Wrote region.geojson with $($features.Count) features."
 
 # ── 2. Extract z15 limited to the region ──────────────────────────

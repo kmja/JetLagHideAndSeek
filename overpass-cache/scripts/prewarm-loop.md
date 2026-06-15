@@ -56,6 +56,12 @@ $WORKER = "https://jlhs-overpass-cache.karl-mj-andersson.workers.dev"
 $REPO   = "$env:USERPROFILE\jetlaghideandseek"
 $SLEEP_HOURS = 1
 
+# Fail fast if the secret is still the placeholder (otherwise every
+# pass just prints 401 and sleeps an hour).
+if ($SECRET -match '^<.*>$' -or [string]::IsNullOrWhiteSpace($SECRET)) {
+    throw "Fill in `$SECRET with the worker admin secret before running."
+}
+
 # Clone once if it's not there yet.
 if (-not (Test-Path $REPO)) {
     git clone https://github.com/kmja/jetlaghideandseek.git $REPO
