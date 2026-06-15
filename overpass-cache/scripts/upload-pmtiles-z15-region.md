@@ -75,10 +75,18 @@ Get-Tool "https://github.com/protomaps/go-pmtiles/releases/download/v1.30.3/go-p
 Get-Tool "https://downloads.rclone.org/rclone-current-windows-amd64.zip" "rc.zip" "rclone.exe"
 
 # ── 1. Build region.geojson ───────────────────────────────────────
-# EU + NA rectangles, plus a box around each city centroid outside them.
+# go-pmtiles' --region wants a single GeoJSON Polygon or
+# MultiPolygon geometry (NOT a FeatureCollection — confirmed against
+# the v1.30.3 binary's flag help + paulmach/orb geojson type bindings).
+# We emit a bare MultiPolygon: one outer ring per region, with EU + NA
+# as wide rectangles plus a ~33 km box around every city centroid that
+# falls outside both. Centroid comes from the city's `extent` when
+# present, else a batched Nominatim lookup.
 $UA = "jlhs-region-builder/1.0 (https://github.com/kmja/jetlaghideandseek)"
 
-function New-RectPolygon($w, $s, $e, $n) {
+# GeoJSON polygon coordinate shape: [[[lng,lat], ...]] (one outer ring,
+# no holes). For a MultiPolygon we just stack these.
+function New-PolygonRing($w, $s, $e, $n) {
     return @(,@(
         @($w, $s), @($e, $s), @($e, $n), @($w, $n), @($w, $s)
     ))
@@ -90,11 +98,9 @@ function Test-InRect($lng, $lat, $w, $s, $e, $n) {
 $EU = @{ w = -25; s = 34; e = 46; n = 72 }
 $NA = @{ w = -170; s = 15; e = -50; n = 75 }
 
-$features = New-Object System.Collections.ArrayList
-[void]$features.Add(@{ type = "Feature"; properties = @{ name = "Europe" };
-    geometry = @{ type = "Polygon"; coordinates = (New-RectPolygon $EU.w $EU.s $EU.e $EU.n) } })
-[void]$features.Add(@{ type = "Feature"; properties = @{ name = "North America" };
-    geometry = @{ type = "Polygon"; coordinates = (New-RectPolygon $NA.w $NA.s $NA.e $NA.n) } })
+$polygons = New-Object System.Collections.ArrayList
+[void]$polygons.Add((New-PolygonRing $EU.w $EU.s $EU.e $EU.n))
+[void]$polygons.Add((New-PolygonRing $NA.w $NA.s $NA.e $NA.n))
 
 # Fetch the worker's merged city list.
 $cities = (Invoke-RestMethod -Uri "$WORKER/admin/list-cities" `
@@ -140,23 +146,23 @@ foreach ($c in $cities) {
         (Test-InRect $ctr.lng $ctr.lat $NA.w $NA.s $NA.e $NA.n)) { continue }
     $latPad = $CITY_BOX_DEG
     $lngPad = $CITY_BOX_DEG / [Math]::Cos($ctr.lat * [Math]::PI / 180)
-    [void]$features.Add(@{ type = "Feature"; properties = @{ name = $c.name };
-        geometry = @{ type = "Polygon"; coordinates =
-            (New-RectPolygon ($ctr.lng - $lngPad) ($ctr.lat - $latPad) `
-                             ($ctr.lng + $lngPad) ($ctr.lat + $latPad)) } })
+    [void]$polygons.Add((New-PolygonRing `
+        ($ctr.lng - $lngPad) ($ctr.lat - $latPad) `
+        ($ctr.lng + $lngPad) ($ctr.lat + $latPad)))
     $boxed++
 }
-Write-Host "Added $boxed city boxes outside EU/NA."
+Write-Host "Added $boxed city boxes outside EU/NA. Total polygons: $($polygons.Count)."
 
-$region = @{ type = "FeatureCollection"; features = $features.ToArray() }
-$json = $region | ConvertTo-Json -Depth 10 -Compress
-# Write BOM-less UTF-8. Windows PowerShell 5.1's `Set-Content -Encoding
-# utf8` prepends a UTF-8 BOM (EF BB BF), and go-pmtiles' JSON parser
-# rejects it with "invalid character 'ï' looking for beginning of
-# value". WriteAllText with a UTF8Encoding($false) writes no BOM on
-# both PS 5.1 and 7.
+# Emit a bare MultiPolygon. Depth 6 covers the 4-deep MultiPolygon
+# coordinates array (poly → ring → vertex → component). BOM-less UTF-8
+# via WriteAllText so go-pmtiles' JSON parser doesn't choke on a UTF-8
+# BOM (Windows PowerShell 5.1's `Set-Content -Encoding utf8` prepends
+# one, and the parser rejects it with
+# "invalid character 'ï' looking for beginning of value").
+$region = @{ type = "MultiPolygon"; coordinates = $polygons.ToArray() }
+$json = $region | ConvertTo-Json -Depth 6 -Compress
 [System.IO.File]::WriteAllText("$work\region.geojson", $json, (New-Object System.Text.UTF8Encoding $false))
-Write-Host "Wrote region.geojson with $($features.Count) features."
+Write-Host "Wrote region.geojson ($((Get-Item "$work\region.geojson").Length) bytes)."
 
 # ── 2. Extract z15 limited to the region ──────────────────────────
 & "$work\pmtiles.exe" extract "https://build.protomaps.com/$BUILD_DATE.pmtiles" `
