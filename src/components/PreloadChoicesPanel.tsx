@@ -87,15 +87,6 @@ function formatSize(mb: number): string {
     return `${Math.round(mb)} MB`;
 }
 
-function timeAgo(ts: number): string {
-    const diffMs = Date.now() - ts;
-    const diffMin = Math.floor(diffMs / 60_000);
-    if (diffMin < 1) return "just now";
-    if (diffMin < 60) return `${diffMin} min ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    return `${Math.floor(diffHr / 24)}d ago`;
-}
 
 interface PreloadChoicesPanelProps {
     /** Play-area polygon area in km². Drives per-bucket size
@@ -191,7 +182,7 @@ export function PreloadChoicesPanel({
                                     )}
                                 >
                                     {isDownloaded
-                                        ? `Downloaded ${timeAgo(completedAt!)}`
+                                        ? "Downloaded"
                                         : "Loaded at game setup"}
                                 </p>
                             </div>
