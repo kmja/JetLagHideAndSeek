@@ -3,6 +3,7 @@ import {
     Copy,
     Footprints,
     LogOut,
+    Radio,
     Share2,
     Users,
     VenetianMask,
@@ -17,11 +18,13 @@ import {
     DialogContent,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { appConfirm } from "@/lib/confirm";
 import {
     currentGameCode,
     displayName as displayNameAtom,
     participants,
+    seekerLocations,
     transportStatus,
 } from "@/lib/multiplayer/session";
 import type { Participant } from "@/lib/multiplayer/types";
@@ -189,20 +192,10 @@ export function InvitePanel() {
             </div>
 
             {sorted.length > 0 && (
-                <div className="space-y-1.5">
-                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                        In this game ({sorted.length})
-                    </div>
-                    <ul className="space-y-1">
-                        {sorted.map((p) => (
-                            <ParticipantRow
-                                key={p.id}
-                                p={p}
-                                isSelf={p.displayName === $displayName}
-                            />
-                        ))}
-                    </ul>
-                </div>
+                <TeamRoster
+                    participants={sorted}
+                    selfDisplayName={$displayName}
+                />
             )}
 
             <Button
@@ -254,48 +247,191 @@ export function InvitePanel() {
     );
 }
 
-function ParticipantRow({ p, isSelf }: { p: Participant; isSelf: boolean }) {
+/**
+ * Split the roster into Hiders + Seekers sections (each with a small
+ * count subheader), then render the seekers section with a per-row
+ * "GPS Xs ago" subline so the hider can see at a glance whose
+ * position is fresh. Updates every second while the panel is
+ * visible — `useVisibleInterval` pauses on tab hidden so a stale
+ * lobby doesn't burn battery.
+ */
+function TeamRoster({
+    participants,
+    selfDisplayName,
+}: {
+    participants: Participant[];
+    selfDisplayName: string | null;
+}) {
+    const hiders = participants.filter(
+        (p) => p.role === "hider" || p.role === "coHider",
+    );
+    const seekers = participants.filter((p) => p.role === "seeker");
+    const unassigned = participants.filter((p) => !p.role);
+    const $locations = useStore(seekerLocations);
+
+    // 1 Hz tick so the "Ns ago" subline counts forward even when no
+    // new location event has arrived. The component already
+    // re-renders on $locations changes, so this just covers the
+    // between-update intervals.
+    const [, setTick] = useState(0);
+    useVisibleInterval(
+        () => setTick((n) => (n + 1) & 0xffff),
+        1000,
+        seekers.length > 0,
+    );
+
+    return (
+        <div className="space-y-3">
+            {hiders.length > 0 && (
+                <RosterSection
+                    label="Hiders"
+                    count={hiders.length}
+                    rows={hiders.map((p) => (
+                        <ParticipantRow
+                            key={p.id}
+                            p={p}
+                            isSelf={p.displayName === selfDisplayName}
+                        />
+                    ))}
+                />
+            )}
+            {seekers.length > 0 && (
+                <RosterSection
+                    label="Seekers"
+                    count={seekers.length}
+                    rows={seekers.map((p) => (
+                        <ParticipantRow
+                            key={p.id}
+                            p={p}
+                            isSelf={p.displayName === selfDisplayName}
+                            gpsAt={$locations[p.id]?.ts}
+                        />
+                    ))}
+                />
+            )}
+            {unassigned.length > 0 && (
+                <RosterSection
+                    label="No role yet"
+                    count={unassigned.length}
+                    rows={unassigned.map((p) => (
+                        <ParticipantRow
+                            key={p.id}
+                            p={p}
+                            isSelf={p.displayName === selfDisplayName}
+                        />
+                    ))}
+                />
+            )}
+        </div>
+    );
+}
+
+function RosterSection({
+    label,
+    count,
+    rows,
+}: {
+    label: string;
+    count: number;
+    rows: React.ReactNode;
+}) {
+    return (
+        <div className="space-y-1.5">
+            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                {label} ({count})
+            </div>
+            <ul className="space-y-1">{rows}</ul>
+        </div>
+    );
+}
+
+function ParticipantRow({
+    p,
+    isSelf,
+    gpsAt,
+}: {
+    p: Participant;
+    isSelf: boolean;
+    /** Last GPS-update timestamp for this participant. Only meaningful
+     *  for seekers; passing undefined hides the freshness subline. */
+    gpsAt?: number;
+}) {
     const meta = roleMeta(p.role);
     const Icon = meta.icon;
     return (
         <li
             className={cn(
-                "flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
+                "flex flex-col gap-0.5 px-2.5 py-1.5 rounded-sm",
                 "bg-secondary/40 border border-border",
                 "text-xs",
             )}
         >
-            <span
-                className={cn(
-                    "w-2 h-2 rounded-full shrink-0",
-                    p.online ? "bg-emerald-400" : "bg-muted-foreground/40",
-                )}
-                aria-hidden="true"
-            />
-            <Icon
-                className={cn("w-3.5 h-3.5 shrink-0", meta.iconCls)}
-                aria-hidden="true"
-            />
-            <span className="font-poppins font-semibold truncate flex-1">
-                {p.displayName || "(no name)"}
-            </span>
-            {p.role && (
+            <div className="flex items-center gap-2">
                 <span
                     className={cn(
-                        "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm font-bold",
-                        meta.chipCls,
+                        "w-2 h-2 rounded-full shrink-0",
+                        p.online ? "bg-emerald-400" : "bg-muted-foreground/40",
                     )}
-                >
-                    {meta.label}
+                    aria-hidden="true"
+                />
+                <Icon
+                    className={cn("w-3.5 h-3.5 shrink-0", meta.iconCls)}
+                    aria-hidden="true"
+                />
+                <span className="font-poppins font-semibold truncate flex-1">
+                    {p.displayName || "(no name)"}
                 </span>
-            )}
-            {isSelf && (
-                <span className="text-[10px] text-muted-foreground">
-                    (you)
-                </span>
+                {p.role && (
+                    <span
+                        className={cn(
+                            "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm font-bold",
+                            meta.chipCls,
+                        )}
+                    >
+                        {meta.label}
+                    </span>
+                )}
+                {isSelf && (
+                    <span className="text-[10px] text-muted-foreground">
+                        (you)
+                    </span>
+                )}
+            </div>
+            {p.role === "seeker" && (
+                <div className="flex items-center gap-1.5 pl-4 text-[10px] text-muted-foreground">
+                    <Radio
+                        className={cn(
+                            "w-3 h-3",
+                            gpsAt
+                                ? "text-emerald-400"
+                                : "text-muted-foreground/60",
+                        )}
+                        aria-hidden="true"
+                    />
+                    <span>
+                        {gpsAt
+                            ? `GPS ${formatFreshness(gpsAt)}`
+                            : "No GPS yet"}
+                    </span>
+                </div>
             )}
         </li>
     );
+}
+
+/** "3s ago" / "1m ago" / "12m ago" — abbreviated for tight roster row.
+ *  Stale (>10 min) shows the human-readable timestamp instead so a
+ *  fresh-looking "9m ago" can't hide a multi-hour gap. */
+function formatFreshness(ts: number): string {
+    const ageMs = Math.max(0, Date.now() - ts);
+    const sec = Math.floor(ageMs / 1000);
+    if (sec < 5) return "now";
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 10) return `${min}m ago`;
+    if (min < 60) return `${min}m ago (stale)`;
+    const hr = Math.floor(min / 60);
+    return `${hr}h ago (stale)`;
 }
 
 /** Order: hider → co-hider(s) → seekers. Within a team, alphabetic
