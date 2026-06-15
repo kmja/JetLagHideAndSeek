@@ -6,7 +6,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
 import { clipPolygonToLand } from "@/lib/landClip";
-import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
+import {
+    handleMapLibreError,
+    pmtilesUrl,
+    protomapsMapLibreStyle,
+} from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
@@ -225,11 +229,13 @@ export function PlayAreaPreviewMap({
 
     // v230: switched from OSM standard raster (which we couldn't
     // de-clutter) to Protomaps vector tiles. Style is rebuilt when
-    // the theme changes so a system-level light/dark swap is
-    // immediate.
+    // the theme OR the resolved PMTiles URL changes (v241: fallback
+    // to demo bucket on worker failure).
+    const $pmtilesUrl = useStore(pmtilesUrl);
     const mapStyle = useMemo(
         () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
-        [darkTiles],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [darkTiles, $pmtilesUrl],
     );
 
     if (!bbox) return null;
@@ -250,6 +256,7 @@ export function PlayAreaPreviewMap({
                 attributionControl={false}
                 interactive={false}
                 onLoad={() => fitToBbox(false)}
+                onError={handleMapLibreError}
             >
                 {polygon && (
                     <Source id="bbox" type="geojson" data={polygon}>

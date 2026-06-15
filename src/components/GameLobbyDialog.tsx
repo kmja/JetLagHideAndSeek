@@ -39,7 +39,11 @@ import {
 } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
-import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
+import {
+    handleMapLibreError,
+    pmtilesUrl,
+    protomapsMapLibreStyle,
+} from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { loadingProgress } from "@/lib/loadingProgress";
 import {
@@ -792,6 +796,13 @@ function LobbyMiniMap({
     // off in light mode.
     const $theme = useStore(resolvedTheme);
     const darkTiles = $theme === "dark";
+    // v241: rebuild style when the resolved PMTiles URL flips.
+    const $pmtilesUrl = useStore(pmtilesUrl);
+    const mapStyle = useMemo(
+        () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [darkTiles, $pmtilesUrl],
+    );
     const bounds = useMemo(() => {
         if (!boundary || !boundary.features?.length) return null;
         try {
@@ -842,7 +853,8 @@ function LobbyMiniMap({
                     attributionControl={false}
                     dragRotate={false}
                     pitchWithRotate={false}
-                    mapStyle={protomapsMapLibreStyle(darkTiles ? "dark" : "light")}
+                    mapStyle={mapStyle}
+                    onError={handleMapLibreError}
                 >
                     {boundary && (
                         <Source

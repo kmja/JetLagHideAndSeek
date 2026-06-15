@@ -11,7 +11,11 @@ import Map, {
 } from "react-map-gl/maplibre";
 
 import { buildMarkerHtml, type CategoryId } from "@/lib/categories";
-import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
+import {
+    handleMapLibreError,
+    pmtilesUrl,
+    protomapsMapLibreStyle,
+} from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import type { Question } from "@/maps/schema";
 
@@ -173,6 +177,15 @@ export function HiderMap({
     const $theme = useStore(resolvedTheme);
     const darkTiles = $theme === "dark";
 
+    // v241: rebuild style when the resolved PMTiles URL flips (e.g.
+    // probe / tile-error fallback to the demo bucket).
+    const $pmtilesUrl = useStore(pmtilesUrl);
+    const mapStyle = useMemo(
+        () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [darkTiles, $pmtilesUrl],
+    );
+
     return (
         <div className="relative w-full h-[55vh] min-h-[300px] rounded-md overflow-hidden border border-border">
             <Map
@@ -183,9 +196,10 @@ export function HiderMap({
                     zoom: 12,
                 }}
                 style={{ width: "100%", height: "100%" }}
-                mapStyle={protomapsMapLibreStyle(darkTiles ? "dark" : "light")}
+                mapStyle={mapStyle}
                 attributionControl={false}
                 scrollZoom={false}
+                onError={handleMapLibreError}
             >
                 {/* Radius fill + outline */}
                 {overlay.radiusCircle && (

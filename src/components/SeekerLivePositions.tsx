@@ -8,7 +8,11 @@ import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { hidingZone } from "@/lib/hiderRole";
-import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
+import {
+    handleMapLibreError,
+    pmtilesUrl,
+    protomapsMapLibreStyle,
+} from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import {
     participants,
@@ -142,9 +146,11 @@ export function SeekerLivePositions() {
         [$hidingZone],
     );
 
+    const $pmtilesUrl = useStore(pmtilesUrl);
     const mapStyle = useMemo(
         () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
-        [darkTiles],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [darkTiles, $pmtilesUrl],
     );
 
     if (rows.length === 0) return null;
@@ -179,6 +185,7 @@ export function SeekerLivePositions() {
                     mapStyle={mapStyle}
                     attributionControl={false}
                     interactive={false}
+                    onError={handleMapLibreError}
                 >
                     {zoneCircle && (
                         <Source id="zone" type="geojson" data={zoneCircle}>

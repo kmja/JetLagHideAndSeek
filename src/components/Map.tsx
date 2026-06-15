@@ -60,7 +60,11 @@ import { travelTimesFC } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
 import { createMapShim } from "@/lib/mapShim";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
-import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
+import {
+    handleMapLibreError,
+    pmtilesUrl,
+    protomapsMapLibreStyle,
+} from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
@@ -311,9 +315,13 @@ export function Map({ className }: MapProps) {
     const mapRef = useRef<MapRef | null>(null);
 
     const $theme = useStore(resolvedTheme);
+    // v241: rebuild style when the resolved PMTiles URL flips (e.g.
+    // fallback from our worker to the demo bucket on tile error).
+    const $pmtilesUrl = useStore(pmtilesUrl);
     const style = useMemo(
         () => buildStyle($tileKey, $satellite, $rail, $tfKey ?? "", $theme),
-        [$tileKey, $satellite, $rail, $tfKey, $theme],
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [$tileKey, $satellite, $rail, $tfKey, $theme, $pmtilesUrl],
     );
 
     // Initial view priority: persisted viewport > OSM extent of
@@ -1233,6 +1241,7 @@ export function Map({ className }: MapProps) {
                 preserveDrawingBuffer
                 onLoad={handleLoad}
                 onMoveEnd={handleMoveEnd}
+                onError={handleMapLibreError}
                 onContextMenu={(e) => {
                     setContextMenu({
                         screenX: e.point.x,
