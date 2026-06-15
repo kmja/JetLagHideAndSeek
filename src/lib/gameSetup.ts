@@ -218,6 +218,15 @@ export const preloadBucketInFlight = atom<{
     transit: boolean;
 }>({ references: false, transit: false });
 
+/** Volatile: actual byte sizes measured from downloaded bucket data.
+ *  Populated after each bucket completes in the current session; null
+ *  if the bucket was downloaded in a previous session (timestamp shows
+ *  "Downloaded" but the count isn't known). */
+export const preloadBucketBytes = atom<{
+    references: number | null;
+    transit: number | null;
+}>({ references: null, transit: null });
+
 /**
  * Reset every map display overlay to its default OFF state. Called on
  * new game / new round / settings change so a fresh game never inherits

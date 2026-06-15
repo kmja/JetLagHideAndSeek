@@ -4,6 +4,7 @@ import {
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     playArea,
+    preloadBucketBytes,
     preloadBucketInFlight,
     preloadBucketTimestamps,
     preloadChoices,
@@ -108,6 +109,22 @@ function runReferencesPreload(): void {
     preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), references: true });
     void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES)
         .then(() => {
+            // Measure actual stored data size by summing the JSON length of
+            // every cached family. getCachedCategory returns the normalized
+            // PrefetchedFeature[] arrays written to the in-memory cache by
+            // prefetchFamiliesInOneQuery — this is the data the app will use
+            // at question-ask time, so its size is the right thing to show.
+            let totalBytes = 0;
+            for (const family of STANDARD_REFERENCE_FAMILIES) {
+                const features = getCachedCategory(family);
+                if (features?.length) {
+                    totalBytes += JSON.stringify(features).length;
+                }
+            }
+            preloadBucketBytes.set({
+                ...preloadBucketBytes.get(),
+                references: totalBytes || null,
+            });
             preloadBucketTimestamps.set({
                 ...preloadBucketTimestamps.get(),
                 references: Date.now(),
@@ -125,17 +142,11 @@ function runTransitPreload(): void {
     const size = gameSize.get();
     preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), transit: true });
 
-    // Collect the main transit promises (HSR + three route overlays)
-    // so we can mark the bucket complete once they settle.
-    const transitPromises: Promise<unknown>[] = [];
+    // Each transit promise resolves with the byte count of the data it
+    // fetched (0 on network failure). Using Promise.all is safe here
+    // because all individual promises swallow their errors via .catch.
+    const transitPromises: Promise<number>[] = [];
 
-    // High-speed rail — separate per-country query (needs out:geom
-    // for the line geometry, can't ride the out:center union).
-    // Resolves to `area["ISO3166-1"=…]` for the play area's country —
-    // the same string the cron + laptop warm and the on-tap lookup
-    // issues, so this primes the exact R2 key all three hit. Null
-    // when the play area's country has no prewarmed HSR. Small/medium
-    // only per rulebook. Silent + best-effort.
     if (size !== "large") {
         const hsrQuery = buildHsrQuery();
         if (hsrQuery) {
@@ -148,36 +159,33 @@ function runTransitPreload(): void {
                     false,
                     undefined,
                     true,
-                ).catch(() => {}),
+                )
+                    .then((data: unknown) => {
+                        try {
+                            return data != null ? JSON.stringify(data).length : 0;
+                        } catch {
+                            return 0;
+                        }
+                    })
+                    .catch(() => 0),
             );
         }
     }
 
-    // v246: warm the three map transit-route overlays (subway / bus /
-    // ferry) so toggling any of them on mid-game is instant instead of
-    // a 5-15 s Overpass round-trip (and a rate-limit risk on the public
-    // mirror fallback for the first seeker in a fresh city).
-    //
-    // We warm ALL THREE unconditionally rather than gating on
-    // allowedTransit: the overlays are a seeker visualisation aid, not
-    // a rule surface, and the user explicitly wants every overlay
-    // preloaded regardless of which transit modes the hider may use.
-    //
-    // `fetchTransitRoutesFeatures` issues the same `relation["route"=…]`
-    // query the on-tap path does → same worker → same R2 key, so this
-    // primes the exact entry the live toggle will hit (and that the
-    // cron can pre-warm). We discard the parsed FeatureCollection; the
-    // point is the cache write, not the return value. Best-effort +
-    // silent — a failure here just means the on-tap fetch pays the
-    // round-trip later, same as before.
     for (const mode of ["subway", "bus", "ferry"] as const) {
-        transitPromises.push(fetchTransitRoutesFeatures(mode).catch(() => {}));
+        transitPromises.push(
+            fetchTransitRoutesFeatures(mode)
+                .then((fc) => JSON.stringify(fc).length)
+                .catch(() => 0),
+        );
     }
 
-    // When the main transit fetches settle (success or failure), mark
-    // the bucket complete. Journey arrivals (scheduleTransitPreload) are
-    // a bonus — they run after and don't gate the status timestamp.
-    void Promise.allSettled(transitPromises).then(() => {
+    void Promise.all(transitPromises).then((byteCounts) => {
+        const totalBytes = byteCounts.reduce((a, b) => a + b, 0);
+        preloadBucketBytes.set({
+            ...preloadBucketBytes.get(),
+            transit: totalBytes || null,
+        });
         preloadBucketTimestamps.set({
             ...preloadBucketTimestamps.get(),
             transit: Date.now(),

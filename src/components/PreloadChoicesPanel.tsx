@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import {
+    preloadBucketBytes,
     preloadBucketInFlight,
     preloadBucketTimestamps,
     preloadChoices,
@@ -113,6 +114,7 @@ export function PreloadChoicesPanel({
     const choices = useStore(preloadChoices);
     const timestamps = useStore(preloadBucketTimestamps);
     const inFlight = useStore(preloadBucketInFlight);
+    const bucketBytes = useStore(preloadBucketBytes);
     const $setup = useStore(setupCompleted);
 
     // Default: show status once game is set up
@@ -153,6 +155,12 @@ export function PreloadChoicesPanel({
                         : b.id === "transit"
                           ? timestamps.transit
                           : null;
+                const actualBytes =
+                    b.id === "references"
+                        ? bucketBytes.references
+                        : b.id === "transit"
+                          ? bucketBytes.transit
+                          : null;
 
                 // Map is always ready once the game starts; downloaded
                 // ref/transit buckets become read-only "done" cards.
@@ -182,7 +190,7 @@ export function PreloadChoicesPanel({
                                     )}
                                 >
                                     {isDownloaded
-                                        ? "Downloaded"
+                                        ? `Downloaded${actualBytes ? ` — ${formatSize(actualBytes / 1_000_000)}` : ""}`
                                         : "Loaded at game setup"}
                                 </p>
                             </div>
