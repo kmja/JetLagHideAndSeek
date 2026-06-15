@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDebounce } from "@/hooks/useDebounce";
 import { allowGooglePlusCodes, isLoading } from "@/lib/context";
+import type { ImpactMode } from "@/lib/questionImpact";
 import { cn } from "@/lib/utils";
 import {
     determineName,
@@ -398,6 +399,9 @@ export const LatitudeLongitude = ({
     referencePoint,
     lockToGps = false,
     mapReady = true,
+    impactMode,
+    impactType,
+    tentacleRadiusKm,
 }: {
     latitude: number;
     longitude: number;
@@ -436,6 +440,11 @@ export const LatitudeLongitude = ({
      * so the user can still set a location while the map is gated.
      */
     mapReady?: boolean;
+    /** Question-impact overlay (v239) — passthrough to
+     *  InlineLocationPicker. See its props. */
+    impactMode?: ImpactMode;
+    impactType?: string;
+    tentacleRadiusKm?: number;
 }) => {
     const $isLoading = useStore(isLoading);
 
@@ -517,6 +526,9 @@ export const LatitudeLongitude = ({
                                     radiusMeters={radiusMeters}
                                     referencePoint={referencePoint}
                                     lockToGps={lockToGps}
+                                    impactMode={impactMode}
+                                    impactType={impactType}
+                                    tentacleRadiusKm={tentacleRadiusKm}
                                 />
                             </Suspense>
                         ) : (

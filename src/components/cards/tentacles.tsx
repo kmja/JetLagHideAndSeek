@@ -4,7 +4,6 @@ import React, { Suspense, use } from "react";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import PresetsDialog from "@/components/PresetsDialog";
-import { QuestionImpactMap } from "@/components/QuestionImpactMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -226,15 +225,6 @@ export const TentacleQuestionComponent = ({
                     </div>
                 </>
             )}
-            {forceExpanded && data.drag && data.locationType !== "custom" && (
-                <QuestionImpactMap
-                    lat={data.lat}
-                    lng={data.lng}
-                    type={data.locationType}
-                    mode="tentacles"
-                    tentacleRadiusKm={data.radius}
-                />
-            )}
             <LatitudeLongitude
                 latitude={data.lat}
                 longitude={data.lng}
@@ -249,6 +239,15 @@ export const TentacleQuestionComponent = ({
                     questionModified();
                 }}
                 disabled={!data.drag || $isLoading}
+                // v239: draw the tentacle reach circle + every candidate
+                // on the picker map so the seeker reads the density.
+                impactMode={
+                    forceExpanded && data.locationType !== "custom"
+                        ? "tentacles"
+                        : undefined
+                }
+                impactType={data.locationType}
+                tentacleRadiusKm={data.radius}
             />
             <ManualAnswerDisclosure compact={compactAnswer}>
                 <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>

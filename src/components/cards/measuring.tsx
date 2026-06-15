@@ -8,7 +8,6 @@ import NearestReferencePreview, {
     useNearestReference,
 } from "@/components/NearestReferencePreview";
 import PresetsDialog from "@/components/PresetsDialog";
-import { QuestionImpactMap } from "@/components/QuestionImpactMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select } from "@/components/ui/select";
 import {
@@ -312,20 +311,12 @@ export const MeasuringQuestionComponent = ({
                 closest place of the chosen type, so you know what the
                 hider is being compared against. */}
             {forceExpanded && data.drag && (
-                <>
-                    <NearestReferencePreview
-                        lat={data.lat}
-                        lng={data.lng}
-                        type={data.type}
-                        mode="measuring"
-                    />
-                    <QuestionImpactMap
-                        lat={data.lat}
-                        lng={data.lng}
-                        type={data.type}
-                        mode="measuring"
-                    />
-                </>
+                <NearestReferencePreview
+                    lat={data.lat}
+                    lng={data.lng}
+                    type={data.type}
+                    mode="measuring"
+                />
             )}
 
             <MeasuringLocation
@@ -439,6 +430,10 @@ function MeasuringLocation({
             // display, so the lock doesn't matter.
             lockToGps={forceExpanded}
             mapReady={mapReady}
+            // v239: draw the closer/further half-plane impact on the
+            // picker map, only while configuring a draft question.
+            impactMode={forceExpanded ? "measuring" : undefined}
+            impactType={type}
         />
     );
 }

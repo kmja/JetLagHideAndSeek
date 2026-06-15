@@ -23,6 +23,7 @@ import {
 } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import { getTileLayerConfig } from "@/lib/mapTiles";
+import { type ImpactMode, useQuestionImpact } from "@/lib/questionImpact";
 import { cn } from "@/lib/utils";
 
 /**
@@ -50,6 +51,9 @@ export function InlineLocationPicker({
     referencePoint,
     height = "h-[40vh]",
     lockToGps = false,
+    impactMode,
+    impactType,
+    tentacleRadiusKm,
 }: {
     latitude: number;
     longitude: number;
@@ -61,6 +65,17 @@ export function InlineLocationPicker({
         name?: string;
     };
     height?: string;
+    /** Question-impact overlay (v239). When set, the picker draws the
+     *  "what would this answer tell us" regions onto this same map:
+     *  matching → Voronoi cell (green=same) + rest (red); measuring →
+     *  closer/further half-planes; tentacles → reach circle + every
+     *  candidate plotted. Computed by useQuestionImpact from the
+     *  prefetched feature cache. */
+    impactMode?: ImpactMode;
+    /** Subtype string (e.g. "hospital") driving the impact overlay. */
+    impactType?: string;
+    /** Tentacle reach in km (tentacles impactMode only). */
+    tentacleRadiusKm?: number;
     /**
      * When true, the picker becomes a display-only map: map clicks don't
      * move the pin, the pin isn't draggable, and the pin only renders
@@ -80,6 +95,31 @@ export function InlineLocationPicker({
     const $satellite = useStore(satelliteView);
 
     const tile = getTileLayerConfig($baseTileLayer, $thunderforestApiKey);
+
+    // Question-impact overlay (v239). Only computed when the caller
+    // opts in (matching/measuring/tentacles configure dialogs).
+    const impact = useQuestionImpact(
+        latitude,
+        longitude,
+        impactType ?? "",
+        impactMode ?? "matching",
+        tentacleRadiusKm,
+    );
+    const impactCandidatesFC = useMemo<GeoJSON.FeatureCollection | null>(() => {
+        if (!impactMode || !impact || impact.candidates.length === 0)
+            return null;
+        return {
+            type: "FeatureCollection",
+            features: impact.candidates.map((c) => ({
+                type: "Feature" as const,
+                geometry: {
+                    type: "Point" as const,
+                    coordinates: [c.lng, c.lat],
+                },
+                properties: { name: c.name },
+            })),
+        };
+    }, [impactMode, impact]);
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",
@@ -323,6 +363,97 @@ export function InlineLocationPicker({
                                     "line-color": "#0f172a",
                                     "line-width": 1,
                                     "line-opacity": 0.55,
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {/* Question-impact overlay (v239) — drawn on this
+                        same map per the design request (no separate
+                        mini-map). Order: red "no" region first so the
+                        green "yes" sits on top; candidates + reach
+                        circle above both. */}
+                    {impactMode && impact?.no && (
+                        <Source
+                            id="impact-no"
+                            type="geojson"
+                            data={impact.no as GeoJSON.Feature}
+                        >
+                            <Layer
+                                id="impact-no-fill"
+                                type="fill"
+                                paint={{
+                                    "fill-color": "hsl(0, 75%, 50%)",
+                                    "fill-opacity": 0.22,
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {impactMode && impact?.yes && (
+                        <Source
+                            id="impact-yes"
+                            type="geojson"
+                            data={impact.yes as GeoJSON.Feature}
+                        >
+                            <Layer
+                                id="impact-yes-fill"
+                                type="fill"
+                                paint={{
+                                    "fill-color": "hsl(140, 65%, 48%)",
+                                    "fill-opacity": 0.3,
+                                }}
+                            />
+                            <Layer
+                                id="impact-yes-line"
+                                type="line"
+                                paint={{
+                                    "line-color": "hsl(140, 65%, 32%)",
+                                    "line-width": 1.5,
+                                    "line-opacity": 0.85,
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {impactMode === "tentacles" && impact?.reachCircle && (
+                        <Source
+                            id="impact-reach"
+                            type="geojson"
+                            data={impact.reachCircle as GeoJSON.Feature}
+                        >
+                            <Layer
+                                id="impact-reach-fill"
+                                type="fill"
+                                paint={{
+                                    "fill-color": "hsl(265, 60%, 60%)",
+                                    "fill-opacity": 0.16,
+                                }}
+                            />
+                            <Layer
+                                id="impact-reach-line"
+                                type="line"
+                                paint={{
+                                    "line-color": "hsl(265, 60%, 48%)",
+                                    "line-width": 1.5,
+                                    "line-opacity": 0.9,
+                                    "line-dasharray": [3, 3],
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {impactCandidatesFC && (
+                        <Source
+                            id="impact-candidates"
+                            type="geojson"
+                            data={impactCandidatesFC}
+                        >
+                            <Layer
+                                id="impact-candidates-circle"
+                                type="circle"
+                                paint={{
+                                    "circle-radius": 3.5,
+                                    "circle-color": "hsl(40, 95%, 55%)",
+                                    "circle-stroke-color": "hsl(40, 95%, 22%)",
+                                    "circle-stroke-width": 1,
+                                    "circle-opacity": 0.95,
                                 }}
                             />
                         </Source>
