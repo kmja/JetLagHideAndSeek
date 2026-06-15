@@ -13,7 +13,8 @@
  *     --worker https://jlhs-overpass-cache.<sub>.workers.dev \
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
- *     [--skip-discover] [--skip-boundaries] [--skip-references] [--skip-hsr] \
+ *     [--skip-discover] [--skip-boundaries] [--skip-references] \
+ *     [--skip-transit] [--skip-hsr] \
  *     [--delay-ms 2000]
  *
  * What it does:
@@ -28,6 +29,10 @@
  *                   worker would issue. Requires the city's `extent`
  *                   (derived locally from the boundary geometry when
  *                   the list doesn't carry one).
+ *     3. Transit  — subway/bus/ferry route overlays via map_to_area
+ *                   (keys off the relation id, no extent needed) so
+ *                   toggling any overlay in that city is an instant
+ *                   R2 hit instead of a 5-15 s Overpass round-trip.
  *   Once, after the city loop:
  *     3. HSR      — one `area["ISO3166-1"=XX]; way[...highspeed=yes]`
  *                   query per country in HSR_COUNTRIES. HSR is an
@@ -65,6 +70,7 @@ const DO_BOUNDARIES = !args["skip-boundaries"];
 const DO_REFS = !args["skip-references"];
 const DO_HSR = !args["skip-hsr"];
 const DO_DISCOVER = !args["skip-discover"];
+const DO_TRANSIT = !args["skip-transit"];
 
 const UA =
     "jlhs-laptop-prewarm/1.0 (https://github.com/kmja/jetlaghideandseek)";
@@ -217,6 +223,33 @@ const REFERENCE_FAMILY_FILTERS = [
 
 function boundaryQuery(relationId) {
     return `[out:json][timeout:120];relation(${relationId});out geom;`;
+}
+
+// The three map transit-route overlays (subway / bus / ferry). The
+// route values match the `TransitMode` the client passes straight
+// through as the `route=` selector.
+const TRANSIT_ROUTE_TYPES = ["subway", "bus", "ferry"];
+
+/**
+ * Byte-for-byte mirror of the single-area branch of
+ * `fetchTransitRelations` in src/maps/api/transitRoutes.ts (the
+ * `map_to_area` path taken for a standard wizard-selected city with
+ * no user-drawn polygon and no adjacent municipalities). The R2 cache
+ * key is a SHA-256 of this exact string, so any whitespace drift and
+ * the client's toggle would miss what we store here.
+ *
+ * The client builds, for a single location at index 0:
+ *   relationBlocks = `relation(<id>);map_to_area->.region0;`
+ *   routeSelects   = `relation["route"="<type>"](area.region0);`
+ *   query = `\n[out:json][timeout:180];\n${relationBlocks}\n(${routeSelects});\nout skel geom;\n`
+ * (note the leading + trailing newline from the template literal, and
+ *  the double `;` where routeSelects' own trailing `;` meets the
+ *  wrapping `(...)`.)
+ */
+function transitRouteQuery(relationId, routeType) {
+    const relationBlocks = `relation(${relationId});map_to_area->.region0;`;
+    const routeSelects = `relation["route"="${routeType}"](area.region0);`;
+    return `\n[out:json][timeout:180];\n${relationBlocks}\n(${routeSelects});\nout skel geom;\n`;
 }
 
 function bboxFilter(extent, padKm) {
@@ -553,6 +586,46 @@ async function processCity(city) {
             }
             await sleep(DELAY_MS);
         }
+        }
+    }
+
+    // Transit-route overlays (subway / bus / ferry). Unlike refs these
+    // need no extent — the query keys off the city's relation id via
+    // map_to_area — so every city gets them, including ones still
+    // missing a server-side extent. One query per mode; each is gated
+    // by isFresh so a re-run skips already-warmed modes. Stored under
+    // kind "transit" (metadata only). Big metros' bus networks can be
+    // heavy (out skel geom over thousands of routes), so they share the
+    // same waitForSlot + 180 s timeout + DELAY_MS pacing as everything
+    // else. A failure (timeout / empty) just leaves that mode for the
+    // on-tap client fetch, same as before this loop existed.
+    if (DO_TRANSIT) {
+        for (const routeType of TRANSIT_ROUTE_TYPES) {
+            const q = transitRouteQuery(city.relationId, routeType);
+            if (await isFresh(q, `transit ${routeType}`)) {
+                console.log(`  ⤼ transit ${routeType} already cached — skipping`);
+                continue;
+            }
+            const res = await fetchOverpass(q, `transit ${routeType}`);
+            if (!res) continue;
+            const parsed = safeJSON(res.text);
+            if (parsed) {
+                try {
+                    const r = await uploadToWorker({
+                        query: q,
+                        body: parsed,
+                        kind: "transit",
+                        sourceName: `${city.name} (${routeType})`,
+                        sourceRelationId: String(city.relationId),
+                    });
+                    console.log(
+                        `  ✓ transit ${routeType} stored (${r.sizeBytes} B in ${res.ms} ms, ${parsed.elements?.length ?? 0} relations)`,
+                    );
+                } catch (e) {
+                    console.warn(`  ✗ transit ${routeType} upload: ${e.message}`);
+                }
+            }
+            await sleep(DELAY_MS);
         }
     }
     // HSR is no longer per-city — see processHsrCountries(), run once
