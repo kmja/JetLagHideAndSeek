@@ -28,11 +28,14 @@ import {
 import { Separator } from "./ui/separator";
 import { SidebarMenuItem } from "./ui/sidebar-l";
 
-// Lazy-loaded so react-leaflet (which pulls in leaflet, a window-touching
-// module) stays OUT of the static import graph. LatitudeLongitude is
-// imported by OptionDrawers, which is SSR-rendered (client:load); a static
-// import here would drag leaflet into Astro's server build and crash with
-// "window is not defined". The dynamic import() defers it to client runtime.
+// Lazy-loaded to keep maplibre-gl (~880 KB) off the critical path —
+// LatitudeLongitude is imported widely but the inline map only renders
+// inside a question's configure dialog, so deferring its chunk until
+// first open keeps the initial bundle lean. (Historical note: this
+// comment used to cite react-leaflet + the Astro SSR "window is not
+// defined" crash — both are gone. Every map is maplibre now, and the
+// app is a client-rendered SPA, so there's no SSR import graph to
+// protect. The lazy() is now purely a bundle-size optimisation.)
 const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
 
 const parseCoordinatesFromText = (
