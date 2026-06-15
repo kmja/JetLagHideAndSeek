@@ -532,7 +532,13 @@ async function handleRequest(
         if (request.method === "OPTIONS") {
             return new Response(null, { status: 204, headers: cors });
         }
-        if (request.method !== "GET" && request.method !== "POST") {
+        // HEAD allowed (v238) so the /tiles PMTiles route can answer
+        // HEAD probes (the upload-verify curl, and range pre-flights).
+        if (
+            request.method !== "GET" &&
+            request.method !== "POST" &&
+            request.method !== "HEAD"
+        ) {
             return new Response("Method not allowed", {
                 status: 405,
                 headers: cors,
