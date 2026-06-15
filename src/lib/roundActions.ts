@@ -17,7 +17,6 @@ import {
     resetMapOverlays,
     seekingStartFiredFor,
     setupCompleted,
-    setupDialogOpen,
     welcomeSeen,
 } from "@/lib/gameSetup";
 import {
@@ -119,7 +118,9 @@ export function startNewGame() {
     additionalMapGeoLocations.set([]);
     resetMapOverlays();
     setupCompleted.set(false);
-    setupDialogOpen.set(true);
+    // v252: no manual dialog-open — the route guard in
+    // SeekerPage/HiderPage redirects to /setup the moment
+    // setupCompleted flips false above.
 }
 
 /**
@@ -141,16 +142,14 @@ export function startNewGame() {
 export function returnToLandingPage(): void {
     leaveGame();
     startNewGame();
-    // startNewGame opens the wizard for the in-game "new game" flow;
-    // that's the wrong UX for a leave-game flow, where Welcome should
-    // be the first thing the user sees.
-    setupDialogOpen.set(false);
     welcomeSeen.set(false);
     playerRole.set(null);
     if (typeof window !== "undefined") {
         // Force a navigation rather than a soft route — multiplayer
         // listeners + persisted shadow atoms are easier to reason
         // about after a fresh boot than after a half-cleanup race.
+        // Going via "/" also drops out of /setup if the user was
+        // already mid-wizard when they tapped "Leave game".
         window.location.assign("/");
     }
 }

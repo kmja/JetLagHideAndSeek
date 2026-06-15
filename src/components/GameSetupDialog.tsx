@@ -53,7 +53,6 @@ import {
     SIZE_DESCRIPTIONS,
     TRANSIT_LABELS,
     type TransitMode,
-    welcomeSeen,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState } from "@/lib/hiderRole";
 import {
@@ -143,7 +142,7 @@ function inferGameSize(feature: OpenStreetMap): GameSize | null {
  *
  * See `BBOX_FILL_FACTOR` for the bbox→polygon adjustment rationale.
  */
-function estimateAreaKm2(feature: OpenStreetMap): number | null {
+export function estimateAreaKm2(feature: OpenStreetMap): number | null {
     const extent = feature.properties.extent;
     if (!extent || extent.length < 4) return null;
     const [maxLat, minLng, minLat, maxLng] = extent;
@@ -223,16 +222,12 @@ export function GameSetupDialog() {
     const $allowedTransit = useStore(allowedTransit);
     const $gameSize = useStore(gameSize);
     const $setupCompleted = useStore(setupCompleted);
-    const $welcomeSeen = useStore(welcomeSeen);
 
-    // Auto-open the wizard on first load — but only once the user has
-    // dismissed the welcome screen (otherwise the two dialogs race and
-    // stack). Reactive on welcomeSeen so the wizard pops the moment
-    // the welcome screen flips it.
-    useEffect(() => {
-        if (!$welcomeSeen) return;
-        if (!setupCompleted.get()) setupDialogOpen.set(true);
-    }, [$welcomeSeen]);
+    // v252: the first-time wizard now lives at the /setup route, so
+    // the dialog only opens via "Edit settings" mid-game. The route-
+    // level redirect in SeekerPage / HiderPage covers the case where
+    // setupCompleted goes false (new game) — the user lands on /setup
+    // automatically.
 
     const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
     // Direction of the most recent step change, for the slide
@@ -846,7 +841,7 @@ function EditTabs({
 
 /* ─── Step 1 — Play area ─── */
 
-function PlayAreaStep({
+export function PlayAreaStep({
     value,
     onChange,
 }: {
@@ -1383,7 +1378,7 @@ const TRANSIT_ICONS: Record<TransitMode, typeof Bus> = {
     ferry: Ship,
 };
 
-function TransitStep({
+export function TransitStep({
     value,
     onChange,
 }: {
@@ -1447,7 +1442,7 @@ function TransitStep({
 
 /* ─── Step 3 — Game size ─── */
 
-function SizeStep({
+export function SizeStep({
     value,
     onChange,
 }: {

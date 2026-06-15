@@ -26,6 +26,13 @@ const DebugCardsPage = lazyWithRetry(() =>
         default: m.DebugCardsPage,
     })),
 );
+// First-time / new-game wizard route (v252). Was a dialog overlay
+// on the seeker view; now its own page. Reached via the Welcome
+// screen's "Start new game" or the route-level redirect when
+// `setupCompleted` flips false.
+const SetupPage = lazyWithRetry(() =>
+    import("@/pages/SetupPage").then((m) => ({ default: m.SetupPage })),
+);
 
 // Both routes mount under the same Suspense boundary so the
 // fallback (or lack thereof) is consistent. The route chunks
@@ -59,6 +66,7 @@ const router = createBrowserRouter([
     { path: "/", element: <RouteWrapper element={<SeekerPage />} /> },
     { path: "/h", element: <RouteWrapper element={<HiderPage />} /> },
     { path: "/h/", element: <RouteWrapper element={<HiderPage />} /> },
+    { path: "/setup", element: <RouteWrapper element={<SetupPage />} /> },
     {
         path: "/debug/cards",
         element: <RouteWrapper element={<DebugCardsPage />} />,

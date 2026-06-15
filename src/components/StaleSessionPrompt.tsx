@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
     AlertDialog,
@@ -15,7 +16,6 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     setupCompleted,
-    setupDialogOpen,
 } from "@/lib/gameSetup";
 import {
     playerRole,
@@ -51,6 +51,7 @@ export function StaleSessionPrompt() {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $foundAt = useStore(roundFoundAt);
     const $role = useStore(playerRole);
+    const navigate = useNavigate();
 
     const [dismissed, setDismissed] = useState(false);
 
@@ -78,7 +79,7 @@ export function StaleSessionPrompt() {
             resetHiderRoundState();
         } else {
             setupCompleted.set(false);
-            setupDialogOpen.set(true);
+            navigate("/setup");
         }
         setDismissed(true);
     };

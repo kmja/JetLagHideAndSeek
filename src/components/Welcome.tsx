@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Eye, Loader2, MapPin, Users } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { setupCompleted, setupDialogOpen, welcomeSeen } from "@/lib/gameSetup";
+import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import {
     currentGameCode,
@@ -50,6 +51,7 @@ export function Welcome() {
     const $error = useStore(multiplayerError);
     const $code = useStore(currentGameCode);
     const $participants = useStore(participantsAtom);
+    const navigate = useNavigate();
 
     // Three-phase join:
     //   intro     — pick "Start new game" or "Join a game"
@@ -81,12 +83,10 @@ export function Welcome() {
 
     const handleStartNew = () => {
         welcomeSeen.set(true);
-        // GameSetupDialog has a reactive auto-open effect tied to
-        // welcomeSeen + setupCompleted — flipping welcomeSeen here is
-        // enough; we don't need to set setupDialogOpen manually.
-        // (Set it anyway as a belt-and-braces in case the effect runs
-        // before this paint frame.)
-        if (!setupCompleted.get()) setupDialogOpen.set(true);
+        // v252: wizard is its own route now. Navigate explicitly so
+        // we land on /setup even before the SeekerPage's route guard
+        // would catch the (welcomeSeen=true, !setupCompleted) state.
+        if (!setupCompleted.get()) navigate("/setup");
     };
 
     // Step 1 of join: connect with role=null so the participant

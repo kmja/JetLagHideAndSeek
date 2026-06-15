@@ -1,9 +1,8 @@
 import { useStore } from "@nanostores/react";
-import { Flag, Sparkles, Timer, Trophy, Users } from "lucide-react";
+import { Flag, Sparkles, Timer, Trophy } from "lucide-react";
 import { useState } from "react";
 
 import { CacheStatusPill } from "@/components/CacheStatusPill";
-import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     endgameStartedAt,
@@ -17,7 +16,6 @@ import {
     roundFoundAt,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
-import { lobbyManualOpen } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 
 /**
@@ -103,16 +101,6 @@ export function HiderTimeHeader() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <CacheStatusPill />
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => lobbyManualOpen.set(true)}
-                        className="gap-1.5 h-9 text-xs"
-                        title="Open the game lobby"
-                    >
-                        <Users className="w-3.5 h-3.5" />
-                        Lobby
-                    </Button>
                 </div>
             </div>
         </header>

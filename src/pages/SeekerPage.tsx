@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
@@ -130,6 +131,18 @@ export function SeekerPage() {
     const $welcomeSeen = useStore(welcomeSeen);
     const $setupCompleted = useStore(setupCompleted);
     const showMap = $welcomeSeen && $setupCompleted;
+    const navigate = useNavigate();
+
+    // v252: redirect to the /setup wizard route as soon as Welcome
+    // has been dismissed but setup hasn't been committed yet — covers
+    // both first-time setup and the "New game" mid-session reset
+    // (which flips setupCompleted=false). Welcome is still mounted
+    // below for the truly-first-load case.
+    useEffect(() => {
+        if ($welcomeSeen && !$setupCompleted) {
+            navigate("/setup", { replace: true });
+        }
+    }, [$welcomeSeen, $setupCompleted, navigate]);
 
     return (
         <div className="bg-jetlag">

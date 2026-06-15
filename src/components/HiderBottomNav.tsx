@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Inbox, List, Settings } from "lucide-react";
+import { Inbox, List, Settings, Users } from "lucide-react";
 import { useState } from "react";
 
 import { HiderHomeContent } from "@/components/HiderHome";
@@ -13,6 +13,10 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import { hiderHand, hiderInbox } from "@/lib/hiderRole";
+import {
+    lobbyManualOpen,
+    participants,
+} from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,11 +45,13 @@ const FAN_HEIGHT_PX = 128;
 export function HiderBottomNav() {
     const $inbox = useStore(hiderInbox);
     const $hand = useStore(hiderHand);
+    const $participants = useStore(participants);
     const [questionsOpen, setQuestionsOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
 
     const inboxCount = $inbox.length;
     const hasCards = $hand.length > 0;
+    const onlineCount = $participants.filter((p) => p.online).length;
 
     const navBtnClass = cn(
         "relative flex flex-1 flex-col items-center justify-center gap-0.5",
@@ -92,6 +98,31 @@ export function HiderBottomNav() {
                                 aria-label={`${inboxCount} questions in inbox`}
                             >
                                 {inboxCount}
+                            </span>
+                        )}
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => lobbyManualOpen.set(true)}
+                        className={navBtnClass}
+                        aria-label="Open game lobby"
+                        title="Players, room code, role rotation"
+                    >
+                        <Users className="w-5 h-5" strokeWidth={2} />
+                        <span className={navLabelClass}>Lobby</span>
+                        {onlineCount > 0 && (
+                            <span
+                                className={cn(
+                                    "absolute top-1 right-2",
+                                    "text-[9px] font-mono font-semibold",
+                                    "bg-primary text-primary-foreground",
+                                    "px-1.5 min-w-[18px] h-[18px]",
+                                    "rounded-full flex items-center justify-center",
+                                )}
+                                aria-label={`${onlineCount} players online`}
+                            >
+                                {onlineCount}
                             </span>
                         )}
                     </button>

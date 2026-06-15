@@ -19,6 +19,7 @@ import {
     Trophy,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,6 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     setupCompleted,
-    setupDialogOpen,
     TRANSIT_LABELS,
     type TransitMode,
 } from "@/lib/gameSetup";
@@ -136,6 +136,7 @@ type HiderPhase =
  * spacer) so any non-shell caller still works.
  */
 export function HiderHomeContent() {
+    const navigate = useNavigate();
     const $role = useStore(playerRole);
     const $hidingZone = useStore(hidingZone);
     const $hidingSpot = useStore(hidingSpot);
@@ -278,7 +279,7 @@ export function HiderHomeContent() {
         // Wipes inbox + hand + zone + spot + foundAt. Same helper the
         // seeker side calls.
         resetHiderRoundState();
-        setupDialogOpen.set(true);
+        navigate("/setup");
     };
 
     return (
