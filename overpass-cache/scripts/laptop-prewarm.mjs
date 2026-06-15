@@ -54,7 +54,19 @@
  * city list each run so newly-discovered cities get picked up.
  */
 
+import dns from "node:dns";
 import process from "node:process";
+
+// Force IPv4-first DNS resolution. Node 17+ defaults to "verbatim"
+// order, which on dual-stack hosts often hands undici the AAAA (IPv6)
+// addresses first. If the local network's IPv6 path to Cloudflare is
+// broken/blackholed, every `fetch` hangs and dies with
+// `AggregateError [ETIMEDOUT]` (4 sub-errors = the 4 IPv6 addrs it
+// tried) instead of falling back to IPv4 — even though the IPv4 path
+// (and .NET's Invoke-RestMethod) works fine. ipv4first makes undici
+// try the A records first, which is what we want for a CDN-fronted
+// worker. Safe on IPv4-only and dual-stack-healthy hosts too.
+dns.setDefaultResultOrder("ipv4first");
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.worker || !args.secret) {
@@ -485,10 +497,37 @@ async function isFresh(query, label) {
     return Boolean(data?.fresh);
 }
 
+/** fetch() with retry on transient network failures (ETIMEDOUT, DNS,
+ *  connection resets). The worker control-plane calls (list-cities,
+ *  discover) used to throw straight to a "fatal:" and kill the whole
+ *  pass on a single blip — a momentary IPv6 hiccup or Cloudflare edge
+ *  reset shouldn't cost an hour's wait for the next loop iteration.
+ *  Retries up to `attempts` times with exponential backoff. Only
+ *  catches THROWN errors (network layer); a non-ok HTTP response is
+ *  returned as-is for the caller to handle. */
+async function fetchRetry(url, init, label, attempts = 4) {
+    let lastErr;
+    for (let i = 1; i <= attempts; i++) {
+        try {
+            return await fetch(url, init);
+        } catch (e) {
+            lastErr = e;
+            const backoff = Math.min(2000 * 2 ** (i - 1), 16000);
+            console.warn(
+                `  ⚠ ${label} network error (${e?.cause?.code ?? e?.message ?? e}); retry ${i}/${attempts} in ${backoff} ms`,
+            );
+            if (i < attempts) await sleep(backoff);
+        }
+    }
+    throw lastErr;
+}
+
 async function listCities() {
-    const resp = await fetch(`${WORKER}/admin/list-cities`, {
-        headers: { Authorization: `Bearer ${SECRET}` },
-    });
+    const resp = await fetchRetry(
+        `${WORKER}/admin/list-cities`,
+        { headers: { Authorization: `Bearer ${SECRET}` } },
+        "list-cities",
+    );
     if (!resp.ok) {
         const text = await resp.text().catch(() => "");
         throw new Error(`list-cities failed: ${resp.status} ${text}`);
@@ -804,14 +843,18 @@ async function drainDiscovery() {
     for (let call = 0; call < 300; call++) {
         let resp;
         try {
-            resp = await fetch(`${WORKER}/admin/discover`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${SECRET}`,
+            resp = await fetchRetry(
+                `${WORKER}/admin/discover`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${SECRET}`,
+                    },
+                    body: JSON.stringify({ batch: 25 }),
                 },
-                body: JSON.stringify({ batch: 25 }),
-            });
+                "discover",
+            );
         } catch (e) {
             console.warn(`  discover call threw: ${e?.message ?? e}`);
             break;
