@@ -379,24 +379,51 @@ async function fetchOverpass(query, label) {
     return null;
 }
 
-async function uploadToWorker({ query, body, kind, sourceName, sourceRelationId }) {
-    const resp = await fetch(`${WORKER}/admin/store-prewarmed`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${SECRET}`,
+/** Skip uploading any single response larger than this. Mirrors the
+ *  worker's MAX_CACHE_BYTES — a payload this big (NYC's bus network)
+ *  isn't worth caching, and sending it just wastes upstream bandwidth
+ *  for a body the worker would reject anyway. The client still fetches
+ *  it on demand (uncached) if the user ever toggles that overlay. */
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+
+/**
+ * Store a prewarmed Overpass response via the worker's STREAMING
+ * protocol (v249-fix): the query + metadata ride in the URL query
+ * string and the raw response text is the POST body, streamed straight
+ * to R2. The old path JSON-wrapped the body, which made the worker
+ * parse + re-stringify tens of MB in heap and blow Cloudflare's 128 MB
+ * limit (error 1102) on big transit payloads. `bodyText` is the raw
+ * Overpass response string (NOT a parsed object).
+ */
+async function uploadToWorker({
+    query,
+    bodyText,
+    kind,
+    sourceName,
+    sourceRelationId,
+}) {
+    const params = new URLSearchParams();
+    params.set("query", query);
+    if (kind) params.set("kind", kind);
+    if (sourceName) params.set("sourceName", sourceName);
+    if (sourceRelationId) params.set("sourceRelationId", String(sourceRelationId));
+    const resp = await fetchRetry(
+        `${WORKER}/admin/store-prewarmed?${params.toString()}`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SECRET}`,
+            },
+            body: bodyText,
         },
-        body: JSON.stringify({
-            query,
-            body,
-            kind,
-            sourceName,
-            sourceRelationId,
-        }),
-    });
+        "store-prewarmed",
+    );
     if (!resp.ok) {
         const text = await resp.text().catch(() => "");
-        throw new Error(`store-prewarmed failed: ${resp.status} ${text}`);
+        throw new Error(
+            `store-prewarmed failed: ${resp.status} ${text.slice(0, 200)}`,
+        );
     }
     return resp.json();
 }
@@ -585,7 +612,7 @@ async function processCity(city) {
                 try {
                     const r = await uploadToWorker({
                         query: q,
-                        body: parsed,
+                        bodyText: res.text,
                         kind: "boundary",
                         sourceName: city.name,
                         sourceRelationId: String(city.relationId),
@@ -637,7 +664,7 @@ async function processCity(city) {
                 try {
                     const r = await uploadToWorker({
                         query: q,
-                        body: parsed,
+                        bodyText: res.text,
                         kind: "references",
                         sourceName: city.name,
                         sourceRelationId: String(city.relationId),
@@ -677,12 +704,23 @@ async function processCity(city) {
             }
             const res = await fetchOverpass(q, `transit ${routeType}`);
             if (!res) continue;
+            // Skip pathological payloads (a big metro's full bus network
+            // with out:geom is tens of MB). The worker would reject it
+            // anyway; the client fetches it on demand if ever toggled.
+            const bytes = Buffer.byteLength(res.text, "utf8");
+            if (bytes > MAX_UPLOAD_BYTES) {
+                console.log(
+                    `  ⤼ transit ${routeType} too large (${bytes} B > ${MAX_UPLOAD_BYTES}) — skipping upload`,
+                );
+                await sleep(DELAY_MS);
+                continue;
+            }
             const parsed = safeJSON(res.text);
             if (parsed) {
                 try {
                     const r = await uploadToWorker({
                         query: q,
-                        body: parsed,
+                        bodyText: res.text,
                         kind: "transit",
                         sourceName: `${city.name} (${routeType})`,
                         sourceRelationId: String(city.relationId),
@@ -725,7 +763,7 @@ async function processHsrCountries() {
             try {
                 const r = await uploadToWorker({
                     query: q,
-                    body: parsed,
+                    bodyText: res.text,
                     kind: "hsr",
                     sourceName: iso,
                 });

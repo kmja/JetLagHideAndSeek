@@ -2846,6 +2846,21 @@ async function handleAdminListCities(
  * handler uses) and stores `body` under `overpass/<hash>` so a
  * subsequent client request hashing the same query string gets a
  * cache hit. Overwrites any existing entry.
+ *
+ * Two protocols (v249-fix):
+ *   - STREAMING (preferred): `query` + metadata in the URL query
+ *     string, the raw Overpass response as the POST body. The body is
+ *     streamed straight to R2 — never buffered or re-stringified in the
+ *     Worker heap. This is what lets us store big transit payloads
+ *     (NYC's bus network is tens of MB) without blowing Cloudflare's
+ *     128 MB Worker memory limit. The old JSON-wrapper path did
+ *     `request.json()` (parses the whole body into an object tree) then
+ *     `JSON.stringify(body)` (a second full copy) — 2-3x the payload in
+ *     heap, which tripped Cloudflare error 1102 "Worker exceeded
+ *     resource limits" and crashed the worker mid-prewarm.
+ *   - LEGACY JSON wrapper: `{ query, body, kind, ... }` as the JSON
+ *     body. Kept for small callers; size-guarded so it can't repeat
+ *     the 1102.
  */
 async function handleAdminStorePrewarmed(
     request: Request,
@@ -2860,6 +2875,94 @@ async function handleAdminStorePrewarmed(
     }
     if (!checkAdminAuth(request, env)) {
         return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+
+    const url = new URL(request.url);
+    const declaredLen = parseInt(
+        request.headers.get("Content-Length") ?? "",
+        10,
+    );
+
+    // ── Streaming protocol: ?query=…&kind=… + raw body ──────────────
+    const queryParam = url.searchParams.get("query");
+    if (queryParam) {
+        if (!request.body) {
+            return jsonResponse({ error: "missing body" }, 400, cors);
+        }
+        // Reject pathological payloads up front (NYC bus etc.). The
+        // client wouldn't want to download tens of MB for an overlay
+        // anyway, and storing them risks the same OOM on read-back.
+        if (Number.isFinite(declaredLen) && declaredLen > MAX_CACHE_BYTES) {
+            return jsonResponse(
+                {
+                    status: "skipped-too-large",
+                    sizeBytes: declaredLen,
+                    limit: MAX_CACHE_BYTES,
+                },
+                200,
+                cors,
+            );
+        }
+        const cacheKey = await r2KeyForQuery(queryParam);
+        const kind = url.searchParams.get("kind") ?? undefined;
+        const sourceName = url.searchParams.get("sourceName") ?? undefined;
+        const sourceRelationId =
+            url.searchParams.get("sourceRelationId") ?? undefined;
+        try {
+            // request.body is a fixed-length ReadableStream (the runner
+            // sends a string body, so Content-Length is set); R2 streams
+            // it to storage without the Worker buffering the whole thing.
+            const obj = await env.CACHE.put(
+                `overpass/${cacheKey}`,
+                request.body,
+                {
+                    customMetadata: {
+                        cachedAt: String(Date.now()),
+                        prewarmed: "true",
+                        source: "external-runner",
+                        ...(Number.isFinite(declaredLen)
+                            ? { sizeBytes: String(declaredLen) }
+                            : {}),
+                        ...(kind ? { kind } : {}),
+                        ...(sourceName ? { sourceName } : {}),
+                        ...(sourceRelationId ? { sourceRelationId } : {}),
+                    },
+                },
+            );
+            return jsonResponse(
+                {
+                    status: "stored",
+                    cacheKey,
+                    sizeBytes: obj?.size ?? (Number.isFinite(declaredLen) ? declaredLen : null),
+                    kind,
+                },
+                200,
+                cors,
+            );
+        } catch (e) {
+            return jsonResponse(
+                {
+                    error: "R2 put failed",
+                    detail: e instanceof Error ? e.message : String(e),
+                },
+                500,
+                cors,
+            );
+        }
+    }
+
+    // ── Legacy JSON-wrapper protocol (small payloads only) ──────────
+    if (Number.isFinite(declaredLen) && declaredLen > MAX_CACHE_BYTES) {
+        return jsonResponse(
+            {
+                status: "skipped-too-large",
+                sizeBytes: declaredLen,
+                limit: MAX_CACHE_BYTES,
+                hint: "use the streaming protocol (?query=… + raw body) for large payloads",
+            },
+            200,
+            cors,
+        );
     }
     let payload: {
         query?: string;
@@ -3091,6 +3194,19 @@ function constantTimeEqual(a: string, b: string): boolean {
     return diff === 0;
 }
 
+/**
+ * Don't cache Overpass responses bigger than this. A pathological
+ * payload (NYC's bus network with full `out geom` is tens of MB)
+ * isn't worth caching — it's slow to read back, bloats R2, and most
+ * of all duplicating a >25 MB string through R2.put + an edge-cache
+ * `new Response(body)` clone risks the 128 MB Worker heap limit
+ * (Cloudflare error 1102). Over the cap we still SERVE the body to
+ * the client (the caller already has it in hand) — we just skip
+ * persisting it. The streaming /admin/store-prewarmed path enforces
+ * the same cap from Content-Length before it ever buffers.
+ */
+const MAX_CACHE_BYTES = 25 * 1024 * 1024; // 25 MB
+
 async function writeBackThroughCaches(
     env: Env,
     _ctx: ExecutionContext,
@@ -3099,6 +3215,12 @@ async function writeBackThroughCaches(
     cacheKey: string,
     body: string,
 ): Promise<void> {
+    if (body.length > MAX_CACHE_BYTES) {
+        console.warn(
+            `skipping cache write for ${cacheKey}: ${body.length} B over ${MAX_CACHE_BYTES} B cap`,
+        );
+        return;
+    }
     try {
         await env.CACHE.put(`overpass/${cacheKey}`, body, {
             customMetadata: {
