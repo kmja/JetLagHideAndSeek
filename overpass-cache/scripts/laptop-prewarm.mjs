@@ -56,6 +56,7 @@
 
 import dns from "node:dns";
 import process from "node:process";
+import { gzipSync } from "node:zlib";
 
 // Force IPv4-first DNS resolution. Node 17+ defaults to "verbatim"
 // order, which on dual-stack hosts often hands undici the AAAA (IPv6)
@@ -478,15 +479,26 @@ async function uploadToWorker({
     if (kind) params.set("kind", kind);
     if (sourceName) params.set("sourceName", sourceName);
     if (sourceRelationId) params.set("sourceRelationId", String(sourceRelationId));
+    // Gzip the body before upload. Three wins:
+    //   - 5-10x smaller upload (transit + boundary + HSR all compress
+    //     beautifully — they're repetitive JSON),
+    //   - 5-10x smaller R2 storage (worker stores the bytes as-is,
+    //     tagged encoding=gzip),
+    //   - the client's read path serves it with Content-Encoding: gzip
+    //     and the browser decompresses, so the worker never has to
+    //     touch the body again.
+    const rawBytes = Buffer.byteLength(bodyText, "utf8");
+    const gz = gzipSync(Buffer.from(bodyText, "utf8"));
     const resp = await fetchRetry(
         `${WORKER}/admin/store-prewarmed?${params.toString()}`,
         {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
+                "Content-Encoding": "gzip",
                 Authorization: `Bearer ${SECRET}`,
             },
-            body: bodyText,
+            body: gz,
         },
         "store-prewarmed",
     );
@@ -496,7 +508,8 @@ async function uploadToWorker({
             `store-prewarmed failed: ${resp.status} ${text.slice(0, 200)}`,
         );
     }
-    return resp.json();
+    const j = await resp.json();
+    return { ...j, rawBytes, gzipBytes: gz.byteLength };
 }
 
 /** Ask the worker to evict a discovered city whose boundary came back
@@ -689,7 +702,7 @@ async function processCity(city) {
                         sourceRelationId: String(city.relationId),
                     });
                     console.log(
-                        `  ✓ boundary stored (${r.sizeBytes} B in ${res.ms} ms)`,
+                        `  ✓ boundary stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms)`,
                     );
                 } catch (e) {
                     console.warn(`  ✗ boundary upload: ${e.message}`);
@@ -741,7 +754,7 @@ async function processCity(city) {
                         sourceRelationId: String(city.relationId),
                     });
                     console.log(
-                        `  ✓ refs stored (${r.sizeBytes} B in ${res.ms} ms, ${parsed.elements?.length ?? 0} elements)`,
+                        `  ✓ refs stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms, ${parsed.elements?.length ?? 0} elements)`,
                     );
                 } catch (e) {
                     console.warn(`  ✗ refs upload: ${e.message}`);
@@ -805,12 +818,12 @@ async function processCity(city) {
                     sourceName: `${city.name} (${routeType})`,
                     sourceRelationId: String(city.relationId),
                 });
-                const pct =
+                const reducePct =
                     rawBytes > 0
                         ? Math.round((100 * redBytes) / rawBytes)
                         : 100;
                 console.log(
-                    `  ✓ transit ${routeType} stored (${r.sizeBytes} B in ${res.ms} ms, ${reduced.wayCount} ways, ${pct}% of ${rawBytes} B raw)`,
+                    `  ✓ transit ${routeType} stored (raw ${rawBytes} B → reduced ${redBytes} B (${reducePct}%) → gz ${r.gzipBytes} B, ${reduced.wayCount} ways, ${res.ms} ms)`,
                 );
             } catch (e) {
                 console.warn(`  ✗ transit ${routeType} upload: ${e.message}`);
@@ -851,7 +864,7 @@ async function processHsrCountries() {
                     sourceName: iso,
                 });
                 console.log(
-                    `  ✓ HSR ${iso} stored (${r.sizeBytes} B in ${res.ms} ms, ${parsed.elements?.length ?? 0} ways)`,
+                    `  ✓ HSR ${iso} stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms, ${parsed.elements?.length ?? 0} ways)`,
                 );
             } catch (e) {
                 console.warn(`  ✗ HSR ${iso} upload: ${e.message}`);

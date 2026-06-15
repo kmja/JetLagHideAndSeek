@@ -259,12 +259,12 @@ class Semaphore {
 
 const upstreamSemaphore = new Semaphore(MAX_CONCURRENT_UPSTREAM);
 
-/** Coalesce concurrent upstream fetches for the same R2 cache key.
- *  Keyed by cacheKey → in-flight Promise of the response body (or
- *  null on total failure). Cleared in the `finally` once the fetch
- *  and its R2 write-back finish. */
-const inFlightUpstream = new Map<string, Promise<string | null>>();
-
+// In-flight upstream-dedup map was removed when the on-demand path
+// switched to streaming (a stream can't be re-tee'd across multiple
+// Response objects, so coalescing isn't expressible). Concurrent
+// requests on the same query are rare for our traffic shape; the
+// worst case is two upstream fetches and an idempotent R2
+// last-write-wins.
 
 export default {
     async fetch(
@@ -657,61 +657,54 @@ async function handleRequest(
             );
             const age = Date.now() - cachedAt;
             if (cachedAt && age < ttlMs) {
-                const fresh = buildResponse(r2Hit.body, cors, "R2_HIT", age);
-                ctx.waitUntil(edgeCache.put(cacheApiKey, fresh.clone()));
-                return fresh;
+                // Pass R2's body stream straight to the client,
+                // honouring its encoding metadata so a gzip-stored
+                // entry serves with `Content-Encoding: gzip`. The
+                // edge cache write was historically here, but for the
+                // streaming path we skip it: edge cache requires a
+                // re-readable body and `R2ObjectBody` is one-shot.
+                // R2 reads within Cloudflare are single-digit ms, so
+                // the win was modest anyway.
+                return buildR2Response(r2Hit, cors, "R2_HIT", age);
             }
-            // Stale — fall through to refresh (coalesced + rate-
-            // limited), but hang onto the stale R2 hit for the "all
-            // upstreams failed" branch.
-            const upstreamBody = await fetchAndCacheUpstream(
+            // Stale — refresh upstream and stream gzip → tee → [R2,
+            // client]. Falls back to the stale R2 hit if every mirror
+            // is sad.
+            const refreshResp = await fetchUpstreamStreaming(
                 env,
                 ctx,
-                edgeCache,
-                cacheApiKey,
                 cacheKey,
                 query,
-            );
-            if (upstreamBody !== null) {
-                return buildJSONResponse(upstreamBody, cors, "MISS_REFRESH");
-            }
-            // Stale-while-error: every mirror was sad, serve the
-            // expired copy. Client gets data back; logs flag this
-            // as STALE so monitoring can pick it up.
-            const stale = buildResponse(
-                r2Hit.body,
                 cors,
-                "R2_STALE_FALLBACK",
-                age,
+                "MISS_REFRESH",
             );
-            return stale;
+            if (refreshResp) return refreshResp;
+            return buildR2Response(r2Hit, cors, "R2_STALE_FALLBACK", age);
         }
 
-        // Step 3 — full miss. Fetch upstream (coalesced + rate-
-        // limited), persist, return.
-        const upstreamBody = await fetchAndCacheUpstream(
+        // Step 3 — full miss. Stream upstream → gzip → tee → [R2,
+        // client]. No buffering, so NYC-scale bodies are fine.
+        const missResp = await fetchUpstreamStreaming(
             env,
             ctx,
-            edgeCache,
-            cacheApiKey,
             cacheKey,
             query,
+            cors,
+            "MISS",
         );
-        if (upstreamBody === null) {
-            return new Response(
-                JSON.stringify({
-                    error: "All Overpass mirrors are currently unavailable.",
-                }),
-                {
-                    status: 502,
-                    headers: {
-                        ...cors,
-                        "Content-Type": "application/json",
-                    },
+        if (missResp) return missResp;
+        return new Response(
+            JSON.stringify({
+                error: "All Overpass mirrors are currently unavailable.",
+            }),
+            {
+                status: 502,
+                headers: {
+                    ...cors,
+                    "Content-Type": "application/json",
                 },
-            );
-        }
-        return buildJSONResponse(upstreamBody, cors, "MISS");
+            },
+        );
 }
 
 /* ─────────────────────── Fetch helpers ─────────────────────── */
@@ -1069,38 +1062,38 @@ async function fetchFromMirrorChainWithRetry(
  * the symptom that started this was an empty bucket. Returns the
  * response body, or null if every mirror failed.
  */
-function fetchAndCacheUpstream(
+/**
+ * Stream an upstream Overpass response through gzip → tee → [R2 put,
+ * client Response]. Returns the Response (built from the client-side
+ * tee branch with `Content-Encoding: gzip` already set), or null if
+ * every mirror failed.
+ *
+ * This replaced the old buffering `fetchAndCacheUpstream` that did
+ * `await upstream.text()` to materialise the entire body, then cloned
+ * it again into the edge cache. For an NYC-bus-sized payload that's
+ * 2-3× the body in heap, which tripped Cloudflare error 1102 "Worker
+ * exceeded resource limits". The streaming pipeline holds only the
+ * compressor's internal buffer (KBs) at a time.
+ *
+ * In-flight deduplication is intentionally dropped — coalescing a
+ * stream across multiple Response objects isn't possible (tee gives
+ * two branches, not N). For our traffic shape concurrent requests on
+ * the same query are rare; the worst case is two upstream fetches and
+ * an idempotent R2 last-write-wins.
+ */
+async function fetchUpstreamStreaming(
     env: Env,
     ctx: ExecutionContext,
-    edgeCache: Cache,
-    cacheApiKey: Request,
     cacheKey: string,
     query: string,
-): Promise<string | null> {
-    const existing = inFlightUpstream.get(cacheKey);
-    if (existing) return existing;
-    const p = (async () => {
-        try {
-            const upstream = await upstreamSemaphore.run(() =>
-                fetchFromMirrorChainWithRetry(query),
-            );
-            if (!upstream) return null;
-            const body = await upstream.text();
-            await writeBackThroughCaches(
-                env,
-                ctx,
-                edgeCache,
-                cacheApiKey,
-                cacheKey,
-                body,
-            );
-            return body;
-        } finally {
-            inFlightUpstream.delete(cacheKey);
-        }
-    })();
-    inFlightUpstream.set(cacheKey, p);
-    return p;
+    cors: HeadersInit,
+    status: string,
+): Promise<Response | null> {
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(query),
+    );
+    if (!upstream) return null;
+    return streamCompressIntoR2(env, ctx, cacheKey, upstream, {}, cors, status);
 }
 
 async function prewarmCity(
@@ -1150,19 +1143,16 @@ async function prewarmRelation(
     }
     const body = await upstream.text();
     try {
-        await env.CACHE.put(`overpass/${cacheKey}`, body, {
-            customMetadata: {
-                cachedAt: String(Date.now()),
-                sizeBytes: String(body.length),
-                ...(sourceName ? { sourceName } : {}),
-                sourceRelationId: String(relationId),
-                prewarmed: "true",
-            },
+        const { rawBytes } = await compressAndStoreString(env, cacheKey, body, {
+            ...(sourceName ? { sourceName } : {}),
+            sourceRelationId: String(relationId),
+            prewarmed: "true",
         });
+        return { status: "stored", sizeBytes: rawBytes };
     } catch (e) {
         console.warn("R2 put failed during prewarm:", e);
+        return { status: "stored", sizeBytes: body.length };
     }
-    return { status: "stored", sizeBytes: body.length };
 }
 
 /**
@@ -1327,15 +1317,11 @@ async function prewarmBoundariesBatch(
         const cacheKey = await r2KeyForQuery(singleQuery);
         const city = cityById.get(id);
         try {
-            await env.CACHE.put(`overpass/${cacheKey}`, body, {
-                customMetadata: {
-                    cachedAt: String(Date.now()),
-                    sizeBytes: String(body.length),
-                    ...(city?.name ? { sourceName: city.name } : {}),
-                    sourceRelationId: String(id),
-                    prewarmed: "true",
-                    batched: "true",
-                },
+            await compressAndStoreString(env, cacheKey, body, {
+                ...(city?.name ? { sourceName: city.name } : {}),
+                sourceRelationId: String(id),
+                prewarmed: "true",
+                kind: "batched",
             });
             result.stored.push(id);
         } catch (e) {
@@ -1525,16 +1511,11 @@ out center;
         };
         const body = JSON.stringify(wrapped);
         try {
-            await env.CACHE.put(`overpass/${cacheKey}`, body, {
-                customMetadata: {
-                    cachedAt: String(Date.now()),
-                    sizeBytes: String(body.length),
-                    sourceName: cb.city.name,
-                    sourceRelationId: String(cb.city.relationId),
-                    prewarmed: "true",
-                    batched: "true",
-                    kind: "references",
-                },
+            await compressAndStoreString(env, cacheKey, body, {
+                sourceName: cb.city.name,
+                sourceRelationId: String(cb.city.relationId),
+                prewarmed: "true",
+                kind: "references",
             });
             out.stored++;
         } catch (e) {
@@ -1717,20 +1698,16 @@ async function prewarmHsrCountry(
     if (!upstream) return { status: "upstream-failed" };
     const body = await upstream.text();
     try {
-        await env.CACHE.put(`overpass/${cacheKey}`, body, {
-            customMetadata: {
-                cachedAt: String(Date.now()),
-                sizeBytes: String(body.length),
-                sourceName: iso,
-                prewarmed: "true",
-                kind: "hsr",
-            },
+        const { rawBytes } = await compressAndStoreString(env, cacheKey, body, {
+            sourceName: iso,
+            prewarmed: "true",
+            kind: "hsr",
         });
+        return { status: "stored", sizeBytes: rawBytes };
     } catch (e) {
         console.warn(`R2 put failed during HSR prewarm of ${iso}:`, e);
         return { status: "r2-put-failed" };
     }
-    return { status: "stored", sizeBytes: body.length };
 }
 
 /**
@@ -1771,20 +1748,17 @@ async function prewarmQuery(
     if (!upstream) return { status: "upstream-failed" };
     const body = await upstream.text();
     try {
-        await env.CACHE.put(`overpass/${cacheKey}`, body, {
-            customMetadata: {
-                cachedAt: String(Date.now()),
-                sizeBytes: String(body.length),
-                sourceName: city.name,
-                sourceRelationId: String(city.relationId),
-                prewarmed: "true",
-                kind,
-            },
+        const { rawBytes } = await compressAndStoreString(env, cacheKey, body, {
+            sourceName: city.name,
+            sourceRelationId: String(city.relationId),
+            prewarmed: "true",
+            kind,
         });
+        return { status: "stored", sizeBytes: rawBytes };
     } catch (e) {
         console.warn(`R2 put failed during ${kind} prewarm:`, e);
+        return { status: "stored", sizeBytes: body.length };
     }
-    return { status: "stored", sizeBytes: body.length };
 }
 
 /** Per-city reference cache — one combined query covering every
@@ -2914,6 +2888,10 @@ async function handleAdminStorePrewarmed(
             // request.body is a fixed-length ReadableStream (the runner
             // sends a string body, so Content-Length is set); R2 streams
             // it to storage without the Worker buffering the whole thing.
+            // Preserve the laptop's Content-Encoding (gzip) so reads
+            // serve it back with the same header — the browser
+            // decompresses transparently and the worker never has to.
+            const reqEncoding = request.headers.get("Content-Encoding") ?? "";
             const obj = await env.CACHE.put(
                 `overpass/${cacheKey}`,
                 request.body,
@@ -2922,6 +2900,7 @@ async function handleAdminStorePrewarmed(
                         cachedAt: String(Date.now()),
                         prewarmed: "true",
                         source: "external-runner",
+                        ...(reqEncoding ? { encoding: reqEncoding } : {}),
                         ...(Number.isFinite(declaredLen)
                             ? { sizeBytes: String(declaredLen) }
                             : {}),
@@ -2994,20 +2973,18 @@ async function handleAdminStorePrewarmed(
             ? payload.body
             : JSON.stringify(payload.body);
     try {
-        await env.CACHE.put(`overpass/${cacheKey}`, bodyStr, {
-            customMetadata: {
-                cachedAt: String(Date.now()),
-                sizeBytes: String(bodyStr.length),
-                prewarmed: "true",
-                source: "external-runner",
-                ...(payload.kind ? { kind: payload.kind } : {}),
-                ...(payload.sourceName
-                    ? { sourceName: payload.sourceName }
-                    : {}),
-                ...(payload.sourceRelationId
-                    ? { sourceRelationId: payload.sourceRelationId }
-                    : {}),
-            },
+        // Compress the legacy-protocol body before storing so it
+        // matches the encoding contract reads use. The bodyStr is
+        // already in heap (we just JSON.parsed and re-stringified it),
+        // so the additional gzip pass through a stream is a wash.
+        await compressAndStoreString(env, cacheKey, bodyStr, {
+            prewarmed: "true",
+            source: "external-runner",
+            ...(payload.kind ? { kind: payload.kind } : {}),
+            ...(payload.sourceName ? { sourceName: payload.sourceName } : {}),
+            ...(payload.sourceRelationId
+                ? { sourceRelationId: payload.sourceRelationId }
+                : {}),
         });
     } catch (e) {
         return jsonResponse(
@@ -3217,77 +3194,140 @@ const MAX_CACHE_BYTES = 25 * 1024 * 1024; // 25 MB
  */
 const MAX_STORE_BYTES = 60 * 1024 * 1024; // 60 MB
 
-async function writeBackThroughCaches(
-    env: Env,
-    _ctx: ExecutionContext,
-    edgeCache: Cache,
-    cacheApiKey: Request,
-    cacheKey: string,
-    body: string,
-): Promise<void> {
-    if (body.length > MAX_CACHE_BYTES) {
-        console.warn(
-            `skipping cache write for ${cacheKey}: ${body.length} B over ${MAX_CACHE_BYTES} B cap`,
-        );
-        return;
-    }
-    try {
-        await env.CACHE.put(`overpass/${cacheKey}`, body, {
-            customMetadata: {
-                cachedAt: String(Date.now()),
-                sizeBytes: String(body.length),
-            },
-        });
-    } catch (e) {
-        console.warn("R2 put failed:", e);
-    }
-    try {
-        const edgeResp = new Response(body, {
-            headers: {
-                "Content-Type": "application/json",
-                "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
-            },
-        });
-        await edgeCache.put(cacheApiKey, edgeResp);
-    } catch (e) {
-        console.warn("Edge cache put failed:", e);
-    }
-}
-
 /* ─────────────────────── Response builders ─────────────────────── */
 
-function buildJSONResponse(
-    body: string,
+/* ─────────────────── Compressed-storage helpers ──────────────────── *
+ *
+ * Stores Overpass responses gzip-compressed in R2 (typical 80-90 %
+ * shrink on text JSON) and serves them with `Content-Encoding: gzip`
+ * so the browser transparently decompresses — the client never sees a
+ * change. Wins:
+ *
+ *   - **R2 storage shrinks ~6-10×**, on every category of data
+ *     (boundary, references, HSR, transit).
+ *   - **On-demand path no longer OOMs.** The previous code did
+ *     `await upstream.text()` to buffer the entire body, then cloned
+ *     it again into the edge cache — for an NYC-sized response that
+ *     was multiple copies of the body in the 128 MB Worker heap, and
+ *     Cloudflare error 1102 followed. The new path pipes
+ *     upstream → gzip → tee → [R2 stream put, client response stream]
+ *     so the worker never holds more than the compression-stream's
+ *     internal buffer (KBs) at once.
+ *   - **Wire transfer drops 80 %+** for any response Cloudflare
+ *     wouldn't auto-gzip on egress (e.g. uncached repeat hits).
+ *
+ * Reads honour the per-object `encoding` metadata: if "gzip", we set
+ * `Content-Encoding: gzip` on the outgoing Response and pass R2's
+ * body stream through untouched. Legacy uncompressed entries (no
+ * encoding tag, or "identity") serve as plain JSON. */
+
+const STORAGE_ENCODING = "gzip" as const;
+
+interface R2WriteMetadata {
+    sourceName?: string;
+    sourceRelationId?: string;
+    prewarmed?: string;
+    source?: string;
+    kind?: string;
+}
+
+/**
+ * Pipe an upstream Response through gzip → tee → [R2 write, client
+ * Response]. Returns a Response built from the client-side branch with
+ * `Content-Encoding: gzip` already set. The R2 write runs under
+ * ctx.waitUntil so the worker doesn't return until it's flushed.
+ */
+function streamCompressIntoR2(
+    env: Env,
+    ctx: ExecutionContext,
+    cacheKey: string,
+    upstream: Response,
+    metadata: R2WriteMetadata,
     cors: HeadersInit,
     status: string,
-): Response {
-    return new Response(body, {
+): Response | null {
+    if (!upstream.body) return null;
+    const compressed = upstream.body.pipeThrough(
+        new CompressionStream(STORAGE_ENCODING),
+    );
+    const [toR2, toClient] = compressed.tee();
+    ctx.waitUntil(
+        env.CACHE.put(`overpass/${cacheKey}`, toR2, {
+            customMetadata: {
+                cachedAt: String(Date.now()),
+                encoding: STORAGE_ENCODING,
+                ...metadata,
+            },
+        }).catch((e) => {
+            console.warn("R2 streaming put failed:", e);
+        }),
+    );
+    return new Response(toClient, {
         status: 200,
         headers: {
             ...corsHeadersAsObject(cors),
             "Content-Type": "application/json",
+            "Content-Encoding": STORAGE_ENCODING,
             "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
             "X-Cache": status,
         },
     });
 }
 
-function buildResponse(
-    body: ReadableStream<Uint8Array> | null,
+/**
+ * Compress an in-memory body string and write it to R2. Used by paths
+ * that already had the whole body in hand (the cron-triggered prewarms
+ * for boundary / HSR / etc — small enough to buffer, and we want the
+ * byte count for logging). Uses `gzipSync`-equivalent via
+ * CompressionStream + a single-shot Response wrapper.
+ */
+async function compressAndStoreString(
+    env: Env,
+    cacheKey: string,
+    body: string,
+    metadata: R2WriteMetadata,
+): Promise<{ compressedBytes: number; rawBytes: number }> {
+    const rawBytes = new TextEncoder().encode(body).byteLength;
+    const compressedBuf = await new Response(
+        new Response(body).body!.pipeThrough(
+            new CompressionStream(STORAGE_ENCODING),
+        ),
+    ).arrayBuffer();
+    await env.CACHE.put(`overpass/${cacheKey}`, compressedBuf, {
+        customMetadata: {
+            cachedAt: String(Date.now()),
+            encoding: STORAGE_ENCODING,
+            sizeBytes: String(rawBytes),
+            ...metadata,
+        },
+    });
+    return { compressedBytes: compressedBuf.byteLength, rawBytes };
+}
+
+/**
+ * Build a Response from an R2-hit object, honouring its `encoding`
+ * metadata. Legacy entries (no encoding) serve plain; new
+ * gzip-compressed entries serve with `Content-Encoding: gzip` so the
+ * browser decompresses transparently.
+ */
+function buildR2Response(
+    r2Hit: R2ObjectBody,
     cors: HeadersInit,
     status: string,
     ageMs: number,
 ): Response {
-    return new Response(body, {
-        status: 200,
-        headers: {
-            ...corsHeadersAsObject(cors),
-            "Content-Type": "application/json",
-            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
-            "X-Cache": status,
-            "X-Cache-Age-Ms": String(ageMs),
-        },
-    });
+    const encoding = r2Hit.customMetadata?.encoding;
+    const headers: Record<string, string> = {
+        ...corsHeadersAsObject(cors),
+        "Content-Type": "application/json",
+        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+        "X-Cache": status,
+        "X-Cache-Age-Ms": String(ageMs),
+    };
+    if (encoding && encoding !== "identity") {
+        headers["Content-Encoding"] = encoding;
+    }
+    return new Response(r2Hit.body, { status: 200, headers });
 }
 
 function appendCacheStatus(
