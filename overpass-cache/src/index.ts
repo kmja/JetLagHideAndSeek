@@ -2494,6 +2494,47 @@ async function handleTiles(
         return new Response("Bad key", { status: 400, headers: cors });
     }
 
+    // CORS-friendly proxy for the Protomaps demo bucket. Browser
+    // requests to `demo-bucket.protomaps.com` are blocked by CORS, but
+    // a Worker fetch is server-side and has no such restriction. We
+    // forward the Range header so the pmtiles protocol's byte-range
+    // reads work transparently, then staple on our own CORS headers.
+    // This path is only reached when our R2 file is missing — it's the
+    // last-resort fallback, not the hot path.
+    if (key === "protomaps-fallback") {
+        const DEMO_URL = "https://demo-bucket.protomaps.com/v4.pmtiles";
+        const fwdHeaders: Record<string, string> = {};
+        const rawRange = request.headers.get("Range");
+        if (rawRange) fwdHeaders["Range"] = rawRange;
+        let proxyResp: Response;
+        try {
+            proxyResp = await ufetch(DEMO_URL, {
+                method: request.method,
+                headers: fwdHeaders,
+            });
+        } catch (e) {
+            return new Response("Demo proxy unreachable", {
+                status: 502,
+                headers: cors,
+            });
+        }
+        const outHeaders: HeadersInit = { ...cors };
+        for (const h of [
+            "Content-Type",
+            "Content-Length",
+            "Content-Range",
+            "Accept-Ranges",
+            "ETag",
+        ]) {
+            const v = proxyResp.headers.get(h);
+            if (v) (outHeaders as Record<string, string>)[h] = v;
+        }
+        return new Response(
+            request.method === "HEAD" ? null : proxyResp.body,
+            { status: proxyResp.status, headers: outHeaders },
+        );
+    }
+
     // Parse the Range header (single range only — PMTiles never
     // requests multi-range). Format: "bytes=START-END" or
     // "bytes=START-" (open-ended). Missing header → return the whole

@@ -31,18 +31,14 @@ const DEFAULT_OVERPASS_API = `${JLHS_WORKER_BASE}/api/interpreter`;
 const DEFAULT_JOURNEY_API = `${JLHS_WORKER_BASE}/api/journey/arrivals`;
 /** v233: PMTiles vector basemap served by the same worker. The path
  *  after /tiles/ names a file in the TILES R2 bucket. The client
- *  (src/lib/protomapsStyle.ts) falls back to the Protomaps public demo
- *  bucket while this URL still 404s.
+ *  (src/lib/protomapsStyle.ts) falls back to the Protomaps demo bucket
+ *  (proxied through this worker to avoid browser CORS restrictions)
+ *  while this URL still 404s.
  *
- *  v248: the filename is a cache-busting version stamp. Tiles are
- *  served `Cache-Control: immutable, max-age=1y`, so to roll every
- *  client onto a freshly-uploaded build we change the FILENAME (not
- *  mutate the same key) and bump this constant. Old clients keep
- *  hitting their cached `…-z13` ranges until they reload; new loads go
- *  straight to `…-z15`. Upload the new file under the matching key
- *  (see overpass-cache/scripts/upload-pmtiles*.md) BEFORE deploying
- *  this, or the probe falls back to the demo bucket in the gap. */
-const DEFAULT_PMTILES_URL = `${JLHS_WORKER_BASE}/tiles/basemap-z15.pmtiles`;
+ *  To upgrade to z15: upload the new file under the matching key
+ *  (see overpass-cache/scripts/upload-pmtiles-z15-region.md) BEFORE
+ *  deploying the constant change, or the probe falls back in the gap. */
+const DEFAULT_PMTILES_URL = `${JLHS_WORKER_BASE}/tiles/basemap.pmtiles`;
 const DEFAULT_OVERPASS_API_FALLBACK =
     "https://overpass-api.de/api/interpreter";
 const DEFAULT_OVERPASS_API_TERTIARY =
@@ -77,10 +73,11 @@ export const PMTILES_URL = readOverride(
     "jlhs:pmtilesUrl",
     DEFAULT_PMTILES_URL,
 );
-/** Public fallback PMTiles file (Protomaps' own demo bucket). Used by
- *  src/lib/protomapsStyle.ts while no file is uploaded to our R2 yet. */
+/** Fallback PMTiles source — proxied through our own worker so the
+ *  browser's CORS restrictions don't apply. Forwards to the Protomaps
+ *  demo bucket server-side. Active only when our R2 file is missing. */
 export const PMTILES_URL_FALLBACK =
-    "https://demo-bucket.protomaps.com/v4.pmtiles";
+    `${JLHS_WORKER_BASE}/tiles/protomaps-fallback`;
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",
     DEFAULT_OVERPASS_API_TERTIARY,

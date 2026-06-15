@@ -77,8 +77,8 @@ function probePmtilesAvailability(): void {
 export function recordPmtilesError(reason: string): void {
     if (pmtilesUrl.get() === PMTILES_URL_FALLBACK) return;
     console.warn(
-        `[protomaps] tile load failure (${reason}); falling back to ${PMTILES_URL_FALLBACK}. ` +
-            "Re-upload basemap.pmtiles (see overpass-cache/scripts/upload-pmtiles.md) to restore self-hosting.",
+        `[protomaps] tile load failure (${reason}); falling back to proxied demo bucket. ` +
+            "Re-upload basemap.pmtiles to R2 (see overpass-cache/scripts/upload-pmtiles.md) to restore self-hosting.",
     );
     pmtilesUrl.set(PMTILES_URL_FALLBACK);
 }
