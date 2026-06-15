@@ -15,10 +15,19 @@
  */
 
 import { useStore } from "@nanostores/react";
-import { BookOpen, Map as MapIcon, TramFront } from "lucide-react";
+import {
+    BookOpen,
+    CheckCircle2,
+    Loader2,
+    Map as MapIcon,
+    TramFront,
+} from "lucide-react";
 
 import {
+    preloadBucketInFlight,
+    preloadBucketTimestamps,
     preloadChoices,
+    setupCompleted,
     type PreloadChoices,
 } from "@/lib/gameSetup";
 import { runPreloadForBucket } from "@/lib/preload";
@@ -86,6 +95,16 @@ function formatSize(mb: number): string {
     return `${Math.round(mb)} MB`;
 }
 
+function timeAgo(ts: number): string {
+    const diffMs = Date.now() - ts;
+    const diffMin = Math.floor(diffMs / 60_000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return `${diffMin} min ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return `${Math.floor(diffHr / 24)}d ago`;
+}
+
 interface PreloadChoicesPanelProps {
     /** Play-area polygon area in km². Drives per-bucket size
      *  estimates. Null = wizard hasn't picked an area yet or the
@@ -96,15 +115,25 @@ interface PreloadChoicesPanelProps {
      *  preload immediately. Use in Settings (mid-game). Wizard mode
      *  defers until the hiding period actually starts. */
     runImmediatelyOnEnable?: boolean;
+    /** When true, show per-bucket download status (timestamp + spinner).
+     *  Defaults to true when setup is complete (game is running). */
+    showStatus?: boolean;
     className?: string;
 }
 
 export function PreloadChoicesPanel({
     areaKm2 = null,
     runImmediatelyOnEnable = false,
+    showStatus,
     className,
 }: PreloadChoicesPanelProps) {
     const choices = useStore(preloadChoices);
+    const timestamps = useStore(preloadBucketTimestamps);
+    const inFlight = useStore(preloadBucketInFlight);
+    const $setup = useStore(setupCompleted);
+
+    // Default: show status once game is set up
+    const displayStatus = showStatus ?? $setup;
 
     const toggle = (id: keyof PreloadChoices) => {
         const wasOn = choices[id];
@@ -128,51 +157,84 @@ export function PreloadChoicesPanel({
                 const Icon = b.icon;
                 const on = choices[b.id];
                 const sizeMb = b.estimateMb(areaKm2);
+
+                // Per-bucket download status (references + transit only;
+                // map boundary is always loaded at game setup).
+                const bucketInFlight =
+                    b.id === "references"
+                        ? inFlight.references
+                        : b.id === "transit"
+                          ? inFlight.transit
+                          : false;
+                const completedAt =
+                    b.id === "references"
+                        ? timestamps.references
+                        : b.id === "transit"
+                          ? timestamps.transit
+                          : null;
+
                 return (
-                    <label
+                    <div
                         key={b.id}
                         className={cn(
-                            "flex gap-3 items-start p-3 rounded-md border cursor-pointer",
-                            "bg-secondary/30 hover:bg-secondary/60 transition-colors",
-                            on
-                                ? "border-primary/50"
-                                : "border-border",
+                            "rounded-md border transition-colors",
+                            on ? "border-primary/50" : "border-border",
                         )}
                     >
-                        <Checkbox
-                            checked={on}
-                            onCheckedChange={() => toggle(b.id)}
-                            className="mt-0.5"
-                            aria-label={b.label}
-                        />
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                                <Icon className="w-4 h-4 shrink-0" />
-                                <span className="flex-1 min-w-0">
-                                    {b.label}
-                                </span>
-                                <span
-                                    className={cn(
-                                        "text-[10px] font-mono tabular-nums shrink-0",
-                                        "px-1.5 py-0.5 rounded-sm border",
-                                        on
-                                            ? "bg-primary/10 border-primary/30 text-primary"
-                                            : "bg-secondary/60 border-border text-muted-foreground",
-                                    )}
-                                    title={
-                                        areaKm2
-                                            ? `Rough estimate for ${Math.round(areaKm2)} km² play area`
-                                            : "Rough estimate — pick a play area for a more accurate number"
-                                    }
-                                >
-                                    ~{formatSize(sizeMb)}
-                                </span>
+                        <label
+                            className={cn(
+                                "flex gap-3 items-start p-3 cursor-pointer",
+                                "bg-secondary/30 hover:bg-secondary/60 transition-colors rounded-md",
+                                displayStatus &&
+                                    b.id !== "map" &&
+                                    "rounded-b-none",
+                            )}
+                        >
+                            <Checkbox
+                                checked={on}
+                                onCheckedChange={() => toggle(b.id)}
+                                className="mt-0.5"
+                                aria-label={b.label}
+                            />
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                    <Icon className="w-4 h-4 shrink-0" />
+                                    <span className="flex-1 min-w-0">
+                                        {b.label}
+                                    </span>
+                                    <span
+                                        className={cn(
+                                            "text-[10px] font-mono tabular-nums shrink-0",
+                                            "px-1.5 py-0.5 rounded-sm border",
+                                            on
+                                                ? "bg-primary/10 border-primary/30 text-primary"
+                                                : "bg-secondary/60 border-border text-muted-foreground",
+                                        )}
+                                        title={
+                                            areaKm2
+                                                ? `Rough estimate for ${Math.round(areaKm2)} km² play area`
+                                                : "Rough estimate — pick a play area for a more accurate number"
+                                        }
+                                    >
+                                        ~{formatSize(sizeMb)}
+                                    </span>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                                    {b.blurb}
+                                </p>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-1 leading-snug">
-                                {b.blurb}
-                            </p>
-                        </div>
-                    </label>
+                        </label>
+
+                        {/* Status bar — only for references + transit, only
+                            when setup is complete (game is running). */}
+                        {displayStatus && b.id !== "map" && (
+                            <BucketStatus
+                                inFlight={bucketInFlight}
+                                completedAt={completedAt}
+                                enabled={on}
+                            />
+                        )}
+                    </div>
                 );
             })}
             <div className="flex items-center justify-between pt-1 px-1 text-xs">
@@ -183,6 +245,54 @@ export function PreloadChoicesPanel({
                     {totalMb > 0 ? `~${formatSize(totalMb)}` : "0 KB"}
                 </span>
             </div>
+        </div>
+    );
+}
+
+function BucketStatus({
+    inFlight,
+    completedAt,
+    enabled,
+}: {
+    inFlight: boolean;
+    completedAt: number | null;
+    enabled: boolean;
+}) {
+    if (inFlight) {
+        return (
+            <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
+                <span className="text-xs text-muted-foreground">
+                    Downloading…
+                </span>
+            </div>
+        );
+    }
+
+    if (completedAt !== null) {
+        return (
+            <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-green-400" />
+                <span className="text-xs text-green-400 font-medium">
+                    Downloaded {timeAgo(completedAt)}
+                </span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
+            <span
+                className={cn(
+                    "w-2 h-2 rounded-full shrink-0",
+                    enabled ? "bg-yellow-400/70" : "bg-muted-foreground/30",
+                )}
+            />
+            <span className="text-xs text-muted-foreground">
+                {enabled
+                    ? "Not downloaded yet — will run at hiding period start"
+                    : "Disabled — won't be downloaded"}
+            </span>
         </div>
     );
 }

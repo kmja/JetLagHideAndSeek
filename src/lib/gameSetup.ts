@@ -182,6 +182,43 @@ export const preloadChoices = persistentAtom<PreloadChoices>(
 );
 
 /**
+ * Persisted timestamps for when each preload bucket last completed
+ * successfully. Cleared on new game (play area changes, so cached data
+ * is stale). Not cleared on new round — the play area is the same, the
+ * Overpass / transit data is still valid.
+ */
+export interface PreloadBucketTimestamps {
+    references: number | null;
+    transit: number | null;
+}
+export const preloadBucketTimestamps = persistentAtom<PreloadBucketTimestamps>(
+    "preloadBucketTimestamps",
+    { references: null, transit: null },
+    {
+        encode: JSON.stringify,
+        decode: (s) => {
+            try {
+                const p = JSON.parse(s);
+                return {
+                    references:
+                        typeof p?.references === "number" ? p.references : null,
+                    transit:
+                        typeof p?.transit === "number" ? p.transit : null,
+                };
+            } catch {
+                return { references: null, transit: null };
+            }
+        },
+    },
+);
+
+/** Volatile: which preload buckets are currently downloading. Resets on reload. */
+export const preloadBucketInFlight = atom<{
+    references: boolean;
+    transit: boolean;
+}>({ references: false, transit: false });
+
+/**
  * Reset every map display overlay to its default OFF state. Called on
  * new game / new round / settings change so a fresh game never inherits
  * a stale overlay (e.g. a transit layer left on from a previous game).
