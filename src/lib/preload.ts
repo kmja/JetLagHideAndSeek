@@ -16,6 +16,7 @@ import {
     prefetchFamiliesInOneQuery,
     STANDARD_REFERENCE_FAMILIES,
 } from "@/maps/api/playAreaPrefetch";
+import { fetchTransitRoutesFeatures } from "@/maps/api/transitRoutes";
 import { CacheType } from "@/maps/api/types";
 
 /**
@@ -127,6 +128,27 @@ function runTransitPreload(): void {
                 true,
             ).catch(() => {});
         }
+    }
+
+    // v246: warm the three map transit-route overlays (subway / bus /
+    // ferry) so toggling any of them on mid-game is instant instead of
+    // a 5-15 s Overpass round-trip (and a rate-limit risk on the public
+    // mirror fallback for the first seeker in a fresh city).
+    //
+    // We warm ALL THREE unconditionally rather than gating on
+    // allowedTransit: the overlays are a seeker visualisation aid, not
+    // a rule surface, and the user explicitly wants every overlay
+    // preloaded regardless of which transit modes the hider may use.
+    //
+    // `fetchTransitRoutesFeatures` issues the same `relation["route"=…]`
+    // query the on-tap path does → same worker → same R2 key, so this
+    // primes the exact entry the live toggle will hit (and that the
+    // cron can pre-warm). We discard the parsed FeatureCollection; the
+    // point is the cache write, not the return value. Best-effort +
+    // silent — a failure here just means the on-tap fetch pays the
+    // round-trip later, same as before.
+    for (const mode of ["subway", "bus", "ferry"] as const) {
+        void fetchTransitRoutesFeatures(mode).catch(() => {});
     }
 
     // Transit arrival times — the Travel Times overlay. We can't fire
