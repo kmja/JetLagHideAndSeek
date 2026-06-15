@@ -1,15 +1,12 @@
 import { useStore } from "@nanostores/react";
-import { bbox } from "@turf/turf";
 import {
     ArrowRight,
     Bus,
     Check,
-    Clock,
     Copy,
     Footprints,
     Loader2,
     LogOut,
-    MapPin,
     QrCode,
     Radio,
     RadioReceiver,
@@ -25,7 +22,6 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
-import MapGL, { Layer, Source } from "react-map-gl/maplibre";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
@@ -50,14 +46,6 @@ import {
     welcomeSeen,
 } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen, roundFoundAt } from "@/lib/hiderRole";
-import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
-import {
-    handleMapLibreError,
-    pmtilesUrl,
-    protomapsMapLibreStyle,
-} from "@/lib/protomapsStyle";
-import { resolvedTheme } from "@/lib/theme";
-import { loadingProgress } from "@/lib/loadingProgress";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -129,8 +117,6 @@ export function GameLobbyDialog() {
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $pending = useStore(pendingHidingDurationMin);
     const $size = useStore(gameSize);
-    const $loading = useStore(loadingProgress);
-    const $pieces = useStore(loadingPieces);
     const $manualOpen = useStore(lobbyManualOpen);
     const $foundAt = useStore(roundFoundAt);
     const $seekerSharing = useStore(seekerLocationSharing);
@@ -547,94 +533,8 @@ export function GameLobbyDialog() {
                         </Dialog>
                     )}
 
-                    {/* Map slot. NEW ORDER (v146): the map sits in
-                        the middle of the body, between the sharing
-                        card above and the player rosters below.
-                        Full-width — the previous max-w-[260px] +
-                        mx-auto kept it as a stamp-sized thumbnail;
-                        with the map now centerpiece of the lobby,
-                        let it stretch the dialog's content width
-                        (still aspect-square for predictable
-                        reflow). */}
-                    {$playArea && (
-                        <div className="aspect-square w-full rounded-md overflow-hidden border border-border bg-secondary/40 relative">
-                            {isHiderRole ? (
-                                <LobbyMiniMap
-                                    boundary={null}
-                                    areaName={
-                                        $playArea.displayName.split(
-                                            ",",
-                                        )[0]
-                                    }
-                                    minutes={minutes}
-                                    transits={$allowedTransit}
-                                    centerFallback={{
-                                        lat: $playArea.lat,
-                                        lng: $playArea.lng,
-                                    }}
-                                />
-                            ) : mapReady ? (
-                                <LobbyMiniMap
-                                    boundary={
-                                        $mapGeoJSON || $polyGeoJSON
-                                    }
-                                    areaName={
-                                        $playArea.displayName.split(
-                                            ",",
-                                        )[0]
-                                    }
-                                    minutes={minutes}
-                                    transits={$allowedTransit}
-                                />
-                            ) : (
-                                <div className="absolute inset-0 flex flex-col px-3 py-2.5 gap-2 overflow-hidden">
-                                    <div className="flex items-center gap-2">
-                                        <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
-                                        <div className="text-xs truncate flex-1">
-                                            {$loading?.phase ??
-                                                "Fetching boundary…"}
-                                        </div>
-                                    </div>
-                                    {$pieces.length > 0 && (
-                                        <ul className="flex flex-col gap-0.5 overflow-y-auto pt-1 border-t border-border/50 flex-1 min-h-0">
-                                            {$pieces.map((p) => (
-                                                <li
-                                                    key={p.id}
-                                                    className="flex items-center justify-between gap-2 text-[11px]"
-                                                >
-                                                    <span className="flex items-center gap-1.5 min-w-0">
-                                                        <PieceIcon
-                                                            state={p.state}
-                                                        />
-                                                        <span
-                                                            className={cn(
-                                                                "truncate",
-                                                                p.state ===
-                                                                    "done" &&
-                                                                    "text-muted-foreground line-through decoration-muted-foreground/40",
-                                                                p.state ===
-                                                                    "failed" &&
-                                                                    "text-destructive",
-                                                            )}
-                                                        >
-                                                            {p.label}
-                                                        </span>
-                                                    </span>
-                                                    <span className="tabular-nums text-muted-foreground shrink-0">
-                                                        {pieceStatusLabel(p)}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    )}
 
-                    {/* Players moved here (below the map) in v146.
-                        The map is the visual centrepiece; rosters
-                        are secondary context. */}
+                    {/* Players roster */}
                     {$mp && $participants.length > 0 && (
                         <div className="grid grid-cols-2 gap-2">
                             <RosterCard
@@ -831,147 +731,6 @@ export function GameLobbyDialog() {
     );
 }
 
-/** Mini play-area preview shown in the lobby once the boundary
- *  is loaded. The map itself is the home for the rest of the
- *  game settings (location name top-left, hide-duration top-
- *  right, transit chips along the bottom) — replaces the
- *  separate text recap above. Non-interactive: dragging /
- *  zooming would only confuse the lobby state. */
-function LobbyMiniMap({
-    boundary,
-    areaName,
-    minutes,
-    transits,
-    centerFallback,
-}: {
-    boundary: GeoJSON.FeatureCollection | null;
-    areaName: string;
-    minutes: number;
-    transits: import("@/lib/gameSetup").TransitMode[];
-    /** Used when the boundary isn't loaded (e.g. hider's device).
-     *  Shows the map centered on the play area's coordinates. */
-    centerFallback?: { lat: number; lng: number };
-}) {
-    // v228: follow the OS / app theme — dark filter on in dark mode,
-    // off in light mode.
-    const $theme = useStore(resolvedTheme);
-    const darkTiles = $theme === "dark";
-    // v241: rebuild style when the resolved PMTiles URL flips.
-    const $pmtilesUrl = useStore(pmtilesUrl);
-    const mapStyle = useMemo(
-        () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [darkTiles, $pmtilesUrl],
-    );
-    const bounds = useMemo(() => {
-        if (!boundary || !boundary.features?.length) return null;
-        try {
-            const b = bbox(boundary);
-            // bbox returns [minLng, minLat, maxLng, maxLat]. Pad
-            // a few percent so the polygon outline isn't pressed
-            // against the edges.
-            const padLng = (b[2] - b[0]) * 0.08;
-            const padLat = (b[3] - b[1]) * 0.08;
-            return {
-                minLng: b[0] - padLng,
-                minLat: b[1] - padLat,
-                maxLng: b[2] + padLng,
-                maxLat: b[3] + padLat,
-            };
-        } catch {
-            return null;
-        }
-    }, [boundary]);
-
-    const hasBounds = bounds !== null;
-    const hasFallback = centerFallback !== undefined;
-    if (!hasBounds && !hasFallback) return null;
-
-    return (
-        // No outer wrapper — the parent map-slot already provides
-        // fixed-size, border, rounded, overflow. We just fill it.
-        <div className="absolute inset-0">
-            {(hasBounds || hasFallback) && (
-                <MapGL
-                    initialViewState={
-                        hasBounds
-                            ? {
-                                  bounds: [
-                                      [bounds!.minLng, bounds!.minLat],
-                                      [bounds!.maxLng, bounds!.maxLat],
-                                  ],
-                                  fitBoundsOptions: { padding: 8 },
-                              }
-                            : {
-                                  longitude: centerFallback!.lng,
-                                  latitude: centerFallback!.lat,
-                                  zoom: 10,
-                              }
-                    }
-                    style={{ width: "100%", height: "100%" }}
-                    interactive={false}
-                    attributionControl={false}
-                    dragRotate={false}
-                    pitchWithRotate={false}
-                    mapStyle={mapStyle}
-                    onError={handleMapLibreError}
-                >
-                    {boundary && (
-                        <Source
-                            id="lobby-boundary"
-                            type="geojson"
-                            data={boundary}
-                        >
-                            <Layer
-                                id="lobby-boundary-fill"
-                                type="fill"
-                                paint={{
-                                    "fill-color": "hsl(2, 70%, 54%)",
-                                    "fill-opacity": 0.14,
-                                }}
-                            />
-                            <Layer
-                                id="lobby-boundary-line"
-                                type="line"
-                                paint={{
-                                    "line-color": "hsl(2, 70%, 54%)",
-                                    "line-width": 2,
-                                    "line-opacity": 0.9,
-                                }}
-                            />
-                        </Source>
-                    )}
-                </MapGL>
-            )}
-            {/* Setting chips, overlaid on the map. Each pill has
-                its own translucent dark background so it stays
-                legible regardless of what tiles are under it. */}
-            <div className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-[3px] bg-black/60 backdrop-blur-sm px-1.5 py-0.5 text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-white leading-none">
-                <MapPin className="w-2.5 h-2.5 shrink-0" />
-                <span className="truncate max-w-[140px]">
-                    {areaName}
-                </span>
-            </div>
-            <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded-[3px] bg-black/60 backdrop-blur-sm px-1.5 py-0.5 text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-white leading-none">
-                <Clock className="w-2.5 h-2.5 shrink-0" />
-                <span>{minutes}-min hide</span>
-            </div>
-            {transits.length > 0 && (
-                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex flex-wrap gap-1">
-                    {transits.map((m) => (
-                        <span
-                            key={m}
-                            className="rounded-[3px] bg-black/60 backdrop-blur-sm px-1.5 py-0.5 text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-white leading-none"
-                        >
-                            {TRANSIT_LABELS[m]}
-                        </span>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-}
-
 /** Three-dot ellipsis with a left-to-right fade animation. Used
  *  in disabled Start-button labels so 'Loading map…' /
  *  'Waiting for players…' read as active-but-waiting rather
@@ -984,41 +743,6 @@ function AnimatedEllipsis() {
             <span>.</span>
         </span>
     );
-}
-
-function PieceIcon({
-    state,
-}: {
-    state: "waiting" | "streaming" | "done" | "failed";
-}) {
-    if (state === "done")
-        return <Check className="w-3 h-3 text-primary shrink-0" />;
-    if (state === "failed")
-        return <X className="w-3 h-3 text-destructive shrink-0" />;
-    if (state === "streaming")
-        return (
-            <Loader2 className="w-3 h-3 text-primary animate-spin shrink-0" />
-        );
-    return (
-        <span className="w-3 h-3 rounded-full border border-muted-foreground/40 shrink-0" />
-    );
-}
-
-function pieceStatusLabel(p: {
-    state: "waiting" | "streaming" | "done" | "failed";
-    downloaded: number;
-    total: number | null;
-}): string {
-    if (p.state === "waiting") return "queued";
-    if (p.state === "failed") return "failed";
-    if (p.state === "done") {
-        return p.downloaded > 0 ? formatBytes(p.downloaded) : "done";
-    }
-    if (p.downloaded <= 0) return "starting…";
-    if (p.total !== null && p.total > 0) {
-        return `${formatBytes(p.downloaded)} / ~${formatBytes(p.total)}`;
-    }
-    return formatBytes(p.downloaded);
 }
 
 function RosterCard({

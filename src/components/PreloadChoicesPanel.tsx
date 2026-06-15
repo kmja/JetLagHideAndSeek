@@ -42,11 +42,11 @@ interface BucketDef {
     icon: React.ComponentType<{ className?: string }>;
     /** Per-bucket size estimator. `km2` is the play area's polygon
      *  estimate (from the wizard's draftFeature, or null if unknown).
-     *  Returns megabytes — the empirical coefficients come from spot
-     *  checks across a handful of cities (Stockholm, Tokyo, Lausanne,
-     *  Osaka): tile fetch sizes, the consolidated Overpass response,
-     *  and the rail + arrivals payloads. Within an order of
-     *  magnitude — good enough for "is this worth turning off". */
+     *  Returns megabytes. Uses a square-root curve so large play areas
+     *  (country-scale) don't produce absurdly large estimates — real
+     *  Overpass / tile data is concentrated in the urban core regardless
+     *  of administrative boundary size. Null fallbacks are calibrated
+     *  to match observed download sizes for a typical city-scale area. */
     estimateMb: (km2: number | null) => number;
 }
 
@@ -57,10 +57,8 @@ const BUCKETS: BucketDef[] = [
         blurb:
             "Play-area boundary polygon + the base tiles around it. Recommended for everyone — the map can't render without it.",
         icon: MapIcon,
-        // Boundary GeoJSON (~50 KB typical) + PMTiles range reads
-        // for the viewport at zoom 10–14. Tile fetch grows roughly
-        // linearly with area until the high zooms dominate.
-        estimateMb: (km2) => 0.3 + (km2 ?? 100) * 0.018,
+        // sqrt(100) * 0.18 ≈ 2.1 MB at null fallback (100 km²)
+        estimateMb: (km2) => 0.3 + Math.sqrt(km2 ?? 100) * 0.18,
     },
     {
         id: "references",
@@ -68,12 +66,8 @@ const BUCKETS: BucketDef[] = [
         blurb:
             "All 15 question categories (hospitals, parks, museums, train stations, …). Off-by-tap fallback still works without this.",
         icon: BookOpen,
-        // One consolidated Overpass response covering all 14
-        // out-center families + a smaller HSR query. Per
-        // 100 km² of dense city this is ~1.2 MB; sparser
-        // areas (mountains, rural play) trend lower but the
-        // floor stays around 0.5 MB.
-        estimateMb: (km2) => 0.5 + (km2 ?? 200) * 0.012,
+        // sqrt(200) * 0.17 ≈ 2.9 MB at null fallback (200 km²)
+        estimateMb: (km2) => 0.5 + Math.sqrt(km2 ?? 200) * 0.17,
     },
     {
         id: "transit",
@@ -81,10 +75,8 @@ const BUCKETS: BucketDef[] = [
         blurb:
             "High-speed rail data + journey arrival times. Drop this if you're on a slow connection — only matters for transit-themed questions.",
         icon: TramFront,
-        // Rail relations + per-station arrival cache. Smaller
-        // than the references bundle because there are fewer
-        // rail features than POIs.
-        estimateMb: (km2) => 0.2 + (km2 ?? 200) * 0.004,
+        // sqrt(200) * 0.057 ≈ 1.0 MB at null fallback (200 km²)
+        estimateMb: (km2) => 0.2 + Math.sqrt(km2 ?? 200) * 0.057,
     },
 ];
 
@@ -158,8 +150,6 @@ export function PreloadChoicesPanel({
                 const on = choices[b.id];
                 const sizeMb = b.estimateMb(areaKm2);
 
-                // Per-bucket download status (references + transit only;
-                // map boundary is always loaded at game setup).
                 const bucketInFlight =
                     b.id === "references"
                         ? inFlight.references
@@ -172,6 +162,42 @@ export function PreloadChoicesPanel({
                         : b.id === "transit"
                           ? timestamps.transit
                           : null;
+
+                // Map is always ready once the game starts; downloaded
+                // ref/transit buckets become read-only "done" cards.
+                const isMapReady = displayStatus && b.id === "map";
+                const isDownloaded = displayStatus && completedAt !== null;
+
+                if (isMapReady || isDownloaded) {
+                    return (
+                        <div
+                            key={b.id}
+                            className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5 flex items-center gap-3"
+                        >
+                            <CheckCircle2 className="w-4 h-4 shrink-0 text-green-400 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                    <Icon className="w-4 h-4 shrink-0" />
+                                    <span className="flex-1 min-w-0">
+                                        {b.label}
+                                    </span>
+                                </div>
+                                <p
+                                    className={cn(
+                                        "text-xs mt-0.5 font-medium",
+                                        isDownloaded
+                                            ? "text-green-400"
+                                            : "text-muted-foreground",
+                                    )}
+                                >
+                                    {isDownloaded
+                                        ? `Downloaded ${timeAgo(completedAt!)}`
+                                        : "Loaded at game setup"}
+                                </p>
+                            </div>
+                        </div>
+                    );
+                }
 
                 return (
                     <div
@@ -225,12 +251,9 @@ export function PreloadChoicesPanel({
                             </div>
                         </label>
 
-                        {/* Status bar — only for references + transit, only
-                            when setup is complete (game is running). */}
                         {displayStatus && b.id !== "map" && (
                             <BucketStatus
                                 inFlight={bucketInFlight}
-                                completedAt={completedAt}
                                 enabled={on}
                             />
                         )}
@@ -251,11 +274,9 @@ export function PreloadChoicesPanel({
 
 function BucketStatus({
     inFlight,
-    completedAt,
     enabled,
 }: {
     inFlight: boolean;
-    completedAt: number | null;
     enabled: boolean;
 }) {
     if (inFlight) {
@@ -264,17 +285,6 @@ function BucketStatus({
                 <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
                 <span className="text-xs text-muted-foreground">
                     Downloading…
-                </span>
-            </div>
-        );
-    }
-
-    if (completedAt !== null) {
-        return (
-            <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-green-400" />
-                <span className="text-xs text-green-400 font-medium">
-                    Downloaded {timeAgo(completedAt)}
                 </span>
             </div>
         );
