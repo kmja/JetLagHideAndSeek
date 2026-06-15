@@ -190,7 +190,11 @@ export function PreloadChoicesPanel({
                                     )}
                                 >
                                     {isDownloaded
-                                        ? `Downloaded${actualBytes ? ` — ${formatSize(actualBytes / 1_000_000)}` : ""}`
+                                        ? actualBytes === null
+                                            ? "Downloaded"
+                                            : actualBytes === 0
+                                              ? "Downloaded (cached)"
+                                              : `Downloaded — ${formatSize(actualBytes / 1_000_000)}`
                                         : "Loaded at game setup"}
                                 </p>
                             </div>

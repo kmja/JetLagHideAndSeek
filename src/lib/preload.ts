@@ -1,3 +1,4 @@
+import { startMeter, stopMeter } from "@/lib/bandwidthMeter";
 import { gameStartPosition } from "@/lib/gameSetup";
 import {
     gameSize,
@@ -107,23 +108,14 @@ function runReferencesPreload(): void {
         `[preload] warming ${STANDARD_REFERENCE_FAMILIES.length} reference families in one query`,
     );
     preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), references: true });
+    // Wire-byte accounting via cacheFetch instrumentation. Cache hits
+    // contribute zero bytes — accurate "data the user actually downloaded".
+    startMeter("references");
     void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES)
         .then(() => {
-            // Measure actual stored data size by summing the JSON length of
-            // every cached family. getCachedCategory returns the normalized
-            // PrefetchedFeature[] arrays written to the in-memory cache by
-            // prefetchFamiliesInOneQuery — this is the data the app will use
-            // at question-ask time, so its size is the right thing to show.
-            let totalBytes = 0;
-            for (const family of STANDARD_REFERENCE_FAMILIES) {
-                const features = getCachedCategory(family);
-                if (features?.length) {
-                    totalBytes += JSON.stringify(features).length;
-                }
-            }
             preloadBucketBytes.set({
                 ...preloadBucketBytes.get(),
-                references: totalBytes || null,
+                references: stopMeter("references"),
             });
             preloadBucketTimestamps.set({
                 ...preloadBucketTimestamps.get(),
@@ -142,10 +134,11 @@ function runTransitPreload(): void {
     const size = gameSize.get();
     preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), transit: true });
 
-    // Each transit promise resolves with the byte count of the data it
-    // fetched (0 on network failure). Using Promise.all is safe here
-    // because all individual promises swallow their errors via .catch.
-    const transitPromises: Promise<number>[] = [];
+    // Wire-byte accounting via cacheFetch instrumentation — see
+    // bandwidthMeter.ts. Cache hits don't count, so a repeat preload
+    // of an already-warmed play area honestly reports 0 bytes.
+    startMeter("transit");
+    const transitPromises: Promise<unknown>[] = [];
 
     if (size !== "large") {
         const hsrQuery = buildHsrQuery();
@@ -159,32 +152,19 @@ function runTransitPreload(): void {
                     false,
                     undefined,
                     true,
-                )
-                    .then((data: unknown) => {
-                        try {
-                            return data != null ? JSON.stringify(data).length : 0;
-                        } catch {
-                            return 0;
-                        }
-                    })
-                    .catch(() => 0),
+                ).catch(() => {}),
             );
         }
     }
 
     for (const mode of ["subway", "bus", "ferry"] as const) {
-        transitPromises.push(
-            fetchTransitRoutesFeatures(mode)
-                .then((fc) => JSON.stringify(fc).length)
-                .catch(() => 0),
-        );
+        transitPromises.push(fetchTransitRoutesFeatures(mode).catch(() => {}));
     }
 
-    void Promise.all(transitPromises).then((byteCounts) => {
-        const totalBytes = byteCounts.reduce((a, b) => a + b, 0);
+    void Promise.allSettled(transitPromises).then(() => {
         preloadBucketBytes.set({
             ...preloadBucketBytes.get(),
-            transit: totalBytes || null,
+            transit: stopMeter("transit"),
         });
         preloadBucketTimestamps.set({
             ...preloadBucketTimestamps.get(),

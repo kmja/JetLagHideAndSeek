@@ -3,6 +3,7 @@ import uniq from "lodash/uniq";
 import uniqBy from "lodash/uniqBy";
 import { toast } from "react-toastify";
 
+import { recordBytes } from "@/lib/bandwidthMeter";
 import {
     markPieceDone,
     markPieceFailed,
@@ -365,6 +366,16 @@ export const cacheFetch = async (
                     markPieceFailed(url);
                 }
                 return rawResponse;
+            }
+            // Wire-byte accounting for any open bandwidth meters (e.g.
+            // the preload buckets). Content-Length on a gzipped response
+            // is the compressed wire size, which is what mobile users
+            // actually pay for in data. Cache hits skip this path
+            // entirely — accurate, since nothing crossed the network.
+            const contentLengthHeader = rawResponse.headers.get("Content-Length");
+            if (contentLengthHeader) {
+                const cl = parseInt(contentLengthHeader, 10);
+                if (Number.isFinite(cl)) recordBytes(cl);
             }
             if (reportProgress) {
                 // Read fully through the progress reporter, then
