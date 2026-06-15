@@ -99,19 +99,16 @@ export type ProtomapsTheme =
 
 /**
  * Build a MapLibre Style for our basemap using Protomaps' shipped
- * "flavor" + layer set. Stock for now — commit 2 will fork the layer
- * list to strip POIs/buildings and amplify the transit network.
- *
- * Pass `lang` to localise labels (defaults to English).
+ * "flavor" + layer set, curated (POIs + rail dropped — see
+ * curatedBasemapLayers). Pass `lang` to localise labels.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
     registerPMTilesProtocol();
     probePmtilesAvailability();
     const flavor = namedFlavor(theme);
-    const layers = transitFirstLayers(
+    const layers = curatedBasemapLayers(
         protomapsLayers(PROTOMAPS_SOURCE_ID, flavor, { lang: "en" }),
-        theme,
     );
     return {
         version: 8,
@@ -132,188 +129,33 @@ export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
     };
 }
 
-/* ─────────────────── Transit-first style fork ─────────────────── *
+/* ─────────────────── Basemap style curation ─────────────────── *
  *
- * The reference is the Jet Lag YouTube show's NYC episodes: their
- * basemap is essentially a "clean canvas" — pale uniform land, soft
- * pastel water, near-invisible road grid — with the **transit
- * network** drawn in saturated colour as the visual hero. That makes
- * sense for the game: the gameplay is transit-based, so the player's
- * eye should snap to the transit network, not be distracted by every
- * minor street or building.
+ * Protomaps ships a clean, general-purpose 71-layer basemap. We keep
+ * almost all of it and drop just two categories:
  *
- * Protomaps ships a general-purpose basemap style (71 layers). We
- * keep ~20 of them, drop the noisy categories outright, and amplify
- * rail. This function takes the stock layer list and rewrites it
- * in-place so any flavor update from Protomaps still flows through —
- * we only override what we have to.
+ *   - POIs: shop/amenity icons. They clutter the map AND collide
+ *     visually with the question markers the app draws on top (a
+ *     stray "museum" POI next to our own museum reference pin is
+ *     confusing). The overpass-cached reference data is the source
+ *     of truth for those.
+ *   - Rail (`roads_rail`): transit lines are surfaced by the app's
+ *     dedicated map-overlay toggle (OpenRailwayMap raster), so baking
+ *     them into the base is redundant and can't be turned off.
+ *
+ * Everything else — roads with casings, labels, buildings, landcover,
+ * landuse, water — renders at full Protomaps detail. (v240 walked
+ * back the v231 "transit-first" fork, which over-stripped the style:
+ * it dropped landcover + muted roads to near-invisible, so a large
+ * rural play area at low zoom rendered as bare dark earth with
+ * nothing on it — visible as the "empty" wizard + lobby previews.)
+ *
+ * Pure filter on the stock layer list, so any future flavor or layer
+ * addition from @protomaps/basemaps flows through untouched.
  */
-
-/** Stock layer ids we drop entirely. Categorised so future tweaks
- *  are obvious: clutter, landuse noise, road casings (the duplicate
- *  underlay strokes that make roads pop on the default style), and
- *  every label layer except place names. */
-const DROPPED_LAYER_IDS = new Set<string>([
-    // Visual clutter
-    "buildings",
-    "pois",
-    "landcover",
-    // Specialised landuse — we keep landuse_park so green spaces are
-    // recognisable landmarks; everything else goes.
-    "landuse_urban_green",
-    "landuse_hospital",
-    "landuse_industrial",
-    "landuse_school",
-    "landuse_beach",
-    "landuse_zoo",
-    "landuse_aerodrome",
-    "landuse_pedestrian",
-    "landuse_pier",
-    "landuse_runway",
-    "roads_runway",
-    "roads_taxiway",
-    "roads_pier",
-    // Tunnels (we don't need underground road visualisation for a
-    // transit-based game).
-    "roads_tunnels_other_casing",
-    "roads_tunnels_minor_casing",
-    "roads_tunnels_link_casing",
-    "roads_tunnels_major_casing",
-    "roads_tunnels_highway_casing",
-    "roads_tunnels_other",
-    "roads_tunnels_minor",
-    "roads_tunnels_link",
-    "roads_tunnels_major",
-    "roads_tunnels_highway",
-    // Road casings (the underlay strokes that make roads visually
-    // pop). Dropping them with the muted line colour below reduces
-    // the road network to a barely-perceptible underlay.
-    "roads_minor_service_casing",
-    "roads_minor_casing",
-    "roads_link_casing",
-    "roads_major_casing_late",
-    "roads_major_casing_early",
-    "roads_highway_casing_late",
-    "roads_highway_casing_early",
-    // Bridges — keep their structural lines? Drop the casings, keep
-    // the centerlines so a bridge still reads as connected road.
-    "roads_bridges_other_casing",
-    "roads_bridges_link_casing",
-    "roads_bridges_minor_casing",
-    "roads_bridges_major_casing",
-    "roads_bridges_highway_casing",
-    // Label noise — only place names survive (see KEEP list below).
-    "address_label",
-    "water_waterway_label",
-    "earth_label_islands",
-    "roads_oneway",
-    "roads_labels_minor",
-    "roads_labels_major",
-    "roads_shields",
-]);
-
-/** Rail line colour per theme. The show uses real transit colours
- *  per line, which requires OSM `route=subway` relation data that
- *  Protomaps' stock vector tiles don't expose. As a starting point
- *  we draw all rail in a single saturated colour — a follow-up will
- *  layer OpenRailwayMap (which has the per-route colours) on top via
- *  the existing raster overlay route the app already has. */
-function railColour(theme: ProtomapsTheme): string {
-    switch (theme) {
-        case "dark":
-        case "black":
-            return "#f97316"; // orange-500 — pops on dark
-        case "grayscale":
-        case "white":
-            return "#ea580c"; // orange-600
-        case "light":
-        default:
-            return "#dc2626"; // red-600 — matches our boundary outline
-    }
-}
-
-/** Mute the road centrelines to near the land colour so they read
- *  as a subtle underlay rather than a network. Per theme so the
- *  hue tracks the background. */
-function mutedRoadColour(theme: ProtomapsTheme): string {
-    switch (theme) {
-        case "dark":
-        case "black":
-            return "#2a2a2e";
-        case "grayscale":
-        case "white":
-            return "#d4d4d8";
-        case "light":
-        default:
-            return "#e5e5e5";
-    }
-}
+const DROPPED_LAYER_IDS = new Set<string>(["pois", "roads_rail"]);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function transitFirstLayers(stock: any[], theme: ProtomapsTheme): any[] {
-    const out: any[] = [];
-    const muted = mutedRoadColour(theme);
-    const rail = railColour(theme);
-    for (const layer of stock) {
-        if (DROPPED_LAYER_IDS.has(layer.id)) continue;
-
-        // Roads → mute. Drop the road centrelines to a single
-        // near-background colour and trim their max width by ~60 %
-        // so they're a hint rather than a network.
-        if (
-            layer.id === "roads_highway" ||
-            layer.id === "roads_major" ||
-            layer.id === "roads_minor" ||
-            layer.id === "roads_minor_service" ||
-            layer.id === "roads_link" ||
-            layer.id === "roads_other" ||
-            layer.id === "roads_bridges_highway" ||
-            layer.id === "roads_bridges_major" ||
-            layer.id === "roads_bridges_minor" ||
-            layer.id === "roads_bridges_link" ||
-            layer.id === "roads_bridges_other"
-        ) {
-            out.push({
-                ...layer,
-                paint: {
-                    ...layer.paint,
-                    "line-color": muted,
-                    "line-opacity": 0.7,
-                },
-            });
-            continue;
-        }
-
-        // Rail → amplify. Solid line, saturated colour, ~2.5× wider
-        // than stock. The show's transit-as-hero look.
-        if (layer.id === "roads_rail") {
-            out.push({
-                ...layer,
-                paint: {
-                    "line-color": rail,
-                    "line-opacity": 0.95,
-                    "line-width": [
-                        "interpolate",
-                        ["exponential", 1.6],
-                        ["zoom"],
-                        3,
-                        0,
-                        6,
-                        0.6,
-                        12,
-                        2.0,
-                        15,
-                        3.2,
-                        18,
-                        6,
-                    ],
-                },
-            });
-            continue;
-        }
-
-        // Everything else — keep stock.
-        out.push(layer);
-    }
-    return out;
+function curatedBasemapLayers(stock: any[]): any[] {
+    return stock.filter((layer) => !DROPPED_LAYER_IDS.has(layer.id));
 }
