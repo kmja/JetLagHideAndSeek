@@ -243,6 +243,78 @@ function boundaryQuery(relationId) {
 const TRANSIT_ROUTE_TYPES = ["subway", "bus", "ferry"];
 
 /**
+ * Shrink a raw transit Overpass response before storing it, keeping
+ * the SAME Overpass JSON shape so the client parser (which already
+ * dedupes ways by ref + decimates geometry) reads it unchanged.
+ *
+ * The raw `out skel geom` response for a dense bus network is huge
+ * (NYC ≈ 91 MB) and bloated three ways the overlay doesn't need:
+ *   1. Every street way is repeated in each route relation that uses
+ *      it. The client only draws each unique way once (dedupe by ref),
+ *      so we keep the first occurrence and drop the rest.
+ *   2. Full-resolution geometry, when the client decimates to
+ *      MAX_VERTICES points per way anyway. We decimate with the same
+ *      stride algorithm so prewarmed + on-demand renders are identical.
+ *   3. 7-decimal coordinates (~1 cm). 5 decimals (~1 m) is far more
+ *      than an overlay line needs.
+ *
+ * Output: one synthetic relation whose members are the unique
+ * decimated ways. The client discards route grouping anyway (it draws
+ * each way as a bare LineString with empty properties), so collapsing
+ * to a single relation is lossless for the overlay.
+ */
+const MAX_VERTICES = 50;
+
+function round5(n) {
+    return Math.round(n * 1e5) / 1e5;
+}
+
+function decimateGeom(geom) {
+    const n = geom.length;
+    let pts;
+    if (n <= MAX_VERTICES) {
+        pts = geom;
+    } else {
+        const stride = Math.ceil(n / MAX_VERTICES);
+        pts = [];
+        for (let i = 0; i < n; i += stride) pts.push(geom[i]);
+        const last = geom[n - 1];
+        const tail = pts[pts.length - 1];
+        if (tail.lat !== last.lat || tail.lon !== last.lon) pts.push(last);
+    }
+    return pts.map((p) => ({ lat: round5(p.lat), lon: round5(p.lon) }));
+}
+
+function reduceTransitResponse(text) {
+    const parsed = JSON.parse(text);
+    const seen = new Set();
+    const members = [];
+    for (const el of parsed.elements || []) {
+        if (el.type !== "relation") continue;
+        for (const m of el.members || []) {
+            if (m.type !== "way") continue;
+            if (!Array.isArray(m.geometry) || m.geometry.length < 2) continue;
+            if (m.ref !== undefined) {
+                if (seen.has(m.ref)) continue;
+                seen.add(m.ref);
+            }
+            members.push({
+                type: "way",
+                ref: m.ref,
+                geometry: decimateGeom(m.geometry),
+            });
+        }
+    }
+    const reduced = {
+        version: parsed.version,
+        generator: parsed.generator,
+        osm3s: parsed.osm3s,
+        elements: [{ type: "relation", id: 0, tags: {}, members }],
+    };
+    return { text: JSON.stringify(reduced), wayCount: members.length };
+}
+
+/**
  * Byte-for-byte mirror of the single-area branch of
  * `fetchTransitRelations` in src/maps/api/transitRoutes.ts. The R2
  * cache key is a SHA-256 of this exact string, so any whitespace drift
@@ -379,12 +451,11 @@ async function fetchOverpass(query, label) {
     return null;
 }
 
-/** Skip uploading any single response larger than this. Mirrors the
- *  worker's MAX_CACHE_BYTES — a payload this big (NYC's bus network)
- *  isn't worth caching, and sending it just wastes upstream bandwidth
- *  for a body the worker would reject anyway. The client still fetches
- *  it on demand (uncached) if the user ever toggles that overlay. */
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+/** Skip uploading any single response larger than this AFTER
+ *  reduction. Generous because the streaming worker handles big
+ *  bodies fine; this is just a backstop against a pathological case
+ *  the reduction couldn't tame. Mirrors the worker's MAX_STORE_BYTES. */
+const MAX_UPLOAD_BYTES = 60 * 1024 * 1024; // 60 MB
 
 /**
  * Store a prewarmed Overpass response via the worker's STREAMING
@@ -704,33 +775,45 @@ async function processCity(city) {
             }
             const res = await fetchOverpass(q, `transit ${routeType}`);
             if (!res) continue;
-            // Skip pathological payloads (a big metro's full bus network
-            // with out:geom is tens of MB). The worker would reject it
-            // anyway; the client fetches it on demand if ever toggled.
-            const bytes = Buffer.byteLength(res.text, "utf8");
-            if (bytes > MAX_UPLOAD_BYTES) {
-                console.log(
-                    `  ⤼ transit ${routeType} too large (${bytes} B > ${MAX_UPLOAD_BYTES}) — skipping upload`,
+            // Reduce (dedupe ways + decimate + round coords) before
+            // storing so a dense network (NYC bus ≈ 91 MB raw) shrinks
+            // to something the worker stores and the client can parse.
+            const rawBytes = Buffer.byteLength(res.text, "utf8");
+            let reduced;
+            try {
+                reduced = reduceTransitResponse(res.text);
+            } catch (e) {
+                console.warn(
+                    `  ✗ transit ${routeType} reduce failed: ${e.message}`,
                 );
                 await sleep(DELAY_MS);
                 continue;
             }
-            const parsed = safeJSON(res.text);
-            if (parsed) {
-                try {
-                    const r = await uploadToWorker({
-                        query: q,
-                        bodyText: res.text,
-                        kind: "transit",
-                        sourceName: `${city.name} (${routeType})`,
-                        sourceRelationId: String(city.relationId),
-                    });
-                    console.log(
-                        `  ✓ transit ${routeType} stored (${r.sizeBytes} B in ${res.ms} ms, ${parsed.elements?.length ?? 0} relations)`,
-                    );
-                } catch (e) {
-                    console.warn(`  ✗ transit ${routeType} upload: ${e.message}`);
-                }
+            const redBytes = Buffer.byteLength(reduced.text, "utf8");
+            if (redBytes > MAX_UPLOAD_BYTES) {
+                console.log(
+                    `  ⤼ transit ${routeType} still ${redBytes} B after reduce (raw ${rawBytes}) — skipping`,
+                );
+                await sleep(DELAY_MS);
+                continue;
+            }
+            try {
+                const r = await uploadToWorker({
+                    query: q,
+                    bodyText: reduced.text,
+                    kind: "transit",
+                    sourceName: `${city.name} (${routeType})`,
+                    sourceRelationId: String(city.relationId),
+                });
+                const pct =
+                    rawBytes > 0
+                        ? Math.round((100 * redBytes) / rawBytes)
+                        : 100;
+                console.log(
+                    `  ✓ transit ${routeType} stored (${r.sizeBytes} B in ${res.ms} ms, ${reduced.wayCount} ways, ${pct}% of ${rawBytes} B raw)`,
+                );
+            } catch (e) {
+                console.warn(`  ✗ transit ${routeType} upload: ${e.message}`);
             }
             await sleep(DELAY_MS);
         }

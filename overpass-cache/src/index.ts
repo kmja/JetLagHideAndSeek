@@ -2889,15 +2889,17 @@ async function handleAdminStorePrewarmed(
         if (!request.body) {
             return jsonResponse({ error: "missing body" }, 400, cors);
         }
-        // Reject pathological payloads up front (NYC bus etc.). The
-        // client wouldn't want to download tens of MB for an overlay
-        // anyway, and storing them risks the same OOM on read-back.
-        if (Number.isFinite(declaredLen) && declaredLen > MAX_CACHE_BYTES) {
+        // Backstop against a body bigger than the streaming cap (the
+        // laptop pre-reduces transit, so this rarely triggers). The
+        // stream itself wouldn't OOM, but we don't want to store
+        // something a client could never parse, and very large bodies
+        // approach Cloudflare's inbound request limit.
+        if (Number.isFinite(declaredLen) && declaredLen > MAX_STORE_BYTES) {
             return jsonResponse(
                 {
                     status: "skipped-too-large",
                     sizeBytes: declaredLen,
-                    limit: MAX_CACHE_BYTES,
+                    limit: MAX_STORE_BYTES,
                 },
                 200,
                 cors,
@@ -3195,17 +3197,25 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Don't cache Overpass responses bigger than this. A pathological
- * payload (NYC's bus network with full `out geom` is tens of MB)
- * isn't worth caching — it's slow to read back, bloats R2, and most
- * of all duplicating a >25 MB string through R2.put + an edge-cache
- * `new Response(body)` clone risks the 128 MB Worker heap limit
- * (Cloudflare error 1102). Over the cap we still SERVE the body to
- * the client (the caller already has it in hand) — we just skip
- * persisting it. The streaming /admin/store-prewarmed path enforces
- * the same cap from Content-Length before it ever buffers.
+ * On-demand cache cap (the /api/interpreter path). That path BUFFERS
+ * the whole upstream response via `await upstream.text()` and then
+ * clones it into the edge cache, so a big body lives in the 128 MB
+ * Worker heap twice — keep this conservative. Over the cap we still
+ * SERVE the body (the caller has it in hand); we just skip persisting
+ * it. The prewarm path uses MAX_STORE_BYTES instead — it streams, so
+ * it can go much higher.
  */
 const MAX_CACHE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+/**
+ * Prewarm-upload cap (the streaming /admin/store-prewarmed path).
+ * That path streams `request.body` straight to R2 without buffering,
+ * so it isn't bound by the heap limit — only by Cloudflare's inbound
+ * request-body limit (~100 MB on workers.dev). The laptop prewarmer
+ * pre-reduces transit payloads (dedupe + decimate + round) so they
+ * arrive well under this; the cap is just a backstop.
+ */
+const MAX_STORE_BYTES = 60 * 1024 * 1024; // 60 MB
 
 async function writeBackThroughCaches(
     env: Env,
