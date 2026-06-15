@@ -1,8 +1,9 @@
 import { useStore } from "@nanostores/react";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import {
     gameStartCelebrationAt,
+    gameStartFiredFor,
     gameStartPosition,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
@@ -35,23 +36,26 @@ import { preloadDuringHidingPeriod } from "@/lib/preload";
  */
 export function GameStartWatcher() {
     const $endsAt = useStore(hidingPeriodEndsAt);
-    const prev = useRef<number | null>($endsAt);
+    const $firedFor = useStore(gameStartFiredFor);
 
     useEffect(() => {
-        const wasNull = prev.current === null;
-        const isSet = $endsAt !== null;
-        prev.current = $endsAt;
-        // Diagnostic (v220) for the cache-pill stall: log every
-        // hiding-period transition so we can correlate with the
-        // signature-reset warnings.
-        console.warn(
-            `[cache-pill] hiding-period transition: wasNull=${wasNull} isSet=${isSet} endsAt=${$endsAt}`,
-        );
-        if (!wasNull || !isSet) return;
-        // Only fire if the celebration isn't already open (we don't
-        // want to re-pop on a dismiss-then-mount cycle).
-        if (gameStartCelebrationAt.get() !== null) return;
-        gameStartCelebrationAt.set(Date.now());
+        // v245: switched from a useRef-based "was it null on the
+        // previous render" to a persistent dedupe atom keyed on the
+        // actual endsAt value. The ref approach re-fired the GoGoGo
+        // overlay whenever a multiplayer snapshot wrote hidingPeriod
+        // EndsAt through a null bounce (autohost self-heal, lobby
+        // reopen). Persistent dedupe survives both that bounce and a
+        // full reload, and roundActions clears it to null at every
+        // new round so the next game still gets the celebration.
+        if ($endsAt === null) return;
+        if ($firedFor === $endsAt) return;
+        // Claim the fire BEFORE any side effects so a paired mount
+        // on the other route (e.g. SeekerPage + HiderPage both up
+        // in one tab) doesn't double-fire on the same value.
+        gameStartFiredFor.set($endsAt);
+        if (gameStartCelebrationAt.get() === null) {
+            gameStartCelebrationAt.set(Date.now());
+        }
         // Capture GPS as the travel-times departure anchor. Non-
         // blocking: if the user denies location, the overlay simply
         // won't activate (it gates on gameStartPosition being set).
@@ -77,7 +81,7 @@ export function GameStartWatcher() {
         if (playerRole.get() !== "hider") {
             preloadDuringHidingPeriod();
         }
-    }, [$endsAt]);
+    }, [$endsAt, $firedFor]);
 
     return null;
 }

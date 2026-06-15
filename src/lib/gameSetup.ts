@@ -338,6 +338,26 @@ export const seekingStartFiredFor = persistentAtom<number | null>(
 );
 
 /**
+ * v245 sister of `seekingStartFiredFor` — dedupe key for the
+ * GoGoGoOverlay's "we gotta go go go" trigger. Without this,
+ * GameStartWatcher would re-pop the overlay every time a peer
+ * snapshot writes the same `hidingPeriodEndsAt` value through a
+ * null bounce (e.g. the lobby's autohost self-heal creates a fresh
+ * room, the server snapshot wipes hidingPeriodEndsAt to null, then
+ * a subsequent setupChanged restores the real value — that
+ * round-trip looked like a fresh game-start to the watcher even
+ * though the user had already dismissed the overlay).
+ */
+export const gameStartFiredFor = persistentAtom<number | null>(
+    "jlhs:gameStartFiredFor",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
  * Highest "seekers are closing in" warning level the hider has been
  * shown this round. 0 = none, 1 = soft warning, 2 = urgent warning.
  * Persistent so a reload doesn't replay the dialog; cleared by

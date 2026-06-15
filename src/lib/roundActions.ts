@@ -9,6 +9,7 @@ import {
 import {
     closingInWarningLevel,
     gameSize,
+    gameStartFiredFor,
     gameStartPosition,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
@@ -67,6 +68,7 @@ export function startNewRound() {
     pendingHidingDurationMin.set(minutes);
     gameStartPosition.set(null);
     seekingStartFiredFor.set(null);
+    gameStartFiredFor.set(null);
     closingInWarningLevel.set(0);
 }
 
@@ -109,6 +111,7 @@ export function startNewGame() {
     pendingHidingDurationMin.set(null);
     gameStartPosition.set(null);
     seekingStartFiredFor.set(null);
+    gameStartFiredFor.set(null);
     closingInWarningLevel.set(0);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
