@@ -201,6 +201,15 @@ export function resetMapOverlays() {
 export const setupDialogOpen = atom<boolean>(false);
 
 /**
+ * Volatile: is the seeker "More" sheet currently open? v241+ moved
+ * the trigger from the bottom-nav into the new SeekerTopBar's settings
+ * icon, but the sheet content itself still lives inside BottomNav for
+ * now (single React tree, easy state share). The shared atom lets the
+ * top bar open it without lifting the JSX.
+ */
+export const moreSheetOpen = atom<boolean>(false);
+
+/**
  * Volatile per-mode loading state for the Overpass-fetched transit
  * overlays (subway / bus / ferry). The TransitRoutesOverlay component
  * writes to this whenever it kicks off or finishes a fetch; the

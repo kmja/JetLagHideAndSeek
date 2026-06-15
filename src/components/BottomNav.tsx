@@ -7,7 +7,6 @@ import {
     Flag,
     Footprints,
     List,
-    MoreHorizontal,
     Plus,
     Radio,
     RadioReceiver,
@@ -32,7 +31,6 @@ import {
     SheetDescription,
     SheetHeader,
     SheetTitle,
-    SheetTrigger,
 } from "@/components/ui/sheet";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { questions, questionsDrawerOpen, zoneSidebarOpen } from "@/lib/context";
@@ -42,6 +40,7 @@ import {
     formatTimeRemaining,
     gameSize,
     hidingPeriodEndsAt,
+    moreSheetOpen,
     playArea,
     setupCompleted,
     setupDialogOpen,
@@ -106,7 +105,7 @@ export const BottomNav = () => {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $endgameStartedAt = useStore(endgameStartedAt);
     const $foundAt = useStore(roundFoundAt);
-    const [moreOpen, setMoreOpen] = useState(false);
+    const $moreOpen = useStore(moreSheetOpen);
     const $currentGameCode = useStore(currentGameCode);
     const $multiplayerEnabled = useStore(multiplayerEnabled);
     const $sharing = useStore(seekerLocationSharing);
@@ -275,6 +274,37 @@ export const BottomNav = () => {
                         </span>
                     </button>
                 </AddQuestionDialog>
+
+                {/* Lobby slot (v242). Opens the GameLobbyDialog so
+                    players can see the roster and join code without
+                    digging into "More". Shows the live online-
+                    participant count as a badge so the seeker knows
+                    at a glance who's connected. */}
+                <button
+                    type="button"
+                    onClick={() => lobbyManualOpen.set(true)}
+                    className={navBtnClass}
+                    aria-label="Open game lobby"
+                    title="Players, room code, role rotation"
+                >
+                    <Users className="w-5 h-5" strokeWidth={2} />
+                    <span className={navLabelClass}>Lobby</span>
+                    {$participants.filter((p) => p.online).length > 0 && (
+                        <span
+                            className={cn(
+                                "absolute top-1 right-2",
+                                "text-[9px] font-mono font-semibold",
+                                "bg-secondary text-foreground",
+                                "px-1.5 min-w-[18px] h-[18px]",
+                                "rounded-full flex items-center justify-center",
+                                "border border-border",
+                            )}
+                            aria-label={`${$participants.filter((p) => p.online).length} players online`}
+                        >
+                            {$participants.filter((p) => p.online).length}
+                        </span>
+                    )}
+                </button>
 
                 {/* Game slot. During hiding period it doubles as a count-
                     down display. Tap to open the drawer with an "End hiding"
@@ -632,20 +662,17 @@ export const BottomNav = () => {
                     </VaulDrawer.Portal>
                 </VaulDrawer.Root>
 
-                <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-                    <SheetTrigger asChild>
-                        <button
-                            type="button"
-                            className={cn(navBtnClass, "max-w-[56px]")}
-                            aria-label="More options"
-                        >
-                            <MoreHorizontal
-                                className="w-5 h-5"
-                                strokeWidth={2}
-                            />
-                            <span className={navLabelClass}>More</span>
-                        </button>
-                    </SheetTrigger>
+                {/* "More" sheet content. v242: the trigger moved off
+                    the bottom nav into SeekerTopBar's settings icon
+                    (left of the wordmark). The Sheet body stays here
+                    because its content is intertwined with the
+                    bottom-nav's state (Rulebook/Howto/Lobby buttons
+                    that close-then-open via setMoreOpen). Drive open
+                    state from the shared moreSheetOpen atom. */}
+                <Sheet
+                    open={$moreOpen}
+                    onOpenChange={(v) => moreSheetOpen.set(v)}
+                >
                     <SheetContent
                         side="bottom"
                         className="rounded-t-2xl"
@@ -659,10 +686,10 @@ export const BottomNav = () => {
                         </SheetHeader>
                         <div className="mt-4 space-y-2">
                             <HowToPlaySheet
-                                onBeforeOpen={() => setMoreOpen(false)}
+                                onBeforeOpen={() => moreSheetOpen.set(false)}
                             />
                             <RulebookSheet
-                                onBeforeOpen={() => setMoreOpen(false)}
+                                onBeforeOpen={() => moreSheetOpen.set(false)}
                             >
                                 <button
                                     type="button"
@@ -682,7 +709,7 @@ export const BottomNav = () => {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setMoreOpen(false);
+                                    moreSheetOpen.set(false);
                                     lobbyManualOpen.set(true);
                                 }}
                                 className={cn(
@@ -700,7 +727,7 @@ export const BottomNav = () => {
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setMoreOpen(false);
+                                    moreSheetOpen.set(false);
                                     zoneSidebarOpen.set(true);
                                 }}
                                 className={cn(

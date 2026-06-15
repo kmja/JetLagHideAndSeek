@@ -26,6 +26,7 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
+import { SeekerTopBar } from "@/components/SeekerTopBar";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import { TravelTimesOverlay } from "@/components/TravelTimesOverlay";
 import {
@@ -148,11 +149,12 @@ export function SeekerPage() {
                                     <SidebarTriggerL />
                                 </div>
                                 {/* Persistent hider timer — top-left on
-                                    mobile, slightly inset on desktop next
-                                    to the sidebar trigger. Shows hiding-
-                                    period countdown then hidden-time
-                                    elapsed once the period ends. */}
-                                <div className="absolute top-2 left-2 md:left-12 z-[1030] group-[.fullscreen]:hidden">
+                                    mobile (under the SeekerTopBar, which
+                                    is h-14), slightly inset on desktop
+                                    next to the sidebar trigger. Shows
+                                    hiding-period countdown then hidden-
+                                    time elapsed once the period ends. */}
+                                <div className="absolute top-[64px] md:top-2 left-2 md:left-12 z-[1030] group-[.fullscreen]:hidden">
                                     <HiderTimer />
                                 </div>
                                 {/* Top-right cluster: zones trigger +
@@ -160,8 +162,9 @@ export function SeekerPage() {
                                     Visible on both desktop and mobile —
                                     the bottom-nav slot that previously
                                     held the zones trigger has been
-                                    reassigned to "Game". */}
-                                <div className="absolute top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
+                                    reassigned to "Game". On mobile we
+                                    shift it below the SeekerTopBar. */}
+                                <div className="absolute top-[64px] md:top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
                                     <MapDisplayControls />
                                     <CacheStatusPill />
                                 </div>
@@ -200,6 +203,7 @@ export function SeekerPage() {
                         </div>
                     </main>
                     <ZoneSidebar />
+                    <SeekerTopBar />
                     <BottomNav />
                     <Suspense fallback={null}>
                         <Welcome />
