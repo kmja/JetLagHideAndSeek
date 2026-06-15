@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { bbox } from "@turf/turf";
 import {
     ArrowRight,
+    Bus,
     Check,
     Clock,
     Copy,
@@ -10,7 +11,15 @@ import {
     LogOut,
     MapPin,
     QrCode,
+    Radio,
+    RadioReceiver,
+    Settings,
     Share2,
+    Ship,
+    Timer,
+    TramFront,
+    Train,
+    TrainTrack,
     VenetianMask,
     X,
 } from "lucide-react";
@@ -28,16 +37,19 @@ import {
 } from "@/lib/context";
 import {
     allowedTransit,
+    formatTimeRemaining,
     gameSize,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
     setupCompleted,
+    setupDialogOpen,
     TRANSIT_LABELS,
+    type TransitMode,
     welcomeSeen,
 } from "@/lib/gameSetup";
-import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
+import { playerRole, rolePickerOpen, roundFoundAt } from "@/lib/hiderRole";
 import { formatBytes, loadingPieces } from "@/lib/loadingProgress";
 import {
     handleMapLibreError,
@@ -53,6 +65,7 @@ import {
     multiplayerEnabled,
     multiplayerError,
     participants,
+    seekerLocationSharing,
     selfParticipantId,
     transportStatus,
 } from "@/lib/multiplayer/session";
@@ -69,8 +82,11 @@ import { cn } from "@/lib/utils";
 import {
     HideSeekMark,
     HideSeekWordmark,
+    SizeBadge,
 } from "./JetLagLogo";
 import { NotificationsIconButton } from "./NotificationsToggle";
+import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -116,6 +132,8 @@ export function GameLobbyDialog() {
     const $loading = useStore(loadingProgress);
     const $pieces = useStore(loadingPieces);
     const $manualOpen = useStore(lobbyManualOpen);
+    const $foundAt = useStore(roundFoundAt);
+    const $seekerSharing = useStore(seekerLocationSharing);
 
     // Two open paths:
     //   1. Auto-open pre-game: standard wizard → lobby → start flow.
@@ -133,6 +151,17 @@ export function GameLobbyDialog() {
     const mapReady = Boolean($mapGeoJSON || $polyGeoJSON);
     const isHiderRole =
         $playerRole === "hider" || $playerRole === "coHider";
+
+    const [now, setNow] = useState(Date.now());
+    const isMidGame = $manualOpen && $hidingEndsAt !== null;
+    const midGameHidingActive = isMidGame && $hidingEndsAt !== null && $hidingEndsAt > now;
+    useVisibleInterval(() => setNow(Date.now()), 1000, isMidGame);
+    const midGameRemainingMs = $hidingEndsAt
+        ? Math.max(0, $hidingEndsAt - Math.max(now, Date.now()))
+        : 0;
+    const midGameElapsedMs = $hidingEndsAt
+        ? Math.max(0, ($foundAt ?? now) - $hidingEndsAt)
+        : 0;
 
     // Self-heal autohost. If we land in the lobby with no game code
     // — e.g. the wizard's autohost attempt failed on a network blip,
@@ -642,26 +671,74 @@ export function GameLobbyDialog() {
                             />
                         </div>
                     )}
-                    {$mp && !hasRoleBalance && $participants.length > 0 && (
+                    {$mp && !hasRoleBalance && $participants.length > 0 && !isMidGame && (
                         <p className="text-[11px] text-muted-foreground leading-snug">
                             Need at least one <b>seeker</b> and one{" "}
                             <b>hider</b> before the game can start.
                             Share the invite to bring more in.
                         </p>
                     )}
+
+                    {/* Mid-game info section — shown only when
+                        manually reopened during an active game. */}
+                    {isMidGame && (
+                        <MidGameInfoSection
+                            hidingActive={midGameHidingActive}
+                            remainingMs={midGameRemainingMs}
+                            elapsedMs={midGameElapsedMs}
+                            playArea={$playArea}
+                            transit={$allowedTransit}
+                            size={$size}
+                            isHiderRole={isHiderRole}
+                            mp={$mp}
+                            sharing={$seekerSharing}
+                            foundAt={$foundAt}
+                            onEditSettings={() => {
+                                lobbyManualOpen.set(false);
+                                setupDialogOpen.set(true);
+                            }}
+                            onToggleSharing={() =>
+                                seekerLocationSharing.set(!$seekerSharing)
+                            }
+                        />
+                    )}
                 </div>
 
-                {/* Start button + Leave game. Role-independent: a
-                    hider host sees the same Start UI a seeker host
-                    does. v146: compacted — the waiting/loading
-                    button is single-line height (h-11) instead of
-                    h-16, and the secondary "{minutes}-min hiding
-                    period" caption only appears on the active Start
-                    state, where the button stays two-line. The
-                    notifications toggle moved to the dialog header
-                    as an icon button. */}
+                {/* Footer — Start/Leave for pre-game; Close/Leave for
+                    mid-game manual reopen. */}
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
-                    {isHost ? (
+                    {isMidGame ? (
+                        <>
+                            <Button
+                                size="lg"
+                                className="w-full"
+                                onClick={() => lobbyManualOpen.set(false)}
+                            >
+                                Close
+                            </Button>
+                            {$mp && $code && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={async () => {
+                                        const ok = await appConfirm({
+                                            title: "Leave this online game?",
+                                            description:
+                                                "You'll exit the room — the others can keep playing without you.",
+                                            confirmLabel: "Leave game",
+                                            destructive: true,
+                                        });
+                                        if (!ok) return;
+                                        returnToLandingPage();
+                                    }}
+                                    className="w-full gap-1.5 text-muted-foreground"
+                                >
+                                    <LogOut className="w-3.5 h-3.5" />
+                                    Leave game
+                                </Button>
+                            )}
+                        </>
+                    ) : isHost ? (
                         <>
                             <Button
                                 size="lg"
@@ -677,17 +754,6 @@ export function GameLobbyDialog() {
                                     className="text-base font-extrabold leading-none"
                                     style={{ letterSpacing: "0.02em" }}
                                 >
-                                    {/* Two ordered disabled states +
-                                        ready state. Map first because
-                                        without the boundary the seeker
-                                        side can't actually play; if
-                                        someone presses Start before
-                                        the map is in, the clock starts
-                                        ticking against the host. Hider
-                                        host has no boundary stream of
-                                        its own, so they skip the
-                                        loading state and only ever
-                                        gate on player count. */}
                                     {!isHiderRole && !mapReady ? (
                                         <>
                                             Loading map
@@ -734,7 +800,7 @@ export function GameLobbyDialog() {
                         next to '(you)' — see RosterCard's SwitchRoleButton.
                         Keeps the lobby's footer clean and the affordance
                         co-located with the user's own name. */}
-                    {$mp && $code && (
+                    {!isMidGame && $mp && $code && (
                         <Button
                             variant="ghost"
                             size="sm"
@@ -747,12 +813,6 @@ export function GameLobbyDialog() {
                                     destructive: true,
                                 });
                                 if (!ok) return;
-                                // Single shared cleanup — also wipes
-                                // the round state (questions, hiding
-                                // period, map polygon) that the old
-                                // inline reset missed, so the user
-                                // actually lands on Welcome instead
-                                // of a half-emptied seeker view.
                                 returnToLandingPage();
                             }}
                             className="w-full gap-1.5 text-muted-foreground"
@@ -1147,6 +1207,186 @@ function RosterCard({
                         );
                     })}
                 </ul>
+            )}
+        </div>
+    );
+}
+
+const TRANSIT_ICONS: Record<TransitMode, React.ComponentType<{ className?: string }>> = {
+    bus: Bus,
+    tram: TramFront,
+    train: Train,
+    subway: TrainTrack,
+    ferry: Ship,
+};
+
+function MidGameInfoSection({
+    hidingActive,
+    remainingMs,
+    elapsedMs,
+    playArea,
+    transit,
+    size,
+    isHiderRole,
+    mp,
+    sharing,
+    foundAt,
+    onEditSettings,
+    onToggleSharing,
+}: {
+    hidingActive: boolean;
+    remainingMs: number;
+    elapsedMs: number;
+    playArea: { displayName: string } | null;
+    transit: TransitMode[];
+    size: import("@/lib/gameSetup").GameSize;
+    isHiderRole: boolean;
+    mp: boolean;
+    sharing: boolean;
+    foundAt: number | null;
+    onEditSettings: () => void;
+    onToggleSharing: () => void;
+}) {
+    return (
+        <div className="border-t border-border pt-3 space-y-3">
+            {/* Timer status */}
+            <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 flex items-center gap-3">
+                <Timer
+                    className={cn(
+                        "w-4 h-4 shrink-0",
+                        hidingActive ? "text-primary" : "text-muted-foreground",
+                    )}
+                />
+                <div className="min-w-0">
+                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        {foundAt !== null
+                            ? "Round over"
+                            : hidingActive
+                              ? "Hiding period"
+                              : "Seeking"}
+                    </div>
+                    <div
+                        className={cn(
+                            "font-poppins font-black tabular-nums text-2xl leading-none",
+                            hidingActive ? "text-primary" : "text-foreground",
+                        )}
+                    >
+                        {formatTimeRemaining(
+                            hidingActive ? remainingMs : elapsedMs,
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Play area + transit + size */}
+            {playArea && (
+                <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground shrink-0">
+                            Play area
+                        </span>
+                        <span className="font-medium truncate min-w-0 text-right">
+                            {(() => {
+                                const parts = playArea.displayName
+                                    .split(",")
+                                    .map((s) => s.trim())
+                                    .filter(Boolean);
+                                if (parts.length <= 1) return playArea.displayName;
+                                return `${parts[0]}, ${parts[parts.length - 1]}`;
+                            })()}
+                        </span>
+                    </div>
+                    <div className="flex justify-between items-center gap-2">
+                        <span className="text-muted-foreground shrink-0">
+                            Size
+                        </span>
+                        <SizeBadge size={size} />
+                    </div>
+                    <div className="flex justify-between items-start gap-2">
+                        <span className="text-muted-foreground shrink-0 pt-1">
+                            Transit
+                        </span>
+                        <span className="flex flex-wrap gap-1 justify-end min-w-0">
+                            {transit.length === 0 ? (
+                                <span className="text-xs text-muted-foreground italic">
+                                    Walking only
+                                </span>
+                            ) : (
+                                transit.map((m) => {
+                                    const Icon = TRANSIT_ICONS[m];
+                                    return (
+                                        <span
+                                            key={m}
+                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-xs"
+                                        >
+                                            <Icon className="w-3 h-3" />
+                                            <span>{TRANSIT_LABELS[m]}</span>
+                                        </span>
+                                    );
+                                })
+                            )}
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {/* GPS sharing toggle (seeker only, multiplayer, not found) */}
+            {!isHiderRole && mp && foundAt === null && (
+                <button
+                    type="button"
+                    onClick={onToggleSharing}
+                    className={cn(
+                        "w-full flex items-center gap-2.5",
+                        "rounded-md border-2 px-3 py-2.5 text-left transition-colors",
+                        sharing
+                            ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
+                            : "border-border bg-secondary/40 text-muted-foreground",
+                    )}
+                >
+                    {sharing ? (
+                        <Radio className="w-4 h-4 shrink-0 text-emerald-400" />
+                    ) : (
+                        <RadioReceiver className="w-4 h-4 shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[9px] uppercase tracking-[0.18em] font-poppins font-bold">
+                            {sharing ? "Sharing GPS with hider" : "GPS sharing off"}
+                        </div>
+                        <div className="text-[11px] leading-snug text-muted-foreground">
+                            {sharing
+                                ? "The hider sees your live position. Tap to pause."
+                                : "Tap to resume sharing your position."}
+                        </div>
+                    </div>
+                </button>
+            )}
+
+            {/* Preload choices (seeker only) */}
+            {!isHiderRole && (
+                <div>
+                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
+                        Preload during hiding
+                    </div>
+                    <PreloadChoicesPanel runImmediatelyOnEnable />
+                </div>
+            )}
+
+            {/* Edit settings */}
+            {!isHiderRole && (
+                <button
+                    type="button"
+                    onClick={onEditSettings}
+                    className={cn(
+                        "w-full flex items-center justify-center gap-2",
+                        "px-3 py-2 rounded-md border border-border",
+                        "bg-secondary/40 hover:bg-secondary/70 transition-colors",
+                        "text-sm font-semibold text-foreground",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                >
+                    <Settings className="w-4 h-4" />
+                    Edit game settings
+                </button>
             )}
         </div>
     );

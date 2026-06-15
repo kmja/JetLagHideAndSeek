@@ -14,7 +14,6 @@ import {
     Share2,
     Ship,
     Sparkles,
-    Target,
     Timer,
     Train,
     TrainTrack,
@@ -33,7 +32,7 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
-import { questions, questionsDrawerOpen, zoneSidebarOpen } from "@/lib/context";
+import { questions, questionsDrawerOpen } from "@/lib/context";
 import {
     allowedTransit,
     endgameStartedAt,
@@ -82,7 +81,6 @@ import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
 import { PresenceChip } from "./multiplayer/PresenceIndicators";
 import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
-import { NotificationsToggle } from "./NotificationsToggle";
 import { OfflineTilePreloader } from "./OfflineTilePreloader";
 import { OptionDrawers } from "./OptionDrawers";
 import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
@@ -706,55 +704,11 @@ export const BottomNav = () => {
                                     Rulebook
                                 </button>
                             </RulebookSheet>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    moreSheetOpen.set(false);
-                                    lobbyManualOpen.set(true);
-                                }}
-                                className={cn(
-                                    "w-full flex items-center justify-center gap-2",
-                                    "px-3 py-2 rounded-md",
-                                    "bg-secondary hover:bg-accent border border-border",
-                                    "text-sm font-semibold text-foreground transition-colors",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                )}
-                                title="Open the game lobby — roster, join code, role switch"
-                            >
-                                <Users className="w-4 h-4" />
-                                Game lobby
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    moreSheetOpen.set(false);
-                                    zoneSidebarOpen.set(true);
-                                }}
-                                className={cn(
-                                    "w-full flex items-center justify-center gap-2",
-                                    "px-3 py-2 rounded-md",
-                                    "bg-secondary hover:bg-accent border border-border",
-                                    "text-sm font-semibold text-foreground transition-colors",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                )}
-                            >
-                                <Target className="w-4 h-4" />
-                                Hiding zone settings
-                            </button>
-
-                            {/* Online play moved into Game Settings —
-                                the "Settings" button in the nav opens
-                                the same Game Settings dialog where
-                                hosting/joining lives. Keeping a passive
-                                invite preview here too would just
-                                duplicate that surface. */}
-
                             {/* PWA controls — install affordance for
                                 supported platforms, and tile pre-cache
                                 so the seeker can preload offline maps
                                 for the chosen play area. */}
                             <PWAInstallButton />
-                            <NotificationsToggle />
                             <div
                                 className={cn(
                                     "w-full px-3 py-3 rounded-md",
@@ -763,45 +717,6 @@ export const BottomNav = () => {
                             >
                                 <OfflineTilePreloader />
                             </div>
-                            {/* 'Switch to hider' button removed in
-                                v101 — role switching lives in the
-                                game-lobby dialog now (next to the
-                                player's own name in the roster). */}
-                            {false && (() => {
-                                const gameStarted = $questions.length > 0;
-                                return (
-                                    <button
-                                        type="button"
-                                        disabled={gameStarted}
-                                        title={
-                                            gameStarted
-                                                ? "Roles lock once the first question has been asked. Start a new game to switch."
-                                                : "Switch this device to the hider side"
-                                        }
-                                        onClick={async () => {
-                                            const ok = await appConfirm({
-                                                title: "Switch to hider?",
-                                                description:
-                                                    "You'll go to the hider home — seeker state stays saved.",
-                                                confirmLabel: "Switch to hider",
-                                            });
-                                            if (!ok) return;
-                                            playerRole.set("hider");
-                                            window.location.assign("/h");
-                                        }}
-                                        className={cn(
-                                            "w-full flex items-center justify-center gap-2",
-                                            "px-3 py-2 rounded-md",
-                                            "bg-secondary hover:bg-accent border border-border",
-                                            "text-sm font-semibold text-foreground transition-colors",
-                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                            "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-secondary",
-                                        )}
-                                    >
-                                        Switch to hider
-                                    </button>
-                                );
-                            })()}
                             <div className="pb-2 flex justify-center">
                                 <OptionDrawers compact />
                             </div>
