@@ -75,22 +75,29 @@ Get-Tool "https://github.com/protomaps/go-pmtiles/releases/download/v1.30.3/go-p
 Get-Tool "https://downloads.rclone.org/rclone-current-windows-amd64.zip" "rc.zip" "rclone.exe"
 
 # ── 1. Build region.geojson ───────────────────────────────────────
-# go-pmtiles' --region wants a single GeoJSON Polygon or
-# MultiPolygon geometry (NOT a FeatureCollection — confirmed against
-# the v1.30.3 binary's flag help + paulmach/orb geojson type bindings).
-# We emit a bare MultiPolygon: one outer ring per region, with EU + NA
-# as wide rectangles plus a ~33 km box around every city centroid that
-# falls outside both. Centroid comes from the city's `extent` when
-# present, else a batched Nominatim lookup.
+# go-pmtiles' --region wants a single GeoJSON Polygon or MultiPolygon.
+# We emit a bare MultiPolygon: EU + NA as wide rectangles plus a ~33 km
+# box around every city centroid that falls outside both. Centroid
+# comes from the city's `extent` when present, else a batched Nominatim
+# lookup.
+#
+# IMPORTANT: we build the JSON STRING BY HAND rather than via
+# ConvertTo-Json. Two PowerShell traps that corrupt the geometry
+# otherwise (both hit on the first real run):
+#   1. ConvertTo-Json + the `@(,@(...))` single-element-array idiom +
+#      an ArrayList round-trip collapses the polygon wrapper level, so
+#      each polygon serialises as just its ring. The MultiPolygon ends
+#      up one level too shallow and go-pmtiles rejects it with
+#      "cannot unmarshal number into Go value of type orb.Point".
+#   2. On a non-US locale (e.g. Swedish) a bare `[string]$double`
+#      renders "138,7" with a comma decimal, which is invalid JSON AND
+#      silently turns one coordinate into two. We force InvariantCulture
+#      number formatting to guarantee dot decimals.
+# A hand-built string sidesteps both and is trivial to reason about: we
+# only ever emit axis-aligned rectangles.
 $UA = "jlhs-region-builder/1.0 (https://github.com/kmja/jetlaghideandseek)"
-
-# GeoJSON polygon coordinate shape: [[[lng,lat], ...]] (one outer ring,
-# no holes). For a MultiPolygon we just stack these.
-function New-PolygonRing($w, $s, $e, $n) {
-    return @(,@(
-        @($w, $s), @($e, $s), @($e, $n), @($w, $n), @($w, $s)
-    ))
-}
+$ci = [System.Globalization.CultureInfo]::InvariantCulture
+function Fmt-Num($n) { return ([double]$n).ToString($ci) }
 function Test-InRect($lng, $lat, $w, $s, $e, $n) {
     return ($lng -ge $w -and $lng -le $e -and $lat -ge $s -and $lat -le $n)
 }
@@ -98,9 +105,11 @@ function Test-InRect($lng, $lat, $w, $s, $e, $n) {
 $EU = @{ w = -25; s = 34; e = 46; n = 72 }
 $NA = @{ w = -170; s = 15; e = -50; n = 75 }
 
-$polygons = New-Object System.Collections.ArrayList
-[void]$polygons.Add((New-PolygonRing $EU.w $EU.s $EU.e $EU.n))
-[void]$polygons.Add((New-PolygonRing $NA.w $NA.s $NA.e $NA.n))
+# Collect rectangles as flat bounds hashtables (no nested arrays — the
+# nesting is added explicitly in the string builder at the end).
+$rects = New-Object System.Collections.ArrayList
+[void]$rects.Add(@{ w = $EU.w; s = $EU.s; e = $EU.e; n = $EU.n })
+[void]$rects.Add(@{ w = $NA.w; s = $NA.s; e = $NA.e; n = $NA.n })
 
 # Fetch the worker's merged city list.
 $cities = (Invoke-RestMethod -Uri "$WORKER/admin/list-cities" `
@@ -146,22 +155,29 @@ foreach ($c in $cities) {
         (Test-InRect $ctr.lng $ctr.lat $NA.w $NA.s $NA.e $NA.n)) { continue }
     $latPad = $CITY_BOX_DEG
     $lngPad = $CITY_BOX_DEG / [Math]::Cos($ctr.lat * [Math]::PI / 180)
-    [void]$polygons.Add((New-PolygonRing `
-        ($ctr.lng - $lngPad) ($ctr.lat - $latPad) `
-        ($ctr.lng + $lngPad) ($ctr.lat + $latPad)))
+    [void]$rects.Add(@{
+        w = ($ctr.lng - $lngPad); s = ($ctr.lat - $latPad)
+        e = ($ctr.lng + $lngPad); n = ($ctr.lat + $latPad)
+    })
     $boxed++
 }
-Write-Host "Added $boxed city boxes outside EU/NA. Total polygons: $($polygons.Count)."
+Write-Host "Added $boxed city boxes outside EU/NA. Total polygons: $($rects.Count)."
 
-# Emit a bare MultiPolygon. Depth 6 covers the 4-deep MultiPolygon
-# coordinates array (poly → ring → vertex → component). BOM-less UTF-8
-# via WriteAllText so go-pmtiles' JSON parser doesn't choke on a UTF-8
-# BOM (Windows PowerShell 5.1's `Set-Content -Encoding utf8` prepends
-# one, and the parser rejects it with
-# "invalid character 'ï' looking for beginning of value").
-$region = @{ type = "MultiPolygon"; coordinates = $polygons.ToArray() }
-$json = $region | ConvertTo-Json -Depth 6 -Compress
-[System.IO.File]::WriteAllText("$work\region.geojson", $json, (New-Object System.Text.UTF8Encoding $false))
+# Hand-build the MultiPolygon JSON. Each rectangle becomes one polygon
+# with one closed 5-point ring: [[[w,s],[e,s],[e,n],[w,n],[w,s]]].
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.Append('{"type":"MultiPolygon","coordinates":[')
+for ($i = 0; $i -lt $rects.Count; $i++) {
+    if ($i -gt 0) { [void]$sb.Append(',') }
+    $r = $rects[$i]
+    $w = Fmt-Num $r.w; $s = Fmt-Num $r.s; $e = Fmt-Num $r.e; $n = Fmt-Num $r.n
+    [void]$sb.Append("[[[$w,$s],[$e,$s],[$e,$n],[$w,$n],[$w,$s]]]")
+}
+[void]$sb.Append(']}')
+# BOM-less UTF-8: Windows PowerShell 5.1's `Set-Content -Encoding utf8`
+# prepends a UTF-8 BOM that go-pmtiles rejects with
+# "invalid character 'ï' looking for beginning of value".
+[System.IO.File]::WriteAllText("$work\region.geojson", $sb.ToString(), (New-Object System.Text.UTF8Encoding $false))
 Write-Host "Wrote region.geojson ($((Get-Item "$work\region.geojson").Length) bytes)."
 
 # ── 2. Extract z15 limited to the region ──────────────────────────
