@@ -4,6 +4,8 @@ import {
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     playArea,
+    preloadBucketInFlight,
+    preloadBucketTimestamps,
     preloadChoices,
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
@@ -103,11 +105,30 @@ function runReferencesPreload(): void {
     console.debug(
         `[preload] warming ${STANDARD_REFERENCE_FAMILIES.length} reference families in one query`,
     );
-    void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
+    preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), references: true });
+    void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES)
+        .then(() => {
+            preloadBucketTimestamps.set({
+                ...preloadBucketTimestamps.get(),
+                references: Date.now(),
+            });
+        })
+        .finally(() => {
+            preloadBucketInFlight.set({
+                ...preloadBucketInFlight.get(),
+                references: false,
+            });
+        });
 }
 
 function runTransitPreload(): void {
     const size = gameSize.get();
+    preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), transit: true });
+
+    // Collect the main transit promises (HSR + three route overlays)
+    // so we can mark the bucket complete once they settle.
+    const transitPromises: Promise<unknown>[] = [];
+
     // High-speed rail — separate per-country query (needs out:geom
     // for the line geometry, can't ride the out:center union).
     // Resolves to `area["ISO3166-1"=…]` for the play area's country —
@@ -118,15 +139,17 @@ function runTransitPreload(): void {
     if (size !== "large") {
         const hsrQuery = buildHsrQuery();
         if (hsrQuery) {
-            void getOverpassData(
-                hsrQuery,
-                undefined,
-                CacheType.ZONE_CACHE,
-                undefined,
-                false,
-                undefined,
-                true,
-            ).catch(() => {});
+            transitPromises.push(
+                getOverpassData(
+                    hsrQuery,
+                    undefined,
+                    CacheType.ZONE_CACHE,
+                    undefined,
+                    false,
+                    undefined,
+                    true,
+                ).catch(() => {}),
+            );
         }
     }
 
@@ -148,8 +171,22 @@ function runTransitPreload(): void {
     // silent — a failure here just means the on-tap fetch pays the
     // round-trip later, same as before.
     for (const mode of ["subway", "bus", "ferry"] as const) {
-        void fetchTransitRoutesFeatures(mode).catch(() => {});
+        transitPromises.push(fetchTransitRoutesFeatures(mode).catch(() => {}));
     }
+
+    // When the main transit fetches settle (success or failure), mark
+    // the bucket complete. Journey arrivals (scheduleTransitPreload) are
+    // a bonus — they run after and don't gate the status timestamp.
+    void Promise.allSettled(transitPromises).then(() => {
+        preloadBucketTimestamps.set({
+            ...preloadBucketTimestamps.get(),
+            transit: Date.now(),
+        });
+        preloadBucketInFlight.set({
+            ...preloadBucketInFlight.get(),
+            transit: false,
+        });
+    });
 
     // Transit arrival times — the Travel Times overlay. We can't fire
     // this synchronously because it needs (a) the station list, which
