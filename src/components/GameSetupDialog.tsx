@@ -731,7 +731,13 @@ export function GameSetupDialog() {
                                 </div>
                             )}
                             {step === 4 && (
-                                <PreloadChoicesPanel />
+                                <PreloadChoicesPanel
+                                    areaKm2={
+                                        draftFeature
+                                            ? estimateAreaKm2(draftFeature)
+                                            : null
+                                    }
+                                />
                             )}
                             </div>
                         </div>
@@ -770,9 +776,7 @@ export function GameSetupDialog() {
                                     className="gap-1"
                                 >
                                     <Check className="w-4 h-4" />
-                                    Start{" "}
-                                    {HIDING_PERIOD_MINUTES[draftSize]}-min
-                                    hiding
+                                    Open lobby
                                 </Button>
                             )}
                         </DialogFooter>
