@@ -30,11 +30,19 @@ const DEFAULT_OVERPASS_API = `${JLHS_WORKER_BASE}/api/interpreter`;
  *  sign up. See overpass-cache/src/journey.ts for the impl. */
 const DEFAULT_JOURNEY_API = `${JLHS_WORKER_BASE}/api/journey/arrivals`;
 /** v233: PMTiles vector basemap served by the same worker. The path
- *  after /tiles/ names a file in the TILES R2 bucket; today there's
- *  one ("basemap.pmtiles"), regional shards may come later. The
- *  client (src/lib/protomapsStyle.ts) falls back to the Protomaps
- *  public demo bucket while this URL still 404s. */
-const DEFAULT_PMTILES_URL = `${JLHS_WORKER_BASE}/tiles/basemap.pmtiles`;
+ *  after /tiles/ names a file in the TILES R2 bucket. The client
+ *  (src/lib/protomapsStyle.ts) falls back to the Protomaps public demo
+ *  bucket while this URL still 404s.
+ *
+ *  v248: the filename is a cache-busting version stamp. Tiles are
+ *  served `Cache-Control: immutable, max-age=1y`, so to roll every
+ *  client onto a freshly-uploaded build we change the FILENAME (not
+ *  mutate the same key) and bump this constant. Old clients keep
+ *  hitting their cached `…-z13` ranges until they reload; new loads go
+ *  straight to `…-z15`. Upload the new file under the matching key
+ *  (see overpass-cache/scripts/upload-pmtiles*.md) BEFORE deploying
+ *  this, or the probe falls back to the demo bucket in the gap. */
+const DEFAULT_PMTILES_URL = `${JLHS_WORKER_BASE}/tiles/basemap-z15.pmtiles`;
 const DEFAULT_OVERPASS_API_FALLBACK =
     "https://overpass-api.de/api/interpreter";
 const DEFAULT_OVERPASS_API_TERTIARY =

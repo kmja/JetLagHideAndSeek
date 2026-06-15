@@ -182,20 +182,23 @@ Write-Host "Wrote region.geojson ($((Get-Item "$work\region.geojson").Length) by
 
 # ── 2. Extract z15 limited to the region ──────────────────────────
 & "$work\pmtiles.exe" extract "https://build.protomaps.com/$BUILD_DATE.pmtiles" `
-    "$work\basemap.pmtiles" "--maxzoom=$MAXZOOM" "--region=$work\region.geojson" `
+    "$work\basemap-z15.pmtiles" "--maxzoom=$MAXZOOM" "--region=$work\region.geojson" `
     "--download-threads=8"
 
 # ── 3. Upload to R2 under the key the app reads ───────────────────
+# The R2 KEY must match DEFAULT_PMTILES_URL in src/maps/api/constants.ts
+# (currently basemap-z15.pmtiles). Tiles are served immutable+1y, so a
+# new build goes under a NEW filename + a constant bump — see Notes.
 $env:RCLONE_CONFIG_R2_TYPE = "s3"
 $env:RCLONE_CONFIG_R2_PROVIDER = "Cloudflare"
 $env:RCLONE_CONFIG_R2_ACCESS_KEY_ID = $R2_ACCESS_KEY
 $env:RCLONE_CONFIG_R2_SECRET_ACCESS_KEY = $R2_SECRET
 $env:RCLONE_CONFIG_R2_ENDPOINT = "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
-& "$work\rclone.exe" copyto "$work\basemap.pmtiles" "r2:jlhs-tiles/basemap.pmtiles" `
+& "$work\rclone.exe" copyto "$work\basemap-z15.pmtiles" "r2:jlhs-tiles/basemap-z15.pmtiles" `
     --s3-no-check-bucket --s3-chunk-size=256M --s3-upload-concurrency=8 `
     --retries=20 --low-level-retries=40 --progress
 
-curl.exe -I "$WORKER/tiles/basemap.pmtiles"
+curl.exe -I "$WORKER/tiles/basemap-z15.pmtiles"
 ```
 
 ## Verify
@@ -217,9 +220,11 @@ bucket on the next page load.
   worldwide z13 recipe.
 - **Adjust the regions** by editing the `$EU` / `$NA` rectangles or
   `$CITY_BOX_DEG`. Bigger boxes cover sprawling metros but cost more.
-- **Refresh cadence**: re-run monthly against a newer `$BUILD_DATE` to
-  pick up OSM edits. The filename is stable (`basemap.pmtiles`) so the
-  app picks up the new file with no code change — but note tiles are
-  served with a 1-year immutable cache header, so to force clients onto
-  a fresh file either bump the filename (and `DEFAULT_PMTILES_URL` in
-  `src/maps/api/constants.ts`) or purge the Cloudflare cache.
+- **Refresh cadence + cache-busting**: tiles are served
+  `Cache-Control: immutable, max-age=1y`, so re-uploading to the SAME
+  key won't reach clients who've cached ranges of it. To roll everyone
+  onto a fresh build, upload under a NEW filename (e.g.
+  `basemap-z15-20260714.pmtiles`) and bump `DEFAULT_PMTILES_URL` in
+  `src/maps/api/constants.ts` to match, then push. Upload the file
+  BEFORE deploying the constant, or the probe falls back to the demo
+  bucket in the gap.
