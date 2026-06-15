@@ -35,10 +35,14 @@ const DEFAULT_JOURNEY_API = `${JLHS_WORKER_BASE}/api/journey/arrivals`;
  *  (proxied through this worker to avoid browser CORS restrictions)
  *  while this URL still 404s.
  *
- *  To upgrade to z15: upload the new file under the matching key
- *  (see overpass-cache/scripts/upload-pmtiles-z15-region.md) BEFORE
- *  deploying the constant change, or the probe falls back in the gap. */
-const DEFAULT_PMTILES_URL = `${JLHS_WORKER_BASE}/tiles/basemap.pmtiles`;
+ *  v260: date-stamped key for the worldwide-z15 build. Tiles are served
+ *  `immutable, max-age=1y`, so we version by FILENAME, never by mutating
+ *  a key in place — that also sidesteps the v259 incident where a
+ *  partial (extract-failed) upload poisoned `basemap.pmtiles`. Upload
+ *  the file under this exact key BEFORE relying on it; until it lands
+ *  the probe cleanly 404s → proxied demo fallback (a working map, just
+ *  at demo detail). */
+const DEFAULT_PMTILES_URL = `${JLHS_WORKER_BASE}/tiles/basemap-z15-20260614.pmtiles`;
 const DEFAULT_OVERPASS_API_FALLBACK =
     "https://overpass-api.de/api/interpreter";
 const DEFAULT_OVERPASS_API_TERTIARY =

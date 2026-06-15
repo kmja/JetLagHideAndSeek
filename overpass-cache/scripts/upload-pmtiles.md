@@ -18,7 +18,7 @@ build, or to host a higher/lower zoom or a different region.
   non-commercial only. Protomaps tiles are OSM-derived (ODbL),
   freely redistributable.
 
-## Two traps we hit (so you don't again)
+## Three traps we hit (so you don't again)
 
 1. **Don't download the full planet through a browser.** The 127 GB
    worldwide build stalls in browser download managers (single long
@@ -31,6 +31,52 @@ build, or to host a higher/lower zoom or a different region.
    rclone — a bucket-scoped R2 token can't do the `CreateBucket`
    probe rclone does by default, and you'll get `403 AccessDenied`
    without it.
+3. **A failed `pmtiles extract` leaves a deceptively "complete" file
+   (v259 incident).** `extract` pre-allocates the full output size up
+   front, then streams tile data in. If it dies partway (e.g. an HTTP/2
+   `INTERNAL_ERROR` stream reset from build.protomaps.com mid-stream),
+   the on-disk file is still full-size but mostly empty holes — and
+   `extract` **cannot resume**, it restarts from zero. rclone will
+   happily upload the husk at "100%", and `curl -I` returns `200 OK`
+   because the object exists, so every downstream signal looks green
+   while ~⅔ of the tiles are missing. **Always scroll up and confirm
+   the extract logged completion, not `Failed to extract`, before
+   trusting the upload.** For the *worldwide* case specifically, skip
+   `extract` altogether — see "Worldwide z15" below — since z15 is the
+   planet build's source ceiling, so the planet file already IS
+   worldwide z15 and a plain resumable download beats a non-resumable
+   extract.
+
+## Worldwide z15 (no extract — resumable download)
+
+z15 is Protomaps' source ceiling, so `build.protomaps.com/YYYYMMDD.pmtiles`
+**is already worldwide z15** (~127 GB). Running `pmtiles extract` on it
+just copies the whole file over a fragile non-resumable HTTP/2 stream.
+Instead download it with curl forced to HTTP/1.1 (dodges the stream
+reset) and `-C -` resume, wrapped in a loop so any drop just resumes:
+
+```powershell
+$BUILD_DATE = "20260614"
+$KEY        = "basemap-z15-$BUILD_DATE.pmtiles"   # must match DEFAULT_PMTILES_URL
+$work       = "$env:USERPROFILE\jlhs-pmtiles"
+New-Item -ItemType Directory -Force -Path $work | Out-Null; Set-Location $work
+Remove-Item "$work\basemap.pmtiles" -ErrorAction SilentlyContinue  # free the husk
+
+$src = "https://build.protomaps.com/$BUILD_DATE.pmtiles"
+$dst = "$work\$KEY"
+$expected = [int64]((curl.exe -sI $src |
+    Select-String 'Content-Length:\s*(\d+)').Matches.Groups[1].Value)
+do {
+    curl.exe --http1.1 -C - --retry 1000 --retry-all-errors --retry-delay 5 -o $dst $src
+    $have = (Get-Item $dst -ErrorAction SilentlyContinue).Length
+    Write-Host "Have $have / $expected bytes"
+} while ($have -lt $expected)
+# then upload $dst to r2:jlhs-tiles/$KEY with the rclone block below.
+```
+
+Needs ~127 GB free local disk. Tight on space? Stream straight through
+rclone with HTTP/2 disabled and no local copy:
+`rclone copyto :http:$BUILD_DATE.pmtiles r2:jlhs-tiles/$KEY --http-url=https://build.protomaps.com --disable-http2 --s3-no-check-bucket --s3-chunk-size=256M --s3-upload-concurrency=8 --retries=20 --low-level-retries=50 --progress`.
 
 ## One-time setup
 
