@@ -4,6 +4,7 @@ import React, { Suspense, use } from "react";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import PresetsDialog from "@/components/PresetsDialog";
+import { QuestionImpactMap } from "@/components/QuestionImpactMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -224,6 +225,15 @@ export const TentacleQuestionComponent = ({
                         />
                     </div>
                 </>
+            )}
+            {forceExpanded && data.drag && data.locationType !== "custom" && (
+                <QuestionImpactMap
+                    lat={data.lat}
+                    lng={data.lng}
+                    type={data.locationType}
+                    mode="tentacles"
+                    tentacleRadiusKm={data.radius}
+                />
             )}
             <LatitudeLongitude
                 latitude={data.lat}

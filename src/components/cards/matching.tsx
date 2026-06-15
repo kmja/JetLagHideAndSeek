@@ -8,6 +8,7 @@ import NearestReferencePreview, {
     useNearestReference,
 } from "@/components/NearestReferencePreview";
 import PresetsDialog from "@/components/PresetsDialog";
+import { QuestionImpactMap } from "@/components/QuestionImpactMap";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -430,12 +431,20 @@ export const MatchingQuestionComponent = ({
                 still a draft. Helps the seeker confirm which specific
                 place the hider is being matched against. */}
             {forceExpanded && data.drag && (
-                <NearestReferencePreview
-                    lat={data.lat}
-                    lng={data.lng}
-                    type={data.type}
-                    mode="matching"
-                />
+                <>
+                    <NearestReferencePreview
+                        lat={data.lat}
+                        lng={data.lng}
+                        type={data.type}
+                        mode="matching"
+                    />
+                    <QuestionImpactMap
+                        lat={data.lat}
+                        lng={data.lng}
+                        type={data.type}
+                        mode="matching"
+                    />
+                </>
             )}
 
             {data.type !== "custom-zone" && (
