@@ -12,7 +12,7 @@ import {
     SheetHeader,
     SheetTitle,
 } from "@/components/ui/sheet";
-import { hiderInbox } from "@/lib/hiderRole";
+import { hiderHand, hiderInbox } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,12 +34,18 @@ import { cn } from "@/lib/utils";
  * `bottom-[150px]` so the hand-strip stays visible at the very
  * bottom.
  */
+// HiderHandFan container height: CARD_H(104) + 24 slack = 128px (z-40).
+// When the fan is visible the nav shifts up to sit directly above it.
+const FAN_HEIGHT_PX = 128;
+
 export function HiderBottomNav() {
     const $inbox = useStore(hiderInbox);
+    const $hand = useStore(hiderHand);
     const [questionsOpen, setQuestionsOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
 
     const inboxCount = $inbox.length;
+    const hasCards = $hand.length > 0;
 
     const navBtnClass = cn(
         "relative flex flex-1 flex-col items-center justify-center gap-0.5",
@@ -56,9 +62,14 @@ export function HiderBottomNav() {
             <div
                 className={cn(
                     "fixed inset-x-0 z-[1040]",
-                    "bottom-[150px]",
-                    "bg-background/95 backdrop-blur-md border-t border-b border-border",
+                    "bg-background/95 backdrop-blur-md border-t border-border",
+                    "transition-[bottom] duration-200",
                 )}
+                style={{
+                    bottom: hasCards
+                        ? `${FAN_HEIGHT_PX}px`
+                        : "env(safe-area-inset-bottom, 0px)",
+                }}
             >
                 <div className="flex items-stretch px-2 py-2 gap-1">
                     <button

@@ -6,15 +6,14 @@ import { MapPin, Search } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
-import {
-    baseTileLayer,
-    lastKnownPosition,
-    mapGeoLocation,
-    thunderforestApiKey,
-} from "@/lib/context";
+import { lastKnownPosition, mapGeoLocation } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
-import { getTileLayerConfig } from "@/lib/mapTiles";
+import {
+    handleMapLibreError,
+    pmtilesUrl,
+    protomapsMapLibreStyle,
+} from "@/lib/protomapsStyle";
 
 /**
  * Persistent backdrop map for the hider shell. Read-only — no taps,
@@ -38,42 +37,16 @@ import { getTileLayerConfig } from "@/lib/mapTiles";
 export function HiderBackgroundMap() {
     const mapRef = useRef<MapRef | null>(null);
     const $playArea = useStore(mapGeoLocation);
-    const $baseTileLayer = useStore(baseTileLayer);
-    const $thunderforestApiKey = useStore(thunderforestApiKey);
+    const $pmtilesUrl = useStore(pmtilesUrl);
     const $satellite = useStore(satelliteView);
     const $zone = useStore(hidingZone);
     const $spot = useStore(hidingSpot);
     const $scouted = useStore(scoutedSpots);
     const $gps = useStore(lastKnownPosition);
 
-    const tile = getTileLayerConfig($baseTileLayer, $thunderforestApiKey);
-    const tileUrls = useMemo(
-        () => rasterTilesFromTileConfig(tile),
-        [tile.url, tile.subdomains],
-    );
-    const mapStyle = useMemo(
-        () => ({
-            version: 8 as const,
-            sources: {
-                base: {
-                    type: "raster" as const,
-                    tiles: tileUrls,
-                    tileSize: 256,
-                    attribution: tile.attribution,
-                    maxzoom: tile.maxZoom ?? 19,
-                    minzoom: tile.minZoom ?? 0,
-                },
-            },
-            layers: [
-                {
-                    id: "base-tiles",
-                    type: "raster" as const,
-                    source: "base",
-                },
-            ],
-        }),
-        [tileUrls, tile.attribution, tile.maxZoom, tile.minZoom],
-    );
+    // Rebuild when pmtilesUrl flips to fallback bucket on probe failure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const mapStyle = useMemo(() => protomapsMapLibreStyle("dark"), [$pmtilesUrl]);
 
     // Initial center: prefer GPS, fall back to committed zone, then
     // play-area centroid, then null-island.
@@ -149,6 +122,7 @@ export function HiderBackgroundMap() {
                 interactive={true}
                 dragRotate={false}
                 touchPitch={false}
+                onError={handleMapLibreError}
             >
                 {$satellite && (
                     <Source
@@ -225,19 +199,6 @@ export function HiderBackgroundMap() {
             </Map>
         </div>
     );
-}
-
-function rasterTilesFromTileConfig(tile: {
-    url: string;
-    subdomains?: string | string[];
-}): string[] {
-    const subs = tile.subdomains
-        ? Array.isArray(tile.subdomains)
-            ? tile.subdomains
-            : tile.subdomains.split("")
-        : [""];
-    if (!tile.url.includes("{s}")) return [tile.url];
-    return subs.map((s) => tile.url.replace("{s}", s));
 }
 
 export default HiderBackgroundMap;
