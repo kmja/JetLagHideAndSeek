@@ -232,24 +232,50 @@ const TRANSIT_ROUTE_TYPES = ["subway", "bus", "ferry"];
 
 /**
  * Byte-for-byte mirror of the single-area branch of
- * `fetchTransitRelations` in src/maps/api/transitRoutes.ts (the
- * `map_to_area` path taken for a standard wizard-selected city with
- * no user-drawn polygon and no adjacent municipalities). The R2 cache
- * key is a SHA-256 of this exact string, so any whitespace drift and
- * the client's toggle would miss what we store here.
+ * `fetchTransitRelations` in src/maps/api/transitRoutes.ts. The R2
+ * cache key is a SHA-256 of this exact string, so any whitespace drift
+ * and the client's toggle would miss what we store here.
  *
- * The client builds, for a single location at index 0:
- *   relationBlocks = `relation(<id>);map_to_area->.region0;`
- *   routeSelects   = `relation["route"="<type>"](area.region0);`
- *   query = `\n[out:json][timeout:180];\n${relationBlocks}\n(${routeSelects});\nout skel geom;\n`
- * (note the leading + trailing newline from the template literal, and
- *  the double `;` where routeSelects' own trailing `;` meets the
- *  wrapping `(...)`.)
+ * v249: switched from `map_to_area` (a single relation -> area, which
+ * Overpass silently resolves to an EMPTY area for some city boundary
+ * relations — Cleveland's buses returned 0 despite RTA obviously
+ * existing) to a bbox query off the city's Photon extent — the same
+ * `[bbox]`-style 3-decimal contract the reference families use. The
+ * client builds the identical string from `mapGeoLocation.properties
+ * .extent`, so this finally warms what the client actually reads (the
+ * old map_to_area form keyed a string the client never issued, since
+ * the client takes the poly:/bbox path, not map_to_area).
+ *
+ *   tuple = transitBboxTuple(extent)  // "s,w,n,e", 3-decimal, +5km pad
+ *   query = `\n[out:json][timeout:180];\nrelation["route"="<type>"](${tuple});\nout skel geom;\n`
+ *
+ * KEEP IN LOCKSTEP with buildTransitBboxTuple + fetchTransitRelations
+ * in src/maps/api/transitRoutes.ts (same pad, same toFixed(3), same
+ * whitespace).
  */
-function transitRouteQuery(relationId, routeType) {
-    const relationBlocks = `relation(${relationId});map_to_area->.region0;`;
-    const routeSelects = `relation["route"="${routeType}"](area.region0);`;
-    return `\n[out:json][timeout:180];\n${relationBlocks}\n(${routeSelects});\nout skel geom;\n`;
+const TRANSIT_BBOX_PAD_KM = 5;
+
+function transitBboxTuple(extent) {
+    // extent is [maxLat, minLng, minLat, maxLng].
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const south = minLat;
+    const west = minLng;
+    const north = maxLat;
+    const east = maxLng;
+    const latPad = TRANSIT_BBOX_PAD_KM / 111;
+    const midLat = (south + north) / 2;
+    const lngPad =
+        TRANSIT_BBOX_PAD_KM / (111 * Math.cos((midLat * Math.PI) / 180));
+    const s = (south - latPad).toFixed(3);
+    const w = (west - lngPad).toFixed(3);
+    const n = (north + latPad).toFixed(3);
+    const e = (east + lngPad).toFixed(3);
+    return `${s},${w},${n},${e}`;
+}
+
+function transitRouteQuery(extent, routeType) {
+    const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180];\nrelation["route"="${routeType}"](${tuple});\nout skel geom;\n`;
 }
 
 function bboxFilter(extent, padKm) {
@@ -589,19 +615,23 @@ async function processCity(city) {
         }
     }
 
-    // Transit-route overlays (subway / bus / ferry). Unlike refs these
-    // need no extent — the query keys off the city's relation id via
-    // map_to_area — so every city gets them, including ones still
-    // missing a server-side extent. One query per mode; each is gated
-    // by isFresh so a re-run skips already-warmed modes. Stored under
-    // kind "transit" (metadata only). Big metros' bus networks can be
-    // heavy (out skel geom over thousands of routes), so they share the
-    // same waitForSlot + 180 s timeout + DELAY_MS pacing as everything
-    // else. A failure (timeout / empty) just leaves that mode for the
-    // on-tap client fetch, same as before this loop existed.
-    if (DO_TRANSIT) {
+    // Transit-route overlays (subway / bus / ferry). v249: keyed off
+    // the city's Photon extent (same `effectiveExtent` the refs step
+    // uses), NOT map_to_area — which silently returned an empty area
+    // for some boundary relations (Cleveland's buses came back 0). The
+    // bbox form matches the client's query byte-for-byte, so it finally
+    // warms what the client reads. One query per mode; each gated by
+    // isFresh so a re-run skips already-warmed modes. Big metros' bus
+    // networks can be heavy (out skel geom over thousands of routes),
+    // so they share the same waitForSlot + 180 s timeout + DELAY_MS
+    // pacing as everything else. A failure (timeout / empty) just
+    // leaves that mode for the on-tap client fetch.
+    if (DO_TRANSIT && !effectiveExtent) {
+        console.log(`  ⤼ no extent available — skipping transit`);
+    }
+    if (DO_TRANSIT && effectiveExtent) {
         for (const routeType of TRANSIT_ROUTE_TYPES) {
-            const q = transitRouteQuery(city.relationId, routeType);
+            const q = transitRouteQuery(effectiveExtent, routeType);
             if (await isFresh(q, `transit ${routeType}`)) {
                 console.log(`  ⤼ transit ${routeType} already cached — skipping`);
                 continue;

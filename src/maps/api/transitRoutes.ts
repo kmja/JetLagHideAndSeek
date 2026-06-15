@@ -17,12 +17,11 @@ import { CacheType } from "@/maps/api/types";
  * filters out anything whose bounding box doesn't intersect
  * the current play area, and emits a GeoJSON FeatureCollection
  * of LineStrings ready to drop into a MapLibre `<Source
- * type="geojson">` or hand to `L.geoJSON()`.
+ * type="geojson">`.
  *
- * This is the MapLibre-side import path; the Leaflet path keeps
- * its inline copy in TransitRoutesOverlay.tsx so changes there
- * can't break this consumer (and vice versa) until both are
- * unified after the migration.
+ * (The old Leaflet TransitRoutesOverlay that kept a duplicate inline
+ * query was deleted with the Leaflet renderer; this is now the only
+ * transit-route query path.)
  */
 
 export type TransitMode = "subway" | "bus" | "ferry";
@@ -51,47 +50,84 @@ function decimateCoords(
     return out;
 }
 
-async function fetchTransitRelations(routeType: string): Promise<unknown> {
-    const polyArea = polyGeoJSON.get();
-    const primaryLoc = mapGeoLocation.get();
-    let query: string;
-    if (polyArea) {
-        // turf.coordAll handles both Polygon and MultiPolygon features,
-        // returning [lon, lat] pairs. Overpass poly: expects "lat lon" pairs.
-        const polyStr = turf.coordAll(polyArea)
-            .map(([lon, lat]) => `${lat} ${lon}`)
-            .join(" ");
-        query = `
-[out:json][timeout:180];
-relation["route"="${routeType}"](poly:"${polyStr}");
-out skel geom;
-`;
-    } else {
-        const additional = additionalMapGeoLocations
-            .get()
-            .filter((e) => e.added)
-            .map((e) => e.location);
-        const locs = [primaryLoc, ...additional].filter(Boolean);
-        if (locs.length === 0) return { elements: [] };
-        const relationBlocks = locs
-            .map(
-                (loc, i) =>
-                    `relation(${loc.properties.osm_id});map_to_area->.region${i};`,
-            )
-            .join("\n");
-        const routeSelects = locs
-            .map(
-                (_, i) =>
-                    `relation["route"="${routeType}"](area.region${i});`,
-            )
-            .join("\n");
-        query = `
-[out:json][timeout:180];
-${relationBlocks}
-(${routeSelects});
-out skel geom;
-`;
+/** Soft buffer around the play-area extent for the transit-route
+ *  query. Small (we want routes *in* the city, not a neighbouring
+ *  metro's network); the returned ways are clipped to the play bbox
+ *  client-side anyway. Mirrored in laptop-prewarm.mjs. */
+const TRANSIT_BBOX_PAD_KM = 5;
+
+/**
+ * Build the Overpass `(south,west,north,east)` bbox tuple for the
+ * transit-route query, from the play area's Photon extent(s).
+ *
+ * Why bbox + Photon extent (v249, replacing the old poly: / map_to_area
+ * branches):
+ *   - `map_to_area` silently yields an EMPTY area for some city
+ *     boundary relations (Overpass only has a generated area for
+ *     relations meeting its area-build criteria), so route queries
+ *     returned 0 for cities that obviously have transit — Cleveland's
+ *     buses being the smoking gun.
+ *   - The old `poly:` branch worked but keyed the cache on the exact
+ *     land-clipped boundary polygon — a string no offline prewarmer
+ *     can reproduce — so the laptop prewarm could never warm what the
+ *     client reads.
+ *   - Keying off `mapGeoLocation.properties.extent` (Photon's raw OSM
+ *     relation bbox) with `[bbox]`-style 3-decimal coords is exactly
+ *     the contract the reference-family prefetch already uses
+ *     (`buildPaddedBboxFilter`), so the laptop prewarm
+ *     (overpass-cache/scripts/laptop-prewarm.mjs `transitRouteQuery`)
+ *     produces a byte-identical query string → same SHA-256 R2 key →
+ *     a real cache hit. KEEP THE TWO IN LOCKSTEP.
+ *
+ * Unions the primary + any adjacent-municipality extents. The
+ * single-area case (no adjacencies) is the one the prewarm mirrors;
+ * the unioned multi-area case is a client-only customisation that
+ * falls through to an on-demand fetch.
+ */
+function buildTransitBboxTuple(): string | null {
+    const primary = mapGeoLocation.get();
+    const extents: number[][] = [];
+    const pe = (primary?.properties as { extent?: number[] })?.extent;
+    if (pe && pe.length === 4) extents.push(pe);
+    for (const entry of additionalMapGeoLocations.get()) {
+        if (!entry.added) continue;
+        const ex = (entry.location?.properties as { extent?: number[] })
+            ?.extent;
+        if (ex && ex.length === 4) extents.push(ex);
     }
+    if (extents.length === 0) return null;
+    // extent is [maxLat, minLng, minLat, maxLng] post-normalize.
+    let south = Infinity;
+    let west = Infinity;
+    let north = -Infinity;
+    let east = -Infinity;
+    for (const [mxLat, mnLng, mnLat, mxLng] of extents) {
+        south = Math.min(south, mnLat);
+        west = Math.min(west, mnLng);
+        north = Math.max(north, mxLat);
+        east = Math.max(east, mxLng);
+    }
+    if (![south, west, north, east].every((v) => Number.isFinite(v))) {
+        return null;
+    }
+    const latPad = TRANSIT_BBOX_PAD_KM / 111;
+    const midLat = (south + north) / 2;
+    const lngPad =
+        TRANSIT_BBOX_PAD_KM / (111 * Math.cos((midLat * Math.PI) / 180));
+    // 3-decimal precision matches the prewarm mirror exactly.
+    const s = (south - latPad).toFixed(3);
+    const w = (west - lngPad).toFixed(3);
+    const n = (north + latPad).toFixed(3);
+    const e = (east + lngPad).toFixed(3);
+    return `${s},${w},${n},${e}`;
+}
+
+async function fetchTransitRelations(routeType: string): Promise<unknown> {
+    const tuple = buildTransitBboxTuple();
+    if (!tuple) return { elements: [] };
+    // Byte-identical to laptop-prewarm.mjs transitRouteQuery — the R2
+    // cache key is a SHA-256 of this exact string. Keep in lockstep.
+    const query = `\n[out:json][timeout:180];\nrelation["route"="${routeType}"](${tuple});\nout skel geom;\n`;
     // No loadingText: the toggle button in MapDisplayControls
     // already renders a spinner for the in-flight mode (driven
     // by transitRoutesLoading). A toast on top of that just
