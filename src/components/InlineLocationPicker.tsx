@@ -14,6 +14,7 @@ import Map, {
 } from "react-map-gl/maplibre";
 
 import { Button } from "@/components/ui/button";
+import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import {
     baseTileLayer,
     lastKnownPosition,
@@ -25,6 +26,8 @@ import { satelliteView } from "@/lib/gameSetup";
 import { getTileLayerConfig } from "@/lib/mapTiles";
 import { type ImpactMode, useQuestionImpact } from "@/lib/questionImpact";
 import { cn } from "@/lib/utils";
+
+import { MapTilesVeil } from "./MapTilesVeil";
 
 /**
  * Always-visible inline location picker for the question configure flow.
@@ -268,6 +271,22 @@ export function InlineLocationPicker({
         onChange(e.lngLat.lat, e.lngLat.lng);
     };
 
+    // Reveal gate (v260): hold a veil until tiles paint AND any
+    // reference / impact markers this preview is meant to show are in.
+    // A reference point is a prop (sync); the impact candidates resolve
+    // from the prefetched cache, so we wait on those when an impact
+    // overlay was requested. Timeout-guarded so a missing reference
+    // never strands the picker.
+    const referenceReady =
+        !referencePoint ||
+        (Number.isFinite(referencePoint.lat) &&
+            Number.isFinite(referencePoint.lng));
+    const impactReady = !impactMode || impact !== null;
+    const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
+        dataReady: referenceReady && impactReady,
+        resetKey: `${referencePoint?.lat ?? ""},${referencePoint?.lng ?? ""},${impactMode ?? ""}`,
+    });
+
     // Memoise the MapLibre style so an inline `mapStyle={{...}}`
     // doesn't get rebuilt on every parent re-render. Without this,
     // the 1 Hz countdown tick in the hider's `HiderHome` re-renders
@@ -308,7 +327,7 @@ export function InlineLocationPicker({
         <div className="space-y-2">
             <div
                 className={cn(
-                    "w-full rounded-md overflow-hidden border border-border",
+                    "relative w-full rounded-md overflow-hidden border border-border",
                     height,
                 )}
             >
@@ -322,6 +341,8 @@ export function InlineLocationPicker({
                     style={{ width: "100%", height: "100%" }}
                     attributionControl={false}
                     onClick={handleClick}
+                    onLoad={onLoad}
+                    onIdle={onIdle}
                     mapStyle={mapStyle}
                 >
                     {$satellite && (
@@ -576,6 +597,7 @@ export function InlineLocationPicker({
                             </>
                         )}
                 </Map>
+                {showVeil && <MapTilesVeil rounded timedOut={timedOut} />}
             </div>
             <div className="flex items-center justify-between gap-2 text-xs">
                 <div

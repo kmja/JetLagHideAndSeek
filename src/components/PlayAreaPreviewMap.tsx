@@ -5,15 +5,19 @@ import * as turf from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
+import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import { clipPolygonToLand } from "@/lib/landClip";
 import {
     handleMapLibreError,
     pmtilesUrl,
     protomapsMapLibreStyle,
+    recordPmtilesError,
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
+
+import { MapTilesVeil } from "./MapTilesVeil";
 
 /**
  * In-memory cache so swapping back to a previously-previewed result
@@ -238,11 +242,29 @@ export function PlayAreaPreviewMap({
         [darkTiles, $pmtilesUrl],
     );
 
+    // Gate the reveal on the boundary polygon landing AND the basemap
+    // tiles painting. A relation result is expected to produce a
+    // polygon; Way/Node results never do, so they only wait on tiles.
+    const boundaryExpected = osmType === "R";
+    const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
+        dataReady: !boundaryExpected || polygon !== null,
+        resetKey: polygon,
+    });
+
+    // Same self-heal as the main map: if the basemap tiles never settle
+    // (aborted, not errored), flip to the proxied demo bucket so the
+    // preview shows a map rather than staying dark.
+    useEffect(() => {
+        if (timedOut) {
+            recordPmtilesError("preview basemap tiles never settled");
+        }
+    }, [timedOut]);
+
     if (!bbox) return null;
 
     return (
         <div
-            className={`w-full ${height} rounded-md overflow-hidden border border-border`}
+            className={`relative w-full ${height} rounded-md overflow-hidden border border-border`}
         >
             <MapGL
                 ref={mapRef}
@@ -255,7 +277,11 @@ export function PlayAreaPreviewMap({
                 mapStyle={mapStyle}
                 attributionControl={false}
                 interactive={false}
-                onLoad={() => fitToBbox(false)}
+                onLoad={() => {
+                    fitToBbox(false);
+                    onLoad();
+                }}
+                onIdle={onIdle}
                 onError={handleMapLibreError}
             >
                 {polygon && (
@@ -279,6 +305,7 @@ export function PlayAreaPreviewMap({
                     </Source>
                 )}
             </MapGL>
+            {showVeil && <MapTilesVeil rounded timedOut={timedOut} />}
         </div>
     );
 }

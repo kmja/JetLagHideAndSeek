@@ -29,6 +29,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { appConfirm } from "@/lib/confirm";
 import {
     mapGeoJSON,
+    mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
 import {
@@ -73,6 +74,7 @@ import {
     SizeBadge,
 } from "./JetLagLogo";
 import { NotificationsIconButton } from "./NotificationsToggle";
+import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 
@@ -115,6 +117,7 @@ export function GameLobbyDialog() {
     const $transportStatus = useStore(transportStatus);
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $polyGeoJSON = useStore(polyGeoJSON);
+    const $mapGeoLocation = useStore(mapGeoLocation);
     const $pending = useStore(pendingHidingDurationMin);
     const $size = useStore(gameSize);
     const $manualOpen = useStore(lobbyManualOpen);
@@ -388,6 +391,22 @@ export function GameLobbyDialog() {
                     <DialogTitle className="sr-only">
                         Game lobby
                     </DialogTitle>
+
+                    {/* Pre-game play-area map. Restored in v260: the
+                        wizard hands off to this lobby, and seeing the
+                        chosen region (boundary + tiles) is the visual
+                        anchor that the right area is loaded. Deliberately
+                        NOT shown mid-game (manual reopen) — that view is
+                        the roster/settings recap, not a map. The preview
+                        carries its own loading veil until boundary +
+                        tiles are in. */}
+                    {!isMidGame &&
+                        ($mapGeoLocation?.properties?.osm_id ?? 0) > 0 && (
+                            <PlayAreaPreviewMap
+                                value={$mapGeoLocation!}
+                                height="h-[180px]"
+                            />
+                        )}
 
                     {/* Autohost status — only visible until we have
                         a room code. */}

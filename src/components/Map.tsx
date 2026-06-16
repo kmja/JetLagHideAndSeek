@@ -21,6 +21,7 @@ import {
     Dialog,
     DialogContent,
 } from "@/components/ui/dialog";
+import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     baseTileLayer,
@@ -64,6 +65,7 @@ import {
     handleMapLibreError,
     pmtilesUrl,
     protomapsMapLibreStyle,
+    recordPmtilesError,
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -75,6 +77,7 @@ import {
 } from "@/maps/api/transitRoutes";
 import { CacheType } from "@/maps/api/types";
 
+import { MapTilesVeil } from "./MapTilesVeil";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -367,13 +370,50 @@ export function Map({ className }: MapProps) {
     // effect to `mapLoaded` makes it re-run after onLoad, at which
     // point the data lands correctly.
     const [mapLoaded, setMapLoaded] = useState(false);
+
+    // Reveal gate (v260): hold a loading veil over the canvas until the
+    // style + tiles have painted AND — when a play area is committed —
+    // its boundary polygon is in. Latched + timeout-guarded so it's a
+    // one-time "don't show a half-built map", never a permanent shutter
+    // (a slow/failed tile fetch reveals the map after the timeout rather
+    // than hiding it forever). Question/pan changes don't re-veil.
+    const boundaryLoaded = Boolean($mapGeoJSON || $polyGeoJSON);
+    const {
+        showVeil,
+        timedOut: tilesTimedOut,
+        onLoad: onTilesLoad,
+        onIdle: onTilesIdle,
+    } = useMapTilesReady({
+        dataReady: $playArea === null || boundaryLoaded,
+        resetKey: $mapGeoJSON || $polyGeoJSON,
+        revealTimeoutMs: 15_000,
+    });
+
     const handleLoad = () => {
         if (!mapRef.current) return;
         mapLibreContext.set(mapRef.current);
         const inner = mapRef.current.getMap();
         if (inner) mapContext.set(createMapShim(inner));
         setMapLoaded(true);
+        onTilesLoad();
     };
+
+    // Self-heal for the "dark forever" failure mode (v260). When the
+    // basemap tiles are ABORTED rather than errored — the Firefox
+    // NS_BINDING_ABORTED storm we saw on the self-hosted z15 file —
+    // maplibre fires no `error` event, so `handleMapLibreError` never
+    // trips the demo-bucket fallback and the canvas stays black. The
+    // reveal gate's timeout is our backstop signal: if tiles never
+    // settle, flip the PMTiles source to the (CORS-proxied) demo bucket
+    // so the user gets a working map instead of a void. Idempotent —
+    // `recordPmtilesError` no-ops once already on the fallback.
+    useEffect(() => {
+        if (tilesTimedOut) {
+            recordPmtilesError(
+                "basemap tiles never settled (likely aborted, not errored)",
+            );
+        }
+    }, [tilesTimedOut]);
     useEffect(() => {
         return () => {
             mapLibreContext.set(null);
@@ -1240,6 +1280,7 @@ export function Map({ className }: MapProps) {
                    buffer is cleared before we can read it). */
                 preserveDrawingBuffer
                 onLoad={handleLoad}
+                onIdle={onTilesIdle}
                 onMoveEnd={handleMoveEnd}
                 onError={handleMapLibreError}
                 onContextMenu={(e) => {
@@ -1869,6 +1910,21 @@ export function Map({ className }: MapProps) {
                             })}
                 </DialogContent>
             </Dialog>
+
+            {/* Reveal veil — covers the canvas until the basemap tiles
+                (and, when a play area is set, its boundary) have
+                painted. z below the loading-progress card (1020) and
+                the sidebars (1030+) so those stay usable; the map's own
+                top-right controls render above it. */}
+            {showVeil && (
+                <MapTilesVeil
+                    className="z-[1010]"
+                    timedOut={tilesTimedOut}
+                    sublabel={
+                        $playArea?.displayName?.split(",")[0] ?? undefined
+                    }
+                />
+            )}
         </div>
     );
 }
