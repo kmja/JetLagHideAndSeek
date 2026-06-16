@@ -437,6 +437,14 @@ export const ZoneSidebar = () => {
                     "An error occurred during hiding zone initialization",
                     { toastId: "hiding-zone-initialization-error" },
                 );
+                // v276: clear isLoading on failure too, otherwise it
+                // stays stuck `true` and every downstream control that
+                // gates on it (radius/matching/measuring presets, the
+                // nearest-reference preview, the manual answer toggle)
+                // is permanently disabled until reload. Was the root
+                // cause behind a flood of user-reported "can't tap
+                // anything" symptoms after an Overpass timeout.
+                isLoading.set(false);
             });
         }
     }, [

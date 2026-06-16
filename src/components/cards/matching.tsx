@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import * as React from "react";
+import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import CustomInitDialog from "@/components/CustomInitDialog";
@@ -591,9 +592,29 @@ function MatchingMeasuringLocation({
     const showRef = Boolean(forceExpanded && dragLive && coordsSet);
     const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
 
+    // v276: stash the last "ok" reference so the configure-dialog map
+    // doesn't unmount when a follow-up Overpass lookup flickers (GPS
+    // re-fix nudging coords, mirrors timing out → state goes back to
+    // "loading"/"error"). The latch clears on subtype change.
+    const [stickyRef, setStickyRef] = useState<{ lat: number; lng: number; name: string } | null>(null);
+    useEffect(() => {
+        if (ref.status === "ok") {
+            setStickyRef({
+                lat: ref.ref.lat,
+                lng: ref.ref.lng,
+                name: ref.ref.name,
+            });
+        }
+    }, [ref]);
+    useEffect(() => {
+        setStickyRef(null);
+    }, [type]);
+
     const referencePoint =
-        showRef && ref.status === "ok"
-            ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
+        showRef
+            ? ref.status === "ok"
+                ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
+                : stickyRef ?? undefined
             : undefined;
 
     // Inside the configure dialog, defer the map until *both* the

@@ -319,17 +319,20 @@ export function GameLobbyDialog() {
         returnToLandingPage();
     };
 
-    // v272: kick the preload the moment the lobby is open for a
-    // pre-game host. The hiding period hasn't started so the seeker
-    // can't ask anything yet — but they're already sitting on the
-    // lobby waiting for players to join, which is an even better
-    // wait window than the hiding period itself. Idempotent (each
-    // bucket dedupes on in-flight + warmed state), so re-firing on
-    // a re-render is harmless.
+    // Eager preload during the roster-wait window. v272 first kicked
+    // this off the moment the lobby opened, but for cold cities
+    // (Uppsala, mid-size metros not in the prewarm list) the boundary
+    // fetch was racing 5-6 reference/transit queries through the same
+    // overpass-api.de mirror and the whole batch was timing out. v276
+    // gates on mapReady so the boundary fetch is the only thing
+    // upstream until it lands, and only THEN do references + transit
+    // queue up behind it. Idempotent: each bucket dedupes on
+    // in-flight + warmed state, so re-fires on render are harmless.
     useEffect(() => {
         if (!open || isMidGame || !$playArea || isHiderRole) return;
+        if (!mapReady) return;
         preloadDuringHidingPeriod();
-    }, [open, isMidGame, $playArea, isHiderRole]);
+    }, [open, isMidGame, $playArea, isHiderRole, mapReady]);
 
     if (!open) return null;
 

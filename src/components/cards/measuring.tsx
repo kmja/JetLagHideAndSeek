@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Label } from "@radix-ui/react-label";
 import * as React from "react";
+import { useEffect, useState } from "react";
 
 import CustomInitDialog from "@/components/CustomInitDialog";
 import { LatitudeLongitude } from "@/components/LatLngPicker";
@@ -405,9 +406,33 @@ function MeasuringLocation({
     const showRef = Boolean(forceExpanded && dragLive && coordsSet);
     const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
 
+    // v276: keep the last-known reference visible while a subsequent
+    // lookup is in flight (e.g. the seeker pin nudged by 1 m by GPS,
+    // or an Overpass timeout flickered the state back to "loading"
+    // → "error"). Without this, the configure-dialog map unmounted as
+    // soon as `referencePoint` cleared and the user got stuck on the
+    // "Locating you and the nearest reference…" placeholder.
+    const [stickyRef, setStickyRef] = useState<{ lat: number; lng: number; name: string } | null>(null);
+    useEffect(() => {
+        if (ref.status === "ok") {
+            setStickyRef({
+                lat: ref.ref.lat,
+                lng: ref.ref.lng,
+                name: ref.ref.name,
+            });
+        }
+    }, [ref]);
+    // Drop the latch when the subtype changes — the old reference is
+    // no longer relevant.
+    useEffect(() => {
+        setStickyRef(null);
+    }, [type]);
+
     const referencePoint =
-        showRef && ref.status === "ok"
-            ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
+        showRef
+            ? ref.status === "ok"
+                ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
+                : stickyRef ?? undefined
             : undefined;
 
     // See cards/matching.tsx — defer the map inside the configure

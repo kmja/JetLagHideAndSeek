@@ -243,9 +243,15 @@ export const RadiusQuestionComponent = ({
                                         key={preset.sig}
                                         type="button"
                                         onClick={() => pickPreset(preset)}
+                                        // v276: dropped the $isLoading
+                                        // gate. Picking a radius preset is
+                                        // a pure local data mutation +
+                                        // map fit — no Overpass round-trip
+                                        // involved — so blocking the user
+                                        // while the global "something is
+                                        // fetching" flag is up is wrong.
                                         disabled={
                                             !data.drag ||
-                                            $isLoading ||
                                             (usedSigs.has(preset.sig) &&
                                                 currentSig !== preset.sig)
                                         }
@@ -269,7 +275,7 @@ export const RadiusQuestionComponent = ({
                                     <PopoverTrigger asChild>
                                         <button
                                             type="button"
-                                            disabled={!data.drag || $isLoading}
+                                            disabled={!data.drag}
                                             className={cn(
                                                 "flex-1 basis-[120px] py-2 px-2 rounded-md text-sm font-poppins font-semibold",
                                                 "bg-secondary text-foreground hover:bg-accent",
@@ -324,7 +330,6 @@ export const RadiusQuestionComponent = ({
                                     }}
                                     disabled={
                                         !data.drag ||
-                                        $isLoading ||
                                         (usedSigs.has("custom") &&
                                             !data.useCustom)
                                     }
