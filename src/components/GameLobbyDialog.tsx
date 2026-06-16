@@ -437,21 +437,45 @@ export function GameLobbyDialog() {
                         chosen region (boundary + tiles) is the visual
                         anchor that the right area is loaded. Deliberately
                         NOT shown mid-game (manual reopen) — that view is
-                        the roster/settings recap, not a map. The preview
-                        carries its own loading veil until boundary +
-                        tiles are in. */}
+                        the roster/settings recap, not a map.
+
+                        v273: the 180-px slot is reserved unconditionally
+                        so the content below doesn't jump when a guest's
+                        host-pushed setup arrives a beat after the lobby
+                        opens. When mapGeoLocation isn't valid yet, a
+                        skeleton placeholder fills the same box. The
+                        PlayAreaPreviewMap carries its own MapTilesVeil
+                        once it does mount, so the visual handoff is
+                        seamless. */}
                     {!isMidGame &&
-                        ($mapGeoLocation?.properties?.osm_id ?? 0) > 0 && (
+                        (($mapGeoLocation?.properties?.osm_id ?? 0) > 0 ? (
                             <PlayAreaPreviewMap
                                 value={$mapGeoLocation!}
                                 height="h-[180px]"
                             />
-                        )}
+                        ) : (
+                            <div
+                                className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground"
+                                role="status"
+                                aria-live="polite"
+                                aria-label="Waiting for play area"
+                            >
+                                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                                <div className="text-xs">
+                                    Waiting for the host's play area…
+                                </div>
+                            </div>
+                        ))}
 
-                    {/* Autohost status — only visible until we have
-                        a room code. */}
+                    {/* Autohost status — pre-room. Reserves the same
+                        slot the room-code card below will eventually
+                        occupy so the layout doesn't jump when the room
+                        code arrives. The failed branch is the only
+                        taller variant; in that case we accept the
+                        height bump because it's a recovery surface
+                        with its own retry button. */}
                     {!$code && hostingState === "creating" && (
-                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2.5">
+                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2.5 min-h-[3.5rem]">
                             <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
                             <div className="text-xs">
                                 Creating game room…
@@ -459,7 +483,7 @@ export function GameLobbyDialog() {
                         </div>
                     )}
                     {!$code && hostingState === "failed" && (
-                        <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2 space-y-1.5">
+                        <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2 space-y-1.5 min-h-[3.5rem]">
                             <div className="text-xs font-medium text-destructive">
                                 Couldn't create a game room.
                             </div>
@@ -493,7 +517,7 @@ export function GameLobbyDialog() {
                         <div
                             className={cn(
                                 "rounded-md border border-border bg-secondary/40",
-                                "px-3 py-2 flex items-center gap-2",
+                                "px-3 py-2 flex items-center gap-2 min-h-[3.5rem]",
                             )}
                         >
                             <div className="flex flex-col min-w-0 leading-none">
@@ -672,12 +696,19 @@ export function GameLobbyDialog() {
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
                     {isMidGame ? null : isHost ? (
                         <>
+                            {/* v273: reserved-height layout — the button
+                                is always h-16 with a two-line slot, so
+                                the layout doesn't shift when the
+                                ready-state subtitle ("30-min hiding
+                                period") appears. The subtitle slot
+                                always renders, but stays
+                                visually-invisible until startReady so
+                                the loading copy reads cleanly. */}
                             <Button
                                 size="lg"
                                 className={cn(
-                                    "w-full flex flex-col items-center justify-center gap-0.5",
+                                    "w-full h-16 flex flex-col items-center justify-center gap-0.5",
                                     "font-display uppercase",
-                                    startReady ? "h-16" : "h-11",
                                 )}
                                 onClick={handleStartGame}
                                 disabled={!startReady}
@@ -700,20 +731,34 @@ export function GameLobbyDialog() {
                                         "Start game"
                                     )}
                                 </span>
-                                {startReady && (
-                                    <span
-                                        className="text-[10px] font-semibold opacity-80 leading-none mt-1"
-                                        style={{ letterSpacing: "0.14em" }}
-                                    >
-                                        {minutes}-min hiding period
-                                    </span>
-                                )}
+                                <span
+                                    className={cn(
+                                        "text-[10px] font-semibold leading-none mt-1",
+                                        startReady
+                                            ? "opacity-80"
+                                            : "opacity-0",
+                                    )}
+                                    style={{ letterSpacing: "0.14em" }}
+                                    aria-hidden={!startReady}
+                                >
+                                    {minutes}-min hiding period
+                                </span>
                             </Button>
-                            {isHiderRole && startReady && (
-                                <p className="text-[11px] text-muted-foreground leading-snug text-center">
-                                    Pick your hiding spot in the meantime.
-                                </p>
-                            )}
+                            {/* Always-rendered footnote slot. The hint
+                                only reads when actually meaningful
+                                (hider, ready) but the line stays so
+                                the footer height doesn't bounce. */}
+                            <p
+                                className={cn(
+                                    "text-[11px] leading-snug text-center",
+                                    isHiderRole && startReady
+                                        ? "text-muted-foreground"
+                                        : "text-transparent select-none",
+                                )}
+                                aria-hidden={!(isHiderRole && startReady)}
+                            >
+                                Pick your hiding spot in the meantime.
+                            </p>
                         </>
                     ) : (
                         <div className="text-center py-3 space-y-1">

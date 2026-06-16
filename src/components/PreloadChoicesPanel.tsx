@@ -179,33 +179,38 @@ export function PreloadChoicesPanel({
                 const isDownloaded = displayStatus && completedAt !== null;
 
                 if (isDownloaded) {
+                    // v273: mirrors the active card's two-row layout
+                    // (label header + status footer) so the row height
+                    // stays stable when a bucket flips from
+                    // "downloading" → "downloaded" mid-session.
                     return (
                         <div
                             key={b.id}
-                            className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5 flex items-center gap-3"
+                            className="rounded-md border border-primary/30"
                         >
-                            <CheckCircle2 className="w-4 h-4 shrink-0 text-green-400 mt-0.5" />
-                            <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                                    <Icon className="w-4 h-4 shrink-0" />
-                                    <span className="flex-1 min-w-0">
-                                        {b.label}
-                                    </span>
+                            <div className="flex gap-3 items-start p-3 bg-primary/5 rounded-md rounded-b-none">
+                                <CheckCircle2 className="w-4 h-4 shrink-0 text-green-400 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                        <Icon className="w-4 h-4 shrink-0" />
+                                        <span className="flex-1 min-w-0">
+                                            {b.label}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                                        {b.blurb}
+                                    </p>
                                 </div>
-                                <p
-                                    className={cn(
-                                        "text-xs mt-0.5 font-medium",
-                                        isDownloaded
-                                            ? "text-green-400"
-                                            : "text-muted-foreground",
-                                    )}
-                                >
+                            </div>
+                            <div className="px-3 py-2 border-t border-border/50 bg-primary/10 rounded-b-md flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full shrink-0 bg-green-400" />
+                                <span className="text-xs text-green-400 font-medium">
                                     {actualBytes === null
                                         ? "Downloaded"
                                         : actualBytes === 0
                                           ? "Downloaded (cached)"
                                           : `Downloaded — ${formatSize(actualBytes / 1_000_000)}`}
-                                </p>
+                                </span>
                             </div>
                         </div>
                     );
