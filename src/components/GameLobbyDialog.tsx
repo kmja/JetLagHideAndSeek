@@ -69,6 +69,7 @@ import { cn } from "@/lib/utils";
 
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
+import { RoundEndSection } from "./RoundEndSection";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -591,8 +592,10 @@ export function GameLobbyDialog() {
                     {/* Mid-game info section — shown only when
                         manually reopened during an active game. */}
                     {isMidGame && (
-                        <MidGameInfoSection
-                            playArea={$playArea}
+                        <>
+                            <RoundEndSection />
+                            <MidGameInfoSection
+                                playArea={$playArea}
                             transit={$allowedTransit}
                             size={$size}
                             isHiderRole={isHiderRole}
@@ -606,7 +609,8 @@ export function GameLobbyDialog() {
                             onToggleSharing={() =>
                                 seekerLocationSharing.set(!$seekerSharing)
                             }
-                        />
+                            />
+                        </>
                     )}
                 </div>
 

@@ -145,13 +145,14 @@ export function SeekerPage() {
                                 >
                                     <SidebarTriggerL />
                                 </div>
-                                {/* Persistent hider timer — top-left on
-                                    mobile (under the SeekerTopBar, which
-                                    is h-14), slightly inset on desktop
-                                    next to the sidebar trigger. Shows
-                                    hiding-period countdown then hidden-
-                                    time elapsed once the period ends. */}
-                                <div className="absolute top-[64px] md:top-2 left-2 md:left-12 z-[1030] group-[.fullscreen]:hidden">
+                                {/* Persistent hider timer — bottom-right
+                                    (v270, moved from top-left). On mobile
+                                    sits just above the bottom nav; on
+                                    desktop above the OptionDrawers cluster.
+                                    Shows hiding-period countdown then
+                                    hidden-time elapsed once the period
+                                    ends. */}
+                                <div className="absolute bottom-[80px] md:bottom-[64px] right-2 md:right-4 z-[1030] group-[.fullscreen]:hidden">
                                     <HiderTimer />
                                 </div>
                                 {/* Top-right cluster: zones trigger +
