@@ -58,10 +58,12 @@ const BUCKETS: BucketDef[] = [
         blurb:
             "Boundary polygon + every basemap tile around the play area at street zooms. Without this, zooming in mid-game stutters while fresh tiles download.",
         icon: MapIcon,
-        // sqrt(100) * 0.55 ≈ 6 MB at null fallback (100 km²). Tile
-        // preload is the real cost driver now — z11..z15 inside the
-        // play-area bbox = a few thousand vector tiles for a city.
-        estimateMb: (km2) => 0.5 + Math.sqrt(km2 ?? 100) * 0.55,
+        // v263: bumped from 0.55 → 1.5 multiplier after London (~1500 km²)
+        // came in at ~80 MB once z15 (street zoom) was actually preloaded.
+        // sqrt(1500) * 1.5 ≈ 58 MB; smaller cities scale linearly with
+        // sqrt(area) so a 100 km² city is ~15 MB — calibrated to real
+        // observed downloads, not z14-only estimates.
+        estimateMb: (km2) => 0.5 + Math.sqrt(km2 ?? 100) * 1.5,
     },
     {
         id: "references",

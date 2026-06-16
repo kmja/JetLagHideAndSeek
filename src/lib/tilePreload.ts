@@ -40,8 +40,24 @@ import { pmtilesUrl } from "@/lib/protomapsStyle";
 
 const DEFAULT_MIN_ZOOM = 11;
 const DEFAULT_MAX_ZOOM = 15;
-const MAX_TILES_PER_ZOOM = 2500;
-const CONCURRENCY = 6;
+/**
+ * Per-zoom tile cap. The user-visible street zoom is z15 (PMTiles
+ * source ceiling — everything above oversamples from z15), so this is
+ * the level the user feels most when it's missing. v262 set the cap at
+ * 2,500 which busted on the first major-metro test: London is ~4,800
+ * tiles at z15, so the entire street zoom was skipped and the live map
+ * fell back to on-demand range requests the moment the user zoomed in.
+ *
+ * v263: 8,000 comfortably covers London / São Paulo / Tokyo admin
+ * extents and any city we curate. Country-scale bboxes still skip
+ * deep zooms — preloading street detail across a whole country would
+ * be tens of MB of throwaway and the seeker zooms to specific cities
+ * on demand anyway.
+ */
+const MAX_TILES_PER_ZOOM = 8000;
+/** HTTP/2 multiplexes ~100 streams; 16 keeps the preload short
+ *  without saturating the worker's per-request budget. */
+const CONCURRENCY = 16;
 
 /** Web Mercator: lng/lat → tile XY at a given integer zoom. */
 function lngLatToTile(
@@ -179,13 +195,23 @@ export async function preloadTilesForPlayArea(opts?: {
     let tilesAttempted = 0;
     let tilesSucceeded = 0;
 
+    console.info(
+        `[tilePreload] bbox ${bbox.map((v) => v.toFixed(3)).join(",")} — per-zoom tile counts:`,
+        Object.fromEntries(
+            Array.from({ length: maxZ - minZ + 1 }, (_, i) => {
+                const z = minZ + i;
+                return [`z${z}`, tilesInBbox(bbox, z).length];
+            }),
+        ),
+    );
+
     for (let z = minZ; z <= maxZ; z++) {
         if (opts?.signal?.aborted) break;
         const tiles = tilesInBbox(bbox, z);
         if (tiles.length === 0) continue;
         if (tiles.length > MAX_TILES_PER_ZOOM) {
-            console.debug(
-                `[tilePreload] z${z}: ${tiles.length} tiles exceeds cap ${MAX_TILES_PER_ZOOM}, skipping`,
+            console.warn(
+                `[tilePreload] z${z}: ${tiles.length} tiles exceeds cap ${MAX_TILES_PER_ZOOM}, SKIPPING (zoom-in will lag at this level)`,
             );
             skipped.push(z);
             continue;
