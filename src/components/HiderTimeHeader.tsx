@@ -2,7 +2,6 @@ import { useStore } from "@nanostores/react";
 import { Flag, Sparkles, Timer, Trophy } from "lucide-react";
 import { useState } from "react";
 
-import { CacheStatusPill } from "@/components/CacheStatusPill";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
     endgameStartedAt,
@@ -98,9 +97,6 @@ export function HiderTimeHeader() {
                         hiddenElapsedMs={hiddenElapsedMs}
                         endgameOn={$endgameStartedAt !== null}
                     />
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                    <CacheStatusPill />
                 </div>
             </div>
         </header>

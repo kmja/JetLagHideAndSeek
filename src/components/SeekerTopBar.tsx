@@ -8,9 +8,8 @@
  *
  * Mobile-only — desktop has the left/right sidebars and doesn't
  * need a header. The header sits above the map and offsets the
- * small overlay chrome (HiderTimer, CacheStatusPill,
- * MapDisplayControls) downward by their existing `top-2`/`top-[72px]`
- * classes.
+ * small overlay chrome (HiderTimer, MapDisplayControls) downward
+ * by their existing `top-2`/`top-[72px]` classes.
  *
  * Owns the Settings sheet's open state via the shared
  * `moreSheetOpen` atom (legacy name from when this surface was called

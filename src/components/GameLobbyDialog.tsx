@@ -67,11 +67,7 @@ import {
 import { returnToLandingPage } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
-import {
-    HideSeekMark,
-    HideSeekWordmark,
-    SizeBadge,
-} from "./JetLagLogo";
+import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 
 /**
@@ -336,9 +332,6 @@ export function GameLobbyDialog() {
                         "pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:mx-auto",
                     )}
                 >
-                    <VaulDrawer.Title className="sr-only">
-                        Game lobby
-                    </VaulDrawer.Title>
                     {$manualOpen && (
                         <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
                     )}
@@ -350,13 +343,17 @@ export function GameLobbyDialog() {
                     recap only appears while the map is still loading
                     — once the boundary is in, the mini-map below
                     carries the settings visually. */}
-                <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border">
-                    <div className="flex items-center gap-2">
-                        <HideSeekMark size={26} onDark />
-                        <HideSeekWordmark />
-                    </div>
-                    {$playArea && !mapReady && !isHiderRole && (
-                        <div className="mt-2 text-xs text-muted-foreground leading-snug">
+                {/* v269: matches the Settings drawer's header pattern —
+                    title + subtle description, no brand chrome. The
+                    HIDE+SEEK wordmark already sits at the top of the
+                    screen in SeekerTopBar; doubling it here read as
+                    decoration. */}
+                <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border space-y-1">
+                    <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
+                        Lobby
+                    </VaulDrawer.Title>
+                    {$playArea && !mapReady && !isHiderRole ? (
+                        <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
                             <span className="font-semibold text-white">
                                 {$playArea.displayName.split(",")[0]}
                             </span>
@@ -374,7 +371,13 @@ export function GameLobbyDialog() {
                                         .join(", ")}
                                 </>
                             )}
-                        </div>
+                        </VaulDrawer.Description>
+                    ) : (
+                        <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                            {isMidGame
+                                ? "Players, room code, mid-game tweaks."
+                                : "Players and room code. Start when everyone's in."}
+                        </VaulDrawer.Description>
                     )}
                 </div>
 
@@ -607,18 +610,12 @@ export function GameLobbyDialog() {
                     )}
                 </div>
 
-                {/* Footer — Start/Leave for pre-game; Close/Leave for
-                    mid-game manual reopen. */}
+                {/* Footer — Start/Leave for pre-game; Leave for
+                    mid-game (swipe-down handle closes the drawer
+                    itself, so a separate Close button is redundant). */}
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
                     {isMidGame ? (
                         <>
-                            <Button
-                                size="lg"
-                                className="w-full"
-                                onClick={() => lobbyManualOpen.set(false)}
-                            >
-                                Close
-                            </Button>
                             {$mp && $code && (
                                 <Button
                                     variant="ghost"

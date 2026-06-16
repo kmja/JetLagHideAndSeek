@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Bell, BellOff, BellRing } from "lucide-react";
+import { toast } from "react-toastify";
 
 import {
     notificationPermission,
@@ -43,7 +44,14 @@ export function NotificationsIconButton({
             void requestNotificationPermission();
             return;
         }
-        notificationsEnabled.set(!enabled);
+        const next = !enabled;
+        notificationsEnabled.set(next);
+        // v269: surface the new state so the user sees their tap took
+        // effect — the icon swap alone was easy to miss.
+        toast.success(
+            next ? "Notifications on" : "Notifications muted",
+            { autoClose: 1800 },
+        );
     };
 
     const Icon = granted ? (enabled ? BellRing : BellOff) : Bell;

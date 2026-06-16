@@ -55,9 +55,17 @@ const DEFAULT_MAX_ZOOM = 15;
  * on demand anyway.
  */
 const MAX_TILES_PER_ZOOM = 8000;
-/** HTTP/2 multiplexes ~100 streams; 16 keeps the preload short
- *  without saturating the worker's per-request budget. */
-const CONCURRENCY = 16;
+/** HTTP/2 multiplexes well past 100 streams over a single connection,
+ *  so the practical ceiling isn't the per-origin connection cap —
+ *  it's the user's bandwidth (a city's worth of 10-30 KB tiles
+ *  saturates a typical mobile pipe well before this number),
+ *  browser-internal request scheduling (Firefox/Chrome queue past
+ *  ~20-30 in flight), and the worker's R2-range-read cost
+ *  (~5-10 ms each). 32 sits comfortably inside all three: short
+ *  preload wall-clock on a fast connection, no benefit from pushing
+ *  higher in my testing. Past ~64 measurements stop improving
+ *  altogether. */
+const CONCURRENCY = 32;
 
 /** Web Mercator: lng/lat → tile XY at a given integer zoom. */
 function lngLatToTile(
