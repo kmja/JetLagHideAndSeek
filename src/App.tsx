@@ -1,12 +1,15 @@
+import { useStore } from "@nanostores/react";
 import { Suspense } from "react";
 import {
     createBrowserRouter,
+    Navigate,
     RouterProvider,
 } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Each route is lazy-loaded so a user landing on `/` never has to
@@ -33,6 +36,29 @@ const DebugCardsPage = lazyWithRetry(() =>
 const SetupPage = lazyWithRetry(() =>
     import("@/pages/SetupPage").then((m) => ({ default: m.SetupPage })),
 );
+// Fresh-launch welcome route (v267). Was a dialog overlaid on the
+// seeker view; now its own page so the seeker shell never loads on
+// app launch for a first-time user. The seeker/hider route guards
+// redirect unseen users here.
+const WelcomePage = lazyWithRetry(() =>
+    import("@/pages/WelcomePage").then((m) => ({ default: m.WelcomePage })),
+);
+
+/**
+ * Game-route gate. Wraps the seeker / hider pages so neither shell
+ * (sidebars, map, top + bottom nav, drawers) loads while the user
+ * is still on the welcome / setup screens. Routes through the same
+ * two atoms the inner pages used to read in `useEffect`s — but at
+ * the route level so the redirect happens BEFORE the page mounts,
+ * not after a frame of seeker chrome flashes.
+ */
+function GameRouteGate({ children }: { children: React.ReactNode }) {
+    const $welcomeSeen = useStore(welcomeSeen);
+    const $setupCompleted = useStore(setupCompleted);
+    if (!$welcomeSeen) return <Navigate to="/welcome" replace />;
+    if (!$setupCompleted) return <Navigate to="/setup" replace />;
+    return <>{children}</>;
+}
 
 // Both routes mount under the same Suspense boundary so the
 // fallback (or lack thereof) is consistent. The route chunks
@@ -63,18 +89,62 @@ const RouteWrapper = ({ element }: { element: React.ReactNode }) => (
 // SPA fallback to index.html is configured in wrangler.jsonc so
 // deep links keep working.
 const router = createBrowserRouter([
-    { path: "/", element: <RouteWrapper element={<SeekerPage />} /> },
-    { path: "/h", element: <RouteWrapper element={<HiderPage />} /> },
-    { path: "/h/", element: <RouteWrapper element={<HiderPage />} /> },
+    {
+        path: "/",
+        element: (
+            <RouteWrapper
+                element={
+                    <GameRouteGate>
+                        <SeekerPage />
+                    </GameRouteGate>
+                }
+            />
+        ),
+    },
+    {
+        path: "/h",
+        element: (
+            <RouteWrapper
+                element={
+                    <GameRouteGate>
+                        <HiderPage />
+                    </GameRouteGate>
+                }
+            />
+        ),
+    },
+    {
+        path: "/h/",
+        element: (
+            <RouteWrapper
+                element={
+                    <GameRouteGate>
+                        <HiderPage />
+                    </GameRouteGate>
+                }
+            />
+        ),
+    },
+    { path: "/welcome", element: <RouteWrapper element={<WelcomePage />} /> },
     { path: "/setup", element: <RouteWrapper element={<SetupPage />} /> },
     {
         path: "/debug/cards",
         element: <RouteWrapper element={<DebugCardsPage />} />,
     },
-    // Catch-all — anything else lands on the seeker shell. Matches
-    // the previous Astro behaviour of `not_found_handling:
-    // "single-page-application"`.
-    { path: "*", element: <RouteWrapper element={<SeekerPage />} /> },
+    // Catch-all — anything else lands on the seeker shell (which the
+    // gate then redirects from if welcome / setup haven't been done).
+    {
+        path: "*",
+        element: (
+            <RouteWrapper
+                element={
+                    <GameRouteGate>
+                        <SeekerPage />
+                    </GameRouteGate>
+                }
+            />
+        ),
+    },
 ]);
 
 export function App() {

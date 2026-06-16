@@ -1,6 +1,4 @@
-import { useStore } from "@nanostores/react";
-import { Suspense, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
@@ -9,7 +7,6 @@ import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderView } from "@/components/HiderView";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
-import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Same lazy-dialog pattern SeekerPage uses — these are all
@@ -64,20 +61,9 @@ const StaleSessionPrompt = lazyWithRetry(() =>
  * `window.location.assign()`.
  */
 export function HiderPage() {
-    const $welcomeSeen = useStore(welcomeSeen);
-    const $setupCompleted = useStore(setupCompleted);
-    const navigate = useNavigate();
-
-    // Mirror SeekerPage's route guard. On a fresh / reset session
-    // both atoms are false; the seeker page renders Welcome and the
-    // user picks "Start new game" from there, which navigates here.
-    // If somehow the hider lands here without setup committed (e.g.
-    // a hider-only device clicking "New game"), bounce to /setup.
-    useEffect(() => {
-        if ($welcomeSeen && !$setupCompleted) {
-            navigate("/setup", { replace: true });
-        }
-    }, [$welcomeSeen, $setupCompleted, navigate]);
+    // v267: GameRouteGate in App.tsx handles the welcome/setup
+    // redirects at the route level, so HiderPage now only mounts
+    // when both atoms are committed.
 
     return (
         <div className="bg-background min-h-screen">

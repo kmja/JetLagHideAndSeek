@@ -1,15 +1,10 @@
 import { useStore } from "@nanostores/react";
 import { Eye, Loader2, MapPin, Users } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
-import {
-    Dialog,
-    DialogContent,
-    DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
@@ -31,19 +26,24 @@ import { cn } from "@/lib/utils";
 import { HideSeekMark, HideSeekWordmark } from "./JetLagLogo";
 
 /**
- * First-load welcome screen. Shown when `welcomeSeen` is false,
- * regardless of `setupCompleted`. Two paths out:
+ * First-load welcome screen. v267: was a dialog overlaid on the
+ * seeker view; now its own fullsize page mounted at `/welcome` so
+ * the seeker shell (sidebars, map, top + bottom nav, drawers) never
+ * loads on first launch. The seeker / hider route guards redirect
+ * unseen users here; this component reverse-redirects to / or /h
+ * once a role is picked.
  *
- *  - "Start new game"  → flips `welcomeSeen=true` and lets
- *    GameSetupDialog take over (its own auto-open kicks in once
- *    `welcomeSeen` flips).
+ * Two paths out:
+ *
+ *  - "Start new game"  → flips `welcomeSeen=true` and navigates to
+ *    /setup so the wizard takes over.
  *  - "Join a game"     → inline display-name + code form; on join we
  *    flip `welcomeSeen=true` and `setupCompleted=true` so the wizard
- *    doesn't pop on top of the guest (the host pushes setup via the
+ *    doesn't open for the guest (the host pushes setup via the
  *    multiplayer transport instead).
  *
- * The dialog has no close button — first-loaders must pick a path.
- * Returning users (welcomeSeen=true) never see it.
+ * Renders as a full-screen panel: no overlay, no escape hatch.
+ * First-loaders MUST pick a path.
  */
 export function Welcome() {
     const $welcomeSeen = useStore(welcomeSeen);
@@ -66,7 +66,13 @@ export function Welcome() {
     const [code, setCode] = useState("");
     const [castPlaceholder] = useState(() => pickRandomCastName());
 
-    const open = !$welcomeSeen;
+    // v267: the welcome screen is now its own /welcome route, not a
+    // dialog overlay. If a returning user (welcomeSeen=true) somehow
+    // lands here, redirect away on mount so they don't see the
+    // first-load screen again.
+    useEffect(() => {
+        if ($welcomeSeen) navigate("/", { replace: true });
+    }, [$welcomeSeen, navigate]);
 
     const trimmedName = name.trim();
     const trimmedCode = code.trim().toUpperCase();
@@ -123,7 +129,13 @@ export function Welcome() {
             (role === "hider" || role === "coHider") &&
             typeof window !== "undefined"
         ) {
+            // Hard navigation so the hider bundle replaces the welcome
+            // shell — keeps the welcome chunk out of the hider's tab.
             window.location.assign("/h");
+        } else {
+            // Seekers stay on the SPA — soft-navigate to / so the
+            // route guard mounts SeekerPage now that both gates pass.
+            navigate("/", { replace: true });
         }
     };
 
@@ -137,30 +149,22 @@ export function Welcome() {
     };
 
     return (
-        <Dialog
-            open={open}
-            // The welcome screen cannot be dismissed by clicking
-            // outside or pressing Esc — first-loaders must pick a
-            // path. Returning users (welcomeSeen=true) never see this.
-            onOpenChange={() => {
-                /* no-op */
-            }}
+        <div
+            className={cn(
+                "fixed inset-0 z-0 flex justify-center",
+                "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
+                "overflow-y-auto",
+                "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+            )}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Welcome to Hide+Seek"
         >
-            <DialogContent
-                className={cn(
-                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                    "flex flex-col p-0 gap-0 sm:max-w-md",
-                )}
-                // Hide the default radix close X — no escape hatch.
-                closeIcon={false}
-            >
+            <div className="w-full sm:max-w-md flex flex-col p-0 gap-0">
                 {/* Hero — echoes the box-face cover */}
                 <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
                     <HideSeekMark size={72} onDark />
                     <HideSeekWordmark boxLayout size="xl" />
-                    <DialogTitle className="sr-only">
-                        Welcome to Hide+Seek
-                    </DialogTitle>
                 </div>
 
                 {mode === "intro" ? (
@@ -467,8 +471,8 @@ export function Welcome() {
                         </div>
                     </>
                 )}
-            </DialogContent>
-        </Dialog>
+            </div>
+        </div>
     );
 }
 

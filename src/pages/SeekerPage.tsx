@@ -1,6 +1,4 @@
-import { useStore } from "@nanostores/react";
-import { Suspense, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
@@ -37,7 +35,6 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
-import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Dialogs / overlays / wizards that only render once the user
@@ -93,10 +90,6 @@ const StaleSessionPrompt = lazyWithRetry(() =>
         default: m.StaleSessionPrompt,
     })),
 );
-const Welcome = lazyWithRetry(() =>
-    import("@/components/Welcome").then((m) => ({ default: m.Welcome })),
-);
-
 /**
  * Seeker route. Direct port of the old `src/pages/index.astro` —
  * same component tree, same z-index layering. The only difference
@@ -128,21 +121,13 @@ export function SeekerPage() {
     // wizard itself owns previewing the chosen area
     // (PlayAreaPreviewMap), so the main map has nothing useful to
     // show until setup completes.
-    const $welcomeSeen = useStore(welcomeSeen);
-    const $setupCompleted = useStore(setupCompleted);
-    const showMap = $welcomeSeen && $setupCompleted;
-    const navigate = useNavigate();
-
-    // v252: redirect to the /setup wizard route as soon as Welcome
-    // has been dismissed but setup hasn't been committed yet — covers
-    // both first-time setup and the "New game" mid-session reset
-    // (which flips setupCompleted=false). Welcome is still mounted
-    // below for the truly-first-load case.
-    useEffect(() => {
-        if ($welcomeSeen && !$setupCompleted) {
-            navigate("/setup", { replace: true });
-        }
-    }, [$welcomeSeen, $setupCompleted, navigate]);
+    // v267: the route-level GameRouteGate guarantees we only mount
+    // when welcomeSeen && setupCompleted are both true, so the
+    // previous in-component redirects are gone. `showMap` is now
+    // unconditionally true — the conditional render below stays as a
+    // belt-and-braces guard against ever rendering an empty seeker
+    // shell.
+    const showMap = true;
 
     return (
         <div className="bg-jetlag">
@@ -219,7 +204,6 @@ export function SeekerPage() {
                     <SeekerTopBar />
                     <BottomNav />
                     <Suspense fallback={null}>
-                        <Welcome />
                         <GameSetupDialog />
                         <GameLobbyDialog />
                         <AnswerLinkReader />
