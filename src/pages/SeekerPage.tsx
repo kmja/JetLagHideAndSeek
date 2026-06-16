@@ -147,12 +147,16 @@ export function SeekerPage() {
                                 </div>
                                 {/* Persistent hider timer — bottom-right
                                     (v270, moved from top-left). On mobile
-                                    sits just above the bottom nav; on
-                                    desktop above the OptionDrawers cluster.
-                                    Shows hiding-period countdown then
-                                    hidden-time elapsed once the period
-                                    ends. */}
-                                <div className="absolute bottom-[80px] md:bottom-[64px] right-2 md:right-4 z-[1030] group-[.fullscreen]:hidden">
+                                    sits well clear of the bottom nav
+                                    (which is ~80-100px tall once
+                                    safe-area is added — v271 bumped from
+                                    80 → 110 to fix the countdown
+                                    being half-clipped by the nav rail);
+                                    on desktop above the OptionDrawers
+                                    cluster. Shows hiding-period countdown
+                                    then hidden-time elapsed once the
+                                    period ends. */}
+                                <div className="absolute bottom-[110px] md:bottom-[64px] right-2 md:right-4 z-[1030] group-[.fullscreen]:hidden">
                                     <HiderTimer />
                                 </div>
                                 {/* Top-right cluster: zones trigger +

@@ -532,7 +532,9 @@ export function DebugPhaseControls() {
             onClick={() => debugPanelOpen.set(true)}
             aria-label="Open developer debug panel"
             className={cn(
-                "fixed bottom-20 right-3 z-[9999] pointer-events-auto",
+                // v271: moved from right → left so it doesn't collide
+                // with the HiderTimer that lives at bottom-right.
+                "fixed bottom-20 left-3 z-[9999] pointer-events-auto",
                 "flex items-center gap-1 px-2 py-1 rounded-md",
                 "bg-background/80 border border-border/60",
                 "text-[11px] font-mono text-muted-foreground/40",
