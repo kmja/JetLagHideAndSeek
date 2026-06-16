@@ -1,7 +1,19 @@
 # Global reference prewarm + bbox slicing
 
 Design doc for the next iteration of the Overpass-reference cache.
-Status: **scaffolding committed; runtime path not yet wired.**
+
+Status:
+- ✅ Scaffolding (`countryShards.ts`, `querySlicing.ts`) — committed.
+- ✅ Phase 5 cron pass (`prewarmCountryReferences`) — committed,
+     behind `COUNTRY_REFS_PREWARM_ENABLED` (default off).
+- ⬜ Phase 6 slicing path in `handleInterpreter` — not yet wired.
+- ⬜ Remove per-city references prewarm once shards cover it.
+
+To start warming: set `COUNTRY_REFS_PREWARM_ENABLED = "true"` in
+wrangler.toml (or the dashboard) and deploy. Watch the cron logs for
+`[prewarm] country-refs <iso>: stored` lines. The world fills in
+~4-5 days; nothing reads the shards until Phase 6 lands, so warming
+early is harmless.
 
 ## Goal
 

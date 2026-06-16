@@ -24,6 +24,13 @@ export interface Env {
     CACHE_TTL_DAYS: string;
     /** How many cities the weekly cron pre-warms per run. */
     PREWARM_BATCH_SIZE: string;
+    /** Feature flag for the global country-shard reference prewarm
+     *  (Phase 5). When unset or not "true", the cron skips the
+     *  country-references pass entirely — the existing per-city
+     *  prewarm keeps running. Flip to "true" in the dashboard /
+     *  wrangler.toml to start warming the 214 country shards. See
+     *  overpass-cache/scripts/global-prewarm.md. */
+    COUNTRY_REFS_PREWARM_ENABLED?: string;
     /** Bearer token guarding `/admin/*` endpoints. Configure via
      *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
     ADMIN_SECRET?: string;

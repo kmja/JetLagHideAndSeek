@@ -40,8 +40,10 @@ import {
     unresolvedCandidates,
     upsertDiscoveredCity,
 } from "./cities";
+import { COUNTRY_SHARDS, type CountryShard } from "./countryShards";
 import type { Env } from "./envTypes";
 import { handleJourneyArrivals } from "./journey";
+import { countryRefsKey } from "./querySlicing";
 
 /**
  * Public Overpass mirrors we race for non-boundary queries.
@@ -546,6 +548,61 @@ export default {
                 }
             } catch (e) {
                 console.warn(`[prewarm] adjacent ${city.name} threw:`, e);
+            }
+        }
+
+        // Phase 5: COUNTRY-SHARD REFERENCES (global prewarm). Behind
+        // a feature flag — when COUNTRY_REFS_PREWARM_ENABLED isn't
+        // "true" this whole pass is skipped and the per-city
+        // references prewarm (Phase 2) stays the source of truth.
+        //
+        // Each tick warms a small rotating slice of the 214 country
+        // shards. With skip-if-fresh, picking an already-warm shard is
+        // a single cheap R2 read, so we OVERSAMPLE the shuffle and
+        // count only shards that actually triggered an upstream fetch
+        // toward the per-tick budget. Over a few days of ticks the
+        // whole world warms; thereafter ticks are nearly free until
+        // entries age past the (longer) country TTL.
+        if (env.COUNTRY_REFS_PREWARM_ENABLED === "true") {
+            // Country shards are large + slow to refetch, so they get
+            // double the standard TTL — we'd rather serve slightly
+            // staler national reference data than burn cron budget
+            // re-warming 214 big queries every month.
+            const countryTtlMs = ttlMs * 2;
+            const shuffled = [...COUNTRY_SHARDS].sort(
+                () => Math.random() - 0.5,
+            );
+            let warmed = 0;
+            let checked = 0;
+            for (const shard of shuffled) {
+                if (warmed >= COUNTRY_REFS_PER_TICK) break;
+                if (checked >= COUNTRY_REFS_MAX_CHECKS_PER_TICK) break;
+                checked++;
+                try {
+                    const r = await prewarmCountryReferences(
+                        env,
+                        shard,
+                        countryTtlMs,
+                    );
+                    if (r.status === "stored") {
+                        warmed++;
+                        console.log(
+                            `[prewarm] country-refs ${shard.iso}: stored (${r.sizeBytes} B)`,
+                        );
+                    } else if (r.status === "slot-timeout") {
+                        // Mirror is busy — stop this tick's country
+                        // pass rather than hammering a throttled server.
+                        console.warn(
+                            `[prewarm] country-refs ${shard.iso}: slot timeout, ending pass`,
+                        );
+                        break;
+                    }
+                } catch (e) {
+                    console.warn(
+                        `[prewarm] country-refs ${shard.iso} threw:`,
+                        e,
+                    );
+                }
             }
         }
     },
@@ -1644,6 +1701,24 @@ const HSR_COUNTRIES = [
  *  quickly, so the cron only needs to keep a rotating slice warm. */
 const HSR_COUNTRIES_PER_TICK = 4;
 
+/**
+ * How many country shards to actually WARM (trigger an upstream
+ * fetch for) per cron tick. Country references queries are heavy
+ * (30–180 s each), so this is deliberately small — at 2/tick and
+ * hourly cron, the full 214-shard world warms in ~4–5 days, then
+ * skip-if-fresh keeps subsequent ticks nearly free.
+ */
+const COUNTRY_REFS_PER_TICK = 2;
+
+/**
+ * Upper bound on how many shards we'll even CHECK (cheap R2 read)
+ * per tick while hunting for COUNTRY_REFS_PER_TICK that need
+ * warming. Stops a tick where most shards are already fresh from
+ * walking all 214 entries just to find two stale ones — once the
+ * world is warm, a tick checks at most this many and moves on.
+ */
+const COUNTRY_REFS_MAX_CHECKS_PER_TICK = 30;
+
 /** Per-country HSR query. MUST stay byte-identical to
  *  `buildHsrCountryQuery` in src/maps/api/playAreaPrefetch.ts and
  *  scripts/laptop-prewarm.mjs — the R2 key hashes this exact string. */
@@ -1699,6 +1774,92 @@ ${body}
 );
 out center;
 `;
+}
+
+/**
+ * Build the combined-references query for a whole country shard.
+ *
+ * Differs from `buildReferenceBboxQuery` in two ways:
+ *   - Input bbox is GeoJSON order [minLng, minLat, maxLng, maxLat]
+ *     (the shard table's convention) rather than Photon extent.
+ *   - timeout:180 instead of 120 — country-scale bbox queries are
+ *     slow and we want every second Overpass will give us before it
+ *     kills the request server-side.
+ *
+ * The query string itself is internal: the slicing path reads the
+ * STORED RESPONSE (filtered by bbox at request time), not this
+ * query, so it doesn't need to byte-match any client template.
+ */
+function buildCountryReferencesQuery(
+    bbox: [number, number, number, number],
+): string {
+    const [w, s, e, n] = bbox;
+    const sf = s.toFixed(3);
+    const wf = w.toFixed(3);
+    const nf = n.toFixed(3);
+    const ef = e.toFixed(3);
+    const body = REFERENCE_FAMILY_FILTERS.map(
+        ({ filter }) => `nwr${filter};`,
+    ).join("\n");
+    return `
+[out:json][timeout:180][bbox:${sf},${wf},${nf},${ef}];
+(
+${body}
+);
+out center;
+`;
+}
+
+/**
+ * Prewarm one country shard's combined-references response into R2
+ * under `country-refs/v1/<iso>/all`. Skips when a fresh entry
+ * already exists. The slicing path (Phase 6) reads this object and
+ * filters elements to a play-area bbox, so any play area inside the
+ * shard gets a fast reference fetch without an upstream round-trip.
+ */
+async function prewarmCountryReferences(
+    env: Env,
+    shard: CountryShard,
+    ttlMs: number,
+): Promise<{ status: string; ageMs?: number; sizeBytes?: number }> {
+    const key = countryRefsKey(shard.iso);
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(key);
+    } catch (e) {
+        console.warn(`R2 get failed during country-refs prewarm of ${shard.iso}:`, e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const ageMs = Date.now() - cachedAt;
+        if (cachedAt && ageMs < ttlMs) {
+            return { status: "skipped-fresh", ageMs };
+        }
+    }
+    // Pace against overpass-api.de's execution slots ONLY once we know
+    // we actually need to fetch (the freshness check above is free).
+    // Keeps the heavy country query polite without burning a slot wait
+    // on already-warm shards.
+    const slotOk = await waitForOverpassSlot(`country-refs ${shard.iso}`);
+    if (!slotOk) return { status: "slot-timeout" };
+    const query = buildCountryReferencesQuery(shard.bbox);
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(query),
+    );
+    if (!upstream) return { status: "upstream-failed" };
+    const body = await upstream.text();
+    try {
+        const { rawBytes } = await compressAndStoreAtKey(env, key, body, {
+            sourceName: shard.label,
+            shardIso: shard.iso,
+            prewarmed: "true",
+            kind: "country-references",
+        });
+        return { status: "stored", sizeBytes: rawBytes };
+    } catch (e) {
+        console.warn(`R2 put failed during country-refs prewarm of ${shard.iso}:`, e);
+        return { status: "r2-put-failed" };
+    }
 }
 
 /**
@@ -3482,6 +3643,8 @@ interface R2WriteMetadata {
     prewarmed?: string;
     source?: string;
     kind?: string;
+    /** Country-shard ISO for `kind: "country-references"` entries. */
+    shardIso?: string;
 }
 
 /**
@@ -3540,13 +3703,29 @@ async function compressAndStoreString(
     body: string,
     metadata: R2WriteMetadata,
 ): Promise<{ compressedBytes: number; rawBytes: number }> {
+    return compressAndStoreAtKey(env, `overpass/${cacheKey}`, body, metadata);
+}
+
+/**
+ * Like `compressAndStoreString` but writes at a FULL R2 key without
+ * the `overpass/` prefix. Used by the country-shard prewarm, which
+ * lives in its own `country-refs/v1/...` namespace (see
+ * querySlicing.ts → countryRefsKey) rather than the query-hash
+ * namespace.
+ */
+async function compressAndStoreAtKey(
+    env: Env,
+    fullKey: string,
+    body: string,
+    metadata: R2WriteMetadata,
+): Promise<{ compressedBytes: number; rawBytes: number }> {
     const rawBytes = new TextEncoder().encode(body).byteLength;
     const compressedBuf = await new Response(
         new Response(body).body!.pipeThrough(
             new CompressionStream(STORAGE_ENCODING),
         ),
     ).arrayBuffer();
-    await env.CACHE.put(`overpass/${cacheKey}`, compressedBuf, {
+    await env.CACHE.put(fullKey, compressedBuf, {
         customMetadata: {
             cachedAt: String(Date.now()),
             encoding: STORAGE_ENCODING,

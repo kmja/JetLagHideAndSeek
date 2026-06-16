@@ -15,74 +15,57 @@ import { COUNTRY_SHARDS, type CountryShard } from "./countryShards";
 export type Bbox = [number, number, number, number];
 
 /**
- * Match Overpass's `(south,west,north,east)` tuples that follow a
- * family selector (e.g. `node["amenity"="hospital"](55,11,69,24)`).
- * Greedy enough to find every occurrence in a multi-family query.
+ * Match Overpass's global `[bbox:south,west,north,east]` setting —
+ * the form the seeker app's reference-prefetch query uses (see
+ * `buildPaddedBboxFilter` in src/maps/api/playAreaPrefetch.ts and
+ * `buildBboxFilter` in index.ts). This is a single global setting,
+ * not a per-statement filter, so there's exactly one per query.
  *
- * Numbers can be negative and may include decimals. We deliberately
- * avoid matching the alternate `(around:R,lat,lng)` form by
- * requiring exactly four numeric fields.
+ * Numbers can be negative and may include decimals.
  */
 const OVERPASS_BBOX_RE =
-    /\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)/g;
+    /\[bbox:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/;
 
 /**
- * Pull the bbox from an Overpass query that uses the bbox-tuple
- * form on every family selector. The query must:
+ * Pull the bbox from a query carrying the `[bbox:s,w,n,e]` global
+ * setting. Returns the bbox in GeoJSON order
+ * `[minLng, minLat, maxLng, maxLat]`, or `null` when the query has
+ * no such setting (e.g. a `relation(R)` boundary fetch or an
+ * `around:` radius query — neither is eligible for slicing).
  *
- *   - contain at least one bbox tuple, and
- *   - have ONLY identical bbox tuples (a query that mixes different
- *     bboxes — partition queries, fan-outs — can't be cleanly served
- *     from a single shard cache).
- *
- * Returns the bbox in GeoJSON order, or `null` if the query is not
- * eligible for slicing.
- *
- * Overpass's tuple is `(south, west, north, east)`; we re-order to
- * `[minLng, minLat, maxLng, maxLat]` so consumers don't have to
- * remember the convention.
+ * Overpass's setting is `[bbox:south, west, north, east]`; we
+ * re-order to GeoJSON `[west, south, east, north]` so consumers
+ * don't have to remember the convention.
  */
 export function extractBbox(query: string): Bbox | null {
-    const matches = [...query.matchAll(OVERPASS_BBOX_RE)];
-    if (matches.length === 0) return null;
-    const first = matches[0];
-    const s0 = +first[1];
-    const w0 = +first[2];
-    const n0 = +first[3];
-    const e0 = +first[4];
+    const m = OVERPASS_BBOX_RE.exec(query);
+    if (!m) return null;
+    const south = +m[1];
+    const west = +m[2];
+    const north = +m[3];
+    const east = +m[4];
     if (
-        !Number.isFinite(s0) ||
-        !Number.isFinite(w0) ||
-        !Number.isFinite(n0) ||
-        !Number.isFinite(e0)
+        !Number.isFinite(south) ||
+        !Number.isFinite(west) ||
+        !Number.isFinite(north) ||
+        !Number.isFinite(east)
     ) {
         return null;
     }
-    for (let i = 1; i < matches.length; i++) {
-        const m = matches[i];
-        if (
-            +m[1] !== s0 ||
-            +m[2] !== w0 ||
-            +m[3] !== n0 ||
-            +m[4] !== e0
-        ) {
-            return null;
-        }
-    }
     // Reject degenerate bboxes (south >= north, west >= east).
-    if (s0 >= n0 || w0 >= e0) return null;
-    return [w0, s0, e0, n0];
+    if (south >= north || west >= east) return null;
+    return [west, south, east, north];
 }
 
 /**
- * Strip the bbox tuples from a query so the rest of it can be
- * hashed and compared against the known prewarm-templates table.
+ * Strip the `[bbox:…]` setting from a query so the rest of it can be
+ * hashed and compared against the known prewarm-template table.
  * Whitespace is collapsed at the same time to absorb formatting
  * drift between cron-side and client-side query construction.
  */
 export function canonicalizeForTemplateMatch(query: string): string {
     return query
-        .replace(OVERPASS_BBOX_RE, "(__BBOX__)")
+        .replace(OVERPASS_BBOX_RE, "[bbox:__BBOX__]")
         .replace(/\s+/g, " ")
         .trim();
 }
