@@ -24,13 +24,6 @@ import {
 import { useEffect, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetHeader,
-    SheetTitle,
-} from "@/components/ui/sheet";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { defaultUnit, questions, questionsDrawerOpen } from "@/lib/context";
 import {
@@ -79,7 +72,6 @@ import { seekerRotateHider } from "@/lib/multiplayer/store";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
-import { PresenceChip } from "./multiplayer/PresenceIndicators";
 import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 import { PWAInstallButton } from "./PWAInstallButton";
@@ -212,13 +204,6 @@ export const BottomNav = () => {
             )}
             data-tutorial-id="bottom-nav"
         >
-            {/* Tiny multiplayer status chip — only renders when in an
-                online game. Hovers just above the nav rail. */}
-            {$currentGameCode && (
-                <div className="absolute -top-7 left-1/2 -translate-x-1/2 pointer-events-none">
-                    <PresenceChip />
-                </div>
-            )}
             <div className="flex items-stretch px-2 py-2 gap-1">
                 <button
                     type="button"
@@ -668,95 +653,97 @@ export const BottomNav = () => {
                     Howto buttons close the sheet and open their own).
                     Drive open state from the shared moreSheetOpen
                     atom. */}
-                <Sheet
+                {/* v266: converted from Radix Sheet → Vaul drawer so
+                    every bottom-nav surface uses the same swipe-to-
+                    dismiss interaction the Questions drawer pioneered.
+                    The shared moreSheetOpen atom still drives it; the
+                    SeekerTopBar's gear icon writes to that atom. */}
+                <VaulDrawer.Root
                     open={$moreOpen}
-                    onOpenChange={(v) => moreSheetOpen.set(v)}
+                    onOpenChange={(o) => moreSheetOpen.set(o)}
+                    shouldScaleBackground={false}
                 >
-                    <SheetContent
-                        side="bottom"
-                        className="rounded-t-2xl max-h-[85vh] overflow-y-auto"
-                    >
-                        <SheetHeader>
-                            <SheetTitle>Settings</SheetTitle>
-                            <SheetDescription>
-                                Tutorial, rulebook, install, and mid-game
-                                preload preferences.
-                            </SheetDescription>
-                        </SheetHeader>
-                        <div className="mt-4 space-y-2">
-                            <HowToPlaySheet
-                                onBeforeOpen={() => moreSheetOpen.set(false)}
-                            />
-                            <RulebookSheet
-                                onBeforeOpen={() => moreSheetOpen.set(false)}
-                            >
-                                <button
-                                    type="button"
-                                    className={cn(
-                                        "w-full flex items-center justify-center gap-2",
-                                        "px-3 py-2 rounded-md",
-                                        "bg-secondary hover:bg-accent border border-border",
-                                        "text-sm font-semibold text-foreground transition-colors",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    )}
-                                    title="Open the official Hide + Seek rulebook (searchable)"
-                                >
-                                    <BookOpen className="w-4 h-4" />
-                                    Rulebook
-                                </button>
-                            </RulebookSheet>
-                            <PWAInstallButton />
-
-                            {/* v265: the two app-level preferences we
-                                kept after retiring the "Advanced
-                                options" drawer. Inline labels + control
-                                so each row reads at a glance. */}
-                            <div className="pt-3 mt-3 border-t border-border space-y-3">
-                                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                                    App
+                    <VaulDrawer.Portal>
+                        <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
+                        <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex h-auto max-h-[85vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
+                            <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                            <div className="overflow-y-auto px-6 pt-4 pb-6">
+                                <div className="space-y-1.5">
+                                    <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
+                                        Settings
+                                    </VaulDrawer.Title>
+                                    <VaulDrawer.Description className="text-sm text-muted-foreground">
+                                        Tutorial, rulebook, install, and
+                                        mid-game preload preferences.
+                                    </VaulDrawer.Description>
                                 </div>
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-sm font-medium">
-                                        Units
-                                    </span>
-                                    <UnitSelect
-                                        unit={$defaultUnit}
-                                        onChange={defaultUnit.set}
+                                <div className="mt-4 space-y-2">
+                                    <HowToPlaySheet
+                                        onBeforeOpen={() =>
+                                            moreSheetOpen.set(false)
+                                        }
                                     />
-                                </div>
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="text-sm font-medium">
-                                        Theme
-                                    </span>
-                                    <ThemeToggle />
+                                    <RulebookSheet
+                                        onBeforeOpen={() =>
+                                            moreSheetOpen.set(false)
+                                        }
+                                    >
+                                        <button
+                                            type="button"
+                                            className={cn(
+                                                "w-full flex items-center justify-center gap-2",
+                                                "px-3 py-2 rounded-md",
+                                                "bg-secondary hover:bg-accent border border-border",
+                                                "text-sm font-semibold text-foreground transition-colors",
+                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                            )}
+                                            title="Open the official Hide + Seek rulebook (searchable)"
+                                        >
+                                            <BookOpen className="w-4 h-4" />
+                                            Rulebook
+                                        </button>
+                                    </RulebookSheet>
+                                    <PWAInstallButton />
+
+                                    {/* App-level preferences: Units +
+                                        Theme. Kept from the retired
+                                        "Advanced options" drawer (v265). */}
+                                    <div className="pt-3 mt-3 border-t border-border space-y-3">
+                                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                            App
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-sm font-medium">
+                                                Units
+                                            </span>
+                                            <UnitSelect
+                                                unit={$defaultUnit}
+                                                onChange={defaultUnit.set}
+                                            />
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-sm font-medium">
+                                                Theme
+                                            </span>
+                                            <ThemeToggle />
+                                        </div>
+                                    </div>
+
+                                    {$setupCompleted && (
+                                        <div className="pt-3 mt-3 border-t border-border">
+                                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
+                                                Preload during hiding
+                                            </div>
+                                            <PreloadChoicesPanel
+                                                runImmediatelyOnEnable
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-
-                            {/* v264: mid-game preload controls landed
-                                here so the lobby stays focused on the
-                                roster and players have one canonical
-                                place to flip buckets during a round.
-                                Only shown post-wizard (the wizard's
-                                own copy sets initial choices). */}
-                            {$setupCompleted && (
-                                <div className="pt-3 mt-3 border-t border-border">
-                                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
-                                        Preload during hiding
-                                    </div>
-                                    <PreloadChoicesPanel
-                                        runImmediatelyOnEnable
-                                    />
-                                </div>
-                            )}
-                        </div>
-                        {/* Bottom padding for safe-area + visual breathing
-                            room. */}
-                        <div
-                            aria-hidden
-                            className="h-6 pb-[env(safe-area-inset-bottom)]"
-                        />
-                    </SheetContent>
-                </Sheet>
+                        </VaulDrawer.Content>
+                    </VaulDrawer.Portal>
+                </VaulDrawer.Root>
             </div>
 
             {/* Hider-rotation dialog. Opened by `handleNewRound` when

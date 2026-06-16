@@ -12,10 +12,8 @@ import {
     Target,
     Train,
     TrainTrack,
-    Users,
 } from "lucide-react";
 
-import { InvitePanel } from "@/components/multiplayer/InviteSheet";
 import {
     Popover,
     PopoverContent,
@@ -32,19 +30,17 @@ import {
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
-import { currentGameCode } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 
 /**
- * Top-right cluster — now collapsed into two compact dropdown chips
- * so the map view stays uncluttered:
+ * Top-right cluster — a single compact "Map options" chip with a
+ * popover containing basemap toggle, hiding-zone toggle, and per-mode
+ * transit overlay toggles.
  *
- *  1. Online game chip — shows the active 6-char code; tap to open a
- *     popover with the full `InvitePanel` (copy / share / leave +
- *     participant roster). Only renders when actually in a room.
+ * v266: the room-code pill that used to sit above this got removed
+ * per user feedback — players reach the room code via the lobby
+ * drawer.
  *
- *  2. Map options chip — basemap + hiding-zone toggle + per-mode
- *     transit overlay toggles, all under one popover.
  *
  * Both chips share the same `h-9` height so the cluster reads as a
  * single compact toolbar.
@@ -61,7 +57,6 @@ export function MapDisplayControls() {
     const $isLoading = useStore(isLoading);
     const $allowedTransit = useStore(allowedTransit);
     const $transitLoading = useStore(transitRoutesLoading);
-    const $gameCode = useStore(currentGameCode);
     const $showTravelTimes = useStore(showTravelTimes);
 
     // Only render transit buttons for modes that are actually
@@ -88,37 +83,6 @@ export function MapDisplayControls() {
 
     return (
         <div className="flex flex-col gap-2 items-end">
-            {/* Online game chip — only when in a room. Tap opens the
-                full InvitePanel for sharing + presence + leave. */}
-            {$gameCode && (
-                <Popover>
-                    <PopoverTrigger asChild>
-                        <button
-                            type="button"
-                            className={cn(
-                                "shadow-md rounded-md border-2 border-primary",
-                                "px-3 gap-2 flex items-center transition-colors",
-                                "bg-primary/10 hover:bg-primary/20",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                PANE_HEIGHT,
-                            )}
-                            title="Online game — tap to share or leave"
-                        >
-                            <Users className="w-4 h-4 text-primary" />
-                            <span className="font-mono font-black tracking-[0.18em] text-xs text-primary">
-                                {$gameCode}
-                            </span>
-                        </button>
-                    </PopoverTrigger>
-                    <PopoverContent
-                        align="end"
-                        className="w-[300px] p-3 bg-card border-2 border-border shadow-xl"
-                    >
-                        <InvitePanel />
-                    </PopoverContent>
-                </Popover>
-            )}
-
             {/* Map options — single popover with all display toggles. */}
             <Popover>
                 <PopoverTrigger asChild>

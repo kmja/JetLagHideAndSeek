@@ -13,7 +13,6 @@ import {
     Settings,
     Share2,
     Ship,
-    Timer,
     TramFront,
     Train,
     TrainTrack,
@@ -23,6 +22,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
+import { Drawer as VaulDrawer } from "vaul";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -34,7 +34,6 @@ import {
 } from "@/lib/context";
 import {
     allowedTransit,
-    formatTimeRemaining,
     gameSize,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
@@ -73,9 +72,7 @@ import {
     HideSeekWordmark,
     SizeBadge,
 } from "./JetLagLogo";
-import { NotificationsIconButton } from "./NotificationsToggle";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -140,16 +137,7 @@ export function GameLobbyDialog() {
     const isHiderRole =
         $playerRole === "hider" || $playerRole === "coHider";
 
-    const [now, setNow] = useState(Date.now());
     const isMidGame = $manualOpen && $hidingEndsAt !== null;
-    const midGameHidingActive = isMidGame && $hidingEndsAt !== null && $hidingEndsAt > now;
-    useVisibleInterval(() => setNow(Date.now()), 1000, isMidGame);
-    const midGameRemainingMs = $hidingEndsAt
-        ? Math.max(0, $hidingEndsAt - Math.max(now, Date.now()))
-        : 0;
-    const midGameElapsedMs = $hidingEndsAt
-        ? Math.max(0, ($foundAt ?? now) - $hidingEndsAt)
-        : 0;
 
     // Self-heal autohost. If we land in the lobby with no game code
     // — e.g. the wizard's autohost attempt failed on a network blip,
@@ -324,26 +312,36 @@ export function GameLobbyDialog() {
     if (!open) return null;
 
     return (
-        <Dialog
+        <VaulDrawer.Root
             open={open}
+            // Pre-game the lobby is non-dismissible (forward path is
+            // Start / Leave); mid-game manual reopen is dismissible by
+            // swipe / handle.
+            dismissible={$manualOpen}
             onOpenChange={(o) => {
-                // Pre-game the lobby is non-dismissible (forward path
-                // is Start / Leave). Once the game is running we
-                // entered via the manual reopen flag, so closing
-                // simply clears that flag and drops the user back to
-                // the live map.
                 if (!o && $manualOpen) {
                     lobbyManualOpen.set(false);
                 }
             }}
+            shouldScaleBackground={false}
         >
-            <DialogContent
-                closeIcon={$manualOpen}
-                className={cn(
-                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                    "flex flex-col p-0 gap-0 sm:max-w-md",
-                )}
-            >
+            <VaulDrawer.Portal>
+                <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/60" />
+                <VaulDrawer.Content
+                    className={cn(
+                        "fixed inset-x-0 bottom-0 z-[1055] mt-24",
+                        "flex h-auto max-h-[90vh] flex-col",
+                        "rounded-t-[10px] border",
+                        "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
+                        "pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:mx-auto",
+                    )}
+                >
+                    <VaulDrawer.Title className="sr-only">
+                        Game lobby
+                    </VaulDrawer.Title>
+                    {$manualOpen && (
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                    )}
                 {/* Minimal header — brand mark + wordmark on the
                     left, notifications icon button top-right. The
                     role chip and room-code chip both moved out:
@@ -356,9 +354,6 @@ export function GameLobbyDialog() {
                     <div className="flex items-center gap-2">
                         <HideSeekMark size={26} onDark />
                         <HideSeekWordmark />
-                        <div className="ml-auto">
-                            <NotificationsIconButton />
-                        </div>
                     </div>
                     {$playArea && !mapReady && !isHiderRole && (
                         <div className="mt-2 text-xs text-muted-foreground leading-snug">
@@ -384,13 +379,6 @@ export function GameLobbyDialog() {
                 </div>
 
                 <div className="px-5 py-3 flex-1 overflow-y-auto space-y-3">
-                    {/* For accessibility — visually hidden but read
-                        out by screen readers. Replaces the deleted
-                        on-screen 'Ready to play' title. */}
-                    <DialogTitle className="sr-only">
-                        Game lobby
-                    </DialogTitle>
-
                     {/* Pre-game play-area map. Restored in v260: the
                         wizard hands off to this lobby, and seeing the
                         chosen region (boundary + tiles) is the visual
@@ -601,9 +589,6 @@ export function GameLobbyDialog() {
                         manually reopened during an active game. */}
                     {isMidGame && (
                         <MidGameInfoSection
-                            hidingActive={midGameHidingActive}
-                            remainingMs={midGameRemainingMs}
-                            elapsedMs={midGameElapsedMs}
                             playArea={$playArea}
                             transit={$allowedTransit}
                             size={$size}
@@ -740,12 +725,9 @@ export function GameLobbyDialog() {
                         </Button>
                     )}
                 </div>
-            </DialogContent>
-
-            {/* QR-only nested dialog deleted in v99 — the QR
-                now lives inline in the room-code card so opening
-                a sub-dialog to see it would be a regression. */}
-        </Dialog>
+                </VaulDrawer.Content>
+            </VaulDrawer.Portal>
+        </VaulDrawer.Root>
     );
 }
 
@@ -963,9 +945,6 @@ const TRANSIT_ICONS: Record<TransitMode, React.ComponentType<{ className?: strin
 };
 
 function MidGameInfoSection({
-    hidingActive,
-    remainingMs,
-    elapsedMs,
     playArea,
     transit,
     size,
@@ -976,9 +955,6 @@ function MidGameInfoSection({
     onEditSettings,
     onToggleSharing,
 }: {
-    hidingActive: boolean;
-    remainingMs: number;
-    elapsedMs: number;
     playArea: { displayName: string } | null;
     transit: TransitMode[];
     size: import("@/lib/gameSetup").GameSize;
@@ -991,36 +967,11 @@ function MidGameInfoSection({
 }) {
     return (
         <div className="border-t border-border pt-3 space-y-3">
-            {/* Timer status */}
-            <div className="rounded-md border border-border bg-secondary/40 px-3 py-2.5 flex items-center gap-3">
-                <Timer
-                    className={cn(
-                        "w-4 h-4 shrink-0",
-                        hidingActive ? "text-primary" : "text-muted-foreground",
-                    )}
-                />
-                <div className="min-w-0">
-                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                        {foundAt !== null
-                            ? "Round over"
-                            : hidingActive
-                              ? "Hiding period"
-                              : "Seeking"}
-                    </div>
-                    <div
-                        className={cn(
-                            "font-poppins font-black tabular-nums text-2xl leading-none",
-                            hidingActive ? "text-primary" : "text-foreground",
-                        )}
-                    >
-                        {formatTimeRemaining(
-                            hidingActive ? remainingMs : elapsedMs,
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* Play area + transit + size */}
+            {/* v266: settings + Edit button moved to the top of the
+                mid-game section so the most-used controls are
+                immediately visible without scrolling. Timer block
+                removed — the seeker / hider already see the live
+                countdown on their respective top-of-map timer cards. */}
             {playArea && (
                 <div className="space-y-1.5 text-sm">
                     <div className="flex justify-between gap-2">
@@ -1072,6 +1023,23 @@ function MidGameInfoSection({
                 </div>
             )}
 
+            {!isHiderRole && (
+                <button
+                    type="button"
+                    onClick={onEditSettings}
+                    className={cn(
+                        "w-full flex items-center justify-center gap-2",
+                        "px-3 py-2 rounded-md border border-border",
+                        "bg-secondary/40 hover:bg-secondary/70 transition-colors",
+                        "text-sm font-semibold text-foreground",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                >
+                    <Settings className="w-4 h-4" />
+                    Edit game settings
+                </button>
+            )}
+
             {/* GPS sharing toggle (seeker only, multiplayer, not found) */}
             {!isHiderRole && mp && foundAt === null && (
                 <button
@@ -1100,28 +1068,6 @@ function MidGameInfoSection({
                                 : "Tap to resume sharing your position."}
                         </div>
                     </div>
-                </button>
-            )}
-
-            {/* Preload section moved to the Settings sheet (formerly
-                "More") in v264 — mid-game adjustments live in one place
-                and the lobby stays focused on roster + room info. */}
-
-            {/* Edit settings */}
-            {!isHiderRole && (
-                <button
-                    type="button"
-                    onClick={onEditSettings}
-                    className={cn(
-                        "w-full flex items-center justify-center gap-2",
-                        "px-3 py-2 rounded-md border border-border",
-                        "bg-secondary/40 hover:bg-secondary/70 transition-colors",
-                        "text-sm font-semibold text-foreground",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    )}
-                >
-                    <Settings className="w-4 h-4" />
-                    Edit game settings
                 </button>
             )}
         </div>

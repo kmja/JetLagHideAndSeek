@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 const ICON_BTN =
     "w-10 h-10 inline-flex items-center justify-center rounded-md " +
-    "text-foreground hover:bg-secondary active:bg-accent " +
+    "text-white hover:bg-white/10 active:bg-white/20 " +
     "transition-colors focus-visible:outline-none " +
     "focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -55,9 +55,9 @@ export function SeekerTopBar() {
                 <Settings className="w-5 h-5" strokeWidth={2} />
             </button>
 
-            <HideSeekWordmark className="text-foreground" />
+            <HideSeekWordmark className="text-white" />
 
-            <NotificationsIconButton className="w-10 h-10" />
+            <NotificationsIconButton className="w-10 h-10 !bg-white/10 !border-white/30 !text-white hover:!bg-white/20" />
         </header>
     );
 }
