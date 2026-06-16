@@ -2,6 +2,8 @@ import { Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+import { MapLoader } from "./MapLoader";
+
 /**
  * Full-bleed loading veil for a map view, shown until every layer the
  * view needs has painted (see `useMapTilesReady`). Absolutely
@@ -63,7 +65,11 @@ export function MapTilesVeil({
             aria-live="polite"
             aria-hidden={!visible}
         >
-            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            {timedOut ? (
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            ) : (
+                <MapLoader />
+            )}
             <div className="text-sm font-medium text-foreground">
                 {timedOut ? "Map tiles are slow to load" : label}
             </div>

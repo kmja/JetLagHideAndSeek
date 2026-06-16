@@ -420,9 +420,9 @@ export function GameLobbyDialog() {
                             className={cn(
                                 "shrink-0 inline-flex items-center justify-center",
                                 "w-9 h-9 rounded-md",
-                                "text-destructive border border-destructive/30",
-                                "bg-destructive/5 hover:bg-destructive/15 active:bg-destructive/25",
-                                "transition-colors",
+                                "text-destructive-foreground border-2 border-destructive",
+                                "bg-destructive hover:bg-destructive/85 active:bg-destructive/75",
+                                "shadow-sm transition-colors",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
                             )}
                         >
@@ -432,41 +432,6 @@ export function GameLobbyDialog() {
                 </div>
 
                 <div className="px-5 py-3 flex-1 overflow-y-auto space-y-3">
-                    {/* Pre-game play-area map. Restored in v260: the
-                        wizard hands off to this lobby, and seeing the
-                        chosen region (boundary + tiles) is the visual
-                        anchor that the right area is loaded. Deliberately
-                        NOT shown mid-game (manual reopen) — that view is
-                        the roster/settings recap, not a map.
-
-                        v273: the 180-px slot is reserved unconditionally
-                        so the content below doesn't jump when a guest's
-                        host-pushed setup arrives a beat after the lobby
-                        opens. When mapGeoLocation isn't valid yet, a
-                        skeleton placeholder fills the same box. The
-                        PlayAreaPreviewMap carries its own MapTilesVeil
-                        once it does mount, so the visual handoff is
-                        seamless. */}
-                    {!isMidGame &&
-                        (($mapGeoLocation?.properties?.osm_id ?? 0) > 0 ? (
-                            <PlayAreaPreviewMap
-                                value={$mapGeoLocation!}
-                                height="h-[180px]"
-                            />
-                        ) : (
-                            <div
-                                className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground animate-in fade-in duration-200"
-                                role="status"
-                                aria-live="polite"
-                                aria-label="Waiting for play area"
-                            >
-                                <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                                <div className="text-xs">
-                                    Waiting for the host's play area…
-                                </div>
-                            </div>
-                        ))}
-
                     {/* Autohost status — pre-room. Reserves the same
                         slot the room-code card below will eventually
                         occupy so the layout doesn't jump when the room
@@ -617,6 +582,41 @@ export function GameLobbyDialog() {
                         </Dialog>
                     )}
 
+
+                    {/* Pre-game play-area map. Restored in v260; v275
+                        moved BELOW the room-code card so the share
+                        affordance is the first actionable thing in the
+                        scroll area (per user feedback — getting friends
+                        in is what the lobby is for). Deliberately NOT
+                        shown mid-game.
+
+                        v273: the 180-px slot is reserved unconditionally
+                        so the content below doesn't jump when a guest's
+                        host-pushed setup arrives a beat after the lobby
+                        opens. When mapGeoLocation isn't valid yet, a
+                        skeleton placeholder fills the same box. The
+                        PlayAreaPreviewMap carries its own MapTilesVeil
+                        once it does mount, so the visual handoff is
+                        seamless. */}
+                    {!isMidGame &&
+                        (($mapGeoLocation?.properties?.osm_id ?? 0) > 0 ? (
+                            <PlayAreaPreviewMap
+                                value={$mapGeoLocation!}
+                                height="h-[180px]"
+                            />
+                        ) : (
+                            <div
+                                className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground animate-in fade-in duration-200"
+                                role="status"
+                                aria-live="polite"
+                                aria-label="Waiting for play area"
+                            >
+                                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                                <div className="text-xs">
+                                    Waiting for the host's play area…
+                                </div>
+                            </div>
+                        ))}
 
                     {/* Players roster */}
                     {$mp && $participants.length > 0 && (
@@ -790,14 +790,15 @@ export function GameLobbyDialog() {
 /** Three-dot ellipsis with a left-to-right fade animation. Used
  *  in disabled Start-button labels so 'Loading map…' /
  *  'Waiting for players…' read as active-but-waiting rather
- *  than 'stuck'. CSS lives in globals.css under .animated-ellipsis. */
+ *  than 'stuck'. CSS lives in globals.css under .animated-ellipsis.
+ *  v275: the inner spans live on a single line — the previous
+ *  multi-line JSX inserted whitespace text-nodes between the dots,
+ *  which `display: inline-block` rendered as visible gaps and
+ *  threw off the visual centering of the parent button label. */
 function AnimatedEllipsis() {
     return (
-        <span className="animated-ellipsis inline-block ml-0.5">
-            <span>.</span>
-            <span>.</span>
-            <span>.</span>
-        </span>
+        // prettier-ignore
+        <span className="animated-ellipsis inline-block ml-0.5"><span>.</span><span>.</span><span>.</span></span>
     );
 }
 

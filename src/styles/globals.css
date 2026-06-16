@@ -186,6 +186,53 @@ div.leaflet-control-attribution.leaflet-control {
         opacity: 1;
     }
 }
+
+/* ─────────────────── Map loader keyframes (v275) ───────────────────
+ * Themed loader that mimics a map being drawn: parks fade in, the
+ * river curves into place, then the road grid, then buildings pop
+ * up. Each element animates on the same shared duration so the
+ * sequence stays in lockstep — staggering is done via
+ * animation-delay (inline on each element). Loop runs ~2.6 s so
+ * the metaphor reads instead of blurring past. */
+@keyframes jl-map-park-fade {
+    0%,
+    8% { opacity: 0; transform: scale(0.92); }
+    24%,
+    88% { opacity: 0.85; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.92); }
+}
+@keyframes jl-map-river-draw {
+    0%,
+    8% { stroke-dashoffset: 260; opacity: 0; }
+    16% { opacity: 1; }
+    40%,
+    88% { stroke-dashoffset: 0; opacity: 1; }
+    100% { stroke-dashoffset: 260; opacity: 0; }
+}
+@keyframes jl-map-road-draw {
+    0%,
+    20% { stroke-dashoffset: 210; opacity: 0; }
+    32% { opacity: 1; }
+    52%,
+    88% { stroke-dashoffset: 0; opacity: 1; }
+    100% { stroke-dashoffset: 210; opacity: 0; }
+}
+@keyframes jl-map-building-pop {
+    0%,
+    60% { opacity: 0; transform: scaleY(0); }
+    72%,
+    88% { opacity: 1; transform: scaleY(1); }
+    100% { opacity: 0; transform: scaleY(0); }
+}
+@keyframes jl-map-pin-bob {
+    0%,
+    72% { opacity: 0; transform: translateY(4px); }
+    78%,
+    86% { opacity: 1; transform: translateY(0); }
+    88% { opacity: 1; transform: translateY(-2px); }
+    100% { opacity: 0; transform: translateY(-2px); }
+}
+
 .leaflet-tooltip.jl-ref-tooltip {
     background: hsl(var(--background) / 0.95);
     color: hsl(var(--foreground));
