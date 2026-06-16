@@ -188,25 +188,27 @@ export const preloadChoices = persistentAtom<PreloadChoices>(
  * Overpass / transit data is still valid.
  */
 export interface PreloadBucketTimestamps {
+    map: number | null;
     references: number | null;
     transit: number | null;
 }
 export const preloadBucketTimestamps = persistentAtom<PreloadBucketTimestamps>(
     "preloadBucketTimestamps",
-    { references: null, transit: null },
+    { map: null, references: null, transit: null },
     {
         encode: JSON.stringify,
         decode: (s) => {
             try {
                 const p = JSON.parse(s);
                 return {
+                    map: typeof p?.map === "number" ? p.map : null,
                     references:
                         typeof p?.references === "number" ? p.references : null,
                     transit:
                         typeof p?.transit === "number" ? p.transit : null,
                 };
             } catch {
-                return { references: null, transit: null };
+                return { map: null, references: null, transit: null };
             }
         },
     },
@@ -214,18 +216,20 @@ export const preloadBucketTimestamps = persistentAtom<PreloadBucketTimestamps>(
 
 /** Volatile: which preload buckets are currently downloading. Resets on reload. */
 export const preloadBucketInFlight = atom<{
+    map: boolean;
     references: boolean;
     transit: boolean;
-}>({ references: false, transit: false });
+}>({ map: false, references: false, transit: false });
 
 /** Volatile: actual byte sizes measured from downloaded bucket data.
  *  Populated after each bucket completes in the current session; null
  *  if the bucket was downloaded in a previous session (timestamp shows
  *  "Downloaded" but the count isn't known). */
 export const preloadBucketBytes = atom<{
+    map: number | null;
     references: number | null;
     transit: number | null;
-}>({ references: null, transit: null });
+}>({ map: null, references: null, transit: null });
 
 /**
  * Reset every map display overlay to its default OFF state. Called on

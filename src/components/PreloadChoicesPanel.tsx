@@ -56,10 +56,12 @@ const BUCKETS: BucketDef[] = [
         id: "map",
         label: "Map",
         blurb:
-            "Play-area boundary polygon + the base tiles around it. Recommended for everyone — the map can't render without it.",
+            "Boundary polygon + every basemap tile around the play area at street zooms. Without this, zooming in mid-game stutters while fresh tiles download.",
         icon: MapIcon,
-        // sqrt(100) * 0.18 ≈ 2.1 MB at null fallback (100 km²)
-        estimateMb: (km2) => 0.3 + Math.sqrt(km2 ?? 100) * 0.18,
+        // sqrt(100) * 0.55 ≈ 6 MB at null fallback (100 km²). Tile
+        // preload is the real cost driver now — z11..z15 inside the
+        // play-area bbox = a few thousand vector tiles for a city.
+        estimateMb: (km2) => 0.5 + Math.sqrt(km2 ?? 100) * 0.55,
     },
     {
         id: "references",
@@ -144,30 +146,37 @@ export function PreloadChoicesPanel({
                 const sizeMb = b.estimateMb(areaKm2);
 
                 const bucketInFlight =
-                    b.id === "references"
-                        ? inFlight.references
-                        : b.id === "transit"
-                          ? inFlight.transit
-                          : false;
+                    b.id === "map"
+                        ? inFlight.map
+                        : b.id === "references"
+                          ? inFlight.references
+                          : b.id === "transit"
+                            ? inFlight.transit
+                            : false;
                 const completedAt =
-                    b.id === "references"
-                        ? timestamps.references
-                        : b.id === "transit"
-                          ? timestamps.transit
-                          : null;
+                    b.id === "map"
+                        ? timestamps.map
+                        : b.id === "references"
+                          ? timestamps.references
+                          : b.id === "transit"
+                            ? timestamps.transit
+                            : null;
                 const actualBytes =
-                    b.id === "references"
-                        ? bucketBytes.references
-                        : b.id === "transit"
-                          ? bucketBytes.transit
-                          : null;
+                    b.id === "map"
+                        ? bucketBytes.map
+                        : b.id === "references"
+                          ? bucketBytes.references
+                          : b.id === "transit"
+                            ? bucketBytes.transit
+                            : null;
 
-                // Map is always ready once the game starts; downloaded
-                // ref/transit buckets become read-only "done" cards.
-                const isMapReady = displayStatus && b.id === "map";
+                // Once the game's running, a finished bucket shows as a
+                // read-only "done" card. v262: this now applies to the
+                // map bucket too — it actually preloads tiles into the
+                // browser HTTP cache.
                 const isDownloaded = displayStatus && completedAt !== null;
 
-                if (isMapReady || isDownloaded) {
+                if (isDownloaded) {
                     return (
                         <div
                             key={b.id}
@@ -189,13 +198,11 @@ export function PreloadChoicesPanel({
                                             : "text-muted-foreground",
                                     )}
                                 >
-                                    {isDownloaded
-                                        ? actualBytes === null
-                                            ? "Downloaded"
-                                            : actualBytes === 0
-                                              ? "Downloaded (cached)"
-                                              : `Downloaded — ${formatSize(actualBytes / 1_000_000)}`
-                                        : "Loaded at game setup"}
+                                    {actualBytes === null
+                                        ? "Downloaded"
+                                        : actualBytes === 0
+                                          ? "Downloaded (cached)"
+                                          : `Downloaded — ${formatSize(actualBytes / 1_000_000)}`}
                                 </p>
                             </div>
                         </div>
@@ -214,9 +221,7 @@ export function PreloadChoicesPanel({
                             className={cn(
                                 "flex gap-3 items-start p-3 cursor-pointer",
                                 "bg-secondary/30 hover:bg-secondary/60 transition-colors rounded-md",
-                                displayStatus &&
-                                    b.id !== "map" &&
-                                    "rounded-b-none",
+                                displayStatus && "rounded-b-none",
                             )}
                         >
                             <Checkbox
@@ -254,7 +259,7 @@ export function PreloadChoicesPanel({
                             </div>
                         </label>
 
-                        {displayStatus && b.id !== "map" && (
+                        {displayStatus && (
                             <BucketStatus
                                 inFlight={bucketInFlight}
                                 enabled={on}

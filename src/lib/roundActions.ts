@@ -121,7 +121,7 @@ export function startNewGame() {
     // Clear preload timestamps — the new game may have a different play
     // area so cached Overpass / transit data from the previous game is
     // no longer valid (or at least we can't assume it is).
-    preloadBucketTimestamps.set({ references: null, transit: null });
+    preloadBucketTimestamps.set({ map: null, references: null, transit: null });
     setupCompleted.set(false);
     // v252: no manual dialog-open — the route guard in
     // SeekerPage/HiderPage redirects to /setup the moment

@@ -12,6 +12,7 @@ import {
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
 import type { JourneyStop } from "@/lib/journey/types";
+import { preloadTilesForPlayArea } from "@/lib/tilePreload";
 import { getOverpassData } from "@/maps/api/overpass";
 import {
     buildHsrQuery,
@@ -44,13 +45,21 @@ import { CacheType } from "@/maps/api/types";
  * rides a second (small) query.
  *
  * What is deliberately NOT here:
- *   - The play-area boundary + tiles: already loaded by Map.tsx the
+ *   - The play-area boundary polygon: already loaded by Map.tsx the
  *     moment the play area is chosen, well before the hiding period.
  *   - Major city / coastline: resolved from bundled datasets, no
  *     Overpass at all.
  *
+ * The "map" bucket DOES fire here (v262): it walks every basemap tile
+ * inside the play-area bbox at z11..z15 and pulls the PMTiles range
+ * for each into the browser HTTP cache. Without this, the user only
+ * has tiles at whatever zoom they happened to be at; the first zoom-in
+ * after the hiding period kicks off a fresh cascade of range fetches
+ * and the map noticeably lags. See `tilePreload.ts`.
+ *
  * Best-effort and silent: never toasts, never throws. The on-tap
- * `prefetchCategory` fallback still covers any family this misses.
+ * `prefetchCategory` fallback still covers any family this misses, and
+ * the map's own on-demand tile fetch still covers any preload misses.
  */
 export function preloadDuringHidingPeriod(): void {
     if (!playArea.get()) return;
@@ -69,15 +78,9 @@ export function preloadDuringHidingPeriod(): void {
     // still covers it later, and the user can also flip the toggle
     // back on from Settings mid-game to trigger `runPreloadForBucket`
     // explicitly.
+    if (choices.map) runMapPreload();
     if (choices.references) runReferencesPreload();
     if (choices.transit) runTransitPreload();
-    // The "map" bucket is the play-area boundary + tiles — boundary
-    // is already done by Map.tsx at play-area-pick time. Tile preload
-    // (OfflineTilePreloader) is user-driven from the More menu and
-    // isn't kicked off here, so there's nothing extra to fire for the
-    // `map` bucket during the hiding period; the toggle stays for
-    // symmetry + so users can opt out of the (separate) tile preload
-    // when it's offered.
 }
 
 /**
@@ -89,10 +92,43 @@ export function runPreloadForBucket(
     bucket: "map" | "references" | "transit",
 ): void {
     if (!playArea.get()) return;
-    if (bucket === "references") runReferencesPreload();
+    if (bucket === "map") runMapPreload();
+    else if (bucket === "references") runReferencesPreload();
     else if (bucket === "transit") runTransitPreload();
-    // `map` is a no-op for the same reason as above — the boundary is
-    // owned by Map.tsx and the offline tile preloader is its own UI.
+}
+
+function runMapPreload(): void {
+    // Idempotent — a second call while one is in flight just returns.
+    if (preloadBucketInFlight.get().map) return;
+    console.debug("[preload] warming basemap tiles for play-area bbox");
+    preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), map: true });
+    // Wire-byte accounting — CountingSource inside tilePreload calls
+    // `recordBytes` on every range response. Re-runs of an already-warm
+    // play area will mostly hit the browser HTTP cache, so the
+    // recorded total drops to ~the directory size — honest.
+    startMeter("map");
+    void preloadTilesForPlayArea()
+        .then((result) => {
+            console.debug("[preload] map tiles done", result);
+            preloadBucketBytes.set({
+                ...preloadBucketBytes.get(),
+                map: stopMeter("map"),
+            });
+            preloadBucketTimestamps.set({
+                ...preloadBucketTimestamps.get(),
+                map: Date.now(),
+            });
+        })
+        .catch((e) => {
+            console.warn("[preload] map tiles failed:", e);
+            stopMeter("map");
+        })
+        .finally(() => {
+            preloadBucketInFlight.set({
+                ...preloadBucketInFlight.get(),
+                map: false,
+            });
+        });
 }
 
 function runReferencesPreload(): void {
