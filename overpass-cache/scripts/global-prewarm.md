@@ -5,8 +5,8 @@ Status: **scaffolding committed; runtime path not yet wired.**
 
 ## Goal
 
-Every play area inside one of the prewarmed countries hits R2 cache
-for its reference families (museums, hospitals, airports, train
+Every play area on Earth (Antarctica excepted) hits R2 cache for
+its reference families (museums, hospitals, airports, train
 stations, brand shops, …) — instantly, regardless of whether anyone
 has played there before. Boundaries continue to use the existing
 per-relation cache; this design only addresses the references and
@@ -67,11 +67,45 @@ country-refs/JP/all
 …
 ```
 
-Total ~50 shards × ~10–40 MB each = **~1 GB on R2** for global EU+NA
-+ key non-Western countries. Free-tier covered. Each individual
-fetch + parse the Worker does is ~30–150 ms — well inside the CPU
-budget and bandwidth that the Cloudflare backbone gives us between
-the Worker runtime and R2.
+Total **214 shards** covering nearly every populated UN member state
++ a handful of dependent territories with their own OSM coverage
+(Greenland, French Guiana, Puerto Rico, Cayman Islands, Hong Kong,
+Macau, Faroe Islands, Isle of Man, US Virgin Islands, Guam, …).
+Antarctica, polar islands, and disputed uninhabited fringes are
+deliberately out of scope.
+
+Per-shard size varies wildly: city-states like Monaco or Singapore
+have <1 MB references; densely-mapped countries like Germany or
+Japan land at ~25–50 MB; sparsely-mapped large countries like Mali
+or Chad will be a few MB despite the geographic footprint. Total
+estimated R2 footprint: **~4–8 GB worldwide**, comfortably inside
+the free tier (10 GB) with room to grow as OSM coverage densifies.
+
+Per-request: the Worker pulls one shard file from R2 (single object,
+fast — typically <50 ms over the Cloudflare backbone), parses
+(<200 ms even for the densest shards), bbox-filters elements,
+re-serializes. Sub-second worst-case, near-instant on cache-hit
+through the Cloudflare Cache API.
+
+### Big-country splits
+
+Single combined-families queries for very large countries either
+overrun Overpass's 180 s server-side budget or produce R2 objects
+slow to parse in the Worker. Where that's a risk we split:
+
+- **United States** → US-east, US-west (at lng −100°), US-AK, US-HI
+- **Canada** → CA-east, CA-west (at lng −90°)
+- **Russia** → RU-west, RU-central, RU-east (at lng 60°, 120°)
+- **China** → CN-east, CN-west (at lng 105°)
+- **Brazil** → BR-north, BR-south (at lat −16°)
+- **Australia** → AU-east, AU-west (at lng 135°)
+- **Argentina** → AR-north, AR-south (at lat −40°)
+- **India** → IN-north, IN-south (at lat 22°)
+- **Indonesia** → ID-west, ID-east (at lng 119°)
+
+The split bounds are loose — picked to roughly balance
+population/density so each half has a tractable response size, not
+to follow administrative borders.
 
 ## Why per-country, not per-family-per-country
 
@@ -83,15 +117,6 @@ single-family queries become a measurable parse bottleneck later
 we can split per family inside each shard without touching the
 slicing function — just emit one R2 key per (shard, family) from
 the cron and add the family detection to the template match.
-
-## Big-country splits
-
-US and Canada are the only countries where the single-query
-response runs past Overpass's 180 s server-side budget (the
-references query for the whole US returns roughly 200 MB raw).
-Split at lng = -100° gives two ~30–40 MB responses, each well
-inside the timeout. Russia and Brazil would need similar splits if
-we extend coverage there.
 
 ## Border cases
 
