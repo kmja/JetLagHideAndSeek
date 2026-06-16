@@ -455,7 +455,7 @@ export function GameLobbyDialog() {
                             />
                         ) : (
                             <div
-                                className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground"
+                                className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground animate-in fade-in duration-200"
                                 role="status"
                                 aria-live="polite"
                                 aria-label="Waiting for play area"
@@ -475,7 +475,7 @@ export function GameLobbyDialog() {
                         height bump because it's a recovery surface
                         with its own retry button. */}
                     {!$code && hostingState === "creating" && (
-                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2.5 min-h-[3.5rem]">
+                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2.5 min-h-[3.5rem] animate-in fade-in duration-200">
                             <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
                             <div className="text-xs">
                                 Creating game room…
@@ -483,7 +483,7 @@ export function GameLobbyDialog() {
                         </div>
                     )}
                     {!$code && hostingState === "failed" && (
-                        <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2 space-y-1.5 min-h-[3.5rem]">
+                        <div className="rounded-md border-2 border-destructive/60 bg-destructive/5 px-3 py-2 space-y-1.5 min-h-[3.5rem] animate-in fade-in duration-200">
                             <div className="text-xs font-medium text-destructive">
                                 Couldn't create a game room.
                             </div>
@@ -518,6 +518,7 @@ export function GameLobbyDialog() {
                             className={cn(
                                 "rounded-md border border-border bg-secondary/40",
                                 "px-3 py-2 flex items-center gap-2 min-h-[3.5rem]",
+                                "animate-in fade-in duration-200",
                             )}
                         >
                             <div className="flex flex-col min-w-0 leading-none">
@@ -619,7 +620,7 @@ export function GameLobbyDialog() {
 
                     {/* Players roster */}
                     {$mp && $participants.length > 0 && (
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
                             <RosterCard
                                 label={`Seekers · ${seekers.length}`}
                                 tone="seeker"
@@ -655,7 +656,7 @@ export function GameLobbyDialog() {
                         </div>
                     )}
                     {$mp && !hasRoleBalance && $participants.length > 0 && !isMidGame && (
-                        <p className="text-[11px] text-muted-foreground leading-snug">
+                        <p className="text-[11px] text-muted-foreground leading-snug animate-in fade-in duration-200">
                             Need at least one <b>seeker</b> and one{" "}
                             <b>hider</b> before the game can start.
                             Share the invite to bring more in.
@@ -734,6 +735,7 @@ export function GameLobbyDialog() {
                                 <span
                                     className={cn(
                                         "text-[10px] font-semibold leading-none mt-1",
+                                        "transition-opacity duration-200",
                                         startReady
                                             ? "opacity-80"
                                             : "opacity-0",
@@ -751,6 +753,7 @@ export function GameLobbyDialog() {
                             <p
                                 className={cn(
                                     "text-[11px] leading-snug text-center",
+                                    "transition-colors duration-200",
                                     isHiderRole && startReady
                                         ? "text-muted-foreground"
                                         : "text-transparent select-none",
@@ -1019,7 +1022,7 @@ function MidGameInfoSection({
     onToggleSharing: () => void;
 }) {
     return (
-        <div className="border-t border-border pt-3 space-y-3">
+        <div className="border-t border-border pt-3 space-y-3 animate-in fade-in duration-200">
             {/* v266: settings + Edit button moved to the top of the
                 mid-game section so the most-used controls are
                 immediately visible without scrolling. Timer block

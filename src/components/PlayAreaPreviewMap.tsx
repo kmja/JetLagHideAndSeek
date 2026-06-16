@@ -305,7 +305,7 @@ export function PlayAreaPreviewMap({
                     </Source>
                 )}
             </MapGL>
-            {showVeil && <MapTilesVeil rounded timedOut={timedOut} />}
+            <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
         </div>
     );
 }

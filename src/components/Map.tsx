@@ -1916,15 +1916,12 @@ export function Map({ className }: MapProps) {
                 painted. z below the loading-progress card (1020) and
                 the sidebars (1030+) so those stay usable; the map's own
                 top-right controls render above it. */}
-            {showVeil && (
-                <MapTilesVeil
-                    className="z-[1010]"
-                    timedOut={tilesTimedOut}
-                    sublabel={
-                        $playArea?.displayName?.split(",")[0] ?? undefined
-                    }
-                />
-            )}
+            <MapTilesVeil
+                visible={showVeil}
+                className="z-[1010]"
+                timedOut={tilesTimedOut}
+                sublabel={$playArea?.displayName?.split(",")[0] ?? undefined}
+            />
         </div>
     );
 }

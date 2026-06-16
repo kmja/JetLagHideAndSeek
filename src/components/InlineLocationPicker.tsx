@@ -597,7 +597,7 @@ export function InlineLocationPicker({
                             </>
                         )}
                 </Map>
-                {showVeil && <MapTilesVeil rounded timedOut={timedOut} />}
+                <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
             </div>
             <div className="flex items-center justify-between gap-2 text-xs">
                 <div

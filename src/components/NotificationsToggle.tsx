@@ -79,7 +79,12 @@ export function NotificationsIconButton({
                 className,
             )}
         >
-            <Icon className="w-4 h-4" />
+            {/* v274: keyed Icon so swapping between Bell / BellRing /
+                BellOff animates in cleanly instead of snapping. */}
+            <Icon
+                key={Icon.displayName ?? Icon.name}
+                className="w-4 h-4 animate-in fade-in zoom-in-90 duration-150"
+            />
         </button>
     );
 }

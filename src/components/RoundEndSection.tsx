@@ -135,7 +135,7 @@ function FoundSummary({
             : `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 
     return (
-        <div className="rounded-sm border-2 border-primary bg-primary/5 px-4 py-3">
+        <div className="rounded-sm border-2 border-primary bg-primary/5 px-4 py-3 animate-in fade-in slide-in-from-top-1 duration-300">
             <div className="flex items-start gap-3">
                 <Trophy className="w-5 h-5 text-primary mt-0.5 shrink-0" />
                 <div className="min-w-0 flex-1">

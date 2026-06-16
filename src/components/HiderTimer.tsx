@@ -107,7 +107,7 @@ export function HiderTimer() {
                   3. Already found → render nothing; the FoundSummary
                      recap card lives in the lobby drawer. */}
             {!inHidingPeriod && !$foundAt && (
-                <>
+                <div className="flex flex-col items-end gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     {$endgameStartedAt === null ? (
                         <button
                             type="button"
@@ -134,6 +134,7 @@ export function HiderTimer() {
                                     "px-2 py-1 rounded-md",
                                     "bg-yellow-500/15 border-2 border-yellow-500/70",
                                     "text-yellow-300",
+                                    "animate-in fade-in duration-200",
                                 )}
                                 title="Endgame triggered — the hider has been told to lock to a final spot."
                             >
@@ -155,6 +156,7 @@ export function HiderTimer() {
                                     "transition-colors",
                                     "text-[10px] font-poppins font-bold uppercase tracking-wider",
                                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    "animate-in fade-in slide-in-from-bottom-1 duration-200",
                                 )}
                             >
                                 <Footprints className="w-3 h-3" strokeWidth={2.5} />
@@ -162,7 +164,7 @@ export function HiderTimer() {
                             </button>
                         </>
                     )}
-                </>
+                </div>
             )}
 
             <div
