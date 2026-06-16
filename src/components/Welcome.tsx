@@ -192,7 +192,7 @@ export function Welcome() {
                                 className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
                                 onClick={handleStartNew}
                             >
-                                Start new game
+                                Create game
                             </Button>
                             <Button
                                 size="lg"

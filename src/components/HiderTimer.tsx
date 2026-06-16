@@ -89,29 +89,13 @@ export function HiderTimer() {
     }
 
     return (
+        // v272: order swapped — endgame action UI on TOP, timer at
+        // BOTTOM — so the wrapper's `bottom-[Npx]` offset pins the
+        // timer card flush against the bottom nav rather than
+        // floating it high above by the variable-height action
+        // stack. With `items-end`, the column grows upward from the
+        // timer's bottom edge.
         <div className="flex flex-col items-end gap-1.5">
-            <div
-                role="status"
-                aria-live="polite"
-                aria-label={`${phaseLabel}: ${display}`}
-                title={`${phaseLabel}: ${display}`}
-                className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-md",
-                    "bg-background/95 backdrop-blur-md border-2 border-primary",
-                    "shadow-md",
-                )}
-            >
-                <Timer className="w-4 h-4 text-primary shrink-0" />
-                <div className="flex flex-col items-start leading-none gap-0.5">
-                    <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.15em] text-muted-foreground">
-                        {phaseLabel}
-                    </span>
-                    <span className="font-inter-tight italic font-black tabular-nums text-base text-primary leading-none">
-                        {display}
-                    </span>
-                </div>
-            </div>
-
             {/* Round-end action surface. Three exclusive states once
                 the hiding period is over (and only then — seekers
                 can't trigger the endgame or mark the hider found
@@ -121,10 +105,7 @@ export function HiderTimer() {
                   2. Endgame armed, not found yet → "Endgame armed"
                      badge + "Mark hider found" button.
                   3. Already found → render nothing; the FoundSummary
-                     recap card lives in the Settings sheet.
-                Moved here from BottomNav's settings sheet so the
-                seeker doesn't have to dig through Settings during the
-                most time-sensitive moment of the game. */}
+                     recap card lives in the lobby drawer. */}
             {!inHidingPeriod && !$foundAt && (
                 <>
                     {$endgameStartedAt === null ? (
@@ -183,6 +164,28 @@ export function HiderTimer() {
                     )}
                 </>
             )}
+
+            <div
+                role="status"
+                aria-live="polite"
+                aria-label={`${phaseLabel}: ${display}`}
+                title={`${phaseLabel}: ${display}`}
+                className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-md",
+                    "bg-background/95 backdrop-blur-md border-2 border-primary",
+                    "shadow-md",
+                )}
+            >
+                <Timer className="w-4 h-4 text-primary shrink-0" />
+                <div className="flex flex-col items-start leading-none gap-0.5">
+                    <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.15em] text-muted-foreground">
+                        {phaseLabel}
+                    </span>
+                    <span className="font-inter-tight italic font-black tabular-nums text-base text-primary leading-none">
+                        {display}
+                    </span>
+                </div>
+            </div>
         </div>
     );
 }

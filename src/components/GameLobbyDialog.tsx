@@ -64,6 +64,7 @@ import {
     leaveGame,
     promoteCoHider,
 } from "@/lib/multiplayer/store";
+import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
@@ -306,6 +307,30 @@ export function GameLobbyDialog() {
         hostPushSetup();
     };
 
+    const handleLeaveGame = async () => {
+        const ok = await appConfirm({
+            title: "Leave this online game?",
+            description:
+                "You'll exit the room — the others can keep playing without you.",
+            confirmLabel: "Leave game",
+            destructive: true,
+        });
+        if (!ok) return;
+        returnToLandingPage();
+    };
+
+    // v272: kick the preload the moment the lobby is open for a
+    // pre-game host. The hiding period hasn't started so the seeker
+    // can't ask anything yet — but they're already sitting on the
+    // lobby waiting for players to join, which is an even better
+    // wait window than the hiding period itself. Idempotent (each
+    // bucket dedupes on in-flight + warmed state), so re-firing on
+    // a re-render is harmless.
+    useEffect(() => {
+        if (!open || isMidGame || !$playArea || isHiderRole) return;
+        preloadDuringHidingPeriod();
+    }, [open, isMidGame, $playArea, isHiderRole]);
+
     if (!open) return null;
 
     return (
@@ -349,36 +374,60 @@ export function GameLobbyDialog() {
                     HIDE+SEEK wordmark already sits at the top of the
                     screen in SeekerTopBar; doubling it here read as
                     decoration. */}
-                <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border space-y-1">
-                    <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
-                        Lobby
-                    </VaulDrawer.Title>
-                    {$playArea && !mapReady && !isHiderRole ? (
-                        <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                            <span className="font-semibold text-white">
-                                {$playArea.displayName.split(",")[0]}
-                            </span>
-                            <span className="text-muted-foreground/60">
-                                {" · "}
-                            </span>
-                            {minutes}-min hide
-                            {$allowedTransit.length > 0 && (
-                                <>
-                                    <span className="text-muted-foreground/60">
-                                        {" · "}
-                                    </span>
-                                    {$allowedTransit
-                                        .map((m) => TRANSIT_LABELS[m])
-                                        .join(", ")}
-                                </>
+                <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border flex items-start gap-2">
+                    <div className="flex-1 min-w-0 space-y-1">
+                        <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
+                            Lobby
+                        </VaulDrawer.Title>
+                        {$playArea && !mapReady && !isHiderRole ? (
+                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                                <span className="font-semibold text-white">
+                                    {$playArea.displayName.split(",")[0]}
+                                </span>
+                                <span className="text-muted-foreground/60">
+                                    {" · "}
+                                </span>
+                                {minutes}-min hide
+                                {$allowedTransit.length > 0 && (
+                                    <>
+                                        <span className="text-muted-foreground/60">
+                                            {" · "}
+                                        </span>
+                                        {$allowedTransit
+                                            .map((m) => TRANSIT_LABELS[m])
+                                            .join(", ")}
+                                    </>
+                                )}
+                            </VaulDrawer.Description>
+                        ) : (
+                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                                {isMidGame
+                                    ? "Players, room code, mid-game tweaks."
+                                    : "Players and room code. Start when everyone's in."}
+                            </VaulDrawer.Description>
+                        )}
+                    </div>
+                    {/* Destructive Leave button — top-right of the
+                        drawer header (v272). Only renders when there's
+                        actually an online room to leave; collapses
+                        otherwise so the header keeps the same height. */}
+                    {$mp && $code && (
+                        <button
+                            type="button"
+                            onClick={handleLeaveGame}
+                            aria-label="Leave game"
+                            title="Leave this online game"
+                            className={cn(
+                                "shrink-0 inline-flex items-center justify-center",
+                                "w-9 h-9 rounded-md",
+                                "text-destructive border border-destructive/30",
+                                "bg-destructive/5 hover:bg-destructive/15 active:bg-destructive/25",
+                                "transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
                             )}
-                        </VaulDrawer.Description>
-                    ) : (
-                        <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                            {isMidGame
-                                ? "Players, room code, mid-game tweaks."
-                                : "Players and room code. Start when everyone's in."}
-                        </VaulDrawer.Description>
+                        >
+                            <LogOut className="w-4 h-4" />
+                        </button>
                     )}
                 </div>
 
@@ -614,35 +663,14 @@ export function GameLobbyDialog() {
                     )}
                 </div>
 
-                {/* Footer — Start/Leave for pre-game; Leave for
-                    mid-game (swipe-down handle closes the drawer
-                    itself, so a separate Close button is redundant). */}
+                {/* Footer — Start for pre-game host; nothing
+                    explicit for mid-game (the Leave icon-button in
+                    the header is the only exit; swipe-down dismisses
+                    the drawer). v272: dropped the inline Leave button
+                    from both branches when the header destructive
+                    icon replaced it. */}
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
-                    {isMidGame ? (
-                        <>
-                            {$mp && $code && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={async () => {
-                                        const ok = await appConfirm({
-                                            title: "Leave this online game?",
-                                            description:
-                                                "You'll exit the room — the others can keep playing without you.",
-                                            confirmLabel: "Leave game",
-                                            destructive: true,
-                                        });
-                                        if (!ok) return;
-                                        returnToLandingPage();
-                                    }}
-                                    className="w-full gap-1.5 text-muted-foreground"
-                                >
-                                    <LogOut className="w-3.5 h-3.5" />
-                                    Leave game
-                                </Button>
-                            )}
-                        </>
-                    ) : isHost ? (
+                    {isMidGame ? null : isHost ? (
                         <>
                             <Button
                                 size="lg"
@@ -702,29 +730,8 @@ export function GameLobbyDialog() {
                     )}
                     {/* Switch role moved inline into the roster row
                         next to '(you)' — see RosterCard's SwitchRoleButton.
-                        Keeps the lobby's footer clean and the affordance
-                        co-located with the user's own name. */}
-                    {!isMidGame && $mp && $code && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={async () => {
-                                const ok = await appConfirm({
-                                    title: "Leave this online game?",
-                                    description:
-                                        "You'll exit the room — the others can keep playing without you.",
-                                    confirmLabel: "Leave game",
-                                    destructive: true,
-                                });
-                                if (!ok) return;
-                                returnToLandingPage();
-                            }}
-                            className="w-full gap-1.5 text-muted-foreground"
-                        >
-                            <LogOut className="w-3.5 h-3.5" />
-                            Leave game
-                        </Button>
-                    )}
+                        Leave game moved to the header destructive
+                        icon (v272). */}
                 </div>
                 </VaulDrawer.Content>
             </VaulDrawer.Portal>

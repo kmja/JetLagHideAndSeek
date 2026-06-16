@@ -310,7 +310,7 @@ export function SetupPage() {
                 ) : (
                     <Button onClick={handleFinish} className="gap-1">
                         <Check className="w-4 h-4" />
-                        Open lobby
+                        Create game
                     </Button>
                 )}
             </div>
