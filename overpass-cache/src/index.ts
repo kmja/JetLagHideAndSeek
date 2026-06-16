@@ -513,6 +513,41 @@ export default {
                 console.warn(`[prewarm] HSR ${iso} threw:`, e);
             }
         }
+
+        // Phase 4: ADJACENT-SEARCH (v268). The wizard's "extend play
+        // area to nearby municipalities" picker fires three Overpass
+        // queries — admin-level lookup, adjacent admin relations,
+        // transit stations — that previously hit live mirrors for
+        // every curated city because they're keyed differently from
+        // the boundary R2 entries. Prewarming them here makes the
+        // wizard's adjacent-areas step near-instant for any city the
+        // cron has covered.
+        for (const city of picked) {
+            if (!city.extent) continue;
+            const slotOk = await waitForOverpassSlot(
+                `adjacent ${city.name}`,
+            );
+            if (!slotOk) {
+                console.warn(
+                    `[prewarm] adjacent ${city.name} skipped — slot wait exceeded cap`,
+                );
+                continue;
+            }
+            try {
+                const r = await prewarmAdjacentSearchForCity(
+                    env,
+                    city,
+                    ttlMs,
+                );
+                if (r.stored > 0) {
+                    console.log(
+                        `[prewarm] adjacent ${city.name}: stored ${r.stored}/3`,
+                    );
+                }
+            } catch (e) {
+                console.warn(`[prewarm] adjacent ${city.name} threw:`, e);
+            }
+        }
     },
 };
 
@@ -1776,6 +1811,183 @@ async function prewarmReferencesForCity(
         ttlMs,
         "references",
     );
+}
+
+/* ───────────────── Adjacent-search prewarm (v268) ──────────────── */
+
+/**
+ * Default radius the seeker app uses for adjacent-area discovery.
+ * MUST match `ADJACENT_SEARCH_DEFAULT_RADIUS_KM` in
+ * src/maps/api/playAreaExtensions.ts — different values produce
+ * different cache keys and the prewarm misses.
+ */
+const ADJACENT_SEARCH_RADIUS_KM = 25;
+
+/**
+ * Build the admin-level-lookup query for a relation. Byte-identical
+ * to `buildAdminLevelQuery` in src/maps/api/playAreaExtensions.ts.
+ */
+function buildAdminLevelQuery(osmId: number): string {
+    return `
+[out:json][timeout:25];
+relation(${osmId});
+out tags;
+`;
+}
+
+/**
+ * Build the adjacent-admin-relations query. Byte-identical to
+ * `buildAdjacentAdminQuery` in src/maps/api/playAreaExtensions.ts.
+ */
+function buildAdjacentAdminQuery(
+    adminLevel: string,
+    lat: number,
+    lng: number,
+    radiusKm: number,
+): string {
+    return `
+[out:json][timeout:60];
+relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
+out tags bb;
+`;
+}
+
+/**
+ * Build the all-mode adjacent transit-stations query. Byte-identical
+ * to `buildAdjacentStationsQuery` in
+ * src/maps/api/playAreaExtensions.ts. Bus is deliberately omitted —
+ * buses cross every admin boundary and would pre-check every
+ * candidate.
+ */
+function buildAdjacentStationsQuery(
+    lat: number,
+    lng: number,
+    radiusKm: number,
+): string {
+    return `
+[out:json][timeout:45];
+(
+  node["station"="subway"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="station"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="halt"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="tram_stop"](around:${radiusKm * 1000},${lat},${lng});
+  node["amenity"="ferry_terminal"](around:${radiusKm * 1000},${lat},${lng});
+);
+out;
+`;
+}
+
+/**
+ * Prewarm every R2 entry the wizard's adjacent-areas picker reads
+ * for one city — admin level lookup, adjacent admin relations
+ * within 25 km, and transit stations within 25 km. Three queries,
+ * fired serially so we don't blow the per-tick Overpass slot
+ * budget. Each one shares the existing skip-if-fresh logic via
+ * `prewarmQuery`.
+ *
+ * The admin level lookup is small + has stable cache key
+ * (relation-id only), so it warms cheap and stays warm. The
+ * adjacent relations query depends on the city's actual
+ * admin_level; we fetch it inline first so the second query's
+ * cache key matches what the client will compute. Both adjacent
+ * queries are keyed by the city's centroid (computed from
+ * `city.extent`) — the same centroid the wizard derives at runtime.
+ */
+async function prewarmAdjacentSearchForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ stored: number }> {
+    if (!city.extent) return { stored: 0 };
+    // Photon-style extent: [maxLat, minLng, minLat, maxLng].
+    const [maxLat, minLng, minLat, maxLng] = city.extent;
+    const lat = (maxLat + minLat) / 2;
+    const lng = (minLng + maxLng) / 2;
+    const radius = ADJACENT_SEARCH_RADIUS_KM;
+    let stored = 0;
+
+    // 1. Admin level lookup — also yields the level we need for
+    //    query 2. Look in cache first; only fetch upstream when
+    //    cache is stale / missing.
+    const adminLevelQuery = buildAdminLevelQuery(city.relationId);
+    let adminLevel: string | null = null;
+    {
+        const r = await prewarmQuery(
+            env,
+            adminLevelQuery,
+            city,
+            ttlMs,
+            "adjacent-admin-level",
+        );
+        if (r.status === "stored" || r.status === "skipped-fresh") {
+            // Re-read from cache to extract the admin_level tag.
+            try {
+                const key = await r2KeyForQuery(adminLevelQuery);
+                const obj = await env.CACHE.get(`overpass/${key}`);
+                if (obj) {
+                    const body = await readR2Text(obj);
+                    const parsed = JSON.parse(body) as {
+                        elements?: Array<{
+                            tags?: Record<string, string>;
+                        }>;
+                    };
+                    adminLevel =
+                        parsed.elements?.[0]?.tags?.admin_level ?? null;
+                    if (r.status === "stored") stored++;
+                }
+            } catch (e) {
+                console.warn(
+                    `[adjacent] failed to extract admin_level for ${city.name}:`,
+                    e,
+                );
+            }
+        }
+    }
+
+    // 2. Adjacent admin relations — only fires if we know the level.
+    if (adminLevel) {
+        const r = await prewarmQuery(
+            env,
+            buildAdjacentAdminQuery(adminLevel, lat, lng, radius),
+            city,
+            ttlMs,
+            "adjacent-admin",
+        );
+        if (r.status === "stored") stored++;
+    }
+
+    // 3. Adjacent transit stations (all modes, 25 km). The client
+    //    filters by user's allowed-transit selection locally.
+    {
+        const r = await prewarmQuery(
+            env,
+            buildAdjacentStationsQuery(lat, lng, radius),
+            city,
+            ttlMs,
+            "adjacent-stations",
+        );
+        if (r.status === "stored") stored++;
+    }
+
+    return { stored };
+}
+
+/** Read an R2 object as text. Handles the gzip-compressed entries
+ *  the upstream cacher writes; falls back to raw text otherwise. */
+async function readR2Text(obj: R2ObjectBody): Promise<string> {
+    const encoding = obj.customMetadata?.encoding;
+    if (encoding === "gzip") {
+        try {
+            const stream = obj.body.pipeThrough(
+                new DecompressionStream("gzip"),
+            );
+            return await new Response(stream).text();
+        } catch (e) {
+            console.warn("[adjacent] gzip decompress failed:", e);
+            return "";
+        }
+    }
+    return await obj.text();
 }
 
 /* ─────────────────────── Admin endpoints ─────────────────────── */

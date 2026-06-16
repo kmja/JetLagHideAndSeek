@@ -87,11 +87,12 @@ export async function findExtensionCandidates(
     // Pull nearby admin regions at the same level — tags + bbox
     // only, so we don't ship full polygon geometry for every
     // candidate (which would be slow and memory-heavy).
-    const adminQuery = `
-[out:json][timeout:60];
-relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${primaryLat},${primaryLng});
-out tags bb;
-`;
+    const adminQuery = buildAdjacentAdminQuery(
+        adminLevel,
+        primaryLat,
+        primaryLng,
+        radiusKm,
+    );
     // No loadingText: the wizard's adjacent-areas step has its
     // own inline spinner; a toast on top of that just
     // double-counts the loading state.
@@ -105,18 +106,19 @@ out tags bb;
         (adminData as { elements?: unknown[] }).elements ?? []
     ) as OverpassRelationStub[];
 
-    // Pull all stations of allowed modes once; we then bbox-test
-    // each candidate against this set. Cheaper than per-candidate
-    // queries, especially with N≈10-20 candidates.
-    const stations: Array<{ lat: number; lon: number; mode: TransitMode }> =
+    // Pull all stations once; we then bbox-test each candidate
+    // against this set. v268: query is now stable per (lat, lng,
+    // radiusKm) — the user's allowed-transit selection is filtered
+    // CLIENT-SIDE — so the cache key doesn't fan out across 2^5
+    // mode subsets and the overpass-cache cron can usefully prewarm
+    // every curated city's adjacent-search response.
+    const allStations =
         allowedTransit.length > 0
-            ? await fetchTransitStations(
-                  primaryLat,
-                  primaryLng,
-                  radiusKm,
-                  allowedTransit,
-              )
+            ? await fetchTransitStations(primaryLat, primaryLng, radiusKm)
             : [];
+    const stations = allStations.filter((s) =>
+        allowedTransit.includes(s.mode),
+    );
 
     const candidates: AdjacentAreaCandidate[] = [];
     for (const el of adminElements) {
@@ -172,12 +174,43 @@ interface OverpassRelationStub {
     };
 }
 
-async function fetchAdminLevel(osmId: number): Promise<string | null> {
-    const query = `
+/**
+ * Look up the admin_level tag for an OSM relation. Stable query
+ * keyed by relation id — matches buildAdminLevelQuery in the
+ * overpass-cache cron.
+ */
+export function buildAdminLevelQuery(osmId: number): string {
+    return `
 [out:json][timeout:25];
 relation(${osmId});
 out tags;
 `;
+}
+
+/**
+ * Pull every admin relation at the same level within `radiusKm` of
+ * the primary's centroid. Stable query keyed by (level, lat, lng,
+ * radiusKm) — matches buildAdjacentAdminQuery in the overpass-cache
+ * cron. Keep the formatting identical to that worker copy or cache
+ * hits will silently miss.
+ */
+export function buildAdjacentAdminQuery(
+    adminLevel: string,
+    lat: number,
+    lng: number,
+    radiusKm: number,
+): string {
+    return `
+[out:json][timeout:60];
+relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
+out tags bb;
+`;
+}
+
+export const ADJACENT_SEARCH_DEFAULT_RADIUS_KM = 25;
+
+async function fetchAdminLevel(osmId: number): Promise<string | null> {
+    const query = buildAdminLevelQuery(osmId);
     const data = await getOverpassData(
         query,
         undefined,
@@ -197,43 +230,44 @@ out tags;
  * request rather than one per mode — cheaper on the server and
  * easier to cache.
  */
+/**
+ * Build the stable transit-stations query used by adjacent-area
+ * detection. v268: takes only (lat, lng, radiusKm) — NOT the user's
+ * allowed-transit selection — so the cache key is stable per city.
+ *
+ * The overpass-cache cron emits the byte-identical query for every
+ * curated city's centroid + DEFAULT_RADIUS_KM, so a user picking any
+ * prewarmed city as a play area hits R2 instantly. The mode filter
+ * lives in the caller (findExtensionCandidates).
+ *
+ * If you change the selector list / order / whitespace, mirror the
+ * exact change in overpass-cache/src/index.ts → buildAdjacentStations
+ * Query so the cache keys keep lining up.
+ */
+export function buildAdjacentStationsQuery(
+    lat: number,
+    lng: number,
+    radiusKm: number,
+): string {
+    return `
+[out:json][timeout:45];
+(
+  node["station"="subway"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="station"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="halt"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="tram_stop"](around:${radiusKm * 1000},${lat},${lng});
+  node["amenity"="ferry_terminal"](around:${radiusKm * 1000},${lat},${lng});
+);
+out;
+`;
+}
+
 async function fetchTransitStations(
     lat: number,
     lng: number,
     radiusKm: number,
-    allowedTransit: TransitMode[],
 ): Promise<Array<{ lat: number; lon: number; mode: TransitMode }>> {
-    // Map our internal transit-mode enum to the OSM tag selectors
-    // that pick up the relevant station nodes.
-    const selectors: string[] = [];
-    if (allowedTransit.includes("subway")) {
-        selectors.push(`node["station"="subway"](around:${radiusKm * 1000},${lat},${lng});`);
-    }
-    if (allowedTransit.includes("train")) {
-        selectors.push(`node["railway"="station"](around:${radiusKm * 1000},${lat},${lng});`);
-        selectors.push(`node["railway"="halt"](around:${radiusKm * 1000},${lat},${lng});`);
-    }
-    if (allowedTransit.includes("tram")) {
-        selectors.push(`node["railway"="tram_stop"](around:${radiusKm * 1000},${lat},${lng});`);
-    }
-    if (allowedTransit.includes("bus")) {
-        // Skip bus for adjacency detection — buses cross EVERY admin
-        // boundary, so they'd pre-check every candidate. The user
-        // can manually check those if they really want bus-extended
-        // play areas.
-    }
-    if (allowedTransit.includes("ferry")) {
-        selectors.push(`node["amenity"="ferry_terminal"](around:${radiusKm * 1000},${lat},${lng});`);
-    }
-    if (selectors.length === 0) return [];
-
-    const query = `
-[out:json][timeout:45];
-(
-  ${selectors.join("\n  ")}
-);
-out;
-`;
+    const query = buildAdjacentStationsQuery(lat, lng, radiusKm);
     const data = await getOverpassData(
         query,
         undefined,
