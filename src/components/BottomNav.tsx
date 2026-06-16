@@ -32,7 +32,7 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
-import { questions, questionsDrawerOpen } from "@/lib/context";
+import { defaultUnit, questions, questionsDrawerOpen } from "@/lib/context";
 import {
     allowedTransit,
     endgameStartedAt,
@@ -84,7 +84,9 @@ import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 import { PWAInstallButton } from "./PWAInstallButton";
 import { RulebookSheet } from "./RulebookSheet";
+import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "./ui/button";
+import { UnitSelect } from "./UnitSelect";
 
 /**
  * Bottom-anchored navigation bar shown only on mobile. The "Game" slot
@@ -102,6 +104,7 @@ export const BottomNav = () => {
     const $endgameStartedAt = useStore(endgameStartedAt);
     const $foundAt = useStore(roundFoundAt);
     const $moreOpen = useStore(moreSheetOpen);
+    const $defaultUnit = useStore(defaultUnit);
     const $currentGameCode = useStore(currentGameCode);
     const $multiplayerEnabled = useStore(multiplayerEnabled);
     const $sharing = useStore(seekerLocationSharing);
@@ -703,6 +706,32 @@ export const BottomNav = () => {
                                 </button>
                             </RulebookSheet>
                             <PWAInstallButton />
+
+                            {/* v265: the two app-level preferences we
+                                kept after retiring the "Advanced
+                                options" drawer. Inline labels + control
+                                so each row reads at a glance. */}
+                            <div className="pt-3 mt-3 border-t border-border space-y-3">
+                                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                    App
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-sm font-medium">
+                                        Units
+                                    </span>
+                                    <UnitSelect
+                                        unit={$defaultUnit}
+                                        onChange={defaultUnit.set}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-sm font-medium">
+                                        Theme
+                                    </span>
+                                    <ThemeToggle />
+                                </div>
+                            </div>
+
                             {/* v264: mid-game preload controls landed
                                 here so the lobby stays focused on the
                                 roster and players have one canonical
