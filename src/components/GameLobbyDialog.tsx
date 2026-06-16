@@ -75,7 +75,6 @@ import {
 } from "./JetLagLogo";
 import { NotificationsIconButton } from "./NotificationsToggle";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
-import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 
 /**
@@ -1104,15 +1103,9 @@ function MidGameInfoSection({
                 </button>
             )}
 
-            {/* Preload choices (seeker only) */}
-            {!isHiderRole && (
-                <div>
-                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
-                        Preload during hiding
-                    </div>
-                    <PreloadChoicesPanel runImmediatelyOnEnable />
-                </div>
-            )}
+            {/* Preload section moved to the Settings sheet (formerly
+                "More") in v264 — mid-game adjustments live in one place
+                and the lobby stays focused on roster + room info. */}
 
             {/* Edit settings */}
             {!isHiderRole && (

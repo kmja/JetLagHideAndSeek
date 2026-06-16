@@ -81,8 +81,6 @@ import { AddQuestionDialog } from "./AddQuestionDialog";
 import { HowToPlaySheet } from "./HowToPlaySheet";
 import { PresenceChip } from "./multiplayer/PresenceIndicators";
 import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
-import { OfflineTilePreloader } from "./OfflineTilePreloader";
-import { OptionDrawers } from "./OptionDrawers";
 import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 import { PWAInstallButton } from "./PWAInstallButton";
 import { RulebookSheet } from "./RulebookSheet";
@@ -660,26 +658,26 @@ export const BottomNav = () => {
                     </VaulDrawer.Portal>
                 </VaulDrawer.Root>
 
-                {/* "More" sheet content. v242: the trigger moved off
-                    the bottom nav into SeekerTopBar's settings icon
-                    (left of the wordmark). The Sheet body stays here
-                    because its content is intertwined with the
-                    bottom-nav's state (Rulebook/Howto/Lobby buttons
-                    that close-then-open via setMoreOpen). Drive open
-                    state from the shared moreSheetOpen atom. */}
+                {/* "Settings" sheet (v264: renamed from "More"). The
+                    trigger lives in SeekerTopBar's gear icon; the
+                    content stays here because its open state is
+                    intertwined with the bottom-nav's flow (Rulebook /
+                    Howto buttons close the sheet and open their own).
+                    Drive open state from the shared moreSheetOpen
+                    atom. */}
                 <Sheet
                     open={$moreOpen}
                     onOpenChange={(v) => moreSheetOpen.set(v)}
                 >
                     <SheetContent
                         side="bottom"
-                        className="rounded-t-2xl"
+                        className="rounded-t-2xl max-h-[85vh] overflow-y-auto"
                     >
                         <SheetHeader>
-                            <SheetTitle>More</SheetTitle>
+                            <SheetTitle>Settings</SheetTitle>
                             <SheetDescription>
-                                Share your map, see the tutorial, or open
-                                advanced options.
+                                Tutorial, rulebook, install, and mid-game
+                                preload preferences.
                             </SheetDescription>
                         </SheetHeader>
                         <div className="mt-4 space-y-2">
@@ -704,24 +702,24 @@ export const BottomNav = () => {
                                     Rulebook
                                 </button>
                             </RulebookSheet>
-                            {/* PWA controls — install affordance for
-                                supported platforms, and tile pre-cache
-                                so the seeker can preload offline maps
-                                for the chosen play area. */}
                             <PWAInstallButton />
-                            <div
-                                className={cn(
-                                    "w-full px-3 py-3 rounded-md",
-                                    "bg-secondary/40 border border-border",
-                                )}
-                            >
-                                <OfflineTilePreloader />
-                            </div>
-                            <div className="pb-2 flex justify-center">
-                                <OptionDrawers compact />
-                            </div>
+                            {/* v264: mid-game preload controls landed
+                                here so the lobby stays focused on the
+                                roster and players have one canonical
+                                place to flip buckets during a round.
+                                Only shown post-wizard (the wizard's
+                                own copy sets initial choices). */}
+                            {$setupCompleted && (
+                                <div className="pt-3 mt-3 border-t border-border">
+                                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
+                                        Preload during hiding
+                                    </div>
+                                    <PreloadChoicesPanel
+                                        runImmediatelyOnEnable
+                                    />
+                                </div>
+                            )}
                         </div>
-                        {/* 'Star on GitHub' button removed in v101. */}
                         {/* Bottom padding for safe-area + visual breathing
                             room. */}
                         <div

@@ -1,7 +1,7 @@
 /**
  * SeekerTopBar — fixed-top app chrome for the seeker view.
  *
- * Layout: Settings (left, opens the "More" sheet that BottomNav
+ * Layout: Settings (left, opens the "Settings" sheet that BottomNav
  * still owns the content for), HIDE+SEEK wordmark (centre),
  * Notifications (right). Matches the bottom nav's z-index so its
  * sheet sits above both.
@@ -12,9 +12,11 @@
  * MapDisplayControls) downward by their existing `top-2`/`top-[72px]`
  * classes.
  *
- * Owns the "More" sheet's open state via the shared
- * `moreSheetOpen` atom — the sheet content lives in BottomNav for
- * now so this header is purely a trigger.
+ * Owns the Settings sheet's open state via the shared
+ * `moreSheetOpen` atom (legacy name from when this surface was called
+ * "More" — kept to avoid churning every reader of the atom). The
+ * sheet content lives in BottomNav so this header is purely a
+ * trigger.
  */
 
 import { Settings } from "lucide-react";
