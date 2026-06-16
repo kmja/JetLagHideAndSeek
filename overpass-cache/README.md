@@ -114,8 +114,11 @@ for the full backlog), then trigger-prewarm picks up the newly
 resolved relations next time it runs.
 
 `X-Cache` response header reports `EDGE_HIT` / `R2_HIT` /
-`MISS` / `MISS_REFRESH` / `R2_STALE_FALLBACK` so you can see
-which layer served any given request.
+`SLICED` / `MISS` / `MISS_REFRESH` / `R2_STALE_FALLBACK` so you can
+see which layer served any given request. `SLICED` means the
+response was derived by bbox-filtering a prewarmed country shard
+(see `scripts/global-prewarm.md`); it carries an `X-Cache-Shard`
+header naming the source shard.
 
 ## Overnight bulk prewarm
 

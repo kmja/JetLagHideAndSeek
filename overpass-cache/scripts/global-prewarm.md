@@ -6,14 +6,37 @@ Status:
 - ✅ Scaffolding (`countryShards.ts`, `querySlicing.ts`) — committed.
 - ✅ Phase 5 cron pass (`prewarmCountryReferences`) — committed,
      behind `COUNTRY_REFS_PREWARM_ENABLED` (default off).
-- ⬜ Phase 6 slicing path in `handleInterpreter` — not yet wired.
+- ✅ Phase 6 slicing path in `handleInterpreter` — committed, behind
+     the same flag. Returns `X-Cache: SLICED` with an `X-Cache-Shard`
+     header; seeds the edge cache so re-asks hit `EDGE_HIT`.
 - ⬜ Remove per-city references prewarm once shards cover it.
 
-To start warming: set `COUNTRY_REFS_PREWARM_ENABLED = "true"` in
-wrangler.toml (or the dashboard) and deploy. Watch the cron logs for
-`[prewarm] country-refs <iso>: stored` lines. The world fills in
-~4-5 days; nothing reads the shards until Phase 6 lands, so warming
-early is harmless.
+Rollout:
+1. Set `COUNTRY_REFS_PREWARM_ENABLED = "true"` in wrangler.toml (or
+   the dashboard) and deploy. Both the cron pass AND the slicing path
+   come on together — but slicing only fires for shards that have
+   been warmed, so during the first ~4-5 days it gradually starts
+   serving more areas as shards fill in. A query whose shard isn't
+   warmed yet just falls through to upstream as today.
+2. Watch cron logs for `[prewarm] country-refs <iso>: stored`.
+3. Verify a play area we've never cached returns `X-Cache: SLICED`
+   once its country shard is warm (DevTools → Network → the
+   `/api/interpreter` reference request).
+4. Once shards cover the curated cities, drop the per-city
+   references prewarm (Phase 2) — redundant work.
+
+### Memory guard
+
+Slicing parses the whole shard JSON in-Worker. The densest shards
+(DE, JP, US-east) can be tens of MB; `JSON.parse` on those risks
+OOMing the 128 MB isolate. `MAX_SLICE_PARSE_BYTES` (20 MB raw)
+caps it — over-threshold shards fall through to upstream. Those
+dense countries are well-covered by the per-city prewarm anyway;
+the slicing win is biggest for sparse countries (the JetLag-endgame
+rural-village case), which are comfortably under the cap. The v2
+escape hatch if we want dense-country slicing too: per-family shard
+files, so we parse only the requested family instead of the whole
+country.
 
 ## Goal
 

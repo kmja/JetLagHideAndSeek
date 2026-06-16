@@ -43,7 +43,14 @@ import {
 import { COUNTRY_SHARDS, type CountryShard } from "./countryShards";
 import type { Env } from "./envTypes";
 import { handleJourneyArrivals } from "./journey";
-import { countryRefsKey } from "./querySlicing";
+import {
+    countryRefsKey,
+    extractBbox,
+    findContainingShard,
+    type OverpassResponse,
+    sliceResponseByBbox,
+    templateFingerprint,
+} from "./querySlicing";
 
 /**
  * Public Overpass mirrors we race for non-boundary queries.
@@ -772,6 +779,38 @@ async function handleRequest(
             );
             if (refreshResp) return refreshResp;
             return buildR2Response(r2Hit, cors, "R2_STALE_FALLBACK", age);
+        }
+
+        // Step 2.5 — country-shard slicing. No exact cache entry, but
+        // if this is the combined-references query and its bbox sits
+        // inside a prewarmed country shard, derive the answer by
+        // filtering the shard's cached response instead of going
+        // upstream. Behind the same flag as the prewarm cron so we
+        // never read shards that aren't being warmed. Any failure is a
+        // clean fall-through to Step 3.
+        if (env.COUNTRY_REFS_PREWARM_ENABLED === "true") {
+            let sliced: SlicedResult | null = null;
+            try {
+                sliced = await trySliceFromCountryShard(query, env);
+            } catch (e) {
+                console.warn("country-refs slice threw, falling through:", e);
+            }
+            if (sliced) {
+                const resp = new Response(JSON.stringify(sliced.body), {
+                    status: 200,
+                    headers: {
+                        ...corsHeadersAsObject(cors),
+                        "Content-Type": "application/json",
+                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                        "X-Cache": "SLICED",
+                        "X-Cache-Shard": sliced.shardIso,
+                    },
+                });
+                // Seed the edge cache so a re-ask of the same play-area
+                // bbox skips the shard fetch + parse entirely.
+                ctx.waitUntil(edgeCache.put(cacheApiKey, resp.clone()));
+                return resp;
+            }
         }
 
         // Step 3 — full miss. Stream upstream → gzip → tee → [R2,
@@ -1860,6 +1899,94 @@ async function prewarmCountryReferences(
         console.warn(`R2 put failed during country-refs prewarm of ${shard.iso}:`, e);
         return { status: "r2-put-failed" };
     }
+}
+
+/**
+ * Fingerprint of the combined-references query template (the query
+ * minus its bbox, whitespace-collapsed). Computed once per isolate
+ * from `buildReferenceBboxQuery` — which is byte-identical to the
+ * client's combined prefetch query — and memoised. Only queries
+ * whose fingerprint matches this are eligible for shard-slicing;
+ * everything else (single-family on-tap queries, boundary fetches,
+ * arbitrary upstream queries) falls through to the normal path.
+ */
+let _refTemplateFp: string | null = null;
+async function referenceTemplateFingerprint(): Promise<string> {
+    if (_refTemplateFp) return _refTemplateFp;
+    // Any extent works — the bbox is stripped during canonicalisation.
+    const dummy = buildReferenceBboxQuery([1, 0, 0, 1]);
+    _refTemplateFp = await templateFingerprint(dummy);
+    return _refTemplateFp;
+}
+
+/**
+ * Max RAW (uncompressed) shard size we'll parse in-Worker. The
+ * densest country shards (Germany, Japan, US-east) can be tens of
+ * MB; `JSON.parse` on a 50 MB string plus the parsed object can
+ * approach the Worker's 128 MB memory ceiling and OOM the isolate
+ * — which kills the request rather than throwing catchably. Shards
+ * over this threshold skip the slicing path and fall through to a
+ * normal upstream fetch (those dense countries are well covered by
+ * the per-city prewarm anyway). Sparse countries — exactly where
+ * prewarming helps most, e.g. a JetLag endgame in a rural village —
+ * are comfortably under it. Raise once we've measured real headroom
+ * or move to per-family shard files (see global-prewarm.md).
+ */
+const MAX_SLICE_PARSE_BYTES = 20 * 1024 * 1024;
+
+interface SlicedResult {
+    body: OverpassResponse;
+    shardIso: string;
+}
+
+/**
+ * Attempt to answer a reference query by slicing a prewarmed
+ * country shard. Returns null (→ caller falls through to the normal
+ * upstream path) on any of: query has no bbox, query isn't the
+ * combined-references template, bbox not contained in any shard,
+ * shard not warmed, shard too large to parse safely, or any parse
+ * error. Slicing is a pure optimisation — every failure mode is a
+ * clean fall-through, never wrong data.
+ */
+async function trySliceFromCountryShard(
+    query: string,
+    env: Env,
+): Promise<SlicedResult | null> {
+    const bbox = extractBbox(query);
+    if (!bbox) return null;
+
+    const fp = await templateFingerprint(query);
+    if (fp !== (await referenceTemplateFingerprint())) return null;
+
+    const shard = findContainingShard(bbox);
+    if (!shard) return null;
+
+    let obj: R2ObjectBody | null = null;
+    try {
+        obj = await env.CACHE.get(countryRefsKey(shard.iso));
+    } catch (e) {
+        console.warn(`country-refs slice: R2 get failed for ${shard.iso}:`, e);
+        return null;
+    }
+    if (!obj) return null;
+
+    const rawSize = parseInt(obj.customMetadata?.sizeBytes ?? "0", 10);
+    if (Number.isFinite(rawSize) && rawSize > MAX_SLICE_PARSE_BYTES) {
+        // Too big to parse safely in-Worker — let it fall through.
+        return null;
+    }
+
+    let parsed: OverpassResponse;
+    try {
+        const text = await readR2Text(obj);
+        parsed = JSON.parse(text) as OverpassResponse;
+    } catch (e) {
+        console.warn(`country-refs slice: parse failed for ${shard.iso}:`, e);
+        return null;
+    }
+
+    const sliced = sliceResponseByBbox(parsed, bbox);
+    return { body: sliced, shardIso: shard.iso };
 }
 
 /**
