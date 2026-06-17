@@ -82,11 +82,11 @@ export function HiderTimeHeader() {
     return (
         <header
             className={cn(
-                // Sits below HiderTopBar (h-14 + safe-area). Stacks
-                // the brand bar on top and the phase + countdown
-                // beneath, mirroring the seeker's vertical chrome
-                // (brand → status).
-                "fixed top-[calc(3.5rem+env(safe-area-inset-top))] inset-x-0 z-[1040]",
+                // Sits below HiderTopBar. v292 trimmed the top-bar
+                // height from 3.5rem to 3rem (the fixed h-14 was
+                // squashing on Dynamic Island devices), so this
+                // offset follows.
+                "fixed top-[calc(3rem+env(safe-area-inset-top))] inset-x-0 z-[1040]",
                 "bg-background/95 backdrop-blur-sm border-b border-border",
             )}
         >

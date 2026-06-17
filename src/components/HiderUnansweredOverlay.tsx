@@ -62,9 +62,10 @@ export function HiderUnansweredOverlay() {
         <div
             className={cn(
                 "pointer-events-none fixed left-1/2 -translate-x-1/2 z-[1035]",
-                // Sits below the time header (top bar 56 + safe-area
-                // + time header ~72 ≈ 128) with a small gap.
-                "top-[calc(8.5rem+env(safe-area-inset-top))]",
+                // Sits below the time header (top bar 48 + safe-area
+                // + time header ~72 ≈ 120) with a small gap. v292
+                // shaved 0.5rem off the top-bar height.
+                "top-[calc(8rem+env(safe-area-inset-top))]",
                 "max-w-[92vw] w-[min(92vw,420px)]",
             )}
             data-testid="hider-unanswered-overlay"

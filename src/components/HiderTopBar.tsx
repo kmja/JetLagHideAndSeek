@@ -19,11 +19,15 @@ export function HiderTopBar() {
         <header
             className={cn(
                 "fixed top-0 inset-x-0 z-[1041]",
-                "h-14 px-3",
+                "px-3 pb-2",
+                // v292: drop the rigid `h-14` (which fixed-height
+                // squashed the wordmark on Dynamic Island devices
+                // where env(safe-area-inset-top) ≈ 59 px alone). Now
+                // the bar sizes itself as safe-area + content + pb.
+                "pt-[max(0.5rem,env(safe-area-inset-top))]",
                 "bg-jetlag/95 backdrop-blur",
                 "border-b border-border",
                 "flex items-center justify-between gap-2",
-                "pt-[env(safe-area-inset-top)]",
             )}
         >
             <div className="w-10 h-10" aria-hidden />

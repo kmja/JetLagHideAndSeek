@@ -21,11 +21,17 @@ export function SeekerTopBar() {
         <header
             className={cn(
                 "md:hidden fixed top-0 inset-x-0 z-[1040]",
-                "h-14 px-3",
+                "px-3 pb-2",
+                // v292: drop the rigid `h-14` and let the bar size
+                // itself as safe-area + content + pb. With h-14 the
+                // env(safe-area-inset-top) padding-top was eating into
+                // the fixed 56 px box (Dynamic Island devices report
+                // ~59 px of inset), squashing the wordmark under the
+                // notch.
+                "pt-[max(0.5rem,env(safe-area-inset-top))]",
                 "bg-jetlag/95 backdrop-blur",
                 "border-b border-border",
                 "flex items-center justify-between gap-2",
-                "pt-[env(safe-area-inset-top)]",
                 "group-[.fullscreen]:hidden",
             )}
         >

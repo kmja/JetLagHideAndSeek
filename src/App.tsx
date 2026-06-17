@@ -10,6 +10,7 @@ import { ToastContainer } from "react-toastify";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
+import { playerRole } from "@/lib/hiderRole";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Each route is lazy-loaded so a user landing on `/` never has to
@@ -51,12 +52,35 @@ const WelcomePage = lazyWithRetry(() =>
  * two atoms the inner pages used to read in `useEffect`s — but at
  * the route level so the redirect happens BEFORE the page mounts,
  * not after a frame of seeker chrome flashes.
+ *
+ * v292: also enforces role/route consistency. RolePicker handles
+ * the role→route nav on click, but a reload or deep link to the
+ * wrong shell used to leave the user on the seeker page with the
+ * hider role (visible bug: seeker bottom-nav under the hider role).
+ * The gate now bounces hider/co-hider visits to `/` over to `/h`
+ * (and vice versa for a seeker landing on `/h`).
  */
-function GameRouteGate({ children }: { children: React.ReactNode }) {
+function GameRouteGate({
+    children,
+    expectedRole,
+}: {
+    children: React.ReactNode;
+    expectedRole: "seeker" | "hider";
+}) {
     const $welcomeSeen = useStore(welcomeSeen);
     const $setupCompleted = useStore(setupCompleted);
+    const $role = useStore(playerRole);
     if (!$welcomeSeen) return <Navigate to="/welcome" replace />;
     if (!$setupCompleted) return <Navigate to="/setup" replace />;
+    if ($role !== null) {
+        const onHiderSide = $role === "hider" || $role === "coHider";
+        if (expectedRole === "seeker" && onHiderSide) {
+            return <Navigate to="/h" replace />;
+        }
+        if (expectedRole === "hider" && !onHiderSide) {
+            return <Navigate to="/" replace />;
+        }
+    }
     return <>{children}</>;
 }
 
@@ -94,7 +118,7 @@ const router = createBrowserRouter([
         element: (
             <RouteWrapper
                 element={
-                    <GameRouteGate>
+                    <GameRouteGate expectedRole="seeker">
                         <SeekerPage />
                     </GameRouteGate>
                 }
@@ -106,7 +130,7 @@ const router = createBrowserRouter([
         element: (
             <RouteWrapper
                 element={
-                    <GameRouteGate>
+                    <GameRouteGate expectedRole="hider">
                         <HiderPage />
                     </GameRouteGate>
                 }
@@ -118,7 +142,7 @@ const router = createBrowserRouter([
         element: (
             <RouteWrapper
                 element={
-                    <GameRouteGate>
+                    <GameRouteGate expectedRole="hider">
                         <HiderPage />
                     </GameRouteGate>
                 }
@@ -132,13 +156,14 @@ const router = createBrowserRouter([
         element: <RouteWrapper element={<DebugCardsPage />} />,
     },
     // Catch-all — anything else lands on the seeker shell (which the
-    // gate then redirects from if welcome / setup haven't been done).
+    // gate then redirects from if welcome / setup haven't been done,
+    // or if the current playerRole belongs on /h).
     {
         path: "*",
         element: (
             <RouteWrapper
                 element={
-                    <GameRouteGate>
+                    <GameRouteGate expectedRole="seeker">
                         <SeekerPage />
                     </GameRouteGate>
                 }

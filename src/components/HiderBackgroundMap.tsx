@@ -330,8 +330,9 @@ export function HiderBackgroundMap() {
             </Map>
 
             {/* Top-right cluster — basemap + transit toggles. Sits
-                below the HiderTimeHeader (which ends near 9rem). */}
-            <div className="absolute top-[calc(9rem+env(safe-area-inset-top))] right-2 z-[1030]">
+                below the HiderTimeHeader (which ends near 8.5rem
+                after v292 trimmed the top-bar). */}
+            <div className="absolute top-[calc(8.5rem+env(safe-area-inset-top))] right-2 z-[1030]">
                 <HiderMapDisplayControls />
             </div>
 
