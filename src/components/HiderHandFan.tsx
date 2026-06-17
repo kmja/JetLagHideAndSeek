@@ -185,7 +185,50 @@ export function HiderHandFan() {
                 }}
                 card={castCurse}
             />
+
+            {/* v303: hand-cap enforcer. Watches hand vs limit; pops a
+                non-dismissible picker whenever the hand is over.
+                Round reset already zeroes hand + resets limit to 6
+                (resetHiderRoundState), so this never fires off the
+                top of a new round. */}
+            <HandTrimPicker />
         </>
+    );
+}
+
+/**
+ * Hand-overflow enforcer. Rulebook (p44): the hider can hold at
+ * most six cards (raisable via the Draw-1-Expand powerup). Draws
+ * from question rewards, duplicate powerups, etc. can push the
+ * hand past that. When they do, this picker opens — non-dismissible
+ * — and forces the hider to choose which N cards to discard down
+ * to the limit before the carousel / map become interactive
+ * again. Click-outside / escape are blocked; the only way to
+ * close it is to make the required picks.
+ */
+function HandTrimPicker() {
+    const $hand = useStore(hiderHand);
+    const $limit = useStore(hiderHandLimit);
+    const overage = Math.max(0, $hand.length - $limit);
+
+    if (overage === 0) return null;
+
+    return (
+        <HandCardPicker
+            open={true}
+            onOpenChange={() => {
+                /* non-dismissible — the hider must trim to limit */
+            }}
+            nonDismissible
+            title={`Hand cap ${$limit} — discard ${overage}`}
+            description={`You're holding ${$hand.length} cards but the cap is ${$limit}. Pick ${overage === 1 ? "one card" : `${overage} cards`} to discard.`}
+            pickCount={overage}
+            excludeIds={[]}
+            confirmLabel={`Discard ${overage}`}
+            onConfirm={(ids) => {
+                for (const id of ids) discardCard(id);
+            }}
+        />
     );
 }
 

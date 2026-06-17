@@ -35,6 +35,7 @@ export function HandCardPicker({
     excludeIds,
     confirmLabel,
     onConfirm,
+    nonDismissible = false,
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -46,6 +47,11 @@ export function HandCardPicker({
     excludeIds: string[];
     confirmLabel: string;
     onConfirm: (ids: string[]) => void;
+    /** When true, hides the X close button and ignores
+     *  click-outside / escape — the user MUST confirm to dismiss.
+     *  Used by the hand-cap enforcer to make the trim-down
+     *  picker mandatory. */
+    nonDismissible?: boolean;
 }) {
     const $hand = useStore(hiderHand);
     const $gameSize = useStore(gameSize);
@@ -70,8 +76,24 @@ export function HandCardPicker({
     const canConfirm = selected.length === pickCount;
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog
+            open={open}
+            onOpenChange={(o) => {
+                if (nonDismissible && !o) return;
+                onOpenChange(o);
+            }}
+        >
             <DialogContent
+                closeIcon={!nonDismissible}
+                onEscapeKeyDown={(e) => {
+                    if (nonDismissible) e.preventDefault();
+                }}
+                onPointerDownOutside={(e) => {
+                    if (nonDismissible) e.preventDefault();
+                }}
+                onInteractOutside={(e) => {
+                    if (nonDismissible) e.preventDefault();
+                }}
                 className={cn(
                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0",
