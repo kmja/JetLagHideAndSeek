@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { ArrowDown, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import { pendingDraw, resolvePendingDraw } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 
 import { CardTile } from "./CardTile";
-import { SectionPill } from "./JetLagLogo";
 
 /**
  * Modal that fires whenever `pendingDraw` is non-null. v252 reworks
@@ -125,15 +124,21 @@ export function DrawPickerDialog() {
 
     const cols = total <= 2 ? 2 : total === 3 ? 3 : 2; // 4 → 2x2
 
-    // v301: when the last card is picked, fade the surrounding
-    // chrome (header pill / title / description, footer status)
-    // along with the discarded cards so the moment reads as the
-    // whole tray dissolving back into the hand — not just the
-    // cards leaving but the picker as a whole.
+    // v306: chrome fades both during the final card's fly AND
+    // during the discard fade-out — they're now the same moment.
+    // `flyingLast` flips the fade on the instant the last pick is
+    // confirmed; `finished` keeps it faded after the fly completes
+    // until resolvePendingDraw clears `pendingDraw`. Earlier
+    // (v301) the fade only kicked in after the fly finished, so
+    // the chrome was still solid while the kept card was already
+    // flying down toward the hand.
+    const flyingLast =
+        flyingId !== null && keptIds.length === keep - 1;
+    const chromeFadeOn = finished || flyingLast;
     const chromeFadeCls = cn(
         "transition-opacity ease-out",
-        finished
-            ? `opacity-0 pointer-events-none duration-[${FADE_MS}ms]`
+        chromeFadeOn
+            ? `opacity-0 pointer-events-none duration-[${FLY_MS}ms]`
             : "opacity-100 duration-200",
     );
 
@@ -142,36 +147,32 @@ export function DrawPickerDialog() {
             <DialogContent
                 closeIcon={false}
                 className={cn(
-                    // v301: no panel chrome — cards float over the
-                    // dim overlay like the HandCarousel. Same
-                    // tokenless look the post-share carousel uses.
                     "!bg-transparent !border-0 !shadow-none",
                     "flex flex-col p-0 gap-3",
                     "!max-w-md w-[min(92vw,28rem)]",
                     "max-h-[92vh]",
-                    // Cards animate well beyond their cell bbox.
                     "!overflow-visible",
                 )}
             >
-                <div className={cn("px-2 text-center", chromeFadeCls)}>
-                    <div className="mb-2 flex items-center justify-center gap-2">
-                        <SectionPill>Hider reward</SectionPill>
-                        <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground">
-                            {capitalize($pending.sourceCategory)}
-                        </span>
-                    </div>
-                    <DialogTitle className="font-inter-tight font-black uppercase text-xl tracking-tight leading-tight text-foreground">
-                        Draw {total}, keep {keep}
-                    </DialogTitle>
-                    <DialogDescription className="mt-1.5 text-xs text-muted-foreground/90">
-                        Tap a card to highlight it, then tap{" "}
-                        <span className="font-semibold text-foreground">
-                            Keep this card
-                        </span>{" "}
-                        below it. The rest are discarded once you're
-                        done picking.
-                    </DialogDescription>
-                </div>
+                {/* v306: one big, simple header. The "Hider reward",
+                    category sub-pill, and long description that used
+                    to sit here are gone — the action is obvious from
+                    the title alone. */}
+                <DialogTitle
+                    className={cn(
+                        "px-2 text-center font-inter-tight font-black uppercase",
+                        "text-3xl tracking-tight leading-tight text-foreground",
+                        chromeFadeCls,
+                    )}
+                >
+                    Pick {keep} card{keep === 1 ? "" : "s"}
+                </DialogTitle>
+                {/* SR-only description so Radix doesn't complain
+                    about an undescribed dialog. */}
+                <DialogDescription className="sr-only">
+                    Pick {keep} card{keep === 1 ? "" : "s"} to keep
+                    from the {total} drawn. The rest are discarded.
+                </DialogDescription>
 
                 <div className="px-2 py-2 min-h-0 overflow-visible">
                     <div
@@ -203,29 +204,6 @@ export function DrawPickerDialog() {
                             );
                         })}
                     </div>
-                </div>
-
-                <div
-                    className={cn(
-                        "px-2 flex items-center justify-between gap-2",
-                        chromeFadeCls,
-                    )}
-                >
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                        {finished
-                            ? "Discarding the rest…"
-                            : `${picksRemaining} pick${picksRemaining === 1 ? "" : "s"} remaining`}
-                    </span>
-                    <span
-                        className={cn(
-                            "text-[10px] uppercase tracking-[0.16em] font-poppins font-bold",
-                            picksRemaining === 0
-                                ? "text-primary"
-                                : "text-muted-foreground",
-                        )}
-                    >
-                        {keptIds.length} / {keep} kept
-                    </span>
                 </div>
             </DialogContent>
         </Dialog>
@@ -334,8 +312,7 @@ function CardCell({
                             "animate-in fade-in slide-in-from-top-1 duration-150",
                         )}
                     >
-                        <ArrowDown className="w-3.5 h-3.5" />
-                        Keep this card
+                        Pick this card
                         <Check className="w-3.5 h-3.5" />
                     </Button>
                 )}
@@ -344,8 +321,5 @@ function CardCell({
     );
 }
 
-function capitalize(s: string): string {
-    return s.charAt(0).toUpperCase() + s.slice(1);
-}
 
 export default DrawPickerDialog;
