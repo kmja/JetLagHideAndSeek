@@ -91,14 +91,13 @@ export function MapDisplayControls() {
                         aria-label="Map display options"
                         className={cn(
                             "relative shadow-md rounded-md border-2 border-border bg-background",
-                            // v310: icon-only square (no label) with
-                            // the glyph doubled in size. The button
-                            // gets a matching square footprint so the
-                            // icon has breathing room and the cluster
-                            // still reads as a tappable target. The
-                            // active-count badge floats top-right as
-                            // a small dot.
-                            "h-12 w-12 flex items-center justify-center transition-colors",
+                            // v314: square footprint bumped from
+                            // h-12/w-12 to h-14/w-14 — with the
+                            // glyph now at w-8 the previous
+                            // 8 px-per-side padding read as cramped.
+                            // 12 px on each side gives the icon some
+                            // breathing room.
+                            "h-14 w-14 flex items-center justify-center transition-colors",
                             "hover:bg-accent",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         )}

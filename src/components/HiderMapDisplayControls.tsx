@@ -74,9 +74,11 @@ export function HiderMapDisplayControls() {
                     aria-label="Map display options"
                     className={cn(
                         "relative shadow-md rounded-md border-2 border-border bg-background",
-                        // v310: icon-only square (no "Map options"
-                        // label) with the glyph doubled.
-                        "h-12 w-12 flex items-center justify-center transition-colors",
+                        // v314: bumped from h-12/w-12 to h-14/w-14
+                        // — the doubled glyph (w-8) needed more
+                        // padding to keep the button from reading
+                        // as cramped.
+                        "h-14 w-14 flex items-center justify-center transition-colors",
                         "hover:bg-accent",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     )}
