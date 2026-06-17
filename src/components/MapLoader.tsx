@@ -123,24 +123,35 @@ function midpoint(d: string): { x: number; y: number } {
     };
 }
 
-/* ─────── Parks (soft green blobs scattered across the frame) ─────── */
+/* ─────── Parks ───────
+ * Big organic polygons — abstracted from the dominant green blobs
+ * of a Stockholm-style tile (Vasaparken / Kungsholmen / waterfront
+ * parks). Each grows from its own centre. */
 
 interface PolyDef {
     points: string;
 }
 const PARKS: PolyDef[] = [
-    { points: "120,40 156,36 168,58 148,72 120,66" },
-    { points: "180,108 214,104 224,124 200,138 178,128" },
-    { points: "30,114 60,110 70,128 50,144 28,138" },
-    { points: "238,42 268,40 278,58 260,72 240,66" },
-    { points: "92,128 122,126 128,148 102,156 88,148" },
+    // Big top-centre park (Vasaparken-shaped)
+    { points: "78,24 124,20 146,36 142,60 116,70 86,64 68,46" },
+    // Left-edge park
+    { points: "0,76 32,72 44,90 36,110 12,114 -6,100" },
+    // Bottom-centre park (with a sub-blob extension)
+    { points: "86,134 130,130 152,150 138,170 96,170 78,156" },
+    // Right-top park
+    { points: "248,26 282,24 298,42 290,64 262,68 244,52" },
+    // Right-bottom park
+    { points: "226,140 268,136 290,154 280,172 236,174 218,158" },
 ];
 const WOODS: PolyDef[] = [
-    { points: "8,40 38,38 46,60 24,74 4,68" },
-    { points: "278,108 308,110 314,132 294,146 274,138" },
+    // Small wooded patch between top park and right-top park
+    { points: "172,40 200,36 208,54 192,66 172,60" },
 ];
 
-/* ─────── Water — long lazy snake threading through the centre ─────── */
+/* ─────── Water — wide canal curving NW → SE through the centre ───────
+ * Drawn as a thick stroked path so it reads as a body of water; the
+ * curve mimics Klara sjö / Karlbergskanalen widening into a bay near
+ * the centre of the panel. */
 
 interface PathDef {
     d: string;
@@ -148,50 +159,49 @@ interface PathDef {
 }
 const RIVERS: PathDef[] = [
     {
-        // Snakes from upper-left, kisses centre, exits lower-right.
-        d: "M -10 50 C 50 38, 90 78, 140 76 S 220 96, 270 88 S 320 128, 330 130",
-        length: 400,
+        d: "M -10 58 C 40 52, 80 76, 130 100 S 200 116, 250 102 S 320 138, 340 148",
+        length: 460,
     },
 ];
 
-/* ─────── Roads — thinner network, denser grid ───────
- * Mostly straight grid lines with a few diagonals so it doesn't
- * read as perfectly orthogonal. Major + minor splits keep the
- * "casing under fill" look the live basemap uses.
- */
+/* ─────── Roads ───────
+ * Sparser than v281, with varied angles so districts don't read as
+ * a single perfect grid. Three meandering majors + ~12 minors with
+ * intentional skew between left-side and right-side districts. */
 const MAJOR_ROADS: PathDef[] = [
-    { d: "M -10 92 L 330 92", length: 340 },
-    { d: "M 160 -10 L 160 190", length: 200 },
-    { d: "M -10 30 Q 80 22 160 36 T 330 26", length: 360 },
+    { d: "M -10 32 Q 90 24 160 44 T 330 30", length: 380 },
+    { d: "M 156 -10 Q 168 60 152 100 T 168 190", length: 240 },
+    { d: "M -10 168 Q 90 152 170 158 T 330 144", length: 380 },
 ];
 const MINOR_ROADS: PathDef[] = [
-    { d: "M -10 50 L 330 50", length: 340 },
-    { d: "M -10 70 L 330 70", length: 340 },
-    { d: "M -10 110 L 330 110", length: 340 },
-    { d: "M -10 132 L 330 132", length: 340 },
-    { d: "M -10 154 L 330 154", length: 340 },
-    { d: "M 40 -10 L 40 190", length: 200 },
-    { d: "M 80 -10 L 80 190", length: 200 },
-    { d: "M 120 -10 L 120 190", length: 200 },
-    { d: "M 200 -10 L 200 190", length: 200 },
-    { d: "M 240 -10 L 240 190", length: 200 },
-    { d: "M 280 -10 L 280 190", length: 200 },
-    // A couple of diagonals to break the grid
-    { d: "M -10 16 L 100 110", length: 145 },
-    { d: "M 220 110 L 330 16", length: 145 },
-    { d: "M -10 170 L 110 100", length: 140 },
-    { d: "M 210 100 L 330 168", length: 140 },
+    // Left district — slight downward tilt
+    { d: "M -10 14 L 150 8", length: 165 },
+    { d: "M -10 70 L 150 64", length: 165 },
+    { d: "M 26 -10 L 32 110", length: 125 },
+    { d: "M 60 -10 L 66 110", length: 125 },
+    { d: "M 94 -10 L 100 110", length: 125 },
+    // Right district — counter-tilt
+    { d: "M 170 8 L 330 14", length: 165 },
+    { d: "M 170 66 L 330 72", length: 165 },
+    { d: "M 218 -10 L 212 110", length: 125 },
+    { d: "M 252 -10 L 246 110", length: 125 },
+    { d: "M 286 -10 L 280 110", length: 125 },
+    // Cross-streets through the lower half
+    { d: "M -10 122 L 330 118", length: 340 },
+    { d: "M -10 144 Q 150 140 330 134", length: 340 },
+    // Two boulevards on diagonals
+    { d: "M -10 6 L 70 90", length: 122 },
+    { d: "M 250 90 L 330 8", length: 118 },
 ];
 const RAILWAY: PathDef = {
-    // Curves under the river.
-    d: "M -10 122 L 90 118 L 200 124 L 330 116",
+    // Curves through the lower third, parallel to the river south side.
+    d: "M -10 130 Q 80 124 180 132 T 330 124",
     length: 360,
 };
 
 /* ─────── Buildings ───────
- * Denser than v275 so the frame reads as a z15 city block grid.
- * Footprints clustered between roads, sizes varied. Each will grow
- * out from its own centre (scale, not scaleY).
+ * Footprints placed in the gaps between parks and water — not just
+ * the orthogonal "rows" of v281. Each grows from its own centre.
  */
 interface BlockDef {
     x: number;
@@ -200,82 +210,77 @@ interface BlockDef {
     h: number;
 }
 const BUILDINGS: BlockDef[] = [
-    // Row near top (between y=30 and y=50)
-    { x: 50, y: 36, w: 8, h: 6 },
-    { x: 64, y: 34, w: 10, h: 8 },
-    { x: 90, y: 36, w: 7, h: 6 },
-    { x: 130, y: 38, w: 8, h: 6 },
-    { x: 144, y: 40, w: 10, h: 6 },
-    { x: 170, y: 38, w: 8, h: 7 },
-    { x: 184, y: 40, w: 6, h: 5 },
-    { x: 210, y: 36, w: 9, h: 7 },
-    { x: 224, y: 40, w: 7, h: 5 },
-    { x: 290, y: 36, w: 7, h: 8 },
-    { x: 302, y: 38, w: 8, h: 6 },
-    // Row between 50 and 70
-    { x: 6, y: 56, w: 9, h: 7 },
-    { x: 20, y: 58, w: 7, h: 5 },
-    { x: 50, y: 56, w: 10, h: 8 },
-    { x: 64, y: 58, w: 6, h: 6 },
-    { x: 90, y: 56, w: 8, h: 8 },
-    { x: 104, y: 60, w: 7, h: 4 },
-    { x: 184, y: 56, w: 8, h: 8 },
-    { x: 224, y: 58, w: 8, h: 6 },
-    { x: 248, y: 56, w: 7, h: 8 },
-    { x: 262, y: 60, w: 6, h: 4 },
-    { x: 288, y: 56, w: 9, h: 7 },
-    { x: 302, y: 60, w: 7, h: 4 },
-    // Row between 72 and 90 (dense around centre)
-    { x: 6, y: 78, w: 8, h: 6 },
-    { x: 22, y: 80, w: 6, h: 5 },
-    { x: 50, y: 78, w: 10, h: 6 },
-    { x: 64, y: 76, w: 8, h: 9 },
-    { x: 90, y: 78, w: 6, h: 6 },
-    { x: 104, y: 76, w: 8, h: 9 },
-    { x: 120, y: 80, w: 6, h: 5 },
-    { x: 136, y: 78, w: 8, h: 6 },
-    { x: 164, y: 78, w: 9, h: 6 },
-    { x: 176, y: 78, w: 6, h: 6 },
-    { x: 200, y: 76, w: 9, h: 9 },
-    { x: 224, y: 78, w: 7, h: 6 },
-    { x: 248, y: 80, w: 9, h: 5 },
-    { x: 288, y: 78, w: 8, h: 6 },
-    // Row between 95 and 110
-    { x: 6, y: 98, w: 8, h: 7 },
-    { x: 20, y: 100, w: 6, h: 5 },
-    { x: 46, y: 98, w: 7, h: 6 },
-    { x: 60, y: 98, w: 6, h: 8 },
-    { x: 90, y: 98, w: 8, h: 9 },
-    { x: 104, y: 100, w: 7, h: 6 },
-    { x: 124, y: 100, w: 7, h: 5 },
-    { x: 136, y: 100, w: 6, h: 7 },
-    { x: 164, y: 100, w: 6, h: 6 },
-    { x: 176, y: 100, w: 8, h: 6 },
-    { x: 246, y: 100, w: 8, h: 6 },
-    { x: 290, y: 100, w: 8, h: 7 },
-    { x: 304, y: 102, w: 6, h: 4 },
-    // Row between 132 and 154
-    { x: 6, y: 138, w: 8, h: 8 },
-    { x: 22, y: 140, w: 6, h: 5 },
-    { x: 64, y: 138, w: 8, h: 8 },
-    { x: 130, y: 138, w: 7, h: 8 },
-    { x: 144, y: 142, w: 8, h: 6 },
-    { x: 164, y: 138, w: 7, h: 6 },
-    { x: 178, y: 142, w: 5, h: 4 },
-    { x: 246, y: 138, w: 7, h: 6 },
-    { x: 258, y: 142, w: 6, h: 5 },
-    { x: 290, y: 138, w: 8, h: 8 },
-    { x: 304, y: 140, w: 6, h: 5 },
-    // Bottom strip 156–174
-    { x: 50, y: 162, w: 8, h: 5 },
-    { x: 64, y: 164, w: 6, h: 4 },
-    { x: 144, y: 162, w: 7, h: 6 },
-    { x: 220, y: 162, w: 6, h: 5 },
-    { x: 240, y: 164, w: 7, h: 4 },
-    { x: 268, y: 162, w: 8, h: 6 },
+    // Top strip (y=10-22) — above the parks
+    { x: 14, y: 12, w: 8, h: 4 },
+    { x: 36, y: 14, w: 6, h: 5 },
+    { x: 54, y: 12, w: 8, h: 4 },
+    { x: 78, y: 14, w: 6, h: 4 },
+    { x: 100, y: 12, w: 8, h: 5 },
+    { x: 124, y: 14, w: 6, h: 4 },
+    { x: 184, y: 12, w: 8, h: 5 },
+    { x: 206, y: 14, w: 6, h: 4 },
+    { x: 230, y: 12, w: 8, h: 5 },
+    { x: 252, y: 14, w: 7, h: 4 },
+    { x: 296, y: 12, w: 8, h: 5 },
+    { x: 312, y: 14, w: 6, h: 4 },
+    // Row y=36-46 — between top park and right-top park
+    { x: 6, y: 38, w: 8, h: 6 },
+    { x: 22, y: 40, w: 7, h: 5 },
+    { x: 42, y: 38, w: 8, h: 6 },
+    { x: 58, y: 40, w: 6, h: 4 },
+    { x: 154, y: 38, w: 8, h: 6 },
+    { x: 166, y: 42, w: 6, h: 4 },
+    { x: 216, y: 38, w: 7, h: 6 },
+    { x: 228, y: 40, w: 6, h: 5 },
+    { x: 306, y: 38, w: 8, h: 6 },
+    // Row y=58-68
+    { x: 6, y: 58, w: 9, h: 6 },
+    { x: 22, y: 60, w: 6, h: 5 },
+    { x: 50, y: 58, w: 8, h: 7 },
+    { x: 152, y: 58, w: 9, h: 7 },
+    { x: 224, y: 60, w: 8, h: 6 },
+    { x: 238, y: 62, w: 7, h: 5 },
+    { x: 304, y: 60, w: 7, h: 5 },
+    // Right of water bay (y=78-100, x>250)
+    { x: 256, y: 78, w: 8, h: 6 },
+    { x: 270, y: 80, w: 6, h: 5 },
+    { x: 290, y: 78, w: 8, h: 7 },
+    { x: 304, y: 82, w: 6, h: 5 },
+    { x: 256, y: 122, w: 7, h: 5 },
+    // Above water arc (y=78-92, x<60)
+    { x: 6, y: 80, w: 8, h: 6 },
+    { x: 22, y: 82, w: 6, h: 5 },
+    { x: 42, y: 80, w: 7, h: 5 },
+    // Below water (between water and lower parks): y=110-130
+    { x: 60, y: 108, w: 8, h: 6 },
+    { x: 76, y: 110, w: 6, h: 5 },
+    { x: 96, y: 108, w: 8, h: 6 },
+    { x: 112, y: 112, w: 6, h: 4 },
+    { x: 158, y: 108, w: 8, h: 6 },
+    { x: 172, y: 112, w: 6, h: 4 },
+    { x: 196, y: 108, w: 8, h: 6 },
+    { x: 212, y: 112, w: 6, h: 4 },
+    // Row y=140-152 — between parks
+    { x: 14, y: 140, w: 8, h: 7 },
+    { x: 30, y: 144, w: 6, h: 4 },
+    { x: 54, y: 140, w: 8, h: 7 },
+    { x: 162, y: 140, w: 8, h: 6 },
+    { x: 178, y: 144, w: 6, h: 4 },
+    { x: 200, y: 140, w: 8, h: 6 },
+    { x: 296, y: 140, w: 8, h: 7 },
+    { x: 310, y: 144, w: 6, h: 4 },
+    // Bottom strip y=162-172 — between parks
+    { x: 14, y: 162, w: 8, h: 5 },
+    { x: 30, y: 164, w: 6, h: 4 },
+    { x: 60, y: 162, w: 8, h: 5 },
+    { x: 162, y: 162, w: 8, h: 5 },
+    { x: 178, y: 164, w: 6, h: 4 },
+    { x: 200, y: 162, w: 8, h: 5 },
+    { x: 296, y: 162, w: 8, h: 5 },
+    { x: 310, y: 164, w: 6, h: 4 },
 ];
 
-const DURATION = "7s";
+const DURATION = "8s";
 
 export function MapLoader({
     className,
@@ -348,7 +353,7 @@ export function MapLoader({
                         key={`river-${i}`}
                         d={r.d}
                         stroke={c.water}
-                        strokeWidth="9"
+                        strokeWidth="20"
                         fill="none"
                         strokeLinecap="round"
                         strokeLinejoin="round"
