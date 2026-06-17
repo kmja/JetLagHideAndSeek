@@ -64,7 +64,6 @@ import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
-import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
 
@@ -391,12 +390,6 @@ export function GameLobbyDialog() {
                     const headerTitle = cityLabel
                         ? `${sizeLabel} game in ${cityLabel}`
                         : "Lobby";
-                    const transitLabel =
-                        $allowedTransit.length > 0
-                            ? $allowedTransit
-                                  .map((m) => TRANSIT_LABELS[m])
-                                  .join(", ")
-                            : "Walking only";
                     return (
                         <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border space-y-2">
                             <div className="flex items-start gap-3">
@@ -404,9 +397,42 @@ export function GameLobbyDialog() {
                                     <VaulDrawer.Title className="text-lg font-semibold leading-tight tracking-tight truncate">
                                         {headerTitle}
                                     </VaulDrawer.Title>
-                                    <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug mt-0.5 truncate">
-                                        {transitLabel}
+                                    {/* v308: transit modes now render
+                                        as the same icon-pill chips
+                                        used in MidGameInfoSection so
+                                        the title-row reads at a
+                                        glance instead of being a
+                                        comma-separated text blob.
+                                        Walking is implicit (always
+                                        on); when no other modes are
+                                        allowed we surface that. */}
+                                    <VaulDrawer.Description className="sr-only">
+                                        {$allowedTransit.length > 0
+                                            ? `Allowed transit: ${$allowedTransit.map((m) => TRANSIT_LABELS[m]).join(", ")}`
+                                            : "Walking only"}
                                     </VaulDrawer.Description>
+                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                        {$allowedTransit.length === 0 ? (
+                                            <span className="text-xs text-muted-foreground italic">
+                                                Walking only
+                                            </span>
+                                        ) : (
+                                            $allowedTransit.map((m) => {
+                                                const Icon = TRANSIT_ICONS[m];
+                                                return (
+                                                    <span
+                                                        key={m}
+                                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-xs"
+                                                    >
+                                                        <Icon className="w-3 h-3" />
+                                                        <span>
+                                                            {TRANSIT_LABELS[m]}
+                                                        </span>
+                                                    </span>
+                                                );
+                                            })
+                                        )}
+                                    </div>
                                 </div>
                                 {$mp && $code && (
                                     <button
@@ -429,7 +455,15 @@ export function GameLobbyDialog() {
                                     </button>
                                 )}
                             </div>
-                            {isHost && $playArea && (
+                            {/* v308: dropped the `$playArea` half of
+                                the gate. A multiplayer hider-host who
+                                ran the wizard was hitting the gate
+                                before `playArea` propagated through
+                                the persistent atom; isHost is
+                                sufficient — if there's no play area
+                                yet, the Edit dialog will surface the
+                                wizard anyway. */}
+                            {isHost && (
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -690,9 +724,6 @@ export function GameLobbyDialog() {
                         <>
                             <RoundEndSection />
                             <MidGameInfoSection
-                                playArea={$playArea}
-                                transit={$allowedTransit}
-                                size={$size}
                                 isHiderRole={isHiderRole}
                                 mp={$mp}
                                 sharing={$seekerSharing}
@@ -1009,18 +1040,12 @@ const TRANSIT_ICONS: Record<TransitMode, React.ComponentType<{ className?: strin
 };
 
 function MidGameInfoSection({
-    playArea,
-    transit,
-    size,
     isHiderRole,
     mp,
     sharing,
     foundAt,
     onToggleSharing,
 }: {
-    playArea: { displayName: string } | null;
-    transit: TransitMode[];
-    size: import("@/lib/gameSetup").GameSize;
     isHiderRole: boolean;
     mp: boolean;
     sharing: boolean;
@@ -1029,66 +1054,13 @@ function MidGameInfoSection({
 }) {
     return (
         <div className="border-t border-border pt-3 space-y-3 animate-in fade-in duration-200">
-            {/* v266: settings + Edit button moved to the top of the
-                mid-game section so the most-used controls are
-                immediately visible without scrolling. Timer block
-                removed — the seeker / hider already see the live
-                countdown on their respective top-of-map timer cards. */}
-            {playArea && (
-                <div className="space-y-1.5 text-sm">
-                    <div className="flex justify-between gap-2">
-                        <span className="text-muted-foreground shrink-0">
-                            Play area
-                        </span>
-                        <span className="font-medium truncate min-w-0 text-right">
-                            {(() => {
-                                const parts = playArea.displayName
-                                    .split(",")
-                                    .map((s) => s.trim())
-                                    .filter(Boolean);
-                                if (parts.length <= 1) return playArea.displayName;
-                                return `${parts[0]}, ${parts[parts.length - 1]}`;
-                            })()}
-                        </span>
-                    </div>
-                    <div className="flex justify-between items-center gap-2">
-                        <span className="text-muted-foreground shrink-0">
-                            Size
-                        </span>
-                        <SizeBadge size={size} />
-                    </div>
-                    <div className="flex justify-between items-start gap-2">
-                        <span className="text-muted-foreground shrink-0 pt-1">
-                            Transit
-                        </span>
-                        <span className="flex flex-wrap gap-1 justify-end min-w-0">
-                            {transit.length === 0 ? (
-                                <span className="text-xs text-muted-foreground italic">
-                                    Walking only
-                                </span>
-                            ) : (
-                                transit.map((m) => {
-                                    const Icon = TRANSIT_ICONS[m];
-                                    return (
-                                        <span
-                                            key={m}
-                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-xs"
-                                        >
-                                            <Icon className="w-3 h-3" />
-                                            <span>{TRANSIT_LABELS[m]}</span>
-                                        </span>
-                                    );
-                                })
-                            )}
-                        </span>
-                    </div>
-                </div>
-            )}
-
-            {/* v296: Edit game settings moved out of the mid-game
-                info block and into the lobby header so the action
-                sits next to the play-area title rather than buried
-                in the secondary info section. */}
+            {/* v308: dropped the Play area / Size / Transit summary
+                block — the lobby header now carries the same
+                information ("Medium game in Stockholm" + the transit
+                icon pills) so duplicating it here was redundant.
+                v296 had already moved the Edit Settings button out;
+                this completes the cleanup so the mid-game section is
+                purely the GPS-sharing toggle. */}
 
             {/* GPS sharing toggle (seeker only, multiplayer, not found) */}
             {!isHiderRole && mp && foundAt === null && (
