@@ -177,12 +177,12 @@ export function App() {
         <>
             <RouterProvider router={router} />
             {/* Toast portal — single instance shared across both
-                routes. Same z-index ladder rules as before
-                (toasts sit above dialogs at z-1090). */}
+                routes. v298 restyled the pills via CSS (see
+                globals.css "React-Toastify pill restyle"). */}
             <ToastContainer
                 position="top-center"
-                autoClose={5000}
-                hideProgressBar={false}
+                autoClose={4000}
+                hideProgressBar
                 newestOnTop
                 closeOnClick
                 pauseOnFocusLoss

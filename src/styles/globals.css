@@ -602,3 +602,96 @@ div.leaflet-control-attribution.leaflet-control {
  * now Protomaps vector with native light/dark flavors, so we don't
  * need to invert the canvas to fake a dark style. The rule is left
  * commented here as a breadcrumb in case anyone goes looking for it. */
+
+/* ─────────── React-Toastify pill restyle (v298) ─────────────
+ * Default toastify renders ~320 px full-width banners stuck to the
+ * top of the screen, which looked nothing like the rest of the
+ * app. v298 strips that to compact pills using the same surface
+ * tokens the rest of the UI uses (sidebar background, border,
+ * shadow). Position drops the container below the top bar so the
+ * pills sit over the top of the map, never over the chrome.
+ */
+.Toastify__toast-container {
+    width: auto !important;
+    max-width: calc(100vw - 1.5rem) !important;
+    padding: 0 !important;
+    /* Below SeekerTopBar/HiderTopBar (~3rem + safe-area on mobile,
+     * 0 on desktop) with a small gap. Centred horizontally. */
+    top: calc(env(safe-area-inset-top) + 3.5rem) !important;
+    transform: translateX(-50%) !important;
+    left: 50% !important;
+    z-index: 1090;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+.Toastify__toast-container--top-center {
+    margin-left: 0 !important;
+}
+.Toastify__toast {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 0 !important;
+    padding: 0.5rem 0.9rem !important;
+    margin-bottom: 0 !important;
+    border-radius: 9999px !important;
+    border: 1.5px solid hsl(var(--border)) !important;
+    background: hsl(var(--sidebar-background)) !important;
+    color: hsl(var(--sidebar-foreground)) !important;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5) !important;
+    font-family: "Poppins", system-ui, sans-serif !important;
+    font-size: 13px !important;
+    line-height: 1.35 !important;
+    backdrop-filter: blur(8px);
+    animation-duration: 200ms !important;
+}
+.Toastify__toast--success {
+    border-color: hsl(142 65% 45% / 0.7) !important;
+}
+.Toastify__toast--error {
+    border-color: hsl(var(--destructive)) !important;
+}
+.Toastify__toast--info {
+    border-color: hsl(var(--primary) / 0.7) !important;
+}
+.Toastify__toast--warning {
+    border-color: hsl(44 87% 60% / 0.7) !important;
+}
+.Toastify__toast-body {
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: inherit !important;
+}
+.Toastify__toast-icon {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 0 !important;
+    flex-shrink: 0;
+}
+.Toastify__close-button {
+    align-self: center !important;
+    margin-left: 0.5rem !important;
+    color: hsl(var(--muted-foreground)) !important;
+    opacity: 0.7 !important;
+    width: 14px !important;
+    height: 14px !important;
+    padding: 0 !important;
+}
+.Toastify__close-button:hover {
+    opacity: 1 !important;
+}
+.Toastify__close-button > svg {
+    width: 14px !important;
+    height: 14px !important;
+}
+/* Progress bar would break the pill silhouette. autoClose still
+ * fires on schedule; users just don't see the countdown. */
+.Toastify__progress-bar,
+.Toastify__progress-bar--wrp {
+    display: none !important;
+}
