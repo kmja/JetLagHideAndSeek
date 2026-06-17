@@ -425,34 +425,6 @@ export function HiderHomeContent() {
                 `pendingDraw` is null. */}
 
             <footer className="mt-auto pt-6 flex flex-col gap-2 text-center">
-                {(() => {
-                    const gameStarted = $inbox.length > 0;
-                    return (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={gameStarted}
-                            title={
-                                gameStarted
-                                    ? "Roles lock once you've received your first question. Start a new game to switch."
-                                    : "Switch back to the seeker side"
-                            }
-                            onClick={async () => {
-                                const ok = await appConfirm({
-                                    title: "Switch back to the seeker side?",
-                                    description:
-                                        "Hider-side state (hiding zone, inbox, hand) stays saved on this device.",
-                                    confirmLabel: "Switch",
-                                });
-                                if (!ok) return;
-                                playerRole.set("seeker");
-                                window.location.assign("/");
-                            }}
-                        >
-                            Switch to seeker
-                        </Button>
-                    );
-                })()}
                 <p className="text-[10px] text-muted-foreground">
                     Jet Lag Hide and Seek · hider home ·{" "}
                     {$role === "hider" ? "active" : "guest"}

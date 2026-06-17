@@ -676,6 +676,7 @@ export function GameLobbyDialog() {
                             transit={$allowedTransit}
                             size={$size}
                             isHiderRole={isHiderRole}
+                            isHost={isHost}
                             mp={$mp}
                             sharing={$seekerSharing}
                             foundAt={$foundAt}
@@ -1009,6 +1010,7 @@ function MidGameInfoSection({
     transit,
     size,
     isHiderRole,
+    isHost,
     mp,
     sharing,
     foundAt,
@@ -1019,6 +1021,7 @@ function MidGameInfoSection({
     transit: TransitMode[];
     size: import("@/lib/gameSetup").GameSize;
     isHiderRole: boolean;
+    isHost: boolean;
     mp: boolean;
     sharing: boolean;
     foundAt: number | null;
@@ -1083,7 +1086,13 @@ function MidGameInfoSection({
                 </div>
             )}
 
-            {!isHiderRole && (
+            {/* v285: hider-host can edit settings too — the gate
+                used to be `!isHiderRole`, which locked out a hider
+                who happened to be the host. `isHost` is the right
+                axis: solo always counts, multiplayer host (regardless
+                of role) too. Non-host seekers see nothing — their
+                edits would be overwritten on the next host push. */}
+            {isHost && (
                 <button
                     type="button"
                     onClick={onEditSettings}

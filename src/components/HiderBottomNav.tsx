@@ -1,17 +1,10 @@
 import { useStore } from "@nanostores/react";
-import { Inbox, List, Settings, Users } from "lucide-react";
+import { Inbox, List, Tent, Users } from "lucide-react";
 import { useState } from "react";
+import { Drawer as VaulDrawer } from "vaul";
 
 import { HiderHomeContent } from "@/components/HiderHome";
 import { HiderQuestionLog } from "@/components/HiderQuestionLog";
-import { ScoutedSpotsPanel } from "@/components/ScoutedSpotsPanel";
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetHeader,
-    SheetTitle,
-} from "@/components/ui/sheet";
 import { hiderHand, hiderInbox } from "@/lib/hiderRole";
 import {
     lobbyManualOpen,
@@ -20,28 +13,29 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Hider-side bottom nav. Two tabs:
+ * Hider-side bottom nav. Three slots, in left-to-right order:
  *
- *   • Questions — opens a side sheet with the question log
- *     (HiderQuestionLog) plus the scouted-spots manager. The badge
- *     count reflects the inbox length.
+ *   • Questions — opens a bottom drawer with the question log
+ *     (HiderQuestionLog). The badge count reflects the inbox length.
  *
- *   • Settings — opens a bottom sheet containing the full HiderHome
- *     phase content. This is where the hider commits a zone, locks
- *     a spot, ends the hiding period early, rolls dice, manages the
- *     hand, etc. The sheet is full-height so the existing scrolling
- *     layout works inside it.
+ *   • Zone (middle, the hider's primary action) — opens a bottom
+ *     drawer containing the full HiderHomeContent: zone picker,
+ *     spot lockdown, scouting list, dice roller, hand panel,
+ *     end-hiding-period button. Renamed from "Settings" in v285
+ *     since the panel is the hiding-zone configurator, not app
+ *     settings.
  *
- * Mirrors BottomNav's structural shape (icon + label, sticky
- * bottom, safe-area aware) but with hider-flavored content. Sits
- * *above* the HiderHandFan — both are fixed, the nav at
- * `bottom-[150px]` so the hand-strip stays visible at the very
- * bottom.
+ *   • Lobby — opens the existing GameLobbyDialog drawer via
+ *     `lobbyManualOpen`. Shows roster, room code, role rotation,
+ *     and (for the host) the Edit game settings entry point.
+ *
+ * All three now use Vaul drawers (bottom-sliding), matching the
+ * Lobby pattern. Sits *above* the HiderHandFan — both are fixed,
+ * the nav at `FAN_HEIGHT_PX` so the peek strip stays visible.
  */
 // HiderHandFan strip height after v284: cards peek (top half only),
 // container is PEEK_OFFSET(52) + 16 chrome = 68px (z-40). When the
-// fan is visible the nav shifts up to sit directly above it so the
-// nav + peek strip read as one continuous chrome bar.
+// fan is visible the nav shifts up to sit directly above it.
 const FAN_HEIGHT_PX = 68;
 
 export function HiderBottomNav() {
@@ -49,7 +43,7 @@ export function HiderBottomNav() {
     const $hand = useStore(hiderHand);
     const $participants = useStore(participants);
     const [questionsOpen, setQuestionsOpen] = useState(false);
-    const [settingsOpen, setSettingsOpen] = useState(false);
+    const [zoneOpen, setZoneOpen] = useState(false);
 
     const inboxCount = $inbox.length;
     const hasCards = $hand.length > 0;
@@ -106,6 +100,16 @@ export function HiderBottomNav() {
 
                     <button
                         type="button"
+                        onClick={() => setZoneOpen(true)}
+                        className={navBtnClass}
+                        aria-label="Open hiding zone controls"
+                    >
+                        <Tent className="w-5 h-5" strokeWidth={2} />
+                        <span className={navLabelClass}>Zone</span>
+                    </button>
+
+                    <button
+                        type="button"
                         onClick={() => lobbyManualOpen.set(true)}
                         className={navBtnClass}
                         aria-label="Open game lobby"
@@ -128,57 +132,80 @@ export function HiderBottomNav() {
                             </span>
                         )}
                     </button>
-
-                    <button
-                        type="button"
-                        onClick={() => setSettingsOpen(true)}
-                        className={navBtnClass}
-                        aria-label="Open hider controls and settings"
-                    >
-                        <Settings className="w-5 h-5" strokeWidth={2} />
-                        <span className={navLabelClass}>Settings</span>
-                    </button>
                 </div>
             </div>
 
-            <Sheet open={questionsOpen} onOpenChange={setQuestionsOpen}>
-                <SheetContent side="right" className="w-full sm:max-w-md">
-                    <SheetHeader>
-                        <SheetTitle className="flex items-center gap-2">
-                            <Inbox className="w-4 h-4" />
-                            Questions
-                        </SheetTitle>
-                        <SheetDescription>
-                            Your inbox and any spots you&apos;ve scouted.
-                        </SheetDescription>
-                    </SheetHeader>
-                    <div className="mt-4 space-y-6 overflow-y-auto max-h-[calc(100dvh-7rem)] pb-6">
-                        <HiderQuestionLog />
-                        <ScoutedSpotsPanel />
-                    </div>
-                </SheetContent>
-            </Sheet>
+            {/* Questions drawer — bottom-sliding Vaul drawer, same
+                shape as the Lobby. Replaces v284's side Sheet. */}
+            <VaulDrawer.Root
+                open={questionsOpen}
+                onOpenChange={setQuestionsOpen}
+                shouldScaleBackground={false}
+            >
+                <VaulDrawer.Portal>
+                    <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/60" />
+                    <VaulDrawer.Content
+                        className={cn(
+                            "fixed inset-x-0 bottom-0 z-[1055] mt-24",
+                            "flex h-auto max-h-[90vh] flex-col",
+                            "rounded-t-[10px] border",
+                            "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
+                            "pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:mx-auto",
+                        )}
+                    >
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                        <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border space-y-1">
+                            <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
+                                <Inbox className="w-4 h-4" />
+                                Questions
+                            </VaulDrawer.Title>
+                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                                Your inbox of questions from the seekers.
+                            </VaulDrawer.Description>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-5 py-3">
+                            <HiderQuestionLog />
+                        </div>
+                    </VaulDrawer.Content>
+                </VaulDrawer.Portal>
+            </VaulDrawer.Root>
 
-            <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
-                <SheetContent
-                    side="bottom"
-                    className="h-[92vh] rounded-t-2xl flex flex-col"
-                >
-                    <SheetHeader>
-                        <SheetTitle className="flex items-center gap-2">
-                            <Settings className="w-4 h-4" />
-                            Hider controls
-                        </SheetTitle>
-                        <SheetDescription>
-                            Zone, spot, hand, dice — everything the hider
-                            does in this round.
-                        </SheetDescription>
-                    </SheetHeader>
-                    <div className="mt-3 flex-1 overflow-y-auto -mx-6 px-2">
-                        <HiderHomeContent />
-                    </div>
-                </SheetContent>
-            </Sheet>
+            {/* Zone drawer — bottom-sliding Vaul drawer for the
+                hider's phase-aware action panel (zone pick / spot
+                lock / hand / dice / end-hiding-period). */}
+            <VaulDrawer.Root
+                open={zoneOpen}
+                onOpenChange={setZoneOpen}
+                shouldScaleBackground={false}
+            >
+                <VaulDrawer.Portal>
+                    <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/60" />
+                    <VaulDrawer.Content
+                        className={cn(
+                            "fixed inset-x-0 bottom-0 z-[1055] mt-24",
+                            "flex h-auto max-h-[92vh] flex-col",
+                            "rounded-t-[10px] border",
+                            "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
+                            "pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:mx-auto",
+                        )}
+                    >
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                        <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border space-y-1">
+                            <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
+                                <Tent className="w-4 h-4" />
+                                Hiding zone
+                            </VaulDrawer.Title>
+                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                                Zone, spot, hand, dice — everything the
+                                hider does in this round.
+                            </VaulDrawer.Description>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-2">
+                            <HiderHomeContent />
+                        </div>
+                    </VaulDrawer.Content>
+                </VaulDrawer.Portal>
+            </VaulDrawer.Root>
         </>
     );
 }
