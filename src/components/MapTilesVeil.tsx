@@ -49,6 +49,15 @@ export function MapTilesVeil({
         <div
             className={cn(
                 "absolute inset-0 z-[5] overflow-hidden",
+                // v308: opaque scrim is now load-bearing. The v294
+                // MapLoader switched to bare grid lines on a
+                // transparent background, so without this the map
+                // underneath bled through the loader — boundary
+                // polygons + tiles showed up while the veil was
+                // still claiming the map was loading. Fading the
+                // veil out (visible=false) takes the scrim with
+                // it via the opacity transition.
+                "bg-[hsl(var(--background))]",
                 "select-none transition-opacity duration-300 ease-out",
                 visible ? "opacity-100" : "opacity-0 pointer-events-none",
                 visible && "pointer-events-auto",
@@ -59,17 +68,11 @@ export function MapTilesVeil({
             aria-live="polite"
             aria-hidden={!visible}
         >
-            {/* Loader fills the whole panel as the visual surface.
-                The Protomaps "earth" fill is the opaque background; we
-                don't need an extra bg-background scrim on top of it.
-                For the timed-out fallback we DO want a plain scrim,
-                since the generic spinner doesn't carry its own
-                background. */}
-            {timedOut ? (
-                <div className="absolute inset-0 bg-[hsl(var(--background))]/95 backdrop-blur-[2px]" />
-            ) : (
-                <MapLoader />
-            )}
+            {/* MapLoader (skeleton grid) only renders while we're
+                still genuinely waiting. The timed-out fallback
+                shows nothing skeletal — the label pill with its
+                generic spinner is the only motion. */}
+            {!timedOut && <MapLoader />}
 
             {/* Label pill — sits above the loader, semi-translucent
                 so it reads against the map graphics without erasing
