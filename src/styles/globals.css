@@ -187,13 +187,15 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
-/* ─────────── Map loader shimmer (v291) ─────────────
- * `MapLoader.tsx` is a classic skeleton placeholder: a grid of
- * differently-sized map-tile-shaped rects on a muted background,
- * with this shimmer sweeping diagonally across the panel on a slow
- * loop. The earlier "draw a fake basemap" loop (v275–v283) is gone
- * — it was too much animation for a thing that just means
- * "loading".
+/* ─────────── Map loader shimmer (v291, retuned v293) ─────────────
+ * `MapLoader.tsx` is a classic skeleton placeholder: a stroked
+ * grid of differently-sized map-tile rects on a transparent
+ * background, with this shimmer sweeping diagonally across the
+ * panel on a slow loop. The shimmer band is sized to span half
+ * the panel so the highlight reads as a soft pass over the lines
+ * rather than a hard edge. v293 lifted the peak opacity since the
+ * tiles are now strokes (much less surface to catch the light) —
+ * 0.08 read as nothing on top of bare lines.
  */
 @keyframes jl-skeleton-shimmer-sweep {
     0% {
@@ -207,7 +209,7 @@ div.leaflet-control-attribution.leaflet-control {
     background-image: linear-gradient(
         100deg,
         transparent 0%,
-        hsl(var(--foreground) / 0.08) 50%,
+        hsl(var(--foreground) / 0.14) 50%,
         transparent 100%
     );
     background-size: 200% 100%;

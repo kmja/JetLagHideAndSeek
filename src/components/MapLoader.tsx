@@ -1,36 +1,23 @@
-import { useStore } from "@nanostores/react";
-
-import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 /**
- * Map-tile skeleton loader. Replaces the v280-v283 Protomaps-style
- * abstraction with a classic skeleton: a grid of differently-sized
- * map-tile-shaped rectangles in muted grey, with a diagonal shimmer
- * sweeping across.
+ * Map-tile skeleton loader. v293 strips the loader to bare grid
+ * lines on a transparent background — it now reads as an empty
+ * container with a shimmering tile-line pattern over it, rather
+ * than a filled mosaic in a different shade from the surrounding
+ * chrome. The container's own background shows through.
  *
- * Reads like a placeholder for a map view (it's obviously not the
- * real thing) rather than a stylised fake basemap, which is what
- * the user wanted.
- *
- * Shimmer is driven by `.jl-skeleton-shimmer` in globals.css — a
- * 100° gradient with `background-size: 200% 100%` that slides
- * across the panel on a slow linear loop.
+ * The grid lines come from stroking the existing tile layout; the
+ * shimmer is a diagonal gradient defined in globals.css that
+ * sweeps across the panel on a slow loop, briefly brightening the
+ * lines as it passes.
  */
-
-interface Palette {
-    base: string;
-    tile: string;
-}
-
-const LIGHT: Palette = { base: "#e9e9e9", tile: "#d4d4d4" };
-const DARK: Palette = { base: "#1c1c1c", tile: "#2a2a2a" };
 
 /**
  * Tile layout on a 320×180 frame. Four bands of varying heights;
  * within each band, tiles of varying widths. Per-row widths sum to
- * 320, row heights sum to 180 — full coverage without gaps in the
- * data (the visual gap between tiles is the GAP inset below). */
+ * 320, row heights sum to 180 — full coverage so the grid lines
+ * partition the panel cleanly. */
 const TILES: ReadonlyArray<readonly [number, number, number, number]> = [
     // Band 1 (y 0 → 44)
     [0, 0, 80, 44],
@@ -55,11 +42,6 @@ const TILES: ReadonlyArray<readonly [number, number, number, number]> = [
     [260, 138, 60, 42],
 ];
 
-/** Inset between tiles so the gridlines read as gaps, not borders.
- *  Half is shaved off each side of the rect; the panel's
- *  `backgroundColor` shows through. */
-const GAP = 2;
-
 export function MapLoader({
     className,
     fill = true,
@@ -67,31 +49,33 @@ export function MapLoader({
     className?: string;
     fill?: boolean;
 }) {
-    const theme = useStore(resolvedTheme);
-    const c = theme === "dark" ? DARK : LIGHT;
     const fillCls = fill ? "absolute inset-0 w-full h-full" : "";
 
     return (
         <div
             className={cn("relative overflow-hidden", fillCls, className)}
-            style={{ backgroundColor: c.base }}
             role="img"
             aria-label="Loading map"
         >
             <svg
                 viewBox="0 0 320 180"
-                preserveAspectRatio="xMidYMid slice"
+                preserveAspectRatio="none"
                 className="absolute inset-0 w-full h-full"
             >
                 {TILES.map(([x, y, w, h], i) => (
                     <rect
                         key={i}
-                        x={x + GAP / 2}
-                        y={y + GAP / 2}
-                        width={w - GAP}
-                        height={h - GAP}
-                        rx="1.5"
-                        fill={c.tile}
+                        x={x}
+                        y={y}
+                        width={w}
+                        height={h}
+                        fill="none"
+                        stroke="hsl(var(--foreground) / 0.14)"
+                        strokeWidth="1"
+                        // Keep stroke a constant width regardless of
+                        // how the SVG is scaled to fill the panel —
+                        // otherwise tall containers bloat the lines.
+                        vectorEffect="non-scaling-stroke"
                     />
                 ))}
             </svg>
