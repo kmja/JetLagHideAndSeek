@@ -2,12 +2,24 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
 import { circle as turfCircle } from "@turf/turf";
-import { Footprints, MapPin, Plus, Search } from "lucide-react";
+import {
+    Footprints,
+    HelpCircle,
+    MapPin,
+    Plus,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 import { toast } from "react-toastify";
 
 import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import { lastKnownPosition, mapGeoLocation } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import {
@@ -30,9 +42,9 @@ import { cn } from "@/lib/utils";
 /**
  * Persistent backdrop map for the hider shell. Renders the hider's
  * spatial state — committed hiding zone circle, locked hiding spot,
- * scouted spots, GPS dot — plus the seeker pins broadcast over the
- * multiplayer transport so the hider always sees where the seekers
- * are without opening a sheet.
+ * scouted spots, the hider's own GPS dot — plus the seeker pins
+ * broadcast over the multiplayer transport so the hider always sees
+ * where the seekers are without opening a sheet.
  *
  * Simpler than the seeker's `Map.tsx`:
  *
@@ -42,8 +54,9 @@ import { cn } from "@/lib/utils";
  *   • No draggable markers, no PolygonDraw, no GuessPolygon.
  *
  * Overlays mounted ON the map: HiderMapDisplayControls (basemap +
- * transit toggles) at top-right, and a "Drop scout pin" FAB
- * bottom-right that captures the hider's current GPS into the
+ * transit toggles) at top-right, and a "Mark potential hiding
+ * spot" button bottom-right that opens a tiny popover for an
+ * optional description before saving the current GPS to the
  * scouted-spots list.
  *
  * Mounted by HiderShell at `absolute inset-0 z-0` so it fills the
@@ -60,6 +73,8 @@ export function HiderBackgroundMap() {
     const $gps = useStore(lastKnownPosition);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
+    const [markPopoverOpen, setMarkPopoverOpen] = useState(false);
+    const [draftLabel, setDraftLabel] = useState("");
     const [pinningSpot, setPinningSpot] = useState(false);
 
     const seekerPins = useMemo(
@@ -76,27 +91,35 @@ export function HiderBackgroundMap() {
         [$seekerLocations, $participants],
     );
 
-    const handleDropPin = () => {
+    /** Capture current GPS into scoutedSpots with the typed label
+     *  (optional). Toasts on success/failure and closes the popover. */
+    const handleSaveMark = () => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
-            toast.error("GPS unavailable on this device.");
+            toast.error("Location access isn't available on this device.");
             return;
         }
         setPinningSpot(true);
+        const label = draftLabel.trim() || undefined;
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 addScoutedSpot({
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
+                    label,
                 });
                 setPinningSpot(false);
-                toast.success("Spot saved at your GPS.", { autoClose: 1500 });
+                setDraftLabel("");
+                setMarkPopoverOpen(false);
+                toast.success("Potential hiding spot marked.", {
+                    autoClose: 1500,
+                });
             },
             (err) => {
                 setPinningSpot(false);
                 toast.error(
                     err.code === err.PERMISSION_DENIED
-                        ? "Allow location to drop spots."
-                        : "Couldn't read your GPS — try again.",
+                        ? "Allow location access to mark spots."
+                        : "Couldn't read your location — try again.",
                 );
             },
             { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
@@ -225,51 +248,82 @@ export function HiderBackgroundMap() {
                     </Source>
                 )}
 
+                {/* Hider's own GPS pin — pulsing accuracy ring + a
+                    "You" label so it's obvious at a glance which dot
+                    is the hider's own position vs the seekers'. */}
                 {$gps && (
                     <Marker latitude={$gps.lat} longitude={$gps.lng}>
-                        <div
-                            className="w-3 h-3 rounded-full bg-blue-500 border-2 border-white shadow-md"
-                            title="Your GPS position"
-                        />
+                        <div className="relative flex flex-col items-center">
+                            <span
+                                aria-hidden
+                                className="absolute -inset-2 rounded-full bg-blue-500/30 animate-ping"
+                            />
+                            <span
+                                title="Your GPS position"
+                                className="relative w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-md"
+                            />
+                            <MarkerLabel tone="blue">You</MarkerLabel>
+                        </div>
                     </Marker>
                 )}
 
+                {/* Scouted spots — question-mark icon (potential spot,
+                    not committed). Label rendered beneath the marker
+                    so the hider can scan the map without tapping each. */}
                 {$scouted.map((s) => (
                     <Marker key={s.id} latitude={s.lat} longitude={s.lng}>
-                        <div
-                            title={s.label || "Scouted spot"}
-                            className="flex items-center justify-center w-6 h-6 rounded-full bg-secondary/95 border-2 border-yellow-400 shadow"
-                        >
-                            <Search className="w-3 h-3 text-yellow-400" />
+                        <div className="flex flex-col items-center">
+                            <div
+                                title={s.label || "Potential hiding spot"}
+                                className={cn(
+                                    "flex items-center justify-center w-7 h-7 rounded-full",
+                                    "bg-secondary/95 border-2 border-yellow-400 shadow",
+                                )}
+                            >
+                                <HelpCircle className="w-4 h-4 text-yellow-400" />
+                            </div>
+                            {s.label && (
+                                <MarkerLabel tone="yellow">
+                                    {s.label}
+                                </MarkerLabel>
+                            )}
                         </div>
                     </Marker>
                 ))}
 
                 {$spot && (
                     <Marker latitude={$spot.lat} longitude={$spot.lng}>
-                        <div
-                            title="Locked hiding spot"
-                            className="flex items-center justify-center w-7 h-7 rounded-full bg-yellow-400 border-2 border-background shadow-lg"
-                        >
-                            <MapPin className="w-4 h-4 text-background" />
+                        <div className="flex flex-col items-center">
+                            <div
+                                title="Locked hiding spot"
+                                className="flex items-center justify-center w-7 h-7 rounded-full bg-yellow-400 border-2 border-background shadow-lg"
+                            >
+                                <MapPin className="w-4 h-4 text-background" />
+                            </div>
+                            <MarkerLabel tone="yellow">Hiding spot</MarkerLabel>
                         </div>
                     </Marker>
                 )}
 
                 {/* Live seeker pins. Always visible — broadcast over
                     the multiplayer transport when seekers opt in to
-                    GPS sharing (rulebook p5). The hider should never
-                    have to open a sheet to see where the seekers are. */}
+                    GPS sharing (rulebook p5). Each pin shows the
+                    seeker's display name beneath the marker. */}
                 {seekerPins.map((s) => (
                     <Marker key={s.id} latitude={s.lat} longitude={s.lng}>
-                        <div
-                            title={s.name}
-                            className={cn(
-                                "flex items-center justify-center w-7 h-7 rounded-full",
-                                "bg-destructive border-2 border-background shadow-lg",
-                            )}
-                        >
-                            <Footprints className="w-4 h-4 text-background" />
+                        <div className="flex flex-col items-center">
+                            <div
+                                title={s.name}
+                                className={cn(
+                                    "flex items-center justify-center w-7 h-7 rounded-full",
+                                    "bg-destructive border-2 border-background shadow-lg",
+                                )}
+                            >
+                                <Footprints className="w-4 h-4 text-background" />
+                            </div>
+                            <MarkerLabel tone="destructive">
+                                {s.name}
+                            </MarkerLabel>
                         </div>
                     </Marker>
                 ))}
@@ -281,35 +335,129 @@ export function HiderBackgroundMap() {
                 <HiderMapDisplayControls />
             </div>
 
-            {/* Bottom-right FAB — quick "drop a scouted pin at my
-                current GPS" button. Captures the hider's live
-                position into the scoutedSpots list with no naming
-                step; the hider can rename later from the Zone
-                drawer's scouting list. */}
-            <button
-                type="button"
-                onClick={handleDropPin}
-                disabled={pinningSpot}
-                aria-label="Drop a scouted spot at your current location"
-                title="Drop a scouted spot at your current location"
-                className={cn(
-                    "absolute right-2 z-[1030]",
-                    // Sit above the bottom nav: nav is at 68px (when
-                    // cards) or safe-area (otherwise), plus its own
-                    // ~64px height. 144px clears both states.
-                    "bottom-[calc(144px+env(safe-area-inset-bottom))]",
-                    "flex items-center gap-2 h-11 px-4 rounded-full",
-                    "bg-yellow-400 text-background font-poppins font-bold text-sm",
-                    "shadow-lg border-2 border-background",
-                    "hover:bg-yellow-300 active:bg-yellow-500 transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    "disabled:opacity-60 disabled:cursor-wait",
-                )}
+            {/* Bottom-right popover — "Mark potential hiding spot"
+                button opens a tiny form with a description input,
+                then saves the current GPS + label to scoutedSpots.
+                Closes on save or escape. */}
+            <Popover
+                open={markPopoverOpen}
+                onOpenChange={(o) => {
+                    setMarkPopoverOpen(o);
+                    if (!o) setDraftLabel("");
+                }}
             >
-                <Plus className="w-4 h-4" strokeWidth={3} />
-                {pinningSpot ? "GPS…" : "Drop pin"}
-            </button>
+                <PopoverTrigger asChild>
+                    <button
+                        type="button"
+                        aria-label="Mark potential hiding spot at your current location"
+                        title="Mark potential hiding spot at your current location"
+                        className={cn(
+                            "absolute right-2 z-[1030]",
+                            // Sit above the bottom nav: nav is at 68px
+                            // (when cards) or safe-area (otherwise),
+                            // plus its own ~64px height. 144px clears
+                            // both states.
+                            "bottom-[calc(144px+env(safe-area-inset-bottom))]",
+                            "flex items-center gap-2 h-11 px-4 rounded-full",
+                            "bg-yellow-400 text-background font-poppins font-bold text-sm",
+                            "shadow-lg border-2 border-background",
+                            "hover:bg-yellow-300 active:bg-yellow-500 transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        )}
+                    >
+                        <Plus className="w-4 h-4" strokeWidth={3} />
+                        Mark spot
+                    </button>
+                </PopoverTrigger>
+                <PopoverContent
+                    align="end"
+                    side="top"
+                    className="w-[280px] p-3 bg-card border-2 border-border shadow-xl space-y-3"
+                >
+                    <div className="space-y-1">
+                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            Mark potential hiding spot
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                            Saves your current location with a short
+                            description you can find later in the Zone
+                            drawer.
+                        </p>
+                    </div>
+                    <Input
+                        value={draftLabel}
+                        onChange={(e) => setDraftLabel(e.target.value)}
+                        placeholder="e.g. bench behind the library"
+                        maxLength={40}
+                        className="text-sm"
+                        autoFocus
+                        onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleSaveMark();
+                            }
+                        }}
+                    />
+                    <div className="flex items-stretch gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setMarkPopoverOpen(false);
+                                setDraftLabel("");
+                            }}
+                            className="flex-1"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={handleSaveMark}
+                            disabled={pinningSpot}
+                            size="sm"
+                            className="flex-1 gap-1"
+                        >
+                            <Plus className="w-3.5 h-3.5" strokeWidth={3} />
+                            {pinningSpot ? "Locating…" : "Save here"}
+                        </Button>
+                    </div>
+                </PopoverContent>
+            </Popover>
         </div>
+    );
+}
+
+/**
+ * Pill-shaped label rendered beneath a map marker. Backdrop-blur so
+ * it's legible over both basemap and satellite. Tones map to the
+ * marker family the label belongs to.
+ */
+function MarkerLabel({
+    children,
+    tone,
+}: {
+    children: React.ReactNode;
+    tone: "blue" | "yellow" | "destructive";
+}) {
+    const toneCls =
+        tone === "blue"
+            ? "border-blue-500/60 text-blue-100"
+            : tone === "yellow"
+              ? "border-yellow-400/60 text-yellow-100"
+              : "border-destructive/60 text-destructive-foreground";
+    return (
+        <span
+            className={cn(
+                "mt-0.5 px-1.5 py-0.5 max-w-[140px] truncate",
+                "rounded-sm border bg-background/85 backdrop-blur-sm",
+                "text-[10px] font-poppins font-bold leading-tight",
+                "shadow-sm pointer-events-none",
+                toneCls,
+            )}
+        >
+            {children}
+        </span>
     );
 }
 

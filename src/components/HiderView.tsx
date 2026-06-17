@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
-import { ArrowLeft, Check, Copy, Eye, Home, MapPin, Share2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Check, Eye, Home, MapPin } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import { CompanionView } from "@/components/CompanionView";
@@ -18,13 +18,10 @@ import {
     QUESTION_DRAW_BUDGET,
     roundFoundAt,
 } from "@/lib/hiderRole";
-import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import {
     decodeFoundFromUrl,
     decodeQuestionFromUrl,
-    encodeAnswerForSeeker,
-    shareOrCopy,
 } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import { forwardGeocodeOne } from "@/maps/api";
@@ -588,30 +585,25 @@ function ManualBinaryAnswer({
 }
 
 /**
- * Pair of buttons for sending the answer back. Both are full-width and
- * prominent — Share (primary) for the OS share sheet, Copy (outline) for
- * "I'll paste this somewhere myself" fallback.
+ * Single "Send answer" CTA. In multiplayer the answer rides the
+ * wire transport directly via `hiderAnswerQuestion` (called inside
+ * `markRepliedInInbox`); in solo/offline it just stamps the local
+ * inbox. Either way no share/copy URL is surfaced — the hider
+ * answers in-app, the share-link round-trip was retired in v287.
  */
 function ShareBackRow({
     question,
     answer,
-    shareText,
 }: {
     question: Question;
     answer: Record<string, unknown>;
-    shareText: string;
+    /** Retained for call-site symmetry across question types but no
+     *  longer rendered — kept optional to ease the migration. */
+    shareText?: string;
 }) {
     const [sent, setSent] = useState(false);
-    const [shareFailed, setShareFailed] = useState(false);
-    const $multiplayer = useStore(multiplayerEnabled);
-    const url = useMemo(
-        () => encodeAnswerForSeeker(question.key, answer),
-        [question.key, answer],
-    );
 
     const markRepliedInInbox = () => {
-        // First check whether this question has already been replied to
-        // — if so, don't double-draw cards.
         const inbox = hiderInbox.get();
         const existing = inbox.find((e) => e.key === question.key);
         const alreadyReplied = Boolean(existing?.repliedAt);
@@ -657,122 +649,20 @@ function ShareBackRow({
         }
     };
 
-    const handleShare = async () => {
-        const result = await shareOrCopy({
-            title: "Answer",
-            text: `${shareText} Tap to send to seeker: ${url}`,
-            url,
-        });
-        if (result.method === "share" || result.method === "copy") {
-            setSent(true);
-            markRepliedInInbox();
-        }
-        if (result.method === "copy") {
-            toast.success("Answer link copied (sharing not supported)");
-        }
-        if (result.method === "failed") {
-            // Show the manual-fallback row below so the hider can
-            // copy the URL themselves and tap "Mark as sent" to
-            // advance the flow.
-            setShareFailed(true);
-            toast.error(
-                "Sharing didn't work — copy the link below and send it manually.",
-                { autoClose: 4000 },
-            );
-        }
-    };
-
-    const handleCopy = async () => {
-        try {
-            await navigator.clipboard.writeText(url);
-            setSent(true);
-            markRepliedInInbox();
-            toast.success("Answer link copied", { autoClose: 1500 });
-        } catch {
-            setShareFailed(true);
-            toast.error(
-                "Couldn't copy — use the URL below and tap 'Mark as sent'.",
-                { autoClose: 4000 },
-            );
-        }
-    };
-
-    /** Manual fallback used by the "Mark as sent" button: the hider
-     *  takes the URL themselves (via the textarea or by selecting it
-     *  and right-clicking → Copy), then confirms the answer is on
-     *  its way so the rest of the flow (card draw, inbox repliedAt,
-     *  multiplayer sync) fires. */
-    const handleManualConfirm = () => {
-        setSent(true);
-        markRepliedInInbox();
-        toast.success("Marked as sent.", { autoClose: 1500 });
-    };
-
     return (
         <div className="space-y-2">
-            {$multiplayer ? (
-                /* Multiplayer: answer goes over the wire — no URL sharing needed. */
-                !sent && (
-                    <Button
-                        onClick={() => {
-                            markRepliedInInbox();
-                            setSent(true);
-                        }}
-                        className="w-full gap-2 py-7 text-base font-semibold"
-                        size="lg"
-                    >
-                        <Check className="w-5 h-5" />
-                        Send answer
-                    </Button>
-                )
-            ) : (
-                /* Offline / solo: share or copy the answer URL to the seeker. */
-                <>
-                    <Button
-                        onClick={handleShare}
-                        className="w-full gap-2 py-7 text-base font-semibold"
-                        size="lg"
-                    >
-                        <Share2 className="w-5 h-5" />
-                        {sent ? "Share answer again" : "Share answer"}
-                    </Button>
-                    <Button
-                        onClick={handleCopy}
-                        variant="outline"
-                        className="w-full gap-2 py-5 text-sm"
-                    >
-                        <Copy className="w-4 h-4" />
-                        Copy answer link
-                    </Button>
-                    {shareFailed && !sent && (
-                        <div className="space-y-2 pt-2 border-t border-border/40">
-                            <p className="text-[11px] text-muted-foreground leading-snug">
-                                Your browser blocked auto-copy. Select the link
-                                below to copy it manually, then tap{" "}
-                                <span className="font-semibold">Mark as sent</span> to
-                                finish.
-                            </p>
-                            <textarea
-                                readOnly
-                                value={url}
-                                onFocus={(e) => e.currentTarget.select()}
-                                className={cn(
-                                    "w-full px-2 py-1.5 rounded-sm border border-border",
-                                    "bg-secondary/40 text-[11px] font-mono break-all",
-                                    "resize-none",
-                                )}
-                                rows={3}
-                            />
-                            <Button
-                                onClick={handleManualConfirm}
-                                className="w-full gap-2 py-4 text-sm"
-                            >
-                                <Check className="w-4 h-4" />
-                                Mark as sent
-                            </Button>
-                        </div>
-                    )}
-                </>
+            {!sent && (
+                <Button
+                    onClick={() => {
+                        markRepliedInInbox();
+                        setSent(true);
+                    }}
+                    className="w-full gap-2 py-7 text-base font-semibold"
+                    size="lg"
+                >
+                    <Check className="w-5 h-5" />
+                    Send answer
+                </Button>
             )}
             {sent && (
                 <div className="space-y-2 pt-2">

@@ -1,10 +1,12 @@
 import { useStore } from "@nanostores/react";
-import { Inbox, List, Tent, Users } from "lucide-react";
+import { Inbox, List, Settings, Tent, Users } from "lucide-react";
 import { useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
+import { AppSettingsDrawer } from "@/components/AppSettingsDrawer";
 import { HiderHomeContent } from "@/components/HiderHome";
 import { HiderQuestionLog } from "@/components/HiderQuestionLog";
+import { moreSheetOpen } from "@/lib/gameSetup";
 import { hiderHand, hiderInbox } from "@/lib/hiderRole";
 import {
     lobbyManualOpen,
@@ -13,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Hider-side bottom nav. Three slots, in left-to-right order:
+ * Hider-side bottom nav. Four slots, in left-to-right order:
  *
  *   • Questions — opens a bottom drawer with the question log
  *     (HiderQuestionLog). The badge count reflects the inbox length.
@@ -29,9 +31,13 @@ import { cn } from "@/lib/utils";
  *     `lobbyManualOpen`. Shows roster, room code, role rotation,
  *     and (for the host) the Edit game settings entry point.
  *
- * All three now use Vaul drawers (bottom-sliding), matching the
- * Lobby pattern. Sits *above* the HiderHandFan — both are fixed,
- * the nav at `FAN_HEIGHT_PX` so the peek strip stays visible.
+ *   • Settings (v287) — shares the seeker's AppSettingsDrawer
+ *     (tutorial, rulebook, units, theme, mid-game preload
+ *     preferences). Drawer is mounted at the bottom of this file.
+ *
+ * All slots use Vaul drawers (bottom-sliding), matching the Lobby
+ * pattern. Sits *above* the HiderHandFan — both are fixed, the nav
+ * at `FAN_HEIGHT_PX` so the peek strip stays visible.
  */
 // HiderHandFan strip height after v284: cards peek (top half only),
 // container is PEEK_OFFSET(52) + 16 chrome = 68px (z-40). When the
@@ -132,8 +138,23 @@ export function HiderBottomNav() {
                             </span>
                         )}
                     </button>
+
+                    {/* Settings — shares the seeker's drawer (tutorial,
+                        rulebook, units, theme, preload preferences). */}
+                    <button
+                        type="button"
+                        onClick={() => moreSheetOpen.set(true)}
+                        className={navBtnClass}
+                        aria-label="Settings"
+                        title="Settings — tutorial, rulebook, units, theme, preload"
+                    >
+                        <Settings className="w-5 h-5" strokeWidth={2} />
+                        <span className={navLabelClass}>Settings</span>
+                    </button>
                 </div>
             </div>
+
+            <AppSettingsDrawer />
 
             {/* Questions drawer — bottom-sliding Vaul drawer, same
                 shape as the Lobby. Replaces v284's side Sheet. */}
