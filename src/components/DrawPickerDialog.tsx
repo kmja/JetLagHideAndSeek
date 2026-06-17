@@ -176,7 +176,7 @@ export function DrawPickerDialog() {
                 <div className="px-2 py-2 min-h-0 overflow-visible">
                     <div
                         className={cn(
-                            "grid gap-3",
+                            "grid gap-3 auto-rows-fr items-stretch",
                             cols === 2 && "grid-cols-2",
                             cols === 3 && "grid-cols-3",
                         )}
@@ -295,10 +295,10 @@ function CardCell({
     })();
 
     return (
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-stretch gap-2 h-full">
             <div
                 style={cardStyle}
-                className="w-full"
+                className="w-full flex-1 min-h-0"
                 // Critical: don't let the flying transform get clipped
                 // by an ancestor's overflow. The CardTile's own border
                 // / shadow stays inside its bbox; only the position
@@ -310,7 +310,14 @@ function CardCell({
                     selected={isSelected}
                     onClick={disabled || isKept ? undefined : onTap}
                     selectionIndicator={isSelected ? "ring" : "none"}
-                    className="w-full"
+                    // v306: drop the poker-card aspect ratio in the
+                    // picker so long-bodied curses can grow tall
+                    // enough to show their full description without
+                    // clipping. `h-full` makes the card fill its
+                    // grid-cell, and `auto-rows-fr` on the parent
+                    // grid keeps the row uniform — the tallest
+                    // card sets the height for the others.
+                    className="w-full h-full !aspect-auto"
                 />
             </div>
             {/* Confirm-pick button slot. Reserved height so selecting

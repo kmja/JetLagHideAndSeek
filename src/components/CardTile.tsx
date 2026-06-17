@@ -227,14 +227,14 @@ function PowerupBody({
     return (
         <div
             className={cn(
-                "flex-1 flex flex-col",
+                "flex-1 flex flex-col min-h-0",
                 compact ? "p-2.5" : "px-4 py-4",
             )}
         >
             {/* Centered, bigger icon + centered title — matches the
                 physical powerup card layout where the hex icon and
                 title are the dominant elements at the top. */}
-            <div className="flex justify-center">
+            <div className="flex justify-center shrink-0">
                 <PowerupHexIcon
                     powerup={card.powerup}
                     size={compact ? 48 : 80}
@@ -242,7 +242,7 @@ function PowerupBody({
             </div>
             <div
                 className={cn(
-                    "font-inter-tight font-black uppercase tracking-tight leading-[0.95] mt-3 text-center",
+                    "font-inter-tight font-black uppercase tracking-tight leading-[0.95] mt-3 text-center shrink-0",
                     compact ? "text-sm" : "text-lg",
                 )}
                 style={{ color: NAVY }}
@@ -250,12 +250,17 @@ function PowerupBody({
                 {card.name}
             </div>
             {!compact && (
-                <p
-                    className="text-[11px] leading-snug mt-2"
-                    style={{ color: NAVY }}
-                >
-                    {renderBodyText(card.description, gameSize)}
-                </p>
+                // v306: scroll within the card if the description
+                // overflows the available body height (same as
+                // CurseBody).
+                <div className="flex-1 min-h-0 overflow-y-auto mt-2">
+                    <p
+                        className="text-[11px] leading-snug"
+                        style={{ color: NAVY }}
+                    >
+                        {renderBodyText(card.description, gameSize)}
+                    </p>
+                </div>
             )}
         </div>
     );
@@ -273,7 +278,7 @@ function CurseBody({
     return (
         <div
             className={cn(
-                "flex-1 flex flex-col",
+                "flex-1 flex flex-col min-h-0",
                 compact ? "p-2.5" : "p-3.5",
             )}
         >
@@ -287,16 +292,25 @@ function CurseBody({
                 {card.name}
             </div>
             {!compact && (
-                <p
-                    className="text-[11px] leading-snug mt-2 flex-1"
-                    style={{ color: NAVY }}
-                >
-                    {renderBodyText(card.description, gameSize)}
-                </p>
+                // v306: scroll-within-card safety net. With the
+                // poker aspect ratio in place (the carousel, hand
+                // grid, draw picker) some curses have descriptions
+                // long enough to overflow the available body
+                // height. Letting the inner column scroll keeps
+                // every word reachable without forcing the picker
+                // to grow taller than the viewport.
+                <div className="flex-1 min-h-0 overflow-y-auto mt-2">
+                    <p
+                        className="text-[11px] leading-snug"
+                        style={{ color: NAVY }}
+                    >
+                        {renderBodyText(card.description, gameSize)}
+                    </p>
+                </div>
             )}
             {!compact && card.castingCost && (
                 <p
-                    className="text-[10px] leading-snug mt-2 pt-2 border-t border-zinc-200"
+                    className="text-[10px] leading-snug mt-2 pt-2 border-t border-zinc-200 shrink-0"
                     style={{ color: NAVY }}
                 >
                     <span className="font-bold">Casting cost:</span>{" "}
