@@ -37,6 +37,7 @@ import {
     pmtilesUrl,
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
+import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 /**
@@ -66,6 +67,7 @@ export function HiderBackgroundMap() {
     const mapRef = useRef<MapRef | null>(null);
     const $playArea = useStore(mapGeoLocation);
     const $pmtilesUrl = useStore(pmtilesUrl);
+    const $theme = useStore(resolvedTheme);
     const $satellite = useStore(satelliteView);
     const $zone = useStore(hidingZone);
     const $spot = useStore(hidingSpot);
@@ -126,9 +128,16 @@ export function HiderBackgroundMap() {
         );
     };
 
-    // Rebuild when pmtilesUrl flips to fallback bucket on probe failure.
+    // v310: hider basemap was hardcoded to "dark", which broke the
+    // moment the user flipped the app to light mode (the rest of
+    // the UI followed but the map stayed dark). Follows
+    // resolvedTheme like Map.tsx does. Rebuild when pmtilesUrl
+    // flips to fallback bucket on probe failure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const mapStyle = useMemo(() => protomapsMapLibreStyle("dark"), [$pmtilesUrl]);
+    const mapStyle = useMemo(
+        () => protomapsMapLibreStyle($theme === "dark" ? "dark" : "light"),
+        [$pmtilesUrl, $theme],
+    );
 
     // Initial center: prefer GPS, fall back to committed zone, then
     // play-area centroid, then null-island.
@@ -441,12 +450,16 @@ function MarkerLabel({
     children: React.ReactNode;
     tone: "blue" | "yellow" | "destructive";
 }) {
+    // v310: in light mode the previous text-blue-100/yellow-100
+    // tones rendered light text on the light bg-background pill —
+    // illegible. Use Tailwind dark: variants so each mode gets
+    // contrast that actually reads.
     const toneCls =
         tone === "blue"
-            ? "border-blue-500/60 text-blue-100"
+            ? "border-blue-500/60 text-blue-700 dark:text-blue-100"
             : tone === "yellow"
-              ? "border-yellow-400/60 text-yellow-100"
-              : "border-destructive/60 text-destructive-foreground";
+              ? "border-yellow-400/60 text-yellow-700 dark:text-yellow-100"
+              : "border-destructive/60 text-destructive dark:text-destructive-foreground";
     return (
         <span
             className={cn(

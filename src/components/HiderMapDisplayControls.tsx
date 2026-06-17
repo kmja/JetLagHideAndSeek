@@ -71,26 +71,27 @@ export function HiderMapDisplayControls() {
             <PopoverTrigger asChild>
                 <button
                     type="button"
+                    aria-label="Map display options"
                     className={cn(
-                        "shadow-md rounded-md border-2 border-border bg-background",
-                        "px-3 gap-2 flex items-center transition-colors",
+                        "relative shadow-md rounded-md border-2 border-border bg-background",
+                        // v310: icon-only square (no "Map options"
+                        // label) with the glyph doubled.
+                        "h-12 w-12 flex items-center justify-center transition-colors",
                         "hover:bg-accent",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        PANE_HEIGHT,
                     )}
                     title="Map display options"
                 >
-                    <Layers className="w-4 h-4" />
-                    <span className="text-xs font-poppins font-semibold">
-                        Map options
-                    </span>
+                    <Layers className="w-8 h-8" />
                     {activeCount > 0 && (
                         <span
                             className={cn(
+                                "absolute -top-1.5 -right-1.5",
                                 "inline-flex items-center justify-center",
                                 "min-w-[18px] h-[18px] px-1 rounded-full",
                                 "bg-primary text-primary-foreground",
                                 "text-[10px] font-poppins font-bold tabular-nums",
+                                "border-2 border-background",
                             )}
                             aria-label={`${activeCount} option(s) active`}
                         >
