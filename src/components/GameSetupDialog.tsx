@@ -72,6 +72,7 @@ import {
 import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
 
 import { SectionPill, SizeBadge } from "./JetLagLogo";
+import { MapLoader } from "./MapLoader";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
@@ -1199,6 +1200,46 @@ export function PlayAreaStep({
     }
 
     // ────────────── Search mode ──────────────
+    //
+    // While GPS is still pending on a fresh first-time entry — no
+    // committed value, no typed query, user didn't explicitly tap
+    // "Change area" — hide the search field and show a map-themed
+    // loading placeholder instead. The vast majority of users get
+    // their answer from the auto-suggest, so leading with a "type
+    // here" field is asking them to make a decision before we've
+    // done our job. Once GPS resolves successfully, `value` lands and
+    // the preview branch above takes over (so this placeholder
+    // vanishes on its own); on any failure (denied/unavailable/no-
+    // match), the search field returns as the fallback path.
+    const hideSearchWhileLocating =
+        gpsState === "pending" &&
+        !value &&
+        query.length === 0 &&
+        !userInitiatedSearch.current;
+
+    if (hideSearchWhileLocating) {
+        return (
+            <div className="space-y-3 animate-in fade-in duration-200">
+                <div
+                    className="relative w-full h-[220px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-3"
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Detecting your location"
+                >
+                    <MapLoader />
+                    <div className="text-sm font-medium text-foreground">
+                        Finding a play area near you…
+                    </div>
+                    <div className="text-xs text-muted-foreground max-w-[80%] text-center leading-snug">
+                        Using your device's location to suggest a starting
+                        play area. You can still pick somewhere else once
+                        it lands.
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-4">
             <div className="space-y-2">
@@ -1224,15 +1265,6 @@ export function PlayAreaStep({
                     >
                         <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
                         Searching for places matching &quot;{query}&quot;…
-                    </p>
-                )}
-                {gpsState === "pending" && !busy && (
-                    <p
-                        className="text-xs text-muted-foreground flex items-center gap-1.5"
-                        aria-live="polite"
-                    >
-                        <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
-                        Detecting your location…
                     </p>
                 )}
                 {(gpsState === "denied" ||

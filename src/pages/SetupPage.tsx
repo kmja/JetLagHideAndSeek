@@ -10,8 +10,12 @@ import {
     TransitStep,
 } from "@/components/GameSetupDialog";
 import { SectionPill } from "@/components/JetLagLogo";
-import { PreloadChoicesPanel } from "@/components/PreloadChoicesPanel";
+import {
+    estimatePreloadMb,
+    formatSize,
+} from "@/components/PreloadChoicesPanel";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
     additionalMapGeoLocations,
@@ -33,6 +37,7 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
+    preloadChoices,
     resetMapOverlays,
     setupCompleted,
     type TransitMode,
@@ -86,7 +91,7 @@ export function SetupPage() {
         }
     }, [$welcomeSeen, $setupCompleted, navigate]);
 
-    const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+    const [step, setStep] = useState<1 | 2 | 3>(1);
     // Track direction for the inter-step slide animation. fwd = right
     // → left motion (entering from right); back = left → right.
     const prevStepRef = useRef(step);
@@ -109,6 +114,15 @@ export function SetupPage() {
     const [draftDisplayName, setDraftDisplayName] = useState(
         displayNameAtom.get() || "",
     );
+    // v277: the wizard's preload choice is now one checkbox covering
+    // all three buckets. Drafts the initial state from the persisted
+    // atom so a returning user lands on their last choice; on Finish
+    // we apply it back. The Settings drawer still exposes the
+    // per-bucket toggles for fine control mid-game.
+    const [draftPreloadOn, setDraftPreloadOn] = useState<boolean>(() => {
+        const c = preloadChoices.get();
+        return c.map || c.references || c.transit;
+    });
     // Resolved once per mount so the cast-name hint stays stable
     // while the user is mid-edit.
     const [castPlaceholder] = useState(() => pickRandomCastName());
@@ -139,6 +153,14 @@ export function SetupPage() {
     const handleFinish = () => {
         allowedTransit.set(draftTransit);
         gameSize.set(draftSize);
+        // v277: apply the single wizard checkbox to all three buckets.
+        // The Settings drawer still lets the user pick which buckets
+        // mid-game; the wizard collapses the choice for newcomers.
+        preloadChoices.set({
+            map: draftPreloadOn,
+            references: draftPreloadOn,
+            transit: draftPreloadOn,
+        });
         resetMapOverlays();
 
         // Defer the hiding-period clock until the play-area boundary
@@ -208,9 +230,8 @@ export function SetupPage() {
                         {step === 1 && "Where are you playing?"}
                         {step === 2 && "What transit is allowed?"}
                         {step === 3 && "How big is the game?"}
-                        {step === 4 && "What should we preload?"}
                     </h1>
-                    <SectionPill>Step {step} / 4</SectionPill>
+                    <SectionPill>Step {step} / 3</SectionPill>
                 </div>
                 <p className="text-xs leading-snug text-muted-foreground">
                     {step === 1 &&
@@ -219,8 +240,6 @@ export function SetupPage() {
                         "Which public transit modes the hider can use."}
                     {step === 3 &&
                         "Larger games span more ground and last longer."}
-                    {step === 4 &&
-                        "We'll warm these caches at the start of the hiding period so seekers don't see loading spinners mid-game. You can flip any of these later in Settings."}
                 </p>
             </div>
 
@@ -270,16 +289,71 @@ export function SetupPage() {
                                     blank to play offline.
                                 </p>
                             </div>
+
+                            {/* v277: single preload checkbox. Replaces
+                                the old standalone Step 4 + the
+                                three-row per-bucket panel. The Settings
+                                drawer still exposes the per-bucket
+                                toggles for fine control mid-game; the
+                                wizard collapses to one decision for
+                                newcomers. */}
+                            <label
+                                className={cn(
+                                    "flex items-start gap-3 p-3 rounded-md border cursor-pointer",
+                                    "bg-secondary/30 hover:bg-secondary/60 transition-colors",
+                                    draftPreloadOn
+                                        ? "border-primary/50"
+                                        : "border-border",
+                                )}
+                            >
+                                <Checkbox
+                                    checked={draftPreloadOn}
+                                    onCheckedChange={(c) =>
+                                        setDraftPreloadOn(c === true)
+                                    }
+                                    className="mt-0.5"
+                                    aria-label="Preload game data"
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-sm font-semibold text-foreground">
+                                            Preload game data
+                                        </span>
+                                        <span
+                                            className={cn(
+                                                "text-[10px] font-mono tabular-nums shrink-0",
+                                                "px-1.5 py-0.5 rounded-sm border",
+                                                draftPreloadOn
+                                                    ? "bg-primary/10 border-primary/30 text-primary"
+                                                    : "bg-secondary/60 border-border text-muted-foreground",
+                                            )}
+                                            title={
+                                                draftFeature
+                                                    ? `Estimate for the chosen play area`
+                                                    : "Rough estimate — pick a play area for a more accurate number"
+                                            }
+                                        >
+                                            ~
+                                            {formatSize(
+                                                estimatePreloadMb(
+                                                    draftFeature
+                                                        ? estimateAreaKm2(
+                                                              draftFeature,
+                                                          )
+                                                        : null,
+                                                ),
+                                            )}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                                        Caches the map, references, and
+                                        transit data once at the start of
+                                        the hiding period so seekers don't
+                                        see spinners mid-game.
+                                    </p>
+                                </div>
+                            </label>
                         </div>
-                    )}
-                    {step === 4 && (
-                        <PreloadChoicesPanel
-                            areaKm2={
-                                draftFeature
-                                    ? estimateAreaKm2(draftFeature)
-                                    : null
-                            }
-                        />
                     )}
                 </div>
             </div>
@@ -288,9 +362,7 @@ export function SetupPage() {
                 <Button
                     variant="outline"
                     onClick={() =>
-                        setStep((s) =>
-                            s > 1 ? ((s - 1) as 1 | 2 | 3 | 4) : s,
-                        )
+                        setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))
                     }
                     disabled={step === 1}
                     className="gap-1"
@@ -298,11 +370,11 @@ export function SetupPage() {
                     <ChevronLeft className="w-4 h-4" />
                     Back
                 </Button>
-                {step < 4 ? (
+                {step < 3 ? (
                     <Button
                         disabled={!canContinue}
                         onClick={() =>
-                            setStep((s) => ((s + 1) as 1 | 2 | 3 | 4))
+                            setStep((s) => ((s + 1) as 1 | 2 | 3))
                         }
                     >
                         Continue

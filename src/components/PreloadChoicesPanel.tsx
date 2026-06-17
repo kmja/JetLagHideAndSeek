@@ -85,8 +85,18 @@ const BUCKETS: BucketDef[] = [
     },
 ];
 
+/**
+ * Total estimated download size, in MB, for all three buckets at the
+ * given play-area size. Used by the wizard's simplified single
+ * checkbox to render "Preload game data (~45 MB)" without exposing
+ * the per-bucket breakdown.
+ */
+export function estimatePreloadMb(areaKm2: number | null): number {
+    return BUCKETS.reduce((sum, b) => sum + b.estimateMb(areaKm2), 0);
+}
+
 /** Render `1.4 MB`, `850 KB`, `12 MB`. */
-function formatSize(mb: number): string {
+export function formatSize(mb: number): string {
     if (mb < 1) return `${Math.round(mb * 1000)} KB`;
     if (mb < 10) return `${mb.toFixed(1)} MB`;
     return `${Math.round(mb)} MB`;
