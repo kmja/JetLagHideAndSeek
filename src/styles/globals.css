@@ -187,63 +187,32 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
-/* ─────────── Map loader keyframes (v275, retuned v281) ─────────────
- * Abstract Protomaps-styled loader — `MapLoader.tsx`. v281 dropped
- * the v280 `clip-path` radial-reveal envelope (which made everything
- * look like it slid into place at once); now the only thing driving
- * the staggered look is per-element `animation-delay` (set inline
- * from distance to panel centre, range 0 → 3 s) combined with a slow
- * 7 s loop so each shape's own draw is long enough for the eye to
- * follow.
- *
- *   - `jl-pmap-stretch` — roads. Stroke-dashoffset reveals from one
- *     end of the path. Length set per-element via `--jl-pmap-len`.
- *     The draw phase covers ~14% → ~46% of the loop (~2.2 s of slow
- *     motion); then the line holds visible till ~88% before fading.
- *   - `jl-pmap-river` — water. Same stroke draw but the draw window
- *     stretches longer (~14% → ~58%, ~3 s) so the snake unspools
- *     lazily rather than snapping in.
- *   - `jl-pmap-grow` — parks, woods, and buildings. Scale from the
- *     shape's own centre (transform-origin set inline,
- *     transform-box: fill-box). For buildings this means they grow
- *     outward in both axes instead of rising from the base. Grow
- *     phase covers ~12% → ~36% of the loop (~1.7 s); hold till ~88%.
- *   - `jl-pmap-railway` — dashed railway. Opacity-only fade.
- *
- * All four are paired with `cubic-bezier(0.65, 0, 0.35, 1)` (a strong
- * ease-in-out) inline in MapLoader.tsx so the start + end of each
- * phase are heavily eased — that's the "lots of easing" the brief
- * called for.
+/* ─────────── Map loader shimmer (v291) ─────────────
+ * `MapLoader.tsx` is a classic skeleton placeholder: a grid of
+ * differently-sized map-tile-shaped rects on a muted background,
+ * with this shimmer sweeping diagonally across the panel on a slow
+ * loop. The earlier "draw a fake basemap" loop (v275–v283) is gone
+ * — it was too much animation for a thing that just means
+ * "loading".
  */
-@keyframes jl-pmap-grow {
-    0%,
-    12% { opacity: 0; transform: scale(0.15); }
-    36%,
-    88% { opacity: 1; transform: scale(1); }
-    100% { opacity: 0; transform: scale(0.15); }
+@keyframes jl-skeleton-shimmer-sweep {
+    0% {
+        background-position: 100% 0;
+    }
+    100% {
+        background-position: -100% 0;
+    }
 }
-@keyframes jl-pmap-stretch {
-    0%,
-    14% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
-    22% { opacity: 1; }
-    46%,
-    88% { stroke-dashoffset: 0; opacity: 1; }
-    100% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
-}
-@keyframes jl-pmap-river {
-    0%,
-    10% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
-    18% { opacity: 1; }
-    58%,
-    88% { stroke-dashoffset: 0; opacity: 1; }
-    100% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
-}
-@keyframes jl-pmap-railway {
-    0%,
-    28% { opacity: 0; }
-    44%,
-    88% { opacity: 0.7; }
-    100% { opacity: 0; }
+.jl-skeleton-shimmer {
+    background-image: linear-gradient(
+        100deg,
+        transparent 0%,
+        hsl(var(--foreground) / 0.08) 50%,
+        transparent 100%
+    );
+    background-size: 200% 100%;
+    background-position: 100% 0;
+    animation: jl-skeleton-shimmer-sweep 2.2s infinite linear;
 }
 
 .leaflet-tooltip.jl-ref-tooltip {
