@@ -46,34 +46,36 @@ interface Palette {
     railway: string;
 }
 
-// Desaturated relative to the live `namedFlavor` palette — each
-// chroma'd colour pulled partway toward earth so the loader reads as
-// a soft sketch rather than a vibrant map.
+// Desaturated grayscale palette — the loader reads as a skeleton
+// placeholder for a map tile rather than a real basemap. Two
+// luminance ramps (light + dark theme); the same ramp positions are
+// used for the same map layer in each so the loader's silhouette
+// stays consistent across themes.
 const LIGHT: Palette = {
-    earth: "#e2dfda",
-    park_a: "#cdd6cd",
-    park_b: "#bdcfc1",
-    wood: "#d2d8d0",
-    water: "#bfd2da",
-    buildings: "#c8c4be",
-    minor: "#e6e1d8",
-    minor_casing: "#dad5cc",
-    major: "#f0ebe2",
-    major_casing: "#dcd7ce",
-    railway: "#a09ea0",
+    earth: "#e6e6e6",
+    park_a: "#d6d6d6",
+    park_b: "#cfcfcf",
+    wood: "#d2d2d2",
+    water: "#c4c4c4",
+    buildings: "#bababa",
+    minor: "#dcdcdc",
+    minor_casing: "#cfcfcf",
+    major: "#d4d4d4",
+    major_casing: "#bcbcbc",
+    railway: "#a8a8a8",
 };
 const DARK: Palette = {
     earth: "#1f1f1f",
-    park_a: "#1f2622",
-    park_b: "#1f2723",
-    wood: "#21221e",
-    water: "#2c3138",
-    buildings: "#1a1a1a",
-    minor: "#34343a",
-    minor_casing: "#2d2d33",
-    major: "#3e3e44",
-    major_casing: "#34343a",
-    railway: "#1a1a1a",
+    park_a: "#262626",
+    park_b: "#2a2a2a",
+    wood: "#242424",
+    water: "#2e2e2e",
+    buildings: "#333333",
+    minor: "#2c2c2c",
+    minor_casing: "#252525",
+    major: "#363636",
+    major_casing: "#2a2a2a",
+    railway: "#3a3a3a",
 };
 
 /* ─────────────────── Geometry table ───────────────────
@@ -313,7 +315,7 @@ export function MapLoader({
                             style={{
                                 animation: `jl-pmap-grow ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
-                                transformOrigin: `${m.x}px ${m.y}px`,
+                                transformOrigin: "center",
                                 transformBox: "fill-box",
                             }}
                         />
@@ -332,7 +334,7 @@ export function MapLoader({
                             style={{
                                 animation: `jl-pmap-grow ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
-                                transformOrigin: `${m.x}px ${m.y}px`,
+                                transformOrigin: "center",
                                 transformBox: "fill-box",
                             }}
                         />
@@ -482,7 +484,7 @@ export function MapLoader({
                             style={{
                                 animation: `jl-pmap-grow ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
-                                transformOrigin: `${cx}px ${cy}px`,
+                                transformOrigin: "center",
                                 transformBox: "fill-box",
                             }}
                         />
