@@ -101,8 +101,12 @@ function Fan({
     // playing-card 3:4 aspect close enough.
     const N = hand.length;
     const CARD_MINIATURE_SCALE = 0.42;
+    // Poker-card proportions (5:7). v289 nudged CARD_H from 104 →
+    // 106 so the fan's miniature matches CardTile's `aspect-[5/7]`
+    // exactly — the cards represent physical poker-format cards, so
+    // their shape stays consistent across every surface.
     const CARD_W = 76;
-    const CARD_H = 104;
+    const CARD_H = 106;
     // The fan strip is a peek — only the top half of each card sits
     // above the viewport edge at rest, with the bottom half clipped
     // off-screen so the cards read as a hand resting in your lap. The
@@ -531,7 +535,7 @@ function HandCarousel({
                             >
                                 <div
                                     className="w-full"
-                                    style={{ aspectRatio: "3 / 4" }}
+                                    style={{ aspectRatio: "5 / 7" }}
                                 >
                                     <CardTile
                                         card={card}

@@ -94,7 +94,12 @@ export function CardTile({
             className={cn(
                 "relative flex flex-col rounded-xl overflow-hidden text-left",
                 "bg-white border border-zinc-300 shadow-sm",
-                size === "compact" ? "min-h-[120px]" : "min-h-[240px]",
+                // Poker-card proportions (2.5" × 3.5", 5:7). Held
+                // uniformly across every surface that renders a card
+                // — fan miniature, hand grid, draw picker, discard
+                // pile — so the digital cards always read as the
+                // physical ones (v289).
+                "aspect-[5/7]",
                 interactive &&
                     "transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 interactive && "hover:shadow-md",

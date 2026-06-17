@@ -889,12 +889,44 @@ export function PlayAreaStep({
      *   "no-match"    — got coordinates but reverse-geocode failed
      *   "done"        — successfully prefilled the search
      */
+    // v289: initialize to "pending" when GPS will actually fire so
+    // the very first render shows the MapLoader placeholder instead
+    // of flashing the autoFocused search Input (which yanked the
+    // mobile keyboard up just to slam it back down a moment later
+    // when gpsState transitioned to "pending"). When there's already
+    // a `value` (edit mode), we skip GPS entirely and stay at "idle".
     const [gpsState, setGpsState] = useState<
         "idle" | "pending" | "denied" | "unavailable" | "no-match" | "done"
-    >("idle");
+    >(() => (value ? "idle" : "pending"));
     /** Whether we've already attempted GPS this mount — guards against
      *  the effect re-running if React Strict Mode or HMR refires it. */
     const gpsAttempted = useRef(false);
+
+    /** Ref to the search Input so we can focus it imperatively when
+     *  the user explicitly opens search mode via "Change area".
+     *  Replaces the prior `autoFocus` prop, which fired on every
+     *  remount of the Input — including the brief mid-flow remount
+     *  while GPS was resolving — and jerked the on-screen keyboard
+     *  open and shut. */
+    const searchInputRef = useRef<HTMLInputElement | null>(null);
+    const pendingSearchFocus = useRef(false);
+    useEffect(() => {
+        if (!pendingSearchFocus.current) return;
+        if (mode !== "search") return;
+        if (!searchInputRef.current) return;
+        searchInputRef.current.focus();
+        pendingSearchFocus.current = false;
+    }, [mode]);
+
+    /** Stable handle on the latest `onChange` so the search-as-you-
+     *  type effect doesn't have to list it as a dep. Avoids
+     *  re-firing the geocode whenever the parent re-renders with a
+     *  fresh callback identity (and quietly hammering Photon with
+     *  duplicate requests for the same debounced query). */
+    const onChangeRef = useRef(onChange);
+    useEffect(() => {
+        onChangeRef.current = onChange;
+    }, [onChange]);
 
     const tryGpsSuggest = (manual = false) => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -930,8 +962,17 @@ export function PlayAreaStep({
                     // Handles the Falun case: "Falun, Sweden" → no
                     // matches → fall through to "Falu kommun,
                     // Sweden" → Dalarna → Sweden. The first that
-                    // hits wins.
-                    let winner: string | null = null;
+                    // hits wins. v289: we capture the OSM match
+                    // directly (not just the candidate string) so we
+                    // can jump straight to preview mode without
+                    // routing through the search-as-you-type
+                    // pipeline — that pipeline rendered an
+                    // intermediate "search + results" frame which
+                    // briefly remounted the search Input (autofocus
+                    // → keyboard) and the preview map (new MapLibre
+                    // instance) before flipping into the real
+                    // preview branch.
+                    let winnerMatch: OpenStreetMap | null = null;
                     for (const candidate of candidates) {
                         // User started typing — abandon the
                         // suggestion entirely, don't apply any
@@ -943,7 +984,7 @@ export function PlayAreaStep({
                         try {
                             const found = await geocode(candidate, "en");
                             if (found.length > 0) {
-                                winner = candidate;
+                                winnerMatch = found[0];
                                 break;
                             }
                         } catch {
@@ -952,20 +993,23 @@ export function PlayAreaStep({
                             continue;
                         }
                     }
-                    if (!winner) {
+                    if (!winnerMatch) {
                         setGpsState("no-match");
                         return;
                     }
-                    // Apply via functional updater, still guarding
-                    // against a late typing race in the gap between
-                    // the last peek and the commit.
-                    let applied = false;
-                    setQuery((curr) => {
-                        if (curr.length > 0) return curr;
-                        applied = true;
-                        return winner!;
-                    });
-                    setGpsState(applied ? "done" : "no-match");
+                    // Last typing-race check before we commit.
+                    if (peekQuery().length > 0) {
+                        setGpsState("no-match");
+                        return;
+                    }
+                    // Bypass the search-as-you-type debounce: write
+                    // straight into `value` + flip the mode in one
+                    // React batch. The next render lands in the
+                    // preview branch without rendering the search
+                    // Input or the search-mode preview map at all.
+                    onChange(winnerMatch);
+                    setMode("preview");
+                    setGpsState("done");
                 } catch {
                     setGpsState("no-match");
                 }
@@ -1007,21 +1051,11 @@ export function PlayAreaStep({
         userInitiatedSearch.current = false;
     };
 
-    // Auto-bounce after a GPS-initiated suggest lands a result. The
-    // search-as-you-type effect above sets `value` to `found[0]`; we
-    // wait until busy clears + a value exists, then drop the user
-    // straight into the preview so they don't have to confirm a tile
-    // they didn't pick themselves.
-    useEffect(() => {
-        if (mode !== "search") return;
-        if (userInitiatedSearch.current) return;
-        if (!value || busy) return;
-        if (gpsState !== "done") return;
-        setMode("preview");
-        setQuery("");
-        setResults([]);
-        setSearched(false);
-    }, [value, busy, mode, gpsState]);
+    // v289: dropped the auto-bounce useEffect. The GPS handler now
+    // calls `onChange(winnerMatch) + setMode("preview")` directly,
+    // so the flicker-prone "search lands → effect catches up →
+    // setMode" sequence is gone. Manual picks from the search
+    // results list still flip mode via handlePickResult.
 
     // Search-as-you-type. On every settled keystroke (350ms debounce) we
     // hit Photon and auto-select the first OSM relation — usually the
@@ -1041,7 +1075,7 @@ export function PlayAreaStep({
             .then((found) => {
                 if (myToken !== searchToken.current) return; // stale
                 setResults(found);
-                if (found.length > 0) onChange(found[0]);
+                if (found.length > 0) onChangeRef.current(found[0]);
             })
             .catch(() => {
                 if (myToken !== searchToken.current) return;
@@ -1051,7 +1085,7 @@ export function PlayAreaStep({
                 if (myToken !== searchToken.current) return;
                 setBusy(false);
             });
-    }, [debouncedQuery, onChange]);
+    }, [debouncedQuery]);
 
     const selectedId = value?.properties.osm_id ?? null;
 
@@ -1115,6 +1149,12 @@ export function PlayAreaStep({
                         variant="outline"
                         onClick={() => {
                             userInitiatedSearch.current = true;
+                            // v289: focus the search Input ourselves
+                            // once it mounts (effect picks this flag
+                            // up). Avoids autoFocus, which fires on
+                            // every Input remount and caused the
+                            // keyboard pingpong during GPS resolution.
+                            pendingSearchFocus.current = true;
                             setMode("search");
                             setQuery("");
                             setResults([]);
@@ -1255,7 +1295,7 @@ export function PlayAreaStep({
             <div className="space-y-2">
                 <div className="relative">
                     <Input
-                        autoFocus
+                        ref={searchInputRef}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="e.g. Stockholm, Tokyo, London"

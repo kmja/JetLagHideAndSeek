@@ -39,10 +39,11 @@ import { cn } from "@/lib/utils";
  * pattern. Sits *above* the HiderHandFan — both are fixed, the nav
  * at `FAN_HEIGHT_PX` so the peek strip stays visible.
  */
-// HiderHandFan strip height after v284: cards peek (top half only),
-// container is PEEK_OFFSET(52) + 16 chrome = 68px (z-40). When the
-// fan is visible the nav shifts up to sit directly above it.
-const FAN_HEIGHT_PX = 68;
+// HiderHandFan strip height. Cards peek (top half only); container
+// is PEEK_OFFSET (53 = CARD_H/2 with v289's poker-card 76×106) + 16
+// chrome = 69px (z-40). When the fan is visible the nav shifts up
+// to sit directly above it.
+const FAN_HEIGHT_PX = 69;
 
 export function HiderBottomNav() {
     const $inbox = useStore(hiderInbox);
