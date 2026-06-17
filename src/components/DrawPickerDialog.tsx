@@ -93,25 +93,39 @@ export function DrawPickerDialog() {
     const confirmSelected = () => {
         if (selectedId === null) return;
         const id = selectedId;
+        const isLastPick = keptIds.length + 1 >= keep;
         setFlyingId(id);
         setSelectedId(null);
-        // After the fly animation, mark the card as kept (it becomes
-        // invisible) and either present the next pick or kick off the
-        // final fade-out of the discards.
-        const t1 = window.setTimeout(() => {
-            const next = [...keptIds, id];
-            setKeptIds(next);
-            setFlyingId(null);
-            if (next.length >= keep) {
+
+        if (isLastPick) {
+            // v312: the non-picked cards' fade kicks off as part of
+            // the same render that sets flyingId — the render
+            // computes `flyingLast` from (flyingId !== null &&
+            // keptIds.length === keep - 1), and `isFading` is
+            // derived from that. So the picked card flies and the
+            // discards fall away in lockstep with no setTimeout gap
+            // between them. After the longer of the two animations
+            // plus a tiny hold, we commit the kept entry and hand
+            // off to the resolver.
+            const t = window.setTimeout(() => {
+                const next = [...keptIds, id];
+                setKeptIds(next);
+                setFlyingId(null);
                 setFinished(true);
-                // Discards fade + fall, then we hand off to the
-                // resolver which moves cards into hand / discard and
-                // clears the pending atom (closes the dialog).
                 const t2 = window.setTimeout(() => {
                     resolvePendingDraw(next);
-                }, FADE_MS + FINAL_HOLD_MS);
+                }, FINAL_HOLD_MS);
                 timersRef.current.push(t2);
-            }
+            }, Math.max(FLY_MS, FADE_MS));
+            timersRef.current.push(t);
+            return;
+        }
+
+        // Non-final pick: fly the kept card down, then commit to
+        // keptIds so the picker presents the next pick.
+        const t1 = window.setTimeout(() => {
+            setKeptIds([...keptIds, id]);
+            setFlyingId(null);
         }, FLY_MS);
         timersRef.current.push(t1);
     };
@@ -186,8 +200,18 @@ export function DrawPickerDialog() {
                             const isSelected = selectedId === card.id;
                             const isKept = keptIds.includes(card.id);
                             const isFlying = flyingId === card.id;
+                            // v312: discards start fading the
+                            // moment the last fly begins, not after
+                            // it ends. `chromeFadeOn` is true while
+                            // either `flyingLast` (during the final
+                            // fly) or `finished` (after) is true,
+                            // and the flying card itself is
+                            // excluded so the fade transform
+                            // doesn't fight the fly transform.
                             const isFading =
-                                finished && !keptIds.includes(card.id);
+                                chromeFadeOn &&
+                                !isKept &&
+                                !isFlying;
                             return (
                                 <CardCell
                                     key={card.id}
