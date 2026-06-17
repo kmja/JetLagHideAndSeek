@@ -583,9 +583,9 @@ export const ZoneSidebar = () => {
                                     >
                                         <div className="flex flex-col gap-2 w-full">
                                             <Label className="font-semibold font-poppins leading-5">
-                                                Import stations from URL (CSV,
-                                                GeoJSON, KML). This must be a
-                                                raw file link.
+                                                Import stations from a direct
+                                                file link. Supports CSV,
+                                                GeoJSON, and KML.
                                             </Label>
                                             <div className="flex gap-2">
                                                 <Input
@@ -625,7 +625,7 @@ export const ZoneSidebar = () => {
                                                                 0
                                                             ) {
                                                                 toast.error(
-                                                                    "No stations found in provided URL",
+                                                                    "No stations found in that file.",
                                                                 );
                                                                 return;
                                                             }
@@ -637,7 +637,7 @@ export const ZoneSidebar = () => {
                                                             );
                                                         } catch (e: any) {
                                                             toast.error(
-                                                                `Failed to import from URL: ${e.message || e}`,
+                                                                `Couldn't import stations: ${e.message || e}`,
                                                             );
                                                         }
                                                     }}

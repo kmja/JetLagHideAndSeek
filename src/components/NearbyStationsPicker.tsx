@@ -68,7 +68,7 @@ export function NearbyStationsPicker({
         if (typeof navigator === "undefined" || !navigator.geolocation) {
             setState({
                 status: "error",
-                message: "Geolocation isn't available on this device.",
+                message: "Location access isn't available on this device.",
             });
             return;
         }
@@ -98,7 +98,7 @@ export function NearbyStationsPicker({
                         console.warn("Nearby-stations fetch failed", e);
                         setState({
                             status: "error",
-                            message: "Couldn't reach Overpass — try again or pick manually below.",
+                            message: "Couldn't fetch nearby stations — try again or pick manually below.",
                         });
                     });
             },

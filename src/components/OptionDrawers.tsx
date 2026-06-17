@@ -136,16 +136,16 @@ export const OptionDrawers = ({
                             window.location.pathname,
                         );
                         toast.success(
-                            "Successfully loaded data from Pastebin link!",
+                            "Hiding zone loaded from share link.",
                         );
                     } catch (e) {
-                        toast.error(`Invalid data from Pastebin: ${e}`);
+                        toast.error(`Invalid data in share link: ${e}`);
                     }
                 })
                 .catch((error) => {
                     console.error("Failed to fetch from Pastebin:", error);
                     toast.error(
-                        `Failed to load from Pastebin: ${error.message}`,
+                        `Couldn't load share link: ${error.message}`,
                     );
                 });
         }
@@ -319,12 +319,12 @@ export const OptionDrawers = ({
                     if ($alwaysUsePastebin || shareUrl.length > 2000) {
                         if (!$pastebinApiKey) {
                             toast.error(
-                                "Data is too large for a URL and no Pastebin API key is configured.",
+                                "Hiding zone is too large to share. Trim the selection and try again.",
                             );
                             return;
                         }
                         try {
-                            toast.info("Data is being shared via Pastebin...");
+                            toast.info("Uploading share link…");
                             const pastebinUrl = await uploadToPastebin(
                                 $pastebinApiKey,
                                 hidingZoneString,
@@ -334,12 +334,12 @@ export const OptionDrawers = ({
                             );
                             shareUrl = `${baseUrl}?${PASTEBIN_URL_PARAM}=${pasteId}`;
                             toast.success(
-                                "Successfully uploaded to Pastebin! URL is ready to be shared.",
+                                "Share link ready to copy.",
                             );
                         } catch (error) {
                             console.error("Pastebin upload failed:", error);
                             toast.error(
-                                `Pastebin upload failed. Please check your API key and try again.`,
+                                `Couldn't create share link — try again.`,
                             );
                             return;
                         }

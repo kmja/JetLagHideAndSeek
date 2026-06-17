@@ -1272,7 +1272,7 @@ function HidingSpotSection({
 
     const useMyGps = () => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
-            toast.error("Geolocation isn't available on this device.");
+            toast.error("Location access isn't available on this device.");
             return;
         }
         setLocating(true);

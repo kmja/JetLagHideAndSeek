@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Footprints, UserRound, Users, VenetianMask } from "lucide-react";
+import { Footprints, Users, VenetianMask } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,6 @@ import {
     Dialog,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -279,14 +278,6 @@ export function RolePicker() {
                         </button>
                     </div>
                 )}
-
-                <DialogFooter className="px-6 py-3 shrink-0 border-t border-border text-[11px] text-muted-foreground">
-                    <UserRound className="w-3.5 h-3.5 shrink-0" />
-                    <span className="text-left">
-                        Roles map to separate URLs: <code>/</code> (seeker)
-                        and <code>/h</code> (hider).
-                    </span>
-                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
