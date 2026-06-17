@@ -187,34 +187,29 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
-/* ─────────── Map loader shimmer (v291, retuned v293) ─────────────
- * `MapLoader.tsx` is a classic skeleton placeholder: a stroked
- * grid of differently-sized map-tile rects on a transparent
- * background, with this shimmer sweeping diagonally across the
- * panel on a slow loop. The shimmer band is sized to span half
- * the panel so the highlight reads as a soft pass over the lines
- * rather than a hard edge. v293 lifted the peak opacity since the
- * tiles are now strokes (much less surface to catch the light) —
- * 0.08 read as nothing on top of bare lines.
+/* ─────────── Map loader pulses (v294) ─────────────
+ * `MapLoader.tsx` renders a static low-opacity tile grid plus a
+ * second pass of brighter strokes whose `stroke-dasharray` carries
+ * one short pulse per rect. This keyframe slides the dash offset
+ * by the full cycle length so the pulse loops around the
+ * perimeter, reading as a packet of faint light travelling along
+ * the line.
+ *
+ * Cycle length 190 = pulse 10 + gap 180 (matches the inline
+ * `strokeDasharray` in MapLoader.tsx). Duration 2.8 s is paired
+ * with per-rect `animation-delay` so the pulses fall out of phase
+ * with each other.
  */
-@keyframes jl-skeleton-shimmer-sweep {
-    0% {
-        background-position: 100% 0;
+@keyframes jl-tile-pulse-travel {
+    from {
+        stroke-dashoffset: 0;
     }
-    100% {
-        background-position: -100% 0;
+    to {
+        stroke-dashoffset: -190;
     }
 }
-.jl-skeleton-shimmer {
-    background-image: linear-gradient(
-        100deg,
-        transparent 0%,
-        hsl(var(--foreground) / 0.14) 50%,
-        transparent 100%
-    );
-    background-size: 200% 100%;
-    background-position: 100% 0;
-    animation: jl-skeleton-shimmer-sweep 2.2s infinite linear;
+.jl-tile-pulse {
+    animation: jl-tile-pulse-travel 2.8s linear infinite;
 }
 
 .leaflet-tooltip.jl-ref-tooltip {

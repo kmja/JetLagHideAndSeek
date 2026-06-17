@@ -1,16 +1,22 @@
 import { cn } from "@/lib/utils";
 
 /**
- * Map-tile skeleton loader. v293 strips the loader to bare grid
- * lines on a transparent background — it now reads as an empty
- * container with a shimmering tile-line pattern over it, rather
- * than a filled mosaic in a different shade from the surrounding
- * chrome. The container's own background shows through.
+ * Map-tile skeleton loader. The panel is left transparent (the
+ * container's background shows through); the grid is painted in
+ * two passes:
  *
- * The grid lines come from stroking the existing tile layout; the
- * shimmer is a diagonal gradient defined in globals.css that
- * sweeps across the panel on a slow loop, briefly brightening the
- * lines as it passes.
+ *   1. A static low-opacity stroke that defines the tile shapes
+ *      so the grid remains legible between pulses.
+ *   2. A brighter stroke with a long-dash / short-pulse pattern.
+ *      Each pulse rect's `stroke-dashoffset` animates from 0 →
+ *      -(dash + gap) over `--jl-tile-cycle`, making the bright
+ *      segment travel along the rect's perimeter like a packet of
+ *      light moving around the line.
+ *
+ * Per-rect `animation-delay` is staggered with a small hash of the
+ * index so the pulses don't all line up — they drift relative to
+ * each other and the panel reads as alive with little moving
+ * lights, not as a single synchronised cycle.
  */
 
 /**
@@ -42,6 +48,12 @@ const TILES: ReadonlyArray<readonly [number, number, number, number]> = [
     [260, 138, 60, 42],
 ];
 
+/** Duration of one pulse-cycle around a rect's perimeter (s). */
+const CYCLE_S = 2.8;
+/** Per-rect delay band in seconds — spread out so the pulses
+ *  don't line up. Hashed off the index for stable variety. */
+const DELAY_SPREAD_S = CYCLE_S;
+
 export function MapLoader({
     className,
     fill = true,
@@ -62,27 +74,57 @@ export function MapLoader({
                 preserveAspectRatio="none"
                 className="absolute inset-0 w-full h-full"
             >
+                {/* Pass 1 — static low-opacity grid so the shape of
+                    the tile pattern is legible at all times, even
+                    when no pulse happens to be on a given rect. */}
                 {TILES.map(([x, y, w, h], i) => (
                     <rect
-                        key={i}
+                        key={`grid-${i}`}
                         x={x}
                         y={y}
                         width={w}
                         height={h}
                         fill="none"
-                        stroke="hsl(var(--foreground) / 0.14)"
+                        stroke="hsl(var(--foreground) / 0.12)"
                         strokeWidth="1"
-                        // Keep stroke a constant width regardless of
-                        // how the SVG is scaled to fill the panel —
-                        // otherwise tall containers bloat the lines.
                         vectorEffect="non-scaling-stroke"
                     />
                 ))}
+                {/* Pass 2 — animated dash pulses on the same rects,
+                    one full perimeter loop per CYCLE_S, delayed
+                    per-rect so the panel reads as several lights
+                    drifting along different tiles at once. */}
+                {TILES.map(([x, y, w, h], i) => {
+                    // Hash the index into the delay band so adjacent
+                    // tiles don't share a phase. Cheap deterministic
+                    // sprinkle — keeps SSR / hydration happy.
+                    const delay =
+                        ((i * 7) % 11) * (DELAY_SPREAD_S / 11);
+                    return (
+                        <rect
+                            key={`pulse-${i}`}
+                            x={x}
+                            y={y}
+                            width={w}
+                            height={h}
+                            fill="none"
+                            stroke="hsl(var(--foreground) / 0.55)"
+                            strokeWidth="1"
+                            strokeLinecap="round"
+                            // Short bright pulse (10 units) followed
+                            // by a long gap (180). One bright packet
+                            // visible per rect at a time. Total
+                            // cycle = 190.
+                            strokeDasharray="10 180"
+                            vectorEffect="non-scaling-stroke"
+                            className="jl-tile-pulse"
+                            style={{
+                                animationDelay: `${delay.toFixed(2)}s`,
+                            }}
+                        />
+                    );
+                })}
             </svg>
-            <div
-                aria-hidden
-                className="jl-skeleton-shimmer absolute inset-0 pointer-events-none"
-            />
         </div>
     );
 }
