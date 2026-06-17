@@ -257,14 +257,57 @@ function CardCell({
     onTap: () => void;
     onConfirm: () => void;
 }) {
+    // v316: when the fly starts, measure the cell's current
+    // viewport position and compute the delta to the actual hand
+    // fan strip at the bottom of the screen. Without this the card
+    // flew a fixed `translateY(70vh)` past the picker — way off
+    // the bottom of the viewport. The new target is roughly the
+    // centre of the HiderHandFan peek strip (~34 px above the
+    // safe-area-aware viewport bottom), so the picked card visibly
+    // tucks into where the hand actually sits.
+    const wrapperRef = useRef<HTMLDivElement | null>(null);
+    const [flyDelta, setFlyDelta] = useState<{
+        x: number;
+        y: number;
+    } | null>(null);
+    useEffect(() => {
+        if (!isFlying) {
+            setFlyDelta(null);
+            return;
+        }
+        const el = wrapperRef.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const cellCx = rect.left + rect.width / 2;
+        const cellCy = rect.top + rect.height / 2;
+        const vh = window.innerHeight;
+        const vw = window.innerWidth;
+        // Aim for the centre of the resting fan strip — see
+        // HiderHandFan PEEK_OFFSET (53 px below the viewport
+        // bottom; the visible peek is ~26 px above bottom). 34 px
+        // above bottom is a reliable landing for both Android and
+        // iOS safe areas.
+        const targetX = vw / 2;
+        const targetY = vh - 34;
+        setFlyDelta({ x: targetX - cellCx, y: targetY - cellCy });
+    }, [isFlying]);
+
     // Card transform per phase. Defaults (resting + highlighted) sit
     // in the grid spot; flying / fading / kept apply transforms with
     // their own transition profiles.
     const cardStyle: CSSProperties = (() => {
         if (isFlying) {
+            // v316: until we've measured (one render after isFlying
+            // flips true) keep the resting transform so the card
+            // doesn't jump. The next render applies the measured
+            // translate and the CSS transition fires from rest →
+            // target in one smooth motion.
+            if (!flyDelta) {
+                return { transition: "transform 180ms ease-out" };
+            }
             return {
-                transform: "translateY(70vh) scale(0.25) rotate(-3deg)",
-                opacity: 0.6,
+                transform: `translate(${flyDelta.x}px, ${flyDelta.y}px) scale(0.36) rotate(-3deg)`,
+                opacity: 0.9,
                 transition: `transform ${FLY_MS}ms cubic-bezier(.4,.0,.7,.2), opacity ${FLY_MS}ms ease-in`,
                 pointerEvents: "none",
             };
@@ -299,6 +342,7 @@ function CardCell({
     return (
         <div className="flex flex-col items-stretch gap-2 h-full">
             <div
+                ref={wrapperRef}
                 style={cardStyle}
                 className="w-full flex-1 min-h-0"
                 // Critical: don't let the flying transform get clipped
