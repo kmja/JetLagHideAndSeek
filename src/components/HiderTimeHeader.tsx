@@ -1,14 +1,24 @@
 import { useStore } from "@nanostores/react";
-import { Flag, Sparkles, Timer, Trophy } from "lucide-react";
+import { Flag, Plus, Sparkles, Timer, Trophy } from "lucide-react";
 import { useState } from "react";
+import { toast } from "react-toastify";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { lastKnownPosition } from "@/lib/context";
 import {
     endgameStartedAt,
     formatTimeRemaining,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
 import {
+    addScoutedSpot,
     hiderForfeited,
     hidingSpot,
     hidingZone,
@@ -16,6 +26,31 @@ import {
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
+
+/**
+ * Great-circle distance in metres. Used to gate the "Mark spot"
+ * button on whether the hider's GPS is inside their committed
+ * hiding zone. Inlined here rather than importing turf so the
+ * header doesn't pull a multi-hundred-KB geo lib on a route
+ * where MapLibre already paid that cost.
+ */
+function metersBetween(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+): number {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 /**
  * Big sticky header for the hider shell. Mirrors the seeker's
@@ -43,6 +78,60 @@ export function HiderTimeHeader() {
     const $hidingZone = useStore(hidingZone);
     const $hidingSpot = useStore(hidingSpot);
     const $forfeited = useStore(hiderForfeited);
+    const $gps = useStore(lastKnownPosition);
+
+    // Mark-spot popover state. v313 moves the button into the
+    // header (was a floating yellow FAB on the map); it only
+    // appears when the hider has committed a zone AND their GPS is
+    // physically inside that zone. Outside the zone — or before a
+    // zone is committed — the action is meaningless, so we hide it
+    // entirely rather than disabling it.
+    const [markPopoverOpen, setMarkPopoverOpen] = useState(false);
+    const [draftLabel, setDraftLabel] = useState("");
+    const [pinningSpot, setPinningSpot] = useState(false);
+
+    const insideZone =
+        $hidingZone !== null &&
+        $gps !== null &&
+        metersBetween(
+            $gps.lat,
+            $gps.lng,
+            $hidingZone.stationLat,
+            $hidingZone.stationLng,
+        ) <= $hidingZone.radiusMeters;
+
+    const handleSaveMark = () => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            toast.error("Location access isn't available on this device.");
+            return;
+        }
+        setPinningSpot(true);
+        const label = draftLabel.trim() || undefined;
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                addScoutedSpot({
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    label,
+                });
+                setPinningSpot(false);
+                setDraftLabel("");
+                setMarkPopoverOpen(false);
+                toast.success("Potential hiding spot marked.", {
+                    autoClose: 1500,
+                });
+            },
+            (err) => {
+                setPinningSpot(false);
+                toast.error(
+                    err.code === err.PERMISSION_DENIED
+                        ? "Allow location access to mark spots."
+                        : "Couldn't read your location — try again.",
+                );
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+        );
+    };
 
     const [now, setNow] = useState(() => Date.now());
     useVisibleInterval(
@@ -101,6 +190,87 @@ export function HiderTimeHeader() {
                         endgameOn={$endgameStartedAt !== null}
                     />
                 </div>
+                {insideZone && (
+                    <Popover
+                        open={markPopoverOpen}
+                        onOpenChange={(o) => {
+                            setMarkPopoverOpen(o);
+                            if (!o) setDraftLabel("");
+                        }}
+                    >
+                        <PopoverTrigger asChild>
+                            <Button
+                                type="button"
+                                size="sm"
+                                className="shrink-0 gap-1"
+                                title="Mark potential hiding spot at your current location"
+                            >
+                                <Plus
+                                    className="w-3.5 h-3.5"
+                                    strokeWidth={3}
+                                />
+                                Mark spot
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                            align="end"
+                            side="bottom"
+                            className="w-[280px] p-3 bg-card border-2 border-border shadow-xl space-y-3"
+                        >
+                            <div className="space-y-1">
+                                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                    Mark potential hiding spot
+                                </div>
+                                <p className="text-[11px] text-muted-foreground leading-snug">
+                                    Saves your current location with a
+                                    short description you can find later
+                                    in the Zone drawer.
+                                </p>
+                            </div>
+                            <Input
+                                value={draftLabel}
+                                onChange={(e) => setDraftLabel(e.target.value)}
+                                placeholder="e.g. bench behind the library"
+                                maxLength={40}
+                                className="text-sm"
+                                autoFocus
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        handleSaveMark();
+                                    }
+                                }}
+                            />
+                            <div className="flex items-stretch gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        setMarkPopoverOpen(false);
+                                        setDraftLabel("");
+                                    }}
+                                    className="flex-1"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="button"
+                                    onClick={handleSaveMark}
+                                    disabled={pinningSpot}
+                                    size="sm"
+                                    className="flex-1 gap-1"
+                                >
+                                    <Plus
+                                        className="w-3.5 h-3.5"
+                                        strokeWidth={3}
+                                    />
+                                    {pinningSpot ? "Locating…" : "Save here"}
+                                </Button>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                )}
             </div>
         </header>
     );
