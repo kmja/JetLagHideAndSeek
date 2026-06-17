@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Sparkles, Trash2, Zap } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
@@ -464,6 +464,74 @@ function HandCarousel({
     // previous focus.
     const focused = hand[focusIndex] ?? hand[hand.length - 1] ?? null;
 
+    // v299: keep focusIndex + carousel scroll in sync with the
+    // hand when a discard / draw shrinks or grows it from under us.
+    // Without this the pagination dot stays on a slot whose card has
+    // changed and the visible carousel snap can land on a different
+    // card than the actions row is operating on.
+    const prevHandLen = useRef(hand.length);
+    useEffect(() => {
+        if (!open) return;
+        if (hand.length === prevHandLen.current) return;
+        prevHandLen.current = hand.length;
+        if (hand.length === 0) return;
+        const clamped = Math.min(focusIndex, hand.length - 1);
+        setFocusIndex(clamped);
+        const el = trackRef.current;
+        if (!el) return;
+        // Re-anchor the carousel scroll to the (possibly clamped)
+        // focused slot so the snap position matches the dot the next
+        // frame.
+        requestAnimationFrame(() => {
+            const slide = el.children[clamped] as HTMLElement | undefined;
+            if (!slide) return;
+            el.scrollLeft =
+                slide.offsetLeft -
+                (el.clientWidth - slide.clientWidth) / 2;
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hand.length, open]);
+
+    // v299: Android back gesture / browser back button closes the
+    // carousel instead of navigating away from the route. We push a
+    // throwaway history entry on open; popstate fires on back. If
+    // the drawer closes by other means (X button, click outside,
+    // Vaul swipe-down), the cleanup pops the entry itself so we
+    // don't leak history entries.
+    const closedByPop = useRef(false);
+    useEffect(() => {
+        if (!open || typeof window === "undefined") return;
+        const sentinel = "jl-hand-carousel";
+        closedByPop.current = false;
+        try {
+            window.history.pushState({ [sentinel]: true }, "");
+        } catch {
+            /* history may be unavailable in some embedded views */
+        }
+        const onPopState = () => {
+            // Back gesture popped our sentinel; don't try to pop it
+            // again in cleanup or we'd eat the user's real history.
+            closedByPop.current = true;
+            onOpenChange(false);
+        };
+        window.addEventListener("popstate", onPopState);
+        return () => {
+            window.removeEventListener("popstate", onPopState);
+            if (closedByPop.current) return;
+            try {
+                const state = window.history.state as Record<
+                    string,
+                    unknown
+                > | null;
+                if (state && state[sentinel]) {
+                    window.history.back();
+                }
+            } catch {
+                /* noop */
+            }
+        };
+    }, [open, onOpenChange]);
+
     return (
         <VaulDrawer.Root
             open={open}
@@ -473,11 +541,20 @@ function HandCarousel({
             <VaulDrawer.Portal>
                 {/* Dim the UI behind so the focused card pops, but
                     no opaque sheet — this isn't a separate page,
-                    it's "lift your cards up to your eyes". Tapping
-                    the dim layer closes (Vaul wires that up via the
-                    Overlay element). */}
+                    it's "lift your cards up to your eyes". */}
                 <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/55 backdrop-blur-sm" />
                 <VaulDrawer.Content
+                    onClick={(e) => {
+                        // v299: tapping the empty Content background
+                        // (anywhere outside the carousel + action
+                        // row + close button) closes the drawer. The
+                        // Overlay sits underneath Content so its own
+                        // dismiss behaviour is occluded; this onClick
+                        // restores click-outside-to-close.
+                        if (e.target === e.currentTarget) {
+                            onOpenChange(false);
+                        }
+                    }}
                     className={cn(
                         "fixed inset-0 z-[1051]",
                         // Transparent container — no panel chrome
@@ -490,6 +567,26 @@ function HandCarousel({
                         "pb-[max(env(safe-area-inset-bottom),24px)]",
                     )}
                 >
+                    {/* v299: explicit close button. Sits top-right
+                        of the viewport, above the safe-area inset
+                        so it never clashes with the notch/island. */}
+                    <button
+                        type="button"
+                        onClick={() => onOpenChange(false)}
+                        aria-label="Close hand"
+                        className={cn(
+                            "absolute right-3 z-[1052]",
+                            "top-[calc(env(safe-area-inset-top)+0.5rem)]",
+                            "inline-flex items-center justify-center w-10 h-10",
+                            "rounded-full bg-background/80 backdrop-blur-sm",
+                            "border border-border text-foreground",
+                            "hover:bg-background transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        )}
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+
                     {/* SR-only title — required by Vaul/Radix for
                         accessibility, but visually we keep the
                         carousel chrome-less to preserve the
@@ -732,13 +829,8 @@ function CardActions({
                                 setCastCurse(card);
                             }
                         }}
-                        className="flex-1 gap-1.5 h-12 text-base font-semibold"
+                        className="flex-1 h-12 text-base font-semibold"
                     >
-                        {card.kind === "curse" ? (
-                            <Zap className="w-5 h-5" />
-                        ) : (
-                            <Sparkles className="w-5 h-5" />
-                        )}
                         Play
                     </Button>
                 )}
