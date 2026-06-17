@@ -1,9 +1,11 @@
 import { useStore } from "@nanostores/react";
-import { ChevronRight } from "lucide-react";
-import { useMemo } from "react";
+import { ChevronRight, Timer } from "lucide-react";
+import { useMemo, useState } from "react";
 
+import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
+    ANSWER_WINDOW_MS,
     answeringQuestion,
     hiderInbox,
     type InboxEntry,
@@ -35,6 +37,17 @@ export function HiderUnansweredOverlay() {
         [$inbox],
     );
 
+    // 1 Hz tick while a question is waiting, so the countdown next
+    // to the prompt actually counts. Visibility-aware: paused while
+    // the tab is hidden, so a backgrounded phone doesn't keep
+    // burning a setInterval.
+    const [now, setNow] = useState(() => Date.now());
+    useVisibleInterval(
+        () => setNow(Date.now()),
+        1000,
+        waiting.length > 0,
+    );
+
     if (waiting.length === 0) return null;
 
     const latest = waiting[0];
@@ -42,6 +55,16 @@ export function HiderUnansweredOverlay() {
     const Icon = meta?.icon;
     const prompt = waitingPrompt(latest);
     const extraCount = waiting.length - 1;
+
+    // Rulebook gives the hider 5 minutes per question. Past that
+    // the seeker can pressure / re-ask; we clamp at 0:00 + flag the
+    // entry as overdue so the countdown switches tone.
+    const deadlineMs = latest.arrivedAt + ANSWER_WINDOW_MS;
+    const remainingMs = Math.max(0, deadlineMs - now);
+    const overdue = remainingMs === 0;
+    const mins = Math.floor(remainingMs / 60_000);
+    const secs = Math.floor((remainingMs % 60_000) / 1000);
+    const countdownLabel = `${mins}:${String(secs).padStart(2, "0")}`;
 
     const handleClick = () => {
         // v301: open the answer flow as a dialog over the hider
@@ -89,8 +112,31 @@ export function HiderUnansweredOverlay() {
                     </span>
                 )}
                 <div className="min-w-0 flex-1">
-                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-yellow-500">
-                        Question waiting
+                    <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-yellow-500">
+                            Question waiting
+                        </span>
+                        {/* v302: 5-min rulebook countdown. Goes red
+                            on overdue. tabular-nums so digits don't
+                            jiggle as the seconds tick. */}
+                        <span
+                            className={cn(
+                                "inline-flex items-center gap-1 shrink-0",
+                                "text-[10px] font-mono font-bold tabular-nums leading-none",
+                                "px-1.5 py-0.5 rounded-full border",
+                                overdue
+                                    ? "bg-destructive/15 border-destructive/50 text-destructive"
+                                    : "bg-yellow-500/15 border-yellow-500/50 text-yellow-500",
+                            )}
+                            aria-label={
+                                overdue
+                                    ? "Answer window expired"
+                                    : `${countdownLabel} left to answer`
+                            }
+                        >
+                            <Timer className="w-3 h-3" strokeWidth={2.5} />
+                            {overdue ? "0:00" : countdownLabel}
+                        </span>
                     </div>
                     <p className="text-sm font-poppins font-semibold leading-snug truncate">
                         {prompt}

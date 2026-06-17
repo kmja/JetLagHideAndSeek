@@ -542,37 +542,45 @@ function HandCarousel({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, initialIndex]);
 
-    // Watch scroll position; whichever slide's centre is closest to
-    // the viewport centre is the focused one. Throttled via rAF so
-    // the listener doesn't fire 60 times per scroll tick.
+    // v302: track which slide is centred via IntersectionObserver
+    // instead of a scroll listener. The previous scroll-event +
+    // rAF approach didn't reliably update focusIndex on CSS
+    // scroll-snap containers — the "highlighted card never
+    // changes" bug. IntersectionObserver fires on visibility
+    // changes (which scroll-snap always produces) and gives us
+    // each slide's ratio so the most-visible one wins.
     useEffect(() => {
         if (!open) return;
         const el = trackRef.current;
         if (!el) return;
-        let frame = 0;
-        const onScroll = () => {
-            if (frame) return;
-            frame = requestAnimationFrame(() => {
-                frame = 0;
-                const cx = el.scrollLeft + el.clientWidth / 2;
-                const slides = Array.from(el.children) as HTMLElement[];
+        const ratios = new WeakMap<Element, number>();
+        const observer = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    ratios.set(entry.target, entry.intersectionRatio);
+                }
+                const children = Array.from(el.children) as HTMLElement[];
                 let bestIdx = 0;
-                let bestDist = Infinity;
-                for (let i = 0; i < slides.length; i++) {
-                    const s = slides[i];
-                    const sCenter = s.offsetLeft + s.clientWidth / 2;
-                    const dist = Math.abs(sCenter - cx);
-                    if (dist < bestDist) {
-                        bestDist = dist;
+                let bestRatio = -1;
+                for (let i = 0; i < children.length; i++) {
+                    const r = ratios.get(children[i]) ?? 0;
+                    if (r > bestRatio) {
+                        bestRatio = r;
                         bestIdx = i;
                     }
                 }
-                setFocusIndex(bestIdx);
-            });
-        };
-        el.addEventListener("scroll", onScroll, { passive: true });
-        return () => el.removeEventListener("scroll", onScroll);
-    }, [open]);
+                if (bestRatio > 0) setFocusIndex(bestIdx);
+            },
+            {
+                root: el,
+                threshold: [0.1, 0.3, 0.5, 0.7, 0.9, 1.0],
+            },
+        );
+        for (const child of Array.from(el.children)) {
+            observer.observe(child);
+        }
+        return () => observer.disconnect();
+    }, [open, hand.length]);
 
     // Card to the carousel actions act on. Out-of-bounds index is
     // possible right after a discard shrinks the hand below the
@@ -652,6 +660,14 @@ function HandCarousel({
             open={open}
             onOpenChange={onOpenChange}
             shouldScaleBackground={false}
+            // v302: turn off Vaul's drag-to-dismiss. The user was
+            // able to swipe the entire Content (cards + close
+            // button) around without ever crossing the dismiss
+            // threshold, leaving the carousel half-shifted with the
+            // map / nav peeking through behind it. Click-outside,
+            // the X button, the back gesture, and Escape still
+            // dismiss — the drag is the only thing we kill.
+            dismissible={false}
         >
             <VaulDrawer.Portal>
                 {/* Dim the UI behind so the focused card pops, but

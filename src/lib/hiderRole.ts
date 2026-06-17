@@ -114,6 +114,14 @@ export function radiusForGameSize(size: GameSize): number {
 export const ZONE_GRACE_MS = 5 * 60 * 1000;
 
 /**
+ * Hider's window to answer an incoming question. Rulebook gives the
+ * hider 5 minutes from receipt; past that the seeker can re-ask or
+ * pressure the hider. The unanswered-question overlay surfaces a
+ * live countdown so the hider knows how much they have left.
+ */
+export const ANSWER_WINDOW_MS = 5 * 60 * 1000;
+
+/**
  * Set true when a hider lets the grace window close without ever
  * committing a hiding zone — they lose the round (rulebook requires
  * the zone be centered on a station before play begins; this is the
