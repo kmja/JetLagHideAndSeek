@@ -177,16 +177,19 @@ export function App() {
         <>
             <RouterProvider router={router} />
             {/* Toast portal — single instance shared across both
-                routes. v298 restyled the pills via CSS (see
-                globals.css "React-Toastify pill restyle"). */}
+                routes. v304: progress bar visible (it's the
+                visual countdown), draggable enabled (swipe to
+                dismiss). Styling lives in globals.css
+                "React-Toastify card restyle". */}
             <ToastContainer
                 position="top-center"
                 autoClose={4000}
-                hideProgressBar
+                hideProgressBar={false}
                 newestOnTop
                 closeOnClick
                 pauseOnFocusLoss
-                draggable={false}
+                draggable
+                draggablePercent={40}
                 pauseOnHover
                 theme="dark"
             />

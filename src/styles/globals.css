@@ -603,15 +603,14 @@ div.leaflet-control-attribution.leaflet-control {
  * need to invert the canvas to fake a dark style. The rule is left
  * commented here as a breadcrumb in case anyone goes looking for it. */
 
-/* ─────────── React-Toastify card restyle (v298, refined v301) ─────
- * Default toastify renders ~320 px banners stuck to the top of the
- * screen. We restyle the .Toastify__toast surface to match the
- * HiderUnansweredOverlay card — an icon in a colored badge box on
- * the left, a small severity label in the same colour above the
- * body text, and a thin coloured border around the whole card.
- * Same surface tokens (`background`, `border`) as the rest of the
- * chrome. Severity is the only thing the colour communicates;
- * shape stays uniform across types.
+/* ─────────── React-Toastify card restyle (v298, refined v304) ─────
+ * Toasts render as compact dark cards with a coloured icon on the
+ * left, the body text in the middle, a big close X on the right,
+ * and a progress bar along the bottom counting down the autoClose
+ * window. The icon carries the severity colour directly — no
+ * backplate. Border + progress bar pick up the same severity hue.
+ * Swipe-to-dismiss is enabled (`draggable` on ToastContainer);
+ * tapping the X or the toast body also dismisses.
  */
 .Toastify__toast-container {
     width: auto !important;
@@ -636,7 +635,7 @@ div.leaflet-control-attribution.leaflet-control {
     min-height: 0 !important;
     padding: 0.625rem 0.75rem !important;
     margin-bottom: 0 !important;
-    border-radius: 0.375rem !important;
+    border-radius: 0.5rem !important;
     border: 2px solid hsl(var(--border)) !important;
     background: hsl(var(--background) / 0.95) !important;
     color: hsl(var(--foreground)) !important;
@@ -646,6 +645,10 @@ div.leaflet-control-attribution.leaflet-control {
     font-size: 13px !important;
     line-height: 1.35 !important;
     animation-duration: 200ms !important;
+    /* Clip the progress bar inside the rounded corners. */
+    overflow: hidden !important;
+    /* Progress bar sits underneath the body, so leave room. */
+    position: relative;
 }
 .Toastify__toast--success {
     border-color: hsl(142 65% 45% / 0.7) !important;
@@ -659,96 +662,95 @@ div.leaflet-control-attribution.leaflet-control {
 .Toastify__toast--warning {
     border-color: hsl(44 87% 60% / 0.7) !important;
 }
-/* Body becomes a horizontal flex: icon box on the left, text
- * column on the right. Text column carries the severity label via
- * a coloured ::before above the message itself. */
+/* Body is a flex row: icon, message, close button. */
 .Toastify__toast-body {
     padding: 0 !important;
     margin: 0 !important;
     display: flex !important;
     align-items: center !important;
-    gap: 0.75rem !important;
+    gap: 0.625rem !important;
     color: inherit !important;
 }
+/* v304: backplate removed. The icon SVG itself carries the
+ * severity colour via `fill`. Sized big enough that the
+ * recoloured glyph reads clearly on the dark card. */
 .Toastify__toast-icon {
-    width: 36px !important;
-    height: 36px !important;
+    width: 22px !important;
+    height: 22px !important;
     margin: 0 !important;
     flex-shrink: 0;
-    border-radius: 4px;
+    background: transparent !important;
     display: flex;
     align-items: center;
     justify-content: center;
 }
-.Toastify__toast--success .Toastify__toast-icon {
-    background: hsl(142 65% 45%);
-}
-.Toastify__toast--error .Toastify__toast-icon {
-    background: hsl(var(--destructive));
-}
-.Toastify__toast--info .Toastify__toast-icon {
-    background: hsl(var(--primary));
-}
-.Toastify__toast--warning .Toastify__toast-icon {
-    background: hsl(44 87% 60%);
-}
 .Toastify__toast-icon > svg {
-    width: 20px;
-    height: 20px;
-    fill: white;
+    width: 22px;
+    height: 22px;
+    fill: hsl(var(--muted-foreground));
 }
-/* The second child of the body is whatever the toast() call
- * passed in — render it as a column so we can attach a coloured
- * severity label above. */
+.Toastify__toast--success .Toastify__toast-icon > svg {
+    fill: hsl(142 65% 50%);
+}
+.Toastify__toast--error .Toastify__toast-icon > svg {
+    fill: hsl(var(--destructive));
+}
+.Toastify__toast--info .Toastify__toast-icon > svg {
+    fill: hsl(var(--primary));
+}
+.Toastify__toast--warning .Toastify__toast-icon > svg {
+    fill: hsl(44 87% 60%);
+}
 .Toastify__toast-body > div:not(.Toastify__toast-icon) {
-    display: flex;
-    flex-direction: column;
     min-width: 0;
     flex: 1;
     font-weight: 600;
 }
-.Toastify__toast-body > div:not(.Toastify__toast-icon)::before {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    font-weight: 700;
-    line-height: 1;
-    margin-bottom: 0.25rem;
-}
-.Toastify__toast--success .Toastify__toast-body > div:not(.Toastify__toast-icon)::before {
-    content: "Success";
-    color: hsl(142 65% 55%);
-}
-.Toastify__toast--error .Toastify__toast-body > div:not(.Toastify__toast-icon)::before {
-    content: "Heads up";
-    color: hsl(var(--destructive));
-}
-.Toastify__toast--info .Toastify__toast-body > div:not(.Toastify__toast-icon)::before {
-    content: "Heads up";
-    color: hsl(var(--primary));
-}
-.Toastify__toast--warning .Toastify__toast-body > div:not(.Toastify__toast-icon)::before {
-    content: "Warning";
-    color: hsl(44 87% 60%);
-}
+/* v304: close X is the full height of the card. Tap target was
+ * tiny before — now matches the size of the icon. */
 .Toastify__close-button {
-    align-self: flex-start !important;
+    align-self: center !important;
     margin-left: 0.5rem !important;
-    margin-top: 0.125rem !important;
     color: hsl(var(--muted-foreground)) !important;
     opacity: 0.7 !important;
-    width: 14px !important;
-    height: 14px !important;
+    width: 28px !important;
+    height: 28px !important;
     padding: 0 !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
 }
 .Toastify__close-button:hover {
     opacity: 1 !important;
 }
 .Toastify__close-button > svg {
-    width: 14px !important;
-    height: 14px !important;
+    width: 22px !important;
+    height: 22px !important;
 }
+/* v304: autoClose countdown. The bar fills from full → empty over
+ * the toast's lifetime, taking the severity colour. Sits flush
+ * against the bottom edge inside the rounded corners. */
 .Toastify__progress-bar,
 .Toastify__progress-bar--wrp {
-    display: none !important;
+    display: block !important;
+}
+.Toastify__progress-bar {
+    height: 3px !important;
+    bottom: 0 !important;
+    background: hsl(var(--muted-foreground)) !important;
+    opacity: 0.85 !important;
+    transform-origin: left !important;
+}
+.Toastify__toast--success .Toastify__progress-bar {
+    background: hsl(142 65% 45%) !important;
+}
+.Toastify__toast--error .Toastify__progress-bar {
+    background: hsl(var(--destructive)) !important;
+}
+.Toastify__toast--info .Toastify__progress-bar {
+    background: hsl(var(--primary)) !important;
+}
+.Toastify__toast--warning .Toastify__progress-bar {
+    background: hsl(44 87% 60%) !important;
 }
