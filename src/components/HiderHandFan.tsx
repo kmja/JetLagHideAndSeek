@@ -103,6 +103,12 @@ function Fan({
     const CARD_MINIATURE_SCALE = 0.42;
     const CARD_W = 76;
     const CARD_H = 104;
+    // The fan strip is a peek — only the top half of each card sits
+    // above the viewport edge at rest, with the bottom half clipped
+    // off-screen so the cards read as a hand resting in your lap. The
+    // peek-on-press gesture (below) compensates for this baseline
+    // offset so the lifted card still rises clear of the strip.
+    const PEEK_OFFSET = Math.round(CARD_H / 2);
     const TOTAL_ANGLE = N <= 1 ? 0 : Math.min(60, 9 * N);
     const stepAngle = N <= 1 ? 0 : TOTAL_ANGLE / (N - 1);
     const startAngle = -TOTAL_ANGLE / 2;
@@ -237,17 +243,27 @@ function Fan({
                 "pointer-events-none",
             )}
             style={{
-                // Container height covers the resting fan. The
-                // peek-preview card extends ABOVE the container
-                // (overflow is intentionally visible) so page footers
-                // only need to clear the resting strip — they get
-                // briefly covered while the user is peeking, but
-                // peeking is a deliberate interaction with full focus,
-                // so brief overlap is fine.
-                height: CARD_H + 24,
-                paddingBottom: "calc(env(safe-area-inset-bottom) + 4px)",
+                // Resting strip is only the visible top half of the
+                // cards plus a small chrome gap. The cards' bottom
+                // halves extend off-screen (clipped by the viewport
+                // edge); the peek-preview lifts the active card UP
+                // above the strip — overflow is intentionally visible
+                // so that gesture isn't clipped.
+                height: PEEK_OFFSET + 16,
+                paddingBottom: "env(safe-area-inset-bottom)",
             }}
         >
+            {/* Backdrop matches the bottom nav exactly so nav + hand
+                read as one continuous chrome bar. Sits below the cards
+                via z-order (cards are in the absolutely-positioned
+                inner div, painted after the backdrop). */}
+            <div
+                aria-hidden
+                className={cn(
+                    "absolute inset-0 pointer-events-none",
+                    "bg-background/95 backdrop-blur-md border-t border-border",
+                )}
+            />
             <div
                 className="relative pointer-events-none"
                 style={{ width: 0, height: CARD_H }}
@@ -272,7 +288,12 @@ function Fan({
                     // it reads as the obvious focal point. The
                     // resting fan strip stays the same size, so the
                     // peek floats above any neighbouring card.
-                    const previewTranslate = previewed ? 70 : 0;
+                    // previewTranslate absorbs PEEK_OFFSET (the
+                    // baseline downward push that makes the cards peek
+                    // at rest) so a lifted card ends up at the same
+                    // absolute screen position it would have without
+                    // the peek baseline.
+                    const previewTranslate = previewed ? 70 + PEEK_OFFSET : 0;
                     const previewScale = previewed ? 1.9 : 1;
                     const cardRotate = previewed ? 0 : angle;
                     return (
@@ -307,7 +328,7 @@ function Fan({
                                 "touch-none select-none",
                             )}
                             style={{
-                                transform: `translateX(${x}px) translateY(${-yLift - previewTranslate}px) rotate(${cardRotate}deg) scale(${previewScale})`,
+                                transform: `translateX(${x}px) translateY(${-yLift - previewTranslate + PEEK_OFFSET}px) rotate(${cardRotate}deg) scale(${previewScale})`,
                                 transformOrigin: "50% 100%",
                                 width: CARD_W,
                                 height: CARD_H,

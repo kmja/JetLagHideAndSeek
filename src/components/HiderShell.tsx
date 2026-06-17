@@ -1,6 +1,8 @@
 import { HiderBackgroundMap } from "@/components/HiderBackgroundMap";
 import { HiderBottomNav } from "@/components/HiderBottomNav";
 import { HiderTimeHeader } from "@/components/HiderTimeHeader";
+import { HiderTopBar } from "@/components/HiderTopBar";
+import { HiderUnansweredOverlay } from "@/components/HiderUnansweredOverlay";
 
 /**
  * Top-level hider viewport — the seeker-mirrored layout the user
@@ -30,7 +32,9 @@ export function HiderShell() {
     return (
         <div className="fixed inset-0 bg-background text-foreground overflow-hidden">
             <HiderBackgroundMap />
+            <HiderTopBar />
             <HiderTimeHeader />
+            <HiderUnansweredOverlay />
             <HiderBottomNav />
         </div>
     );

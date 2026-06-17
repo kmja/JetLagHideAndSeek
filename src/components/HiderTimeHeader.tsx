@@ -82,9 +82,12 @@ export function HiderTimeHeader() {
     return (
         <header
             className={cn(
-                "fixed top-0 inset-x-0 z-[1040]",
+                // Sits below HiderTopBar (h-14 + safe-area). Stacks
+                // the brand bar on top and the phase + countdown
+                // beneath, mirroring the seeker's vertical chrome
+                // (brand → status).
+                "fixed top-[calc(3.5rem+env(safe-area-inset-top))] inset-x-0 z-[1040]",
                 "bg-background/95 backdrop-blur-sm border-b border-border",
-                "pt-[max(0.5rem,env(safe-area-inset-top))]",
             )}
         >
             <div className="flex items-center justify-between gap-3 px-4 py-2.5">

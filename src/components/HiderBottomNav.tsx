@@ -38,9 +38,11 @@ import { cn } from "@/lib/utils";
  * `bottom-[150px]` so the hand-strip stays visible at the very
  * bottom.
  */
-// HiderHandFan container height: CARD_H(104) + 24 slack = 128px (z-40).
-// When the fan is visible the nav shifts up to sit directly above it.
-const FAN_HEIGHT_PX = 128;
+// HiderHandFan strip height after v284: cards peek (top half only),
+// container is PEEK_OFFSET(52) + 16 chrome = 68px (z-40). When the
+// fan is visible the nav shifts up to sit directly above it so the
+// nav + peek strip read as one continuous chrome bar.
+const FAN_HEIGHT_PX = 68;
 
 export function HiderBottomNav() {
     const $inbox = useStore(hiderInbox);
