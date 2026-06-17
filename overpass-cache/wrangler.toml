@@ -112,11 +112,11 @@ CACHE_TTL_DAYS = "30"
 # ticks/day = 600 cities/day → full ~1350-city list cycles every
 # ~56 hours; the ~25 HSR countries refresh every ~6 ticks.
 PREWARM_BATCH_SIZE = "25"
-# Global country-shard reference prewarm (Phase 5). Default OFF.
-# Set to "true" to start warming the 214 country shards defined in
-# src/countryShards.ts — each cron tick warms up to 2 stale shards
-# (COUNTRY_REFS_PER_TICK), so the whole world fills in ~4-5 days at
-# hourly cron, then stays warm via skip-if-fresh on a 60-day TTL.
-# Stored under country-refs/v1/<iso>/all; read by the (not-yet-wired)
-# slicing path. See scripts/global-prewarm.md.
-COUNTRY_REFS_PREWARM_ENABLED = "false"
+# Global country-shard reference prewarm (Phase 5). ENABLED.
+# Each cron tick warms up to 2 stale shards (COUNTRY_REFS_PER_TICK)
+# of the 214 in src/countryShards.ts, so the whole world fills in
+# ~4-5 days at hourly cron, then stays warm via skip-if-fresh on a
+# 60-day TTL. Stored under country-refs/v1/<iso>/all; the slicing
+# path in handleInterpreter serves reference queries from it
+# (X-Cache: SLICED). See scripts/global-prewarm.md.
+COUNTRY_REFS_PREWARM_ENABLED = "true"
