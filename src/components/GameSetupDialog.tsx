@@ -1221,19 +1221,29 @@ export function PlayAreaStep({
         return (
             <div className="space-y-3 animate-in fade-in duration-200">
                 <div
-                    className="relative w-full h-[220px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-3"
+                    className="relative w-full h-[220px] rounded-md overflow-hidden border border-border"
                     role="status"
                     aria-live="polite"
                     aria-label="Detecting your location"
                 >
                     <MapLoader />
-                    <div className="text-sm font-medium text-foreground">
-                        Finding a play area near you…
-                    </div>
-                    <div className="text-xs text-muted-foreground max-w-[80%] text-center leading-snug">
-                        Using your device's location to suggest a starting
-                        play area. You can still pick somewhere else once
-                        it lands.
+                    <div
+                        className={cn(
+                            "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
+                            "flex flex-col items-center justify-center gap-1",
+                            "px-4 py-2.5 rounded-md max-w-[80%]",
+                            "bg-[hsl(var(--background))]/85 backdrop-blur-sm",
+                            "border border-border/60 shadow-sm",
+                        )}
+                    >
+                        <div className="text-sm font-medium text-foreground text-center">
+                            Finding a play area near you…
+                        </div>
+                        <div className="text-xs text-muted-foreground text-center leading-snug">
+                            Using your device's location to suggest a
+                            starting play area. You can still pick somewhere
+                            else once it lands.
+                        </div>
                     </div>
                 </div>
             </div>

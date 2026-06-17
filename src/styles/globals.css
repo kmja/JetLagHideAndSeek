@@ -187,50 +187,54 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
-/* ─────────────────── Map loader keyframes (v275) ───────────────────
- * Themed loader that mimics a map being drawn: parks fade in, the
- * river curves into place, then the road grid, then buildings pop
- * up. Each element animates on the same shared duration so the
- * sequence stays in lockstep — staggering is done via
- * animation-delay (inline on each element). Loop runs ~2.6 s so
- * the metaphor reads instead of blurring past. */
-@keyframes jl-map-park-fade {
+/* ─────────────────── Map loader keyframes (v275, retuned v278) ──
+ * Protomaps-styled map loader (`MapLoader.tsx`) fills its container
+ * edge-to-edge over a 4-second loop. Elements use a small per-shape
+ * `animation-delay` to fan in across the whole frame at once
+ * (rather than the v275 sequential river→roads→buildings wave).
+ *
+ * Three families of motion, all timed to the same 4 s base:
+ *
+ *   - `jl-pmap-poly`     : parks + woods. Fade + small scale-in,
+ *                         hold through most of the loop, fade out.
+ *   - `jl-pmap-line`     : roads + water. Stroke-dashoffset draw
+ *                         keyed off `--jl-pmap-len` (set per
+ *                         element in JSX), then hold, then fade.
+ *   - `jl-pmap-building` : building rects. Pop up from base
+ *                         (scaleY) + fade. Hold + fade.
+ *
+ * The fade-out at the tail is deliberate — restarting from a blank
+ * earth tile reads as "drawing the map again", which is the
+ * metaphor. Without it the loop's restart would just snap.
+ */
+@keyframes jl-pmap-poly {
     0%,
-    8% { opacity: 0; transform: scale(0.92); }
-    24%,
-    88% { opacity: 0.85; transform: scale(1); }
-    100% { opacity: 0; transform: scale(0.92); }
+    4% { opacity: 0; transform: scale(0.95); }
+    18%,
+    86% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.95); }
 }
-@keyframes jl-map-river-draw {
+@keyframes jl-pmap-line {
     0%,
-    8% { stroke-dashoffset: 260; opacity: 0; }
-    16% { opacity: 1; }
-    40%,
-    88% { stroke-dashoffset: 0; opacity: 1; }
-    100% { stroke-dashoffset: 260; opacity: 0; }
+    4% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
+    12% { opacity: 1; }
+    34%,
+    86% { stroke-dashoffset: 0; opacity: 1; }
+    100% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
 }
-@keyframes jl-map-road-draw {
+@keyframes jl-pmap-railway {
     0%,
-    20% { stroke-dashoffset: 210; opacity: 0; }
-    32% { opacity: 1; }
-    52%,
-    88% { stroke-dashoffset: 0; opacity: 1; }
-    100% { stroke-dashoffset: 210; opacity: 0; }
+    8% { opacity: 0; }
+    20%,
+    86% { opacity: 0.85; }
+    100% { opacity: 0; }
 }
-@keyframes jl-map-building-pop {
+@keyframes jl-pmap-building {
     0%,
-    60% { opacity: 0; transform: scaleY(0); }
-    72%,
+    20% { opacity: 0; transform: scaleY(0); }
+    32%,
     88% { opacity: 1; transform: scaleY(1); }
     100% { opacity: 0; transform: scaleY(0); }
-}
-@keyframes jl-map-pin-bob {
-    0%,
-    72% { opacity: 0; transform: translateY(4px); }
-    78%,
-    86% { opacity: 1; transform: translateY(0); }
-    88% { opacity: 1; transform: translateY(-2px); }
-    100% { opacity: 0; transform: translateY(-2px); }
 }
 
 .leaflet-tooltip.jl-ref-tooltip {

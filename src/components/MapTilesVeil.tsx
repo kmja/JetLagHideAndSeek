@@ -48,15 +48,9 @@ export function MapTilesVeil({
     return (
         <div
             className={cn(
-                "absolute inset-0 z-[5] flex flex-col items-center justify-center gap-2.5",
-                "bg-[hsl(var(--background))]/95 backdrop-blur-[2px]",
+                "absolute inset-0 z-[5] overflow-hidden",
                 "select-none transition-opacity duration-300 ease-out",
-                visible
-                    ? "opacity-100"
-                    : "opacity-0 pointer-events-none",
-                // While visible we still want to swallow pointer
-                // events on the canvas underneath so a half-revealed
-                // map doesn't get accidental panning.
+                visible ? "opacity-100" : "opacity-0 pointer-events-none",
                 visible && "pointer-events-auto",
                 rounded && "rounded-md",
                 className,
@@ -65,21 +59,46 @@ export function MapTilesVeil({
             aria-live="polite"
             aria-hidden={!visible}
         >
+            {/* Loader fills the whole panel as the visual surface.
+                The Protomaps "earth" fill is the opaque background; we
+                don't need an extra bg-background scrim on top of it.
+                For the timed-out fallback we DO want a plain scrim,
+                since the generic spinner doesn't carry its own
+                background. */}
             {timedOut ? (
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                <div className="absolute inset-0 bg-[hsl(var(--background))]/95 backdrop-blur-[2px]" />
             ) : (
                 <MapLoader />
             )}
-            <div className="text-sm font-medium text-foreground">
-                {timedOut ? "Map tiles are slow to load" : label}
-            </div>
-            {(sublabel || timedOut) && (
-                <div className="text-xs text-muted-foreground max-w-[80%] text-center leading-snug">
-                    {timedOut
-                        ? "Showing the map anyway — tiles will fill in as they arrive."
-                        : sublabel}
+
+            {/* Label pill — sits above the loader, semi-translucent
+                so it reads against the map graphics without erasing
+                them. Centered both ways via absolute positioning so
+                the loader behind it can extend edge-to-edge. */}
+            <div
+                className={cn(
+                    "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
+                    "flex flex-col items-center justify-center gap-1",
+                    "px-4 py-2.5 rounded-md",
+                    "bg-[hsl(var(--background))]/85 backdrop-blur-sm",
+                    "border border-border/60 shadow-sm",
+                    "max-w-[80%]",
+                )}
+            >
+                {timedOut && (
+                    <Loader2 className="w-4 h-4 animate-spin text-primary mb-0.5" />
+                )}
+                <div className="text-sm font-medium text-foreground text-center">
+                    {timedOut ? "Map tiles are slow to load" : label}
                 </div>
-            )}
+                {(sublabel || timedOut) && (
+                    <div className="text-xs text-muted-foreground text-center leading-snug">
+                        {timedOut
+                            ? "Showing the map anyway — tiles will fill in as they arrive."
+                            : sublabel}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
