@@ -1,3 +1,4 @@
+import { useStore } from "@nanostores/react";
 import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
@@ -34,6 +35,7 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
+import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Dialogs / overlays / wizards that only render once the user
@@ -104,28 +106,34 @@ export function SeekerPage() {
     // game state, so it's a no-op outside an active seeker session.
     useSeekerLocationBroadcast();
 
-    // NB: all play-area reference warming is consolidated into the
-    // single `preloadDuringHidingPeriod()` orchestrator in
-    // `lib/preload.ts`, kicked off by GameStartWatcher when the
-    // hiding period starts. Nothing warms from this page anymore.
+    // v297: the main map + chrome only mount once the game has
+    // actually started (i.e. hidingPeriodEndsAt is set). Pre-game,
+    // the lobby IS the page — no map, no sidebars, no top/bottom
+    // nav. Preloading (basemap tiles, references, transit) fires
+    // from inside GameLobbyDialog the moment the lobby opens, so
+    // the boundary load doesn't start cold when the seeker shell
+    // finally takes over.
+    const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const gameStarted = $hidingEndsAt !== null;
 
-    // Gate the main map on "user has actually finished setup" so it
-    // doesn't try to fetch tiles / a boundary for the default-Japan
-    // (or any leftover) mapGeoLocation while the wizard is still
-    // open. Before this, opening the seeker on a fresh device fired
-    // dozens of cartocdn tile requests behind the wizard dialog (all
-    // 503'd by the SW offline-fallback since the play area wasn't
-    // yet known), plus a polygons.osm.fr fetch for whatever
-    // mapGeoLocation was persisted from a previous session. The
-    // wizard itself owns previewing the chosen area
-    // (PlayAreaPreviewMap), so the main map has nothing useful to
-    // show until setup completes.
-    // v267: the route-level GameRouteGate guarantees we only mount
-    // when welcomeSeen && setupCompleted are both true, so the
-    // previous in-component redirects are gone. `showMap` is now
-    // unconditionally true — the conditional render below stays as a
-    // belt-and-braces guard against ever rendering an empty seeker
-    // shell.
+    if (!gameStarted) {
+        return (
+            <div className="fixed inset-0 bg-jetlag overflow-hidden">
+                <Suspense fallback={null}>
+                    <GameLobbyDialog />
+                    <GameSetupDialog />
+                    <RolePicker />
+                    <DebugPhaseControls />
+                    <StaleSessionPrompt />
+                </Suspense>
+                <AppConfirmHost />
+                <AppPromptHost />
+                <GameStartWatcher />
+                <MultiplayerBoot />
+            </div>
+        );
+    }
+
     const showMap = true;
 
     return (

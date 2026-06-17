@@ -1,3 +1,4 @@
+import { useStore } from "@nanostores/react";
 import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
@@ -7,6 +8,7 @@ import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderView } from "@/components/HiderView";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
+import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Same lazy-dialog pattern SeekerPage uses — these are all
@@ -61,9 +63,32 @@ const StaleSessionPrompt = lazyWithRetry(() =>
  * `window.location.assign()`.
  */
 export function HiderPage() {
-    // v267: GameRouteGate in App.tsx handles the welcome/setup
-    // redirects at the route level, so HiderPage now only mounts
-    // when both atoms are committed.
+    // v297: HiderView + hand fan only mount once the game has
+    // actually started (hidingPeriodEndsAt is set). Pre-game, the
+    // lobby IS the page — no hider shell, no map, no hand strip.
+    // Preloading fires from inside GameLobbyDialog the moment the
+    // lobby opens so the hider's reference cache warms before
+    // their shell takes over.
+    const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const gameStarted = $hidingEndsAt !== null;
+
+    if (!gameStarted) {
+        return (
+            <div className="fixed inset-0 bg-jetlag overflow-hidden">
+                <Suspense fallback={null}>
+                    <GameLobbyDialog />
+                    <GameSetupDialog />
+                    <RolePicker />
+                    <DebugPhaseControls />
+                    <StaleSessionPrompt />
+                </Suspense>
+                <AppConfirmHost />
+                <AppPromptHost />
+                <GameStartWatcher />
+                <MultiplayerBoot />
+            </div>
+        );
+    }
 
     return (
         <div className="bg-background min-h-screen">
@@ -85,9 +110,9 @@ export function HiderPage() {
                     button in the lobby has a dialog to consume
                     rolePickerOpen on /h too. */}
                 <RolePicker />
-                {/* Pre-game lobby. Same component as on the seeker
-                    page; it auto-detects the hider role and renders
-                    the waiting state. */}
+                {/* Mid-game lobby reopen — drawer variant of the
+                    same component. Triggered by the Lobby slot in
+                    the bottom nav. */}
                 <GameLobbyDialog />
                 {/* Hiding-period gate + GO GO GO moment. */}
                 <GoGoGoOverlay />

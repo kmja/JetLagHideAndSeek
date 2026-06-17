@@ -27,11 +27,7 @@ import { Drawer as VaulDrawer } from "vaul";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { appConfirm } from "@/lib/confirm";
-import {
-    mapGeoJSON,
-    mapGeoLocation,
-    polyGeoJSON,
-} from "@/lib/context";
+import { mapGeoLocation } from "@/lib/context";
 import {
     allowedTransit,
     gameSize,
@@ -109,8 +105,6 @@ export function GameLobbyDialog() {
     const $self = useStore(selfParticipantId);
     const $mp = useStore(multiplayerEnabled);
     const $transportStatus = useStore(transportStatus);
-    const $mapGeoJSON = useStore(mapGeoJSON);
-    const $polyGeoJSON = useStore(polyGeoJSON);
     const $mapGeoLocation = useStore(mapGeoLocation);
     const $pending = useStore(pendingHidingDurationMin);
     const $size = useStore(gameSize);
@@ -131,7 +125,6 @@ export function GameLobbyDialog() {
             $hidingEndsAt === null &&
             $playerRole !== null);
 
-    const mapReady = Boolean($mapGeoJSON || $polyGeoJSON);
     const isHiderRole =
         $playerRole === "hider" || $playerRole === "coHider";
 
@@ -252,12 +245,12 @@ export function GameLobbyDialog() {
         hasRoleBalance && isHost && $playerRole !== null;
     // Tighter version that additionally requires the boundary
     // to be in for seeker hosts. Hider hosts skip the map-load
-    // requirement because they have no boundary stream of their
-    // own — they only ever gate on player count. The Start
-    // button cycles through two animated disabled labels in
-    // priority order ('Loading map…', 'Waiting for players…')
-    // and only goes live when startReady is true.
-    const startReady = canStart && (isHiderRole || mapReady);
+    // v297: the seeker shell + main map no longer mount pre-game,
+    // so the mapReady gate is gone. The host can start the moment
+    // role balance + setup conditions are satisfied; the boundary
+    // load happens during the hiding period (which is what the
+    // preload kickoff covers).
+    const startReady = canStart;
 
     const minutes =
         $pending && $pending > 0
@@ -322,17 +315,19 @@ export function GameLobbyDialog() {
     // Eager preload during the roster-wait window. v272 first kicked
     // this off the moment the lobby opened, but for cold cities
     // (Uppsala, mid-size metros not in the prewarm list) the boundary
-    // fetch was racing 5-6 reference/transit queries through the same
-    // overpass-api.de mirror and the whole batch was timing out. v276
-    // gates on mapReady so the boundary fetch is the only thing
-    // upstream until it lands, and only THEN do references + transit
-    // queue up behind it. Idempotent: each bucket dedupes on
-    // in-flight + warmed state, so re-fires on render are harmless.
+    // v297: dropped the mapReady gate now that the seeker shell
+    // doesn't mount pre-game (so the boundary stream wouldn't fire
+    // here at all). Preload kicks off as soon as the lobby is open
+    // with a play area committed. Each bucket dedupes on in-flight
+    // + warmed state internally, so re-fires on render are
+    // harmless; the v295 boundary dedup keeps any Overpass overlap
+    // from racing the preview map. Hiders preload too now — they
+    // also benefit from a warm reference cache once they're on the
+    // hider shell.
     useEffect(() => {
-        if (!open || isMidGame || !$playArea || isHiderRole) return;
-        if (!mapReady) return;
+        if (!open || isMidGame || !$playArea) return;
         preloadDuringHidingPeriod();
-    }, [open, isMidGame, $playArea, isHiderRole, mapReady]);
+    }, [open, isMidGame, $playArea]);
 
     if (!open) return null;
 
@@ -354,9 +349,16 @@ export function GameLobbyDialog() {
                 <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/60" />
                 <VaulDrawer.Content
                     className={cn(
-                        "fixed inset-x-0 bottom-0 z-[1055] mt-24",
-                        "flex h-auto max-h-[90vh] flex-col",
-                        "rounded-t-[10px] border",
+                        "fixed inset-x-0 z-[1055] flex flex-col",
+                        // v297: pre-game (no manual reopen, no hiding
+                        // clock running) the lobby IS the page —
+                        // there's no seeker/hider shell behind it
+                        // anymore. Fill the screen instead of sliding
+                        // up as a 90vh sheet. Mid-game manual reopens
+                        // stay as the familiar bottom drawer.
+                        isMidGame
+                            ? "bottom-0 mt-24 h-auto max-h-[90vh] rounded-t-[10px] border"
+                            : "inset-0 h-full pt-[env(safe-area-inset-top)]",
                         "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
                         "pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:mx-auto",
                     )}
@@ -712,14 +714,14 @@ export function GameLobbyDialog() {
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
                     {isMidGame ? null : isHost ? (
                         <>
-                            {/* v273: reserved-height layout — the button
-                                is always h-16 with a two-line slot, so
-                                the layout doesn't shift when the
-                                ready-state subtitle ("30-min hiding
-                                period") appears. The subtitle slot
-                                always renders, but stays
-                                visually-invisible until startReady so
-                                the loading copy reads cleanly. */}
+                            {/* v297: subtitle slot is conditionally
+                                rendered now — the prior opacity-0
+                                placeholder kept the main label off-
+                                centre. Layout pops once when the
+                                button flips to "Start game" + the
+                                subtitle joins; that single shift is
+                                a one-time event when host is ready
+                                to start, fine in practice. */}
                             <Button
                                 size="lg"
                                 className={cn(
@@ -733,12 +735,7 @@ export function GameLobbyDialog() {
                                     className="text-base font-extrabold leading-none"
                                     style={{ letterSpacing: "0.02em" }}
                                 >
-                                    {!isHiderRole && !mapReady ? (
-                                        <>
-                                            Loading map
-                                            <AnimatedEllipsis />
-                                        </>
-                                    ) : !hasRoleBalance ? (
+                                    {!hasRoleBalance ? (
                                         <>
                                             Waiting for players
                                             <AnimatedEllipsis />
@@ -747,19 +744,14 @@ export function GameLobbyDialog() {
                                         "Start game"
                                     )}
                                 </span>
-                                <span
-                                    className={cn(
-                                        "text-[10px] font-semibold leading-none mt-1",
-                                        "transition-opacity duration-200",
-                                        startReady
-                                            ? "opacity-80"
-                                            : "opacity-0",
-                                    )}
-                                    style={{ letterSpacing: "0.14em" }}
-                                    aria-hidden={!startReady}
-                                >
-                                    {minutes}-min hiding period
-                                </span>
+                                {startReady && (
+                                    <span
+                                        className="text-[10px] font-semibold leading-none mt-1 opacity-80"
+                                        style={{ letterSpacing: "0.14em" }}
+                                    >
+                                        {minutes}-min hiding period
+                                    </span>
+                                )}
                             </Button>
                             {/* Always-rendered footnote slot. The hint
                                 only reads when actually meaningful
