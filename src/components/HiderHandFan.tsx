@@ -58,25 +58,132 @@ export function HiderHandFan() {
     // Which card the carousel should land on when it opens. Set by
     // whichever card in the fan the hider tapped.
     const [initialIndex, setInitialIndex] = useState(0);
+    // v300: dialog state hoisted out of CardActions. CardActions
+    // lives inside Vaul's Content, so when the carousel closes (e.g.
+    // because the user just tapped Play and the picker / cast
+    // dialog needs to take over), CardActions used to unmount along
+    // with the Vaul Content tree — taking the freshly-set dialog
+    // state with it. The dialog would flicker into existence and
+    // immediately disappear. Owning the state up here makes both
+    // dialogs survive the carousel close.
+    const [pickerAction, setPickerAction] = useState<PickerAction>(null);
+    const [castCurse, setCastCurse] = useState<CurseCard | null>(null);
 
-    if ($hand.length === 0) return null;
+    if ($hand.length === 0 && pickerAction === null && castCurse === null) {
+        // Empty hand: nothing to fan and no in-flight dialog flow to
+        // finish. Unmount cleanly. Once a dialog is open we keep
+        // ourselves mounted until it dismisses so the cast / pick
+        // flow can complete even if the play burns down to zero
+        // cards mid-flow.
+        return null;
+    }
 
     return (
         <>
-            <Fan
-                hand={$hand}
-                gameSize={$gameSize}
-                onCardTap={(idx) => {
-                    setInitialIndex(idx);
-                    setOpen(true);
+            {$hand.length > 0 && (
+                <Fan
+                    hand={$hand}
+                    gameSize={$gameSize}
+                    onCardTap={(idx) => {
+                        setInitialIndex(idx);
+                        setOpen(true);
+                    }}
+                />
+            )}
+            {$hand.length > 0 && (
+                <HandCarousel
+                    open={open}
+                    onOpenChange={setOpen}
+                    hand={$hand}
+                    gameSize={$gameSize}
+                    initialIndex={initialIndex}
+                    setPickerAction={setPickerAction}
+                    setCastCurse={setCastCurse}
+                />
+            )}
+
+            {/* v300: picker + curse dialogs live at the HiderHandFan
+                level so they outlive a carousel close. CardActions
+                reaches them via the setters threaded through
+                HandCarousel. */}
+            <HandCardPicker
+                open={
+                    pickerAction?.kind === "discard-and-draw" ||
+                    pickerAction?.kind === "duplicate"
+                }
+                onOpenChange={(o) => {
+                    if (!o) setPickerAction(null);
+                }}
+                title={
+                    pickerAction?.kind === "discard-and-draw"
+                        ? `${pickerAction.powerupName} — pick ${pickerAction.discardCount} to discard`
+                        : pickerAction?.kind === "duplicate"
+                          ? "Duplicate Another Card — pick the card to copy"
+                          : ""
+                }
+                description={
+                    pickerAction?.kind === "discard-and-draw"
+                        ? `Pick ${pickerAction.discardCount} card${pickerAction.discardCount === 1 ? "" : "s"} from your hand to discard. You'll then draw ${pickerAction.drawCount}.`
+                        : pickerAction?.kind === "duplicate"
+                          ? "Pick the card you want to copy. A fresh duplicate lands in your hand."
+                          : ""
+                }
+                pickCount={
+                    pickerAction?.kind === "discard-and-draw"
+                        ? pickerAction.discardCount
+                        : 1
+                }
+                excludeIds={
+                    pickerAction ? [pickerAction.powerupId] : []
+                }
+                confirmLabel={
+                    pickerAction?.kind === "discard-and-draw"
+                        ? `Discard & draw ${pickerAction.drawCount}`
+                        : "Duplicate"
+                }
+                onConfirm={(ids) => {
+                    if (!pickerAction) return;
+                    if (pickerAction.kind === "discard-and-draw") {
+                        const handBefore = hiderHand.get();
+                        const discardedNames = ids
+                            .map(
+                                (id) =>
+                                    handBefore.find((c) => c.id === id)?.name ??
+                                    "card",
+                            )
+                            .join(", ");
+                        for (const id of ids) discardCard(id);
+                        discardCard(pickerAction.powerupId);
+                        const drawn = drawCards(pickerAction.drawCount);
+                        toast.success(
+                            `Discarded ${discardedNames}. Drew ${drawn.length} card${drawn.length === 1 ? "" : "s"}.`,
+                            { autoClose: 2500 },
+                        );
+                    } else {
+                        const original = hiderHand
+                            .get()
+                            .find((c) => c.id === ids[0]);
+                        if (!original) return;
+                        discardCard(pickerAction.powerupId);
+                        const clone: Card = {
+                            ...original,
+                            id: `${original.id}-dup-${Date.now()}`,
+                        } as Card;
+                        hiderHand.set([...hiderHand.get(), clone]);
+                        toast.success(`Duplicated "${original.name}".`, {
+                            autoClose: 2500,
+                        });
+                    }
+                    setPickerAction(null);
                 }}
             />
-            <HandCarousel
-                open={open}
-                onOpenChange={setOpen}
-                hand={$hand}
-                gameSize={$gameSize}
-                initialIndex={initialIndex}
+
+            <CastCurseDialog
+                open={castCurse !== null}
+                onOpenChange={(o) => {
+                    if (!o) setCastCurse(null);
+                }}
+                card={castCurse}
             />
         </>
     );
@@ -385,6 +492,8 @@ function HandCarousel({
     hand,
     gameSize: $gameSize,
     initialIndex,
+    setPickerAction,
+    setCastCurse,
 }: {
     open: boolean;
     onOpenChange: (next: boolean) => void;
@@ -392,6 +501,12 @@ function HandCarousel({
     gameSize: ReturnType<typeof gameSize.get>;
     /** Index in `hand` to scroll to when the drawer opens. */
     initialIndex: number;
+    /** Setters threaded down to CardActions so its Play/Powerup
+     *  flows can hand off to dialogs that live one level higher
+     *  (and thus survive the carousel close — see HiderHandFan
+     *  v300 comment). */
+    setPickerAction: (action: PickerAction) => void;
+    setCastCurse: (card: CurseCard | null) => void;
 }) {
     // Track the currently-focused card so the action buttons below
     // act on whatever's centered in the scroll-snap row.
@@ -655,6 +770,8 @@ function HandCarousel({
                             <CardActions
                                 card={focused}
                                 onPickerOpen={() => onOpenChange(false)}
+                                setPickerAction={setPickerAction}
+                                setCastCurse={setCastCurse}
                                 onActionTaken={() => {
                                     // If we just discarded the last
                                     // card, close the sheet — fan
@@ -701,14 +818,18 @@ function CardActions({
     card,
     onPickerOpen,
     onActionTaken,
+    setPickerAction,
+    setCastCurse,
 }: {
     card: Card;
     onPickerOpen: () => void;
     onActionTaken: () => void;
+    /** v300: setters threaded down from HiderHandFan; the dialogs
+     *  they drive are mounted up there too so they outlive the
+     *  carousel-Content unmount. */
+    setPickerAction: (action: PickerAction) => void;
+    setCastCurse: (card: CurseCard | null) => void;
 }) {
-    const [pickerAction, setPickerAction] = useState<PickerAction>(null);
-    const [castCurse, setCastCurse] = useState<CurseCard | null>(null);
-
     const onPlayPowerup = async (c: PowerupCard) => {
         const hand = hiderHand.get();
         switch (c.powerup) {
@@ -835,93 +956,6 @@ function CardActions({
                     </Button>
                 )}
             </div>
-
-            {/* Powerup-resolution picker */}
-            <HandCardPicker
-                open={
-                    pickerAction?.kind === "discard-and-draw" ||
-                    pickerAction?.kind === "duplicate"
-                }
-                onOpenChange={(o) => {
-                    if (!o) setPickerAction(null);
-                }}
-                title={
-                    pickerAction?.kind === "discard-and-draw"
-                        ? `${pickerAction.powerupName} — pick ${pickerAction.discardCount} to discard`
-                        : pickerAction?.kind === "duplicate"
-                          ? "Duplicate Another Card — pick the card to copy"
-                          : ""
-                }
-                description={
-                    pickerAction?.kind === "discard-and-draw"
-                        ? `Pick ${pickerAction.discardCount} card${pickerAction.discardCount === 1 ? "" : "s"} from your hand to discard. You'll then draw ${pickerAction.drawCount}.`
-                        : pickerAction?.kind === "duplicate"
-                          ? "Pick the card you want to copy. A fresh duplicate lands in your hand."
-                          : ""
-                }
-                pickCount={
-                    pickerAction?.kind === "discard-and-draw"
-                        ? pickerAction.discardCount
-                        : 1
-                }
-                excludeIds={
-                    pickerAction
-                        ? [
-                              pickerAction.kind === "discard-and-draw"
-                                  ? pickerAction.powerupId
-                                  : pickerAction.powerupId,
-                          ]
-                        : []
-                }
-                confirmLabel={
-                    pickerAction?.kind === "discard-and-draw"
-                        ? `Discard & draw ${pickerAction.drawCount}`
-                        : "Duplicate"
-                }
-                onConfirm={(ids) => {
-                    if (!pickerAction) return;
-                    if (pickerAction.kind === "discard-and-draw") {
-                        const handBefore = hiderHand.get();
-                        const discardedNames = ids
-                            .map(
-                                (id) =>
-                                    handBefore.find((c) => c.id === id)?.name ??
-                                    "card",
-                            )
-                            .join(", ");
-                        for (const id of ids) discardCard(id);
-                        discardCard(pickerAction.powerupId);
-                        const drawn = drawCards(pickerAction.drawCount);
-                        toast.success(
-                            `Discarded ${discardedNames}. Drew ${drawn.length} card${drawn.length === 1 ? "" : "s"}.`,
-                            { autoClose: 2500 },
-                        );
-                    } else {
-                        const original = hiderHand
-                            .get()
-                            .find((c) => c.id === ids[0]);
-                        if (!original) return;
-                        discardCard(pickerAction.powerupId);
-                        const clone: Card = {
-                            ...original,
-                            id: `${original.id}-dup-${Date.now()}`,
-                        } as Card;
-                        hiderHand.set([...hiderHand.get(), clone]);
-                        toast.success(`Duplicated "${original.name}".`, {
-                            autoClose: 2500,
-                        });
-                    }
-                    setPickerAction(null);
-                }}
-            />
-
-            <CastCurseDialog
-                open={castCurse !== null}
-                onOpenChange={(o) => {
-                    if (!o) setCastCurse(null);
-                }}
-                card={castCurse}
-            />
         </>
     );
 }
