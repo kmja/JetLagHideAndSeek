@@ -585,44 +585,79 @@ function HandCarousel({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, initialIndex]);
 
-    // v302: track which slide is centred via IntersectionObserver
-    // instead of a scroll listener. The previous scroll-event +
-    // rAF approach didn't reliably update focusIndex on CSS
-    // scroll-snap containers — the "highlighted card never
-    // changes" bug. IntersectionObserver fires on visibility
-    // changes (which scroll-snap always produces) and gives us
-    // each slide's ratio so the most-visible one wins.
+    // v305: track which slide is centred. Earlier attempts
+    // (scroll event with rAF throttle in v299; IntersectionObserver
+    // in v302) both failed in practice — the dot and the visible
+    // card stayed pinned to whatever index the user tapped to open.
+    // Vaul (the drawer library) attaches pointer handlers to
+    // Content for drag-to-dismiss; even with `dismissible={false}`
+    // those handlers don't pass touch events cleanly to nested
+    // scroll-snap containers on iOS, and IntersectionObserver
+    // entries fire on CSS scroll-snap so erratically that they
+    // can't be relied on. Belt-and-braces fix:
+    //   1. `touch-pan-x` on the track lets the browser hand
+    //      horizontal pans to native scroll instead of Vaul.
+    //   2. A plain scroll listener (no rAF throttle) is the primary
+    //      focus updater — fast, reliable, and React bails on
+    //      same-value setState so cost is trivial.
+    //   3. An IntersectionObserver runs alongside as a backup for
+    //      the rare browsers where the scroll event misfires.
+    //   4. `pointerup` + `requestAnimationFrame` re-check after the
+    //      finger lifts, so the snap-settle position always wins.
     useEffect(() => {
         if (!open) return;
         const el = trackRef.current;
         if (!el) return;
-        const ratios = new WeakMap<Element, number>();
-        const observer = new IntersectionObserver(
-            (entries) => {
-                for (const entry of entries) {
-                    ratios.set(entry.target, entry.intersectionRatio);
+
+        const updateFocus = () => {
+            const cx = el.scrollLeft + el.clientWidth / 2;
+            const slides = Array.from(el.children) as HTMLElement[];
+            let bestIdx = 0;
+            let bestDist = Infinity;
+            for (let i = 0; i < slides.length; i++) {
+                const sCenter =
+                    slides[i].offsetLeft + slides[i].clientWidth / 2;
+                const dist = Math.abs(sCenter - cx);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestIdx = i;
                 }
-                const children = Array.from(el.children) as HTMLElement[];
-                let bestIdx = 0;
-                let bestRatio = -1;
-                for (let i = 0; i < children.length; i++) {
-                    const r = ratios.get(children[i]) ?? 0;
-                    if (r > bestRatio) {
-                        bestRatio = r;
-                        bestIdx = i;
-                    }
-                }
-                if (bestRatio > 0) setFocusIndex(bestIdx);
-            },
-            {
-                root: el,
-                threshold: [0.1, 0.3, 0.5, 0.7, 0.9, 1.0],
-            },
-        );
+            }
+            setFocusIndex(bestIdx);
+        };
+
+        el.addEventListener("scroll", updateFocus, { passive: true });
+
+        const observer = new IntersectionObserver(() => updateFocus(), {
+            root: el,
+            threshold: 0.5,
+        });
         for (const child of Array.from(el.children)) {
             observer.observe(child);
         }
-        return () => observer.disconnect();
+
+        // Re-check after the finger lifts — covers iOS where the
+        // scroll event sometimes doesn't fire during a flick, only
+        // after the momentum settles.
+        const onPointerUp = () => {
+            requestAnimationFrame(updateFocus);
+            // Snap settles in ~300 ms; check again then.
+            window.setTimeout(updateFocus, 350);
+        };
+        el.addEventListener("pointerup", onPointerUp, { passive: true });
+        el.addEventListener("touchend", onPointerUp, { passive: true });
+
+        // Initial focus alignment once the track has actually been
+        // laid out.
+        const initRaf = requestAnimationFrame(updateFocus);
+
+        return () => {
+            el.removeEventListener("scroll", updateFocus);
+            el.removeEventListener("pointerup", onPointerUp);
+            el.removeEventListener("touchend", onPointerUp);
+            observer.disconnect();
+            cancelAnimationFrame(initRaf);
+        };
     }, [open, hand.length]);
 
     // Card to the carousel actions act on. Out-of-bounds index is
@@ -782,6 +817,13 @@ function HandCarousel({
                             "flex overflow-x-auto",
                             "snap-x snap-mandatory scroll-smooth",
                             "no-scrollbar gap-4 px-[10%] py-2",
+                            // v305: tell the browser to give horizontal
+                            // pans to native scroll. Without this Vaul's
+                            // pointer handlers on Content swallowed the
+                            // touch and the scroll event never fired
+                            // (so focusIndex stayed pinned to the slide
+                            // the user tapped to open).
+                            "touch-pan-x",
                         )}
                     >
                         {hand.map((card, i) => (
