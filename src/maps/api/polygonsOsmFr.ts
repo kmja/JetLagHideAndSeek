@@ -79,12 +79,78 @@ export function extractBoundaryRelationId(query: string): number | null {
  * by any seeker before) reliably resolve through the fast path
  * instead of falling through to the public Overpass mirrors and their
  * per-IP rate limits.
+ *
+ * v295: deduplicates concurrent callers by relation id. PlayArea-
+ * PreviewMap (wizard / lobby mini-preview) and the main seeker map's
+ * `determineMapBoundaries` pipeline used to race each other for the
+ * same boundary the moment the lobby opened after the wizard. Both
+ * went to polygons.osm.fr, the second one tripped rate-limiting, the
+ * cache-worker fallback was busy serving the first, and the main map
+ * surfaced a "mirrors are busy" toast even though the lobby's preview
+ * worked. Now any second caller during an in-flight fetch reuses the
+ * same Promise; their `signal` only governs how long they wait for
+ * the shared result, not whether the shared fetch keeps running.
  */
 export async function fetchRawBoundaryPolygon(
     relationId: number,
     signal?: AbortSignal,
 ): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
-    const first = await fetchPolygonAttempt(relationId, signal);
+    let shared = inFlightBoundary.get(relationId);
+    if (!shared) {
+        shared = doFetchRawBoundaryPolygon(relationId).finally(() => {
+            inFlightBoundary.delete(relationId);
+        });
+        inFlightBoundary.set(relationId, shared);
+    }
+
+    // No caller signal? Just await the shared fetch.
+    if (!signal) return shared;
+    // Aborted before we even waited.
+    if (signal.aborted) return null;
+
+    // Race the shared fetch against the caller's abort. We never
+    // pass the caller signal down into the actual fetch — that would
+    // let one caller's abort yank the result out from under another
+    // — so the shared fetch always runs to completion, just this
+    // caller stops listening.
+    return new Promise((resolve) => {
+        const onAbort = () => {
+            signal.removeEventListener("abort", onAbort);
+            resolve(null);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        shared!.then(
+            (result) => {
+                signal.removeEventListener("abort", onAbort);
+                resolve(result);
+            },
+            () => {
+                signal.removeEventListener("abort", onAbort);
+                resolve(null);
+            },
+        );
+    });
+}
+
+/** Module-level map of in-flight boundary fetches, keyed by relation
+ *  id. An entry is created at the moment the shared Promise is
+ *  scheduled and deleted in `.finally`, so it covers exactly the
+ *  window during which a second caller would otherwise race the
+ *  first to the same upstream. */
+const inFlightBoundary = new Map<
+    number,
+    Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null>
+>();
+
+/** The actual two-stage fetch (polygons.osm.fr → cache worker →
+ *  build-trigger retry), with no caller-signal plumbing. The
+ *  internal `fetchPolygonAttempt` / `fetchPolygonViaCacheWorker`
+ *  helpers still enforce their per-request timeouts via their own
+ *  AbortControllers, so a stuck upstream can't pin this forever. */
+async function doFetchRawBoundaryPolygon(
+    relationId: number,
+): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
+    const first = await fetchPolygonAttempt(relationId);
     if (first.geom) return first.geom;
 
     // polygons.osm.fr fast path didn't help — either it 5xx'd, CORS-
@@ -95,7 +161,7 @@ export async function fetchRawBoundaryPolygon(
     // wizard mostly picks from) and otherwise races Overpass. This
     // is the same upstream the main map uses post-wizard, so the
     // wizard preview and the lobby preview can't disagree anymore.
-    const workerGeom = await fetchPolygonViaCacheWorker(relationId, signal);
+    const workerGeom = await fetchPolygonViaCacheWorker(relationId);
     if (workerGeom) return workerGeom;
 
     // Both paths failed. Only retry polygons.osm.fr with a build
@@ -103,13 +169,11 @@ export async function fetchRawBoundaryPolygon(
     // sentinel (the trigger does nothing for other failure modes,
     // and the worker fallback already exhausted Overpass).
     if (!first.shouldBuildAndRetry) return null;
-    if (signal?.aborted) return null;
 
     triggerPolygonsOsmFrBuild(relationId);
-    await waitWithSignal(BUILD_WAIT_MS, signal);
-    if (signal?.aborted) return null;
+    await waitWithSignal(BUILD_WAIT_MS);
 
-    const second = await fetchPolygonAttempt(relationId, signal);
+    const second = await fetchPolygonAttempt(relationId);
     return second.geom;
 }
 
@@ -123,7 +187,6 @@ export async function fetchRawBoundaryPolygon(
  *  fast path missing. */
 async function fetchPolygonViaCacheWorker(
     relationId: number,
-    signal?: AbortSignal,
 ): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
     // Byte-identical to overpass-cache/src/index.ts's
     // singleRelationQuery — the R2 key is a hash of this string, so
@@ -131,8 +194,6 @@ async function fetchPolygonViaCacheWorker(
     const query = `[out:json][timeout:120];relation(${relationId});out geom;`;
     const url = `${OVERPASS_API}?data=${encodeURIComponent(query)}`;
     const ctrl = new AbortController();
-    const onAbort = () => ctrl.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
     const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
 
     let resp: Response;
@@ -147,7 +208,6 @@ async function fetchPolygonViaCacheWorker(
         return null;
     } finally {
         clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
     }
     if (!resp.ok) return null;
 
@@ -225,13 +285,10 @@ interface AttemptResult {
 
 async function fetchPolygonAttempt(
     relationId: number,
-    signal?: AbortSignal,
 ): Promise<AttemptResult> {
     const url = `${POLYGONS_OSM_FR_API}?id=${relationId}&params=0`;
 
     const ctrl = new AbortController();
-    const onAbort = () => ctrl.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
     const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
 
     let resp: Response;
@@ -246,7 +303,6 @@ async function fetchPolygonAttempt(
         return { geom: null, shouldBuildAndRetry: false };
     } finally {
         clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
     }
     if (!resp.ok) return { geom: null, shouldBuildAndRetry: false };
 
@@ -309,20 +365,13 @@ export function triggerPolygonsOsmFrBuild(relationId: number): void {
         .finally(() => clearTimeout(timer));
 }
 
-/** Promise-based sleep that aborts cleanly when the caller's signal
- *  fires. Used by the build-trigger retry path so a cancelled
- *  boundary fetch doesn't keep its retry pending in the background. */
-function waitWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
-    return new Promise((resolve) => {
-        if (signal?.aborted) return resolve();
-        const t = setTimeout(resolve, ms);
-        const onAbort = () => {
-            clearTimeout(t);
-            signal?.removeEventListener("abort", onAbort);
-            resolve();
-        };
-        signal?.addEventListener("abort", onAbort, { once: true });
-    });
+/** Promise-based sleep used by the build-trigger retry path. v295
+ *  removed the AbortSignal plumbing now that boundary fetches are
+ *  deduplicated at the module level — the shared fetch always runs
+ *  to completion regardless of which caller initiated it, so an
+ *  abortable wait would be meaningless. */
+function waitWithSignal(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
