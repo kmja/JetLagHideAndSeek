@@ -11,13 +11,25 @@
  * overpass-api.de, so we keep the same rate-limit discipline whether
  * shards are warmed by cron or by this script.
  *
- * Usage:
+ * Usage (bash / macOS / Linux):
  *
  *   ADMIN_SECRET=… node scripts/country-refs-warm.mjs \
  *       --worker https://jlhs-overpass-cache.<sub>.workers.dev
  *
+ * Usage (Windows PowerShell — the inline `VAR=… cmd` form is bash-only
+ * and does NOT work in PowerShell, so pass the secret as a flag):
+ *
+ *   node scripts/country-refs-warm.mjs `
+ *       --worker https://jlhs-overpass-cache.<sub>.workers.dev `
+ *       --admin-secret <your ADMIN_SECRET>
+ *
+ *   (Or skip Node entirely and use country-refs-warm.ps1.)
+ *
  * Options:
  *   --worker <url>              Worker base URL (no trailing slash). Required.
+ *   --admin-secret <token>      ADMIN_SECRET bearer token. Falls back to the
+ *                               ADMIN_SECRET env var if omitted. Required one
+ *                               way or the other.
  *   --filter <iso-prefix>       Only warm shards whose iso starts with prefix
  *                               (e.g. `--filter US-` for the four US splits).
  *                               Repeatable; defaults to all shards.
@@ -43,8 +55,14 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 const ARGS = parseArgs(argv.slice(2));
 
+const ADMIN_SECRET = ARGS.adminSecret || env.ADMIN_SECRET;
 if (!ARGS.worker) usage("Missing --worker");
-if (!env.ADMIN_SECRET) usage("ADMIN_SECRET must be set in the environment");
+if (!ADMIN_SECRET) {
+    usage(
+        "No admin secret. Pass --admin-secret <token>, or set the " +
+            "ADMIN_SECRET env var (bash: `ADMIN_SECRET=… node …`).",
+    );
+}
 
 const WORKER = ARGS.worker.replace(/\/+$/, "");
 const FILTERS = ARGS.filter;
@@ -155,7 +173,7 @@ async function postJson(url, body) {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${env.ADMIN_SECRET}`,
+            Authorization: `Bearer ${ADMIN_SECRET}`,
         },
         body: JSON.stringify(body),
     });
@@ -174,6 +192,7 @@ function matchesFilter(iso) {
 function parseArgs(args) {
     const out = {
         worker: null,
+        adminSecret: null,
         filter: [],
         skipFresh: false,
         delayAfterStore: 1500,
@@ -182,6 +201,7 @@ function parseArgs(args) {
     for (let i = 0; i < args.length; i++) {
         const a = args[i];
         if (a === "--worker") out.worker = args[++i];
+        else if (a === "--admin-secret") out.adminSecret = args[++i];
         else if (a === "--filter") out.filter.push(args[++i]);
         else if (a === "--skip-fresh") out.skipFresh = true;
         else if (a === "--delay-after-store") out.delayAfterStore = +args[++i];
@@ -195,10 +215,12 @@ function parseArgs(args) {
 function usage(msg) {
     if (msg) stderr.write(`Error: ${msg}\n\n`);
     stderr.write(
-        "Usage: ADMIN_SECRET=… node scripts/country-refs-warm.mjs " +
-            "--worker https://jlhs-overpass-cache.<sub>.workers.dev " +
-            "[--filter ISO-PREFIX] [--skip-fresh] " +
-            "[--delay-after-store 1500] [--max-retries 2]\n",
+        "Usage (bash): ADMIN_SECRET=… node scripts/country-refs-warm.mjs " +
+            "--worker <url> [--filter ISO-PREFIX] [--skip-fresh] " +
+            "[--delay-after-store 1500] [--max-retries 2]\n" +
+            "Usage (PowerShell): node scripts/country-refs-warm.mjs " +
+            "--worker <url> --admin-secret <token> [...]\n" +
+            "  (or use the Node-free country-refs-warm.ps1)\n",
     );
     exit(msg ? 1 : 0);
 }
