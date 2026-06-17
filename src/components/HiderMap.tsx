@@ -37,12 +37,18 @@ export function HiderMap({
     overridePos,
     onHiderLocationChange,
     onGeoError,
+    onMapReady,
 }: {
     question: Question;
     /** When supplied, used as the hider position instead of GPS. */
     overridePos?: { lat: number; lng: number } | null;
     onHiderLocationChange?: (lat: number, lng: number, accuracy: number) => void;
     onGeoError?: (message: string) => void;
+    /** v315: fires once the basemap style is loaded AND the first
+     *  idle frame has rendered. The answer dialog uses this to keep
+     *  the "Tap to reveal" overlay (and the loading state above it)
+     *  in sync with what the user actually sees. */
+    onMapReady?: () => void;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     const [gpsPos, setGpsPos] = useState<{
@@ -186,6 +192,12 @@ export function HiderMap({
         [darkTiles, $pmtilesUrl],
     );
 
+    const [styleLoaded, setStyleLoaded] = useState(false);
+    const [idledOnce, setIdledOnce] = useState(false);
+    useEffect(() => {
+        if (styleLoaded && idledOnce) onMapReady?.();
+    }, [styleLoaded, idledOnce, onMapReady]);
+
     return (
         <div className="relative w-full h-[36vh] min-h-[220px] max-h-[320px] rounded-md overflow-hidden border border-border">
             <Map
@@ -199,6 +211,8 @@ export function HiderMap({
                 mapStyle={mapStyle}
                 attributionControl={false}
                 scrollZoom={false}
+                onLoad={() => setStyleLoaded(true)}
+                onIdle={() => setIdledOnce(true)}
                 onError={handleMapLibreError}
             >
                 {/* Radius fill + outline */}

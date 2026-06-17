@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check, MapPin } from "lucide-react";
+import { Check, Loader2, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -192,11 +192,16 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
         label: string;
     } | null>(null);
 
-    // Whether GPS failed (denied/unsupported). Drives the visibility of the
-    // manual-location UI. We still let the user open it on demand via a
-    // small link even when GPS works, for cases where the device's reported
-    // position is wrong.
+    // Whether GPS failed (denied/unsupported). v315: the only thing
+    // driving the manual-location UI now. Previously a tiny "set
+    // manually" link surfaced even when GPS worked; that's gone —
+    // the override is only offered when the device can't locate.
     const [geoFailed, setGeoFailed] = useState(false);
+
+    // v315: map basemap tiles painted? Used together with hiderPos /
+    // manualPos / geoFailed to gate the Reveal call-to-action so the
+    // hider only sees it once the underlying view is actually ready.
+    const [mapReady, setMapReady] = useState(false);
 
     // Reveal state, lifted so the map can apply a blur until reveal.
     const [revealed, setRevealed] = useState(false);
@@ -209,6 +214,18 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     const autoComputable =
         question.id === "radius" || question.id === "thermometer";
     const shouldBlurMap = autoComputable && !revealed;
+
+    // v315: single readiness gate covering GPS + map. The Reveal
+    // overlay (and any answer flow that needs the hider's
+    // position) waits behind this until both are in.
+    const haveLocation =
+        hiderPos !== null || manualPos !== null || geoFailed;
+    const allReady = mapReady && haveLocation;
+    const loadingStage = !mapReady
+        ? "Loading map…"
+        : !haveLocation
+          ? "Locating you…"
+          : null;
 
     return (
         <div className="flex flex-col min-h-0 flex-1 px-5 pt-4 pb-5 gap-4 overflow-y-auto">
@@ -256,9 +273,32 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                             setHiderPos({ lat, lng, accuracy })
                         }
                         onGeoError={() => setGeoFailed(true)}
+                        onMapReady={() => setMapReady(true)}
                     />
                 </div>
-                {shouldBlurMap && (
+                {/* v315: unified loading overlay — covers map tiles
+                    AND GPS fix. The Reveal CTA only mounts when
+                    everything's in, so the hider never taps a fake
+                    reveal that drops them into a half-painted view
+                    or a "waiting for your location" wall. */}
+                {!allReady && (
+                    <div
+                        className={cn(
+                            "absolute inset-0 rounded-md z-10",
+                            "flex items-center justify-center",
+                            "bg-background/95 backdrop-blur-sm",
+                        )}
+                        aria-live="polite"
+                    >
+                        <div className="flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            <span className="text-xs uppercase tracking-wider font-poppins font-semibold text-foreground">
+                                {loadingStage}
+                            </span>
+                        </div>
+                    </div>
+                )}
+                {allReady && shouldBlurMap && (
                     /* The blurred map is the tap target — v288 dropped
                        the separate "Reveal answer" button below the
                        map in favour of this single in-place gesture. */
@@ -279,11 +319,13 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 )}
             </div>
 
-            {/* Manual-location panel only appears while the answer
-                is still being determined — once a radius/thermometer
-                answer is revealed (or for a non-auto-computable
-                question) the override no longer matters. */}
-            {!revealed && (
+            {/* v315: manual-location panel now ONLY appears when GPS
+                actually failed. The previous "set location manually"
+                link that surfaced even on a working GPS is gone —
+                that was noise the user never asked to see. Once the
+                answer is revealed the panel also disappears so the
+                override doesn't sit next to a committed answer. */}
+            {geoFailed && !revealed && (
                 <ManualLocationPanel
                     geoFailed={geoFailed}
                     manualPos={manualPos}
@@ -588,22 +630,17 @@ function ShareBackRow({
         if (!alreadyReplied) {
             const budget = QUESTION_DRAW_BUDGET[question.id];
             if (budget) {
-                const autoResolved = presentDraw(
+                // v315: dropped the "Drew N from deck" / "Pick K of N"
+                // toasts that used to fire here. The DrawPickerDialog
+                // (or the new card appearing in the fan when the
+                // draw auto-resolves) is the confirmation; a
+                // notification on top doubled the same moment.
+                presentDraw(
                     budget.draw,
                     budget.keep,
                     question.id,
                     question.key,
                 );
-                if (autoResolved) {
-                    toast.success(`Drew ${budget.draw} from the deck.`, {
-                        autoClose: 2000,
-                    });
-                } else {
-                    toast.info(
-                        `Pick ${budget.keep} of ${budget.draw} cards from the deck.`,
-                        { autoClose: 3000 },
-                    );
-                }
             }
         }
     };
@@ -613,12 +650,10 @@ function ShareBackRow({
             <Button
                 onClick={() => {
                     markRepliedInInbox();
-                    toast.success("Answer sent.", { autoClose: 1500 });
-                    // v301: close the answer dialog automatically.
-                    // The "Question moved to your inbox" sub-screen
-                    // + manual "Back to hider home" button are gone
-                    // — the toast confirms the action and the
-                    // dialog dismisses the user back to the shell.
+                    // v315: the "Answer sent." confirmation toast is
+                    // gone. The dialog closing IS the confirmation;
+                    // the toast on top of that just stacked notif
+                    // chrome over the same moment.
                     answeringQuestion.set(null);
                 }}
                 className="w-full gap-2 py-7 text-base font-semibold"
