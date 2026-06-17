@@ -679,6 +679,12 @@ async function handleRequest(
         if (url.pathname === "/admin/check-fresh") {
             return handleAdminCheckFresh(request, env, cors);
         }
+        if (url.pathname === "/admin/country-refs-status") {
+            return handleAdminCountryRefsStatus(request, env, cors);
+        }
+        if (url.pathname === "/admin/prewarm-country-ref") {
+            return handleAdminPrewarmCountryRef(request, env, cors);
+        }
         if (url.pathname === "/admin/evict-discovered") {
             return handleAdminEvictDiscovered(request, env, cors);
         }
@@ -1220,6 +1226,17 @@ async function fetchUpstreamStreaming(
     cors: HeadersInit,
     status: string,
 ): Promise<Response | null> {
+    // Wait for an open Overpass execution slot before racing the
+    // mirror chain. Without this, user-facing cold fetches hit
+    // overpass-api.de while the mirror is throttled, get an instant
+    // 429, and the seeker app surfaces an error banner. The cron has
+    // always paced through this gate; user requests now use the same
+    // discipline. SLOT_WAIT_MAX_MS (30 s) caps the wait so a
+    // genuinely overloaded mirror can't hang the request — past that
+    // we still try (returning false here would just degrade to the
+    // same "skip upstream" outcome the caller already handles when
+    // fetchFromMirrorChainWithRetry returns null).
+    await waitForOverpassSlot(`user-fetch ${status}`);
     const upstream = await upstreamSemaphore.run(() =>
         fetchFromMirrorChainWithRetry(query),
     );
@@ -3566,6 +3583,187 @@ async function handleAdminStorePrewarmed(
  *   { "fresh": false, "ageMs": 99999999, "ttlMs": ... }   // stale
  *   { "fresh": false, "exists": false }                    // never cached
  */
+/**
+ * GET /admin/country-refs-status — country-shard prewarm progress.
+ *
+ * Authless (read-only summary, no per-shard query bodies revealed).
+ * Walks `COUNTRY_SHARDS` and for each issues an R2 HEAD against
+ * `country-refs/v1/<iso>/all` to pull cachedAt + sizeBytes from
+ * customMetadata without touching the body. Returns:
+ *
+ *   {
+ *     enabled: boolean,
+ *     totals: { shards, warmed, stale, missing, bytes },
+ *     ttlDays: number,
+ *     freshTtlDays: number,
+ *     shards: [
+ *       { iso, label, status: "fresh" | "stale" | "missing",
+ *         sizeBytes?, ageHours?, parent? },
+ *       ...
+ *     ]
+ *   }
+ *
+ * Total response is ~30 KB for 214 shards. Used to watch warming
+ * progress without grepping logs and to decide when to bump
+ * COUNTRY_REFS_PER_TICK.
+ */
+async function handleAdminCountryRefsStatus(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ttlDays = parseInt(env.CACHE_TTL_DAYS, 10) || 30;
+    // Country shards intentionally get 2× TTL (see Phase 5 cron).
+    const freshTtlMs = ttlDays * 2 * 24 * 60 * 60 * 1000;
+
+    const heads = await Promise.all(
+        COUNTRY_SHARDS.map(async (shard) => {
+            const key = countryRefsKey(shard.iso);
+            let obj: R2Object | null = null;
+            try {
+                obj = await env.CACHE.head(key);
+            } catch (e) {
+                console.warn(
+                    `country-refs-status: head failed for ${shard.iso}:`,
+                    e,
+                );
+            }
+            return { shard, obj };
+        }),
+    );
+
+    let warmed = 0;
+    let stale = 0;
+    let missing = 0;
+    let totalBytes = 0;
+    const now = Date.now();
+    const shards = heads.map(({ shard, obj }) => {
+        if (!obj) {
+            missing++;
+            return {
+                iso: shard.iso,
+                label: shard.label,
+                status: "missing" as const,
+                ...(shard.parent ? { parent: shard.parent } : {}),
+            };
+        }
+        const cachedAt = parseInt(obj.customMetadata?.cachedAt ?? "0", 10);
+        const sizeBytes = parseInt(obj.customMetadata?.sizeBytes ?? "0", 10);
+        const ageMs = cachedAt ? now - cachedAt : Infinity;
+        const fresh = cachedAt > 0 && ageMs < freshTtlMs;
+        if (fresh) warmed++;
+        else stale++;
+        totalBytes += Number.isFinite(sizeBytes) ? sizeBytes : 0;
+        return {
+            iso: shard.iso,
+            label: shard.label,
+            status: (fresh ? "fresh" : "stale") as "fresh" | "stale",
+            sizeBytes: Number.isFinite(sizeBytes) ? sizeBytes : null,
+            ageHours: Number.isFinite(ageMs)
+                ? Math.round(ageMs / 3_600_000)
+                : null,
+            ...(shard.parent ? { parent: shard.parent } : {}),
+        };
+    });
+
+    return jsonResponse(
+        {
+            enabled: env.COUNTRY_REFS_PREWARM_ENABLED === "true",
+            ttlDays,
+            freshTtlDays: ttlDays * 2,
+            totals: {
+                shards: COUNTRY_SHARDS.length,
+                warmed,
+                stale,
+                missing,
+                bytes: totalBytes,
+            },
+            shards,
+        },
+        200,
+        cors,
+    );
+}
+
+/**
+ * POST /admin/prewarm-country-ref — fast-fill single shard.
+ *
+ * Auth: Bearer ADMIN_SECRET. Body: `{ "iso": "SE" }` or `{ "iso":
+ * "US-east" }`. Triggers `prewarmCountryReferences` for that one
+ * shard on demand. Used by `scripts/country-refs-warm.mjs` (the PC
+ * looping script) so the operator can drain the full shard list in
+ * hours instead of waiting days for the hourly cron.
+ *
+ * Idempotent: respects the same skip-if-fresh logic the cron uses.
+ * Asking for a shard that's already fresh just returns
+ * `{ status: "skipped-fresh", ageMs }` cheaply — re-running the
+ * script on a partially-warmed list is safe.
+ */
+async function handleAdminPrewarmCountryRef(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: { iso?: string };
+    try {
+        payload = await request.json();
+    } catch {
+        return jsonResponse({ error: "invalid JSON" }, 400, cors);
+    }
+    const iso = payload?.iso;
+    if (typeof iso !== "string" || iso.length === 0) {
+        return jsonResponse(
+            { error: "expected { iso: string }" },
+            400,
+            cors,
+        );
+    }
+    const shard = COUNTRY_SHARDS.find((s) => s.iso === iso);
+    if (!shard) {
+        return jsonResponse(
+            { error: `unknown shard '${iso}'`, hint: "see /admin/country-refs-status for the list" },
+            404,
+            cors,
+        );
+    }
+    // Country shards get the same 2× TTL the cron uses.
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 2 * 24 * 60 * 60 * 1000;
+    try {
+        const result = await prewarmCountryReferences(env, shard, ttlMs);
+        return jsonResponse(
+            { iso: shard.iso, label: shard.label, ...result },
+            200,
+            cors,
+        );
+    } catch (e) {
+        return jsonResponse(
+            {
+                iso: shard.iso,
+                status: "threw",
+                error: e instanceof Error ? e.message : String(e),
+            },
+            500,
+            cors,
+        );
+    }
+}
+
 async function handleAdminCheckFresh(
     request: Request,
     env: Env,
