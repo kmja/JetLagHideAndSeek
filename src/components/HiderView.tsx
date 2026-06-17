@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { ArrowLeft, Check, Eye, Home, MapPin } from "lucide-react";
+import { ArrowLeft, Check, Home, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -193,12 +193,7 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     const shouldBlurMap = autoComputable && !revealed;
 
     return (
-        // pb leaves room for the resting HiderHandFan (~150px
-        // including safe-area: 104 card + 24 slack + ~20 safe-area).
-        // Page footers sit just above it. The peek-preview extends
-        // above briefly while held — that's a focused interaction
-        // and recovering on release.
-        <div className="min-h-screen flex flex-col p-4 pb-[160px] max-w-md mx-auto">
+        <div className="min-h-screen flex flex-col p-4 pb-[100px] max-w-md mx-auto">
             <header className="mt-2 mb-3">
                 {/* Escape hatch back to HiderHome. Useful both for
                     abandoning an answer mid-flow and for closing the
@@ -287,18 +282,23 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                     />
                 </div>
                 {shouldBlurMap && (
-                    <div
+                    /* The blurred map is the tap target — v288 dropped
+                       the separate "Reveal answer" button below the
+                       map in favour of this single in-place gesture. */
+                    <button
+                        type="button"
+                        onClick={() => setRevealed(true)}
+                        aria-label="Tap the map to reveal your answer"
                         className={cn(
-                            "absolute inset-0 pointer-events-none",
+                            "absolute inset-0 rounded-md",
                             "flex items-center justify-center",
-                            "rounded-md",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         )}
-                        aria-hidden="true"
                     >
-                        <div className="bg-background/70 backdrop-blur-sm px-4 py-2 rounded-full text-xs uppercase tracking-wider font-poppins font-semibold text-muted-foreground border border-border">
-                            Tap reveal to see your position
-                        </div>
-                    </div>
+                        <span className="bg-background/70 backdrop-blur-sm px-4 py-2 rounded-full text-xs uppercase tracking-wider font-poppins font-semibold text-foreground border border-border">
+                            Tap the map to reveal your answer
+                        </span>
+                    </button>
                 )}
             </div>
 
@@ -314,7 +314,6 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                     question={question}
                     hiderPos={hiderPos}
                     revealed={revealed}
-                    onReveal={() => setRevealed(true)}
                 />
             </main>
 
@@ -377,12 +376,10 @@ function AnswerControls({
     question,
     hiderPos,
     revealed,
-    onReveal,
 }: {
     question: Question;
     hiderPos: { lat: number; lng: number; accuracy: number } | null;
     revealed: boolean;
-    onReveal: () => void;
 }) {
     switch (question.id) {
         case "radius":
@@ -392,7 +389,6 @@ function AnswerControls({
                     question={question}
                     hiderPos={hiderPos}
                     revealed={revealed}
-                    onReveal={onReveal}
                 />
             );
         case "matching":
@@ -434,12 +430,10 @@ function RevealAnswer({
     question,
     hiderPos,
     revealed,
-    onReveal,
 }: {
     question: Question;
     hiderPos: { lat: number; lng: number; accuracy: number } | null;
     revealed: boolean;
-    onReveal: () => void;
 }) {
     // Don't allow reveal until we have a GPS fix.
     if (!hiderPos) {
@@ -456,22 +450,12 @@ function RevealAnswer({
         return null;
     }
 
+    // v288: the reveal gesture moved onto the blurred map itself.
+    // Before reveal, this slot is empty — the map's overlay button
+    // is the only call-to-action; the answer card + send button
+    // appear here once revealed.
     if (!revealed) {
-        return (
-            <div>
-                <Button
-                    onClick={onReveal}
-                    className="w-full gap-2 py-7 text-base font-semibold"
-                    size="lg"
-                >
-                    <Eye className="w-4 h-4" />
-                    Reveal answer
-                </Button>
-                <p className="mt-2 text-xs text-muted-foreground text-center">
-                    Look at the map first. Tap reveal when you're ready.
-                </p>
-            </div>
-        );
+        return null;
     }
 
     return (
