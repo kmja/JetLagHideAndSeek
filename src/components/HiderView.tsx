@@ -1,11 +1,10 @@
 import { useStore } from "@nanostores/react";
-import { ArrowLeft, Check, Home, MapPin } from "lucide-react";
+import { Check, Home, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
-import { ANSWER_VIEW_DISMISSED_KEY } from "@/components/HiderHome";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
 import { HiderShell } from "@/components/HiderShell";
 import { Button } from "@/components/ui/button";
@@ -195,47 +194,6 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     return (
         <div className="min-h-screen flex flex-col p-4 pb-[100px] max-w-md mx-auto">
             <header className="mt-2 mb-3">
-                {/* Escape hatch back to HiderHome. Useful both for
-                    abandoning an answer mid-flow and for closing the
-                    loop after the seeker has already received the
-                    answer link. /h with no query param re-renders
-                    HiderHome with the live inbox + any queued deck
-                    draw.
-
-                    We record the dismissed question key in
-                    sessionStorage so HiderHome's auto-redirect
-                    doesn't bounce the hider right back to the same
-                    answer view (back-button loop). The flag is
-                    keyed by question.key, so a *new* question
-                    arriving still triggers the redirect. */}
-                <button
-                    type="button"
-                    onClick={() => {
-                        try {
-                            sessionStorage.setItem(
-                                ANSWER_VIEW_DISMISSED_KEY,
-                                String(question.key),
-                            );
-                        } catch {
-                            /* sessionStorage unavailable — without the
-                               flag the hider will land back on the
-                               answer view, which is annoying but
-                               recoverable. */
-                        }
-                        window.location.assign("/h");
-                    }}
-                    className={cn(
-                        "inline-flex items-center gap-1.5 -ml-1 px-2 py-1 rounded-md mb-2",
-                        "text-xs font-poppins font-semibold text-muted-foreground",
-                        "hover:text-foreground hover:bg-accent transition-colors",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    )}
-                    aria-label="Back to hider home"
-                >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    Hider home
-                </button>
-
                 <div className="flex items-center gap-2 mb-2">
                     {CategoryIcon && (
                         <span
@@ -302,12 +260,18 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 )}
             </div>
 
-            <ManualLocationPanel
-                geoFailed={geoFailed}
-                manualPos={manualPos}
-                onSet={(pos) => setManualPos(pos)}
-                onClear={() => setManualPos(null)}
-            />
+            {/* Manual-location panel only appears while the answer
+                is still being determined — once a radius/thermometer
+                answer is revealed (or for a non-auto-computable
+                question) the override no longer matters. */}
+            {!revealed && (
+                <ManualLocationPanel
+                    geoFailed={geoFailed}
+                    manualPos={manualPos}
+                    onSet={(pos) => setManualPos(pos)}
+                    onClear={() => setManualPos(null)}
+                />
+            )}
 
             <main className="flex-1 mt-4">
                 <AnswerControls
@@ -316,12 +280,6 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                     revealed={revealed}
                 />
             </main>
-
-            <footer className="pt-3 pb-2 text-center">
-                <p className="text-[10px] text-muted-foreground">
-                    Jet Lag Hide and Seek · hider view
-                </p>
-            </footer>
         </div>
     );
 }
