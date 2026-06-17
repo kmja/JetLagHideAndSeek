@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Footprints, UserRound, Users, VenetianMask } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,11 +10,14 @@ import {
     DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { welcomeSeen } from "@/lib/gameSetup";
 import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
 import {
+    displayName as displayNameAtom,
     multiplayerEnabled,
     participants,
+    pickRandomCastName,
     selfParticipantId,
 } from "@/lib/multiplayer/session";
 import { setOnlineRole } from "@/lib/multiplayer/store";
@@ -68,7 +71,25 @@ export function RolePicker() {
 
     const open = ($open || $role === null) && $welcomeSeen;
 
+    // v279: name input moved here from the setup wizard. Roles +
+    // display name are the same "this is me" decision; co-locating
+    // them keeps the wizard about game settings only. Pre-fills from
+    // the persistent atom so a returning user / role-switcher sees
+    // their existing name; a fresh device gets a Jet Lag cast-name
+    // placeholder so blank submissions get a reasonable default
+    // server-side.
+    const [draftName, setDraftName] = useState(displayNameAtom.get() || "");
+    const [castPlaceholder] = useState(() => pickRandomCastName());
+
+    // Persist the typed name to the displayName atom right before the
+    // role click navigates away. Empty string OK — the server picks a
+    // cast name when it sees `""`.
+    const commitName = () => {
+        displayNameAtom.set(draftName.trim());
+    };
+
     const pickSeeker = () => {
+        commitName();
         playerRole.set("seeker");
         // Push the choice to the server so the multiplayer roster
         // reflects the switch immediately (no-op when offline).
@@ -86,6 +107,7 @@ export function RolePicker() {
 
     const pickHider = () => {
         if (hiderTaken) return;
+        commitName();
         playerRole.set("hider");
         setOnlineRole("hider");
         rolePickerOpen.set(false);
@@ -97,6 +119,7 @@ export function RolePicker() {
     // you're joining their hide, not starting your own.
     const pickCoHider = () => {
         if (!hiderTaken) return;
+        commitName();
         playerRole.set("coHider");
         // No setOnlineRole — coHider is not a server-tracked role
         // (the server only knows seeker / hider / null).
@@ -133,6 +156,27 @@ export function RolePicker() {
                         Each device runs one side of the game. Pick yours
                         — you can switch later from the More menu.
                     </DialogDescription>
+                </div>
+
+                {/* Display name. Optional — blank submissions are
+                    fine, the server assigns a unique Jet Lag cast
+                    name. Pre-filled from the persistent atom so a
+                    returning user / role-switcher just confirms
+                    rather than retyping. */}
+                <div className="px-6 pt-4 pb-1 space-y-1.5">
+                    <label
+                        htmlFor="rolepicker-display-name"
+                        className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
+                    >
+                        Your display name
+                    </label>
+                    <Input
+                        id="rolepicker-display-name"
+                        value={draftName}
+                        onChange={(e) => setDraftName(e.target.value)}
+                        placeholder={`What others see (e.g. ${castPlaceholder})`}
+                        maxLength={24}
+                    />
                 </div>
 
                 <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">

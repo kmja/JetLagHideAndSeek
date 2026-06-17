@@ -16,7 +16,6 @@ import {
 } from "@/components/PreloadChoicesPanel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import {
     additionalMapGeoLocations,
     disabledStations,
@@ -46,9 +45,7 @@ import {
 import { resetHiderRoundState } from "@/lib/hiderRole";
 import {
     currentGameCode,
-    displayName as displayNameAtom,
     multiplayerEnabled,
-    pickRandomCastName,
 } from "@/lib/multiplayer/session";
 import { hostPushSetup } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
@@ -111,9 +108,6 @@ export function SetupPage() {
     // Once the user taps a size tile we stop auto-inferring from the
     // chosen play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
-    const [draftDisplayName, setDraftDisplayName] = useState(
-        displayNameAtom.get() || "",
-    );
     // v277: the wizard's preload choice is now one checkbox covering
     // all three buckets. Drafts the initial state from the persisted
     // atom so a returning user lands on their last choice; on Finish
@@ -123,10 +117,6 @@ export function SetupPage() {
         const c = preloadChoices.get();
         return c.map || c.references || c.transit;
     });
-    // Resolved once per mount so the cast-name hint stays stable
-    // while the user is mid-edit.
-    const [castPlaceholder] = useState(() => pickRandomCastName());
-
     // Auto-infer size from the picked area unless the user has
     // overridden it. Mirrors GameSetupDialog's behaviour.
     useEffect(() => {
@@ -196,8 +186,8 @@ export function SetupPage() {
         }
 
         setupCompleted.set(true);
-        const trimmedName = draftDisplayName.trim();
-        displayNameAtom.set(trimmedName);
+        // v279: display name now lives in the RolePicker. The wizard
+        // doesn't touch displayNameAtom anymore.
 
         if (multiplayerEnabled.get() && currentGameCode.get()) {
             hostPushSetup();
@@ -271,24 +261,6 @@ export function SetupPage() {
                                 value={draftSize}
                                 onChange={setDraftSizeManual}
                             />
-                            <div className="space-y-1.5 border-t border-border pt-4">
-                                <label className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                                    Your display name
-                                </label>
-                                <Input
-                                    value={draftDisplayName}
-                                    onChange={(e) =>
-                                        setDraftDisplayName(e.target.value)
-                                    }
-                                    placeholder={`What others see (e.g. ${castPlaceholder})`}
-                                    maxLength={24}
-                                />
-                                <p className="text-[10px] text-muted-foreground leading-snug">
-                                    Starting the game also hosts an online
-                                    room you can share with friends. Leave
-                                    blank to play offline.
-                                </p>
-                            </div>
 
                             {/* v277: single preload checkbox. Replaces
                                 the old standalone Step 4 + the
@@ -296,7 +268,9 @@ export function SetupPage() {
                                 drawer still exposes the per-bucket
                                 toggles for fine control mid-game; the
                                 wizard collapses to one decision for
-                                newcomers. */}
+                                newcomers. v279: name input moved to
+                                the RolePicker; copy on the checkbox
+                                is plain-language. */}
                             <label
                                 className={cn(
                                     "flex items-start gap-3 p-3 rounded-md border cursor-pointer",
@@ -312,12 +286,13 @@ export function SetupPage() {
                                         setDraftPreloadOn(c === true)
                                     }
                                     className="mt-0.5"
-                                    aria-label="Preload game data"
+                                    aria-label="Get the app ready before you play"
                                 />
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center justify-between gap-2">
                                         <span className="text-sm font-semibold text-foreground">
-                                            Preload game data
+                                            Get the app ready before you
+                                            play
                                         </span>
                                         <span
                                             className={cn(
@@ -329,7 +304,7 @@ export function SetupPage() {
                                             )}
                                             title={
                                                 draftFeature
-                                                    ? `Estimate for the chosen play area`
+                                                    ? `Estimated download for your play area`
                                                     : "Rough estimate — pick a play area for a more accurate number"
                                             }
                                         >
@@ -346,10 +321,10 @@ export function SetupPage() {
                                         </span>
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-1 leading-snug">
-                                        Caches the map, references, and
-                                        transit data once at the start of
-                                        the hiding period so seekers don't
-                                        see spinners mid-game.
+                                        Spend a little data now and the app
+                                        will feel instant — no loading
+                                        spinners or stutter while you're
+                                        chasing the hider.
                                     </p>
                                 </div>
                             </label>
