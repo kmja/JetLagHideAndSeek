@@ -4,30 +4,32 @@ import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 /**
- * Abstract Protomaps-styled map loader (v280 rebuild). The brief:
+ * Abstract Protomaps-styled map loader (v281 rebuild).
  *
- *   - Less saturated than the live basemap so it reads as a
- *     "drawing in progress" rather than the real thing.
- *   - Thin roads stretching outward; rivers snake in lazily;
- *     buildings grow from their own centres (not from their base).
- *   - Everything originates at the centre of the panel and grows
- *     outward — as if a z15 city tile is being inked from the middle.
+ * No global reveal envelope — each shape has its OWN slow, eased
+ * draw/fade animation. Per-element `animation-delay` is computed
+ * from the shape's distance to the panel centre, stretched into a
+ * wide ~0 → 4 s band so closer shapes start drawing well before
+ * outer ones — and each individual draw is long enough (~1.4 s of
+ * actual motion inside a 7 s cycle) for the eye to follow it.
  *
- * Implementation:
+ * Brief from the user:
+ *   - "Staggered objects being drawn individually and slowly with
+ *      lots of easing." (v280's clip-path made everything wipe in
+ *      together; v281 abandons that approach.)
+ *   - "Thin roads stretching out, rivers snaking lazily, buildings
+ *      growing outward instead of rising from the ground."
+ *   - "Everything starts from the centre and grows outward."
  *
- *   - A CSS `clip-path: circle()` on the whole-content group expands
- *     from a tiny disc at centre to fully cover the panel, then
- *     reverses. The clip-path animation is what gives the
- *     "everything stretches outward from the centre" feel.
- *   - Inside the clip, each shape has its own subtle fade / draw
- *     animation with a small per-element delay. Roads draw via
- *     stroke-dashoffset (still reads as "stretching"); rivers do the
- *     same on a longer eased curve; buildings scale from `transform-
- *     origin: center` (both axes) so they expand rather than rise.
- *   - Palette pulled from `@protomaps/basemaps` but warmed / muted
- *     toward the earth tone — keeps the colours recognisably "map"
- *     without competing visually with the live basemap once tiles
- *     start painting.
+ * The distance-from-centre delay is what gives the radial growth
+ * feel without needing a clip-path: at any wall-clock moment, the
+ * elements currently in their "drawing" window sit at a roughly
+ * matching distance from centre, so the leading edge of activity
+ * sweeps outward.
+ *
+ * Palette stays muted (less saturated than the live basemap), pulled
+ * from `@protomaps/basemaps`' named flavors and blended toward earth
+ * so the loader reads as a sketch.
  */
 
 interface Palette {
@@ -76,12 +78,12 @@ const DARK: Palette = {
 
 /* ─────────────────── Geometry table ───────────────────
  * 320×180 viewBox, centre at (160, 90). Delays for each shape are a
- * function of distance from centre — closer shapes start their own
- * fade/draw earlier so the apparent reveal sweeps outward, layered
- * on top of the radial clip-path. Distances are scaled into a
- * 0.0–1.4 s delay band; the clip-path reveal itself runs over the
- * first 2.4 s of a 4.5 s loop, so most shapes start their animation
- * around the time the clip reaches them.
+ * function of distance from centre, stretched into a wide 0 → 3 s
+ * band: closer shapes start drawing well before outer ones, which
+ * gives the radial "drawn out from the middle" feel without any
+ * global clip-path envelope. Each individual draw runs slowly with
+ * heavy easing (see keyframes), so the eye can follow each shape's
+ * line/grow in turn.
  */
 
 const CENTER_X = 160;
@@ -93,9 +95,13 @@ function dist01(x: number, y: number): number {
     return Math.min(1, Math.hypot(x - CENTER_X, y - CENTER_Y) / MAX_RADIUS);
 }
 
-// 0 → 1.4 s delay band based on distance from centre.
+// 0 → 3 s delay band based on distance from centre. With a 7 s loop
+// this means the last outer shape starts drawing ~3 s in, while
+// inner shapes are already approaching their hold phase — the
+// staggered overlap is what makes the loader read as drawn rather
+// than wiped.
 function delayFromCenter(x: number, y: number): number {
-    return dist01(x, y) * 1.4;
+    return dist01(x, y) * 3;
 }
 
 // Midpoint of a 2-point or 4-point linear path. Used to compute the
@@ -267,7 +273,7 @@ const BUILDINGS: BlockDef[] = [
     { x: 268, y: 162, w: 8, h: 6 },
 ];
 
-const DURATION = "4.5s";
+const DURATION = "7s";
 
 export function MapLoader({
     className,
@@ -291,16 +297,10 @@ export function MapLoader({
             aria-label="Loading map"
         >
             {/* Earth — instant solid fill so the panel never flashes
-                empty. Sits below the radial-reveal group so even at
-                t=0 the panel has a coloured background. */}
+                empty. Every shape draws on top of this. */}
             <rect width="320" height="180" fill={c.earth} />
 
-            {/* Everything else lives under a radial clip that grows
-                from a tiny disc at centre to fully cover the panel,
-                then reverses back to centre at loop end. That gives
-                the whole frame a "drawn out from the middle"
-                envelope on top of each shape's own animation. */}
-            <g className="jl-pmap-reveal">
+            <g>
                 {/* Wood — muted undertone, layered below parks */}
                 {WOODS.map((w, i) => {
                     const m = polyCentroid(w.points);
@@ -311,7 +311,7 @@ export function MapLoader({
                             points={w.points}
                             fill={c.wood}
                             style={{
-                                animation: `jl-pmap-grow ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-grow ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
                                 transformOrigin: `${m.x}px ${m.y}px`,
                                 transformBox: "fill-box",
@@ -330,7 +330,7 @@ export function MapLoader({
                             points={p.points}
                             fill={i % 2 === 0 ? c.park_a : c.park_b}
                             style={{
-                                animation: `jl-pmap-grow ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-grow ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
                                 transformOrigin: `${m.x}px ${m.y}px`,
                                 transformBox: "fill-box",
@@ -374,7 +374,7 @@ export function MapLoader({
                             strokeLinecap="round"
                             strokeDasharray={r.length}
                             style={{
-                                animation: `jl-pmap-stretch ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-stretch ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${Math.max(0, delay - 0.05).toFixed(2)}s`,
                                 ["--jl-pmap-len" as string]: `${r.length}`,
                             }}
@@ -394,7 +394,7 @@ export function MapLoader({
                             strokeLinecap="round"
                             strokeDasharray={r.length}
                             style={{
-                                animation: `jl-pmap-stretch ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-stretch ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${Math.max(0, delay - 0.05).toFixed(2)}s`,
                                 ["--jl-pmap-len" as string]: `${r.length}`,
                             }}
@@ -416,7 +416,7 @@ export function MapLoader({
                             strokeLinecap="round"
                             strokeDasharray={r.length}
                             style={{
-                                animation: `jl-pmap-stretch ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-stretch ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
                                 ["--jl-pmap-len" as string]: `${r.length}`,
                             }}
@@ -436,7 +436,7 @@ export function MapLoader({
                             strokeLinecap="round"
                             strokeDasharray={r.length}
                             style={{
-                                animation: `jl-pmap-stretch ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-stretch ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
                                 ["--jl-pmap-len" as string]: `${r.length}`,
                             }}
@@ -457,7 +457,7 @@ export function MapLoader({
                             strokeLinecap="round"
                             strokeDasharray="3 3"
                             style={{
-                                animation: `jl-pmap-railway ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-railway ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
                             }}
                         />
@@ -480,7 +480,7 @@ export function MapLoader({
                             height={b.h}
                             fill={c.buildings}
                             style={{
-                                animation: `jl-pmap-grow ${DURATION} infinite ease-out`,
+                                animation: `jl-pmap-grow ${DURATION} infinite cubic-bezier(0.65, 0, 0.35, 1)`,
                                 animationDelay: `${delay.toFixed(2)}s`,
                                 transformOrigin: `${cx}px ${cy}px`,
                                 transformBox: "fill-box",

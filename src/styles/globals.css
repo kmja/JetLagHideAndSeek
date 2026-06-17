@@ -187,77 +187,62 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
-/* ─────────── Map loader keyframes (v275, retuned v280) ─────────────
- * Abstract Protomaps-styled loader — `MapLoader.tsx`. Two layers of
- * motion:
+/* ─────────── Map loader keyframes (v275, retuned v281) ─────────────
+ * Abstract Protomaps-styled loader — `MapLoader.tsx`. v281 dropped
+ * the v280 `clip-path` radial-reveal envelope (which made everything
+ * look like it slid into place at once); now the only thing driving
+ * the staggered look is per-element `animation-delay` (set inline
+ * from distance to panel centre, range 0 → 3 s) combined with a slow
+ * 7 s loop so each shape's own draw is long enough for the eye to
+ * follow.
  *
- *   1. The radial reveal (`jl-pmap-reveal`) is the envelope. A
- *      `clip-path: circle()` on the whole-content group expands from
- *      a tiny disc at panel centre to fully cover the panel, holds,
- *      then reverses back to centre. That's what gives the loop its
- *      "drawn out from the middle" feel — everything appears to grow
- *      outward because nothing past the disc edge is visible yet.
+ *   - `jl-pmap-stretch` — roads. Stroke-dashoffset reveals from one
+ *     end of the path. Length set per-element via `--jl-pmap-len`.
+ *     The draw phase covers ~14% → ~46% of the loop (~2.2 s of slow
+ *     motion); then the line holds visible till ~88% before fading.
+ *   - `jl-pmap-river` — water. Same stroke draw but the draw window
+ *     stretches longer (~14% → ~58%, ~3 s) so the snake unspools
+ *     lazily rather than snapping in.
+ *   - `jl-pmap-grow` — parks, woods, and buildings. Scale from the
+ *     shape's own centre (transform-origin set inline,
+ *     transform-box: fill-box). For buildings this means they grow
+ *     outward in both axes instead of rising from the base. Grow
+ *     phase covers ~12% → ~36% of the loop (~1.7 s); hold till ~88%.
+ *   - `jl-pmap-railway` — dashed railway. Opacity-only fade.
  *
- *   2. Each shape has its own animation underneath:
- *      - `jl-pmap-stretch` — roads. Stroke-dashoffset reveals from
- *        one end of the path, eased-out so it slows toward the
- *        finish. Length is set per-element via `--jl-pmap-len`.
- *      - `jl-pmap-river` — water. Same stroke draw but slower and
- *        ease-in-out, so it reads as a languid snake rather than a
- *        sharp line.
- *      - `jl-pmap-grow` — parks, woods, and buildings. Scale from
- *        the shape's own centre (transform-origin set inline,
- *        transform-box: fill-box). For buildings this means they
- *        grow outward in both axes instead of rising from the base.
- *      - `jl-pmap-railway` — dashed railway. Opacity-only fade.
- *
- * The total loop is 4.5 s. Reveal opens over the first ~50% and
- * holds till ~85%, so most individual shape animations finish well
- * inside the visible window. The reverse at the tail re-collapses
- * the disc so the loop restart reads as "drawing again from the
- * middle" rather than a snap.
+ * All four are paired with `cubic-bezier(0.65, 0, 0.35, 1)` (a strong
+ * ease-in-out) inline in MapLoader.tsx so the start + end of each
+ * phase are heavily eased — that's the "lots of easing" the brief
+ * called for.
  */
-@keyframes jl-pmap-reveal {
-    0% { clip-path: circle(0% at 50% 50%); }
-    50%,
-    82% { clip-path: circle(75% at 50% 50%); }
-    100% { clip-path: circle(0% at 50% 50%); }
-}
-.jl-pmap-reveal {
-    animation: jl-pmap-reveal 4.5s infinite ease-in-out;
-    /* Safari / older WebKit fallback: -webkit-clip-path mirrors the
-     * standard property so the rule applies on those engines too. */
-    -webkit-clip-path: circle(0% at 50% 50%);
-}
-
 @keyframes jl-pmap-grow {
     0%,
-    6% { opacity: 0; transform: scale(0.2); }
-    22%,
-    82% { opacity: 1; transform: scale(1); }
-    100% { opacity: 0; transform: scale(0.2); }
+    12% { opacity: 0; transform: scale(0.15); }
+    36%,
+    88% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.15); }
 }
 @keyframes jl-pmap-stretch {
     0%,
-    6% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
-    14% { opacity: 1; }
-    36%,
-    82% { stroke-dashoffset: 0; opacity: 1; }
+    14% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
+    22% { opacity: 1; }
+    46%,
+    88% { stroke-dashoffset: 0; opacity: 1; }
     100% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
 }
 @keyframes jl-pmap-river {
     0%,
-    6% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
-    14% { opacity: 1; }
-    52%,
-    82% { stroke-dashoffset: 0; opacity: 1; }
+    10% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
+    18% { opacity: 1; }
+    58%,
+    88% { stroke-dashoffset: 0; opacity: 1; }
     100% { stroke-dashoffset: var(--jl-pmap-len); opacity: 0; }
 }
 @keyframes jl-pmap-railway {
     0%,
-    18% { opacity: 0; }
-    34%,
-    82% { opacity: 0.7; }
+    28% { opacity: 0; }
+    44%,
+    88% { opacity: 0.7; }
     100% { opacity: 0; }
 }
 
