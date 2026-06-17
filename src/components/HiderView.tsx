@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check, Home, MapPin } from "lucide-react";
+import { Check, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -8,9 +8,16 @@ import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
 import { HiderShell } from "@/components/HiderShell";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
+    answeringQuestion,
     hiderInbox,
     playerRole,
     presentDraw,
@@ -27,36 +34,32 @@ import { forwardGeocodeOne } from "@/maps/api";
 import type { Question } from "@/maps/schema";
 
 /**
- * Hider-side read-only view of a single question.
+ * Hider route shell. Always renders the persistent hider UI
+ * (HiderShell). The "answer this question" flow used to be a full
+ * page at `/h?q=…`; v301 turned it into a dialog driven by the
+ * `answeringQuestion` atom so the hider can return to whatever
+ * they were doing on the map afterwards instead of bouncing back
+ * through history.
  *
- * Mounted at /h. Reads the question payload from the URL on mount, renders
- * a minimal "answer this question" UI specific to the question type, then
- * lets the hider share an answer URL back to the seeker.
- *
- * Deliberately spartan — no sidebar, no map, no question composer. The
- * hider just needs to see what's being asked and tap an answer.
+ * URL entry point still works (share-links from devices not on the
+ * multiplayer transport): on mount we decode `?q=`, push the
+ * question into the inbox, set the atom (opens the dialog), and
+ * strip the param so a reload doesn't re-trigger. `?f=` is the
+ * round-end ping from the seeker; same shape.
  */
 export function HiderView() {
     const $role = useStore(playerRole);
-    const [question, setQuestion] = useState<Question | null>(null);
-    const [loaded, setLoaded] = useState(false);
-    const [hasQueryParam, setHasQueryParam] = useState(false);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        setHasQueryParam(params.has("q"));
         const q = decodeQuestionFromUrl(params);
-        setQuestion(q);
-        // Auto-mark this device as the hider when they open a /h?q= link —
-        // they're clearly playing the hider side. Same trick the seeker app
-        // uses for its own role (set on the first wizard finish).
         if (q) {
-            // Don't clobber a co-hider's role — they watch via sync,
-            // not share-links, but a stray link shouldn't promote them
-            // to the primary hider.
+            // Auto-mark this device as the hider when they open a
+            // /h?q= link — they're clearly playing the hider side.
+            // Don't clobber a co-hider's role though.
             if (playerRole.get() !== "coHider") playerRole.set("hider");
-            // Save to inbox if not already there. Keyed by question.key
-            // for idempotency — re-opening the same link doesn't duplicate.
+            // Save to inbox if not already there. Keyed by
+            // question.key for idempotency.
             const inbox = hiderInbox.get();
             const already = inbox.some((e) => e.key === q.key);
             if (!already) {
@@ -69,6 +72,24 @@ export function HiderView() {
                         arrivedAt: Date.now(),
                     },
                 ]);
+            }
+            // Open the answer dialog.
+            answeringQuestion.set(q);
+            // Strip ?q= from URL so a reload doesn't reopen the
+            // dialog from the URL (the inbox + atom carry the
+            // state forward now).
+            try {
+                const url = new URL(window.location.href);
+                if (url.searchParams.has("q")) {
+                    url.searchParams.delete("q");
+                    window.history.replaceState(
+                        {},
+                        "",
+                        url.pathname + url.search + url.hash,
+                    );
+                }
+            } catch {
+                /* noop */
             }
         }
 
@@ -105,14 +126,7 @@ export function HiderView() {
         } catch (e) {
             console.warn("HiderView (found path) failed:", e);
         }
-
-        setLoaded(true);
     }, []);
-
-    if (!loaded) {
-        // Brief loading state to avoid flashing the "no question" screen
-        return null;
-    }
 
     // Co-hiders get the read-only hide-team view, never the answer /
     // deck flow — they don't own the canonical hider state.
@@ -120,34 +134,39 @@ export function HiderView() {
         return <CompanionView />;
     }
 
-    // The DrawPickerDialog has to live above both branches so the
-    // post-share "draw N keep K" modal also fires from `/h?q=…` (not
-    // just from `/h`). It self-suppresses when `pendingDraw` is null.
     return (
         <>
-            {!hasQueryParam ? (
-                <HiderShell />
-            ) : !question ? (
-                <div className="min-h-screen flex items-center justify-center p-6">
-                    <div className="max-w-sm text-center">
-                        <h1 className="text-2xl font-poppins font-semibold mb-2">
-                            No question
-                        </h1>
-                        <p className="text-muted-foreground text-sm">
-                            This link doesn't contain a valid question. Ask the
-                            seeker to share again, or{" "}
-                            <a href="/h" className="underline">
-                                go to your hider home
-                            </a>
-                            .
-                        </p>
-                    </div>
-                </div>
-            ) : (
-                <HiderQuestionAnswer question={question} />
-            )}
+            <HiderShell />
+            <HiderAnswerDialog />
             <DrawPickerDialog />
         </>
+    );
+}
+
+/**
+ * Dialog wrapper for the answer flow. Reads `answeringQuestion`
+ * atom; renders the question-answer body when set, dismissed when
+ * the atom clears (either by Send Answer or manual close).
+ */
+function HiderAnswerDialog() {
+    const $q = useStore(answeringQuestion);
+    return (
+        <Dialog
+            open={$q !== null}
+            onOpenChange={(o) => {
+                if (!o) answeringQuestion.set(null);
+            }}
+        >
+            <DialogContent
+                className={cn(
+                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
+                    "flex flex-col p-0 gap-0 sm:max-w-md",
+                    "max-h-[92vh]",
+                )}
+            >
+                {$q && <HiderQuestionAnswer question={$q} />}
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -192,8 +211,8 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     const shouldBlurMap = autoComputable && !revealed;
 
     return (
-        <div className="min-h-screen flex flex-col p-4 pb-[100px] max-w-md mx-auto">
-            <header className="mt-2 mb-3">
+        <div className="flex flex-col min-h-0 flex-1 px-5 pt-4 pb-5 gap-4 overflow-y-auto">
+            <header>
                 <div className="flex items-center gap-2 mb-2">
                     {CategoryIcon && (
                         <span
@@ -208,13 +227,13 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                             />
                         </span>
                     )}
-                    <span className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold">
+                    <DialogDescription className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold">
                         {categoryMeta?.label ?? question.id} question
-                    </span>
+                    </DialogDescription>
                 </div>
-                <h1 className="font-poppins text-xl font-semibold leading-tight">
+                <DialogTitle className="font-poppins text-lg font-semibold leading-tight">
                     {questionPrompt(question)}
-                </h1>
+                </DialogTitle>
             </header>
 
             <div className="relative">
@@ -273,7 +292,7 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 />
             )}
 
-            <main className="flex-1 mt-4">
+            <main>
                 <AnswerControls
                     question={question}
                     hiderPos={hiderPos}
@@ -543,8 +562,6 @@ function ShareBackRow({
      *  longer rendered — kept optional to ease the migration. */
     shareText?: string;
 }) {
-    const [sent, setSent] = useState(false);
-
     const markRepliedInInbox = () => {
         const inbox = hiderInbox.get();
         const existing = inbox.find((e) => e.key === question.key);
@@ -593,33 +610,23 @@ function ShareBackRow({
 
     return (
         <div className="space-y-2">
-            {!sent && (
-                <Button
-                    onClick={() => {
-                        markRepliedInInbox();
-                        setSent(true);
-                    }}
-                    className="w-full gap-2 py-7 text-base font-semibold"
-                    size="lg"
-                >
-                    <Check className="w-5 h-5" />
-                    Send answer
-                </Button>
-            )}
-            {sent && (
-                <div className="space-y-2 pt-2">
-                    <p className="text-xs text-emerald-500 text-center font-poppins font-semibold">
-                        Answer sent. Question moved to your inbox.
-                    </p>
-                    <Button
-                        onClick={() => window.location.assign("/h")}
-                        className="w-full gap-2 py-5 text-sm"
-                    >
-                        <Home className="w-4 h-4" />
-                        Back to hider home
-                    </Button>
-                </div>
-            )}
+            <Button
+                onClick={() => {
+                    markRepliedInInbox();
+                    toast.success("Answer sent.", { autoClose: 1500 });
+                    // v301: close the answer dialog automatically.
+                    // The "Question moved to your inbox" sub-screen
+                    // + manual "Back to hider home" button are gone
+                    // — the toast confirms the action and the
+                    // dialog dismisses the user back to the shell.
+                    answeringQuestion.set(null);
+                }}
+                className="w-full gap-2 py-7 text-base font-semibold"
+                size="lg"
+            >
+                <Check className="w-5 h-5" />
+                Send answer
+            </Button>
         </div>
     );
 }

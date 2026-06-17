@@ -1,6 +1,8 @@
 import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
 
+import type { Question } from "@/maps/schema";
+
 import type { GameSize } from "./gameSetup";
 import { type Card,shuffledDeck } from "./hiderDeck";
 
@@ -251,6 +253,20 @@ export interface InboxEntry {
     /** The answer the hider sent (partial data merge). */
     reply?: Record<string, unknown>;
 }
+
+/**
+ * v301: the "answer this question" flow used to be its own page at
+ * `/h?q=…`. It's now a dialog that opens from any entry point —
+ * tapping the unanswered-question banner, tapping a row in the
+ * inbox sheet, or landing on `/h?q=…` (URL still works for share-
+ * links from devices that aren't on the multiplayer transport).
+ * Setting this atom opens the dialog with the given question;
+ * clearing it (or sending the answer) closes the dialog.
+ *
+ * In-memory only — the URL / inbox is the source of truth for
+ * which questions exist; the atom just controls modal visibility.
+ */
+export const answeringQuestion = atom<Question | null>(null);
 
 export const hiderInbox = __globalPersistent<InboxEntry[]>(
     "__jlhs_hiderInbox",

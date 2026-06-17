@@ -3,8 +3,11 @@ import { ChevronRight } from "lucide-react";
 import { useMemo } from "react";
 
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { hiderInbox, type InboxEntry } from "@/lib/hiderRole";
-import { encodeQuestionForHider } from "@/lib/shareLinks";
+import {
+    answeringQuestion,
+    hiderInbox,
+    type InboxEntry,
+} from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
 
@@ -41,21 +44,14 @@ export function HiderUnansweredOverlay() {
     const extraCount = waiting.length - 1;
 
     const handleClick = () => {
-        const question = {
+        // v301: open the answer flow as a dialog over the hider
+        // shell instead of navigating to /h?q=… and unmounting the
+        // whole shell. The dialog reads `answeringQuestion`.
+        answeringQuestion.set({
             id: latest.id,
             key: latest.key,
             data: latest.data,
-        } as Question;
-        try {
-            const url = encodeQuestionForHider(question);
-            const parsed = new URL(url);
-            window.location.assign(
-                parsed.pathname + parsed.search + parsed.hash,
-            );
-        } catch {
-            const payload = JSON.stringify(question);
-            window.location.assign(`/h?q=${encodeURIComponent(payload)}`);
-        }
+        } as Question);
     };
 
     return (

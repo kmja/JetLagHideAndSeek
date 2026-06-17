@@ -125,31 +125,45 @@ export function DrawPickerDialog() {
 
     const cols = total <= 2 ? 2 : total === 3 ? 3 : 2; // 4 → 2x2
 
+    // v301: when the last card is picked, fade the surrounding
+    // chrome (header pill / title / description, footer status)
+    // along with the discarded cards so the moment reads as the
+    // whole tray dissolving back into the hand — not just the
+    // cards leaving but the picker as a whole.
+    const chromeFadeCls = cn(
+        "transition-opacity ease-out",
+        finished
+            ? `opacity-0 pointer-events-none duration-[${FADE_MS}ms]`
+            : "opacity-100 duration-200",
+    );
+
     return (
         <Dialog open={true}>
             <DialogContent
+                closeIcon={false}
                 className={cn(
-                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                    "flex flex-col p-0 gap-0",
-                    "max-h-[92vh] sm:max-w-lg",
-                    // Allow the flying card to translate well below
-                    // the dialog body without being clipped at the
-                    // border — the modal itself stays in place; only
-                    // the card animates beyond it.
-                    "overflow-visible",
+                    // v301: no panel chrome — cards float over the
+                    // dim overlay like the HandCarousel. Same
+                    // tokenless look the post-share carousel uses.
+                    "!bg-transparent !border-0 !shadow-none",
+                    "flex flex-col p-0 gap-3",
+                    "!max-w-md w-[min(92vw,28rem)]",
+                    "max-h-[92vh]",
+                    // Cards animate well beyond their cell bbox.
+                    "!overflow-visible",
                 )}
             >
-                <div className="px-6 pt-5 pb-3 shrink-0 border-b border-border">
-                    <div className="mb-2 flex items-center gap-2">
+                <div className={cn("px-2 text-center", chromeFadeCls)}>
+                    <div className="mb-2 flex items-center justify-center gap-2">
                         <SectionPill>Hider reward</SectionPill>
-                        <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground ml-auto">
+                        <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground">
                             {capitalize($pending.sourceCategory)}
                         </span>
                     </div>
-                    <DialogTitle className="font-inter-tight font-black uppercase text-xl tracking-tight leading-tight">
+                    <DialogTitle className="font-inter-tight font-black uppercase text-xl tracking-tight leading-tight text-foreground">
                         Draw {total}, keep {keep}
                     </DialogTitle>
-                    <DialogDescription className="mt-1.5 text-sm">
+                    <DialogDescription className="mt-1.5 text-xs text-muted-foreground/90">
                         Tap a card to highlight it, then tap{" "}
                         <span className="font-semibold text-foreground">
                             Keep this card
@@ -159,15 +173,7 @@ export function DrawPickerDialog() {
                     </DialogDescription>
                 </div>
 
-                <div
-                    className={cn(
-                        "px-4 py-4 min-h-0",
-                        // No scroll: 2-4 cards always fit. Keeping the
-                        // container non-scrolling lets the flying card
-                        // translate downward freely without clipping.
-                        "overflow-visible",
-                    )}
-                >
+                <div className="px-2 py-2 min-h-0 overflow-visible">
                     <div
                         className={cn(
                             "grid gap-3",
@@ -199,7 +205,12 @@ export function DrawPickerDialog() {
                     </div>
                 </div>
 
-                <div className="px-6 py-4 shrink-0 border-t border-border flex items-center justify-between gap-2">
+                <div
+                    className={cn(
+                        "px-2 flex items-center justify-between gap-2",
+                        chromeFadeCls,
+                    )}
+                >
                     <span className="text-xs text-muted-foreground tabular-nums">
                         {finished
                             ? "Discarding the rest…"

@@ -3,8 +3,11 @@ import { ChevronRight, Inbox } from "lucide-react";
 import { useMemo } from "react";
 
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { hiderInbox, type InboxEntry } from "@/lib/hiderRole";
-import { encodeQuestionForHider } from "@/lib/shareLinks";
+import {
+    answeringQuestion,
+    hiderInbox,
+    type InboxEntry,
+} from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
 
@@ -123,26 +126,14 @@ function WaitingRow({ entry }: { entry: InboxEntry }) {
     const prompt = waitingRowPrompt(entry);
 
     const openAnswerView = () => {
-        // Reconstruct the share payload from the inbox entry — same
-        // shape `encodeQuestionForHider` would produce on the seeker
-        // side. The URL ends up identical to the share link.
-        const question = {
+        // v301: open the answer flow as a dialog over whatever the
+        // user was on (Questions sheet, lobby, etc.) instead of
+        // navigating away. Sheet stays open in the background.
+        answeringQuestion.set({
             id: entry.id,
             key: entry.key,
             data: entry.data,
-        } as Question;
-        try {
-            const url = encodeQuestionForHider(question);
-            const parsed = new URL(url);
-            window.location.assign(
-                parsed.pathname + parsed.search + parsed.hash,
-            );
-        } catch {
-            // Fallback: build the relative URL inline if URL parsing
-            // fails for any reason (e.g. exotic data shapes).
-            const payload = JSON.stringify(question);
-            window.location.assign(`/h?q=${encodeURIComponent(payload)}`);
-        }
+        } as Question);
     };
 
     return (
