@@ -372,67 +372,83 @@ export function GameLobbyDialog() {
                     recap only appears while the map is still loading
                     — once the boundary is in, the mini-map below
                     carries the settings visually. */}
-                {/* v269: matches the Settings drawer's header pattern —
-                    title + subtle description, no brand chrome. The
-                    HIDE+SEEK wordmark already sits at the top of the
-                    screen in SeekerTopBar; doubling it here read as
-                    decoration. */}
-                <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border flex items-start gap-2">
-                    <div className="flex-1 min-w-0 space-y-1">
-                        <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
-                            Lobby
-                        </VaulDrawer.Title>
-                        {$playArea && !mapReady && !isHiderRole ? (
-                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                                <span className="font-semibold text-white">
-                                    {$playArea.displayName.split(",")[0]}
-                                </span>
-                                <span className="text-muted-foreground/60">
-                                    {" · "}
-                                </span>
-                                {minutes}-min hide
-                                {$allowedTransit.length > 0 && (
-                                    <>
-                                        <span className="text-muted-foreground/60">
-                                            {" · "}
-                                        </span>
-                                        {$allowedTransit
-                                            .map((m) => TRANSIT_LABELS[m])
-                                            .join(", ")}
-                                    </>
+                {/* v296: title collapses the play area + size into
+                    one line ("Medium game in Stockholm"); the
+                    subheader carries the allowed transit. Edit
+                    settings (host only) drops directly under the
+                    subheader so the action sits where the eye
+                    already is, rather than buried in the mid-game
+                    info block further down. Leave button picks up
+                    a "Leave" label so the destructive action is
+                    spelled out rather than icon-only. */}
+                {(() => {
+                    const cityLabel =
+                        $playArea?.displayName.split(",")[0]?.trim() ?? "";
+                    const sizeLabel =
+                        $size.charAt(0).toUpperCase() + $size.slice(1);
+                    const headerTitle = cityLabel
+                        ? `${sizeLabel} game in ${cityLabel}`
+                        : "Lobby";
+                    const transitLabel =
+                        $allowedTransit.length > 0
+                            ? $allowedTransit
+                                  .map((m) => TRANSIT_LABELS[m])
+                                  .join(", ")
+                            : "Walking only";
+                    return (
+                        <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border space-y-2">
+                            <div className="flex items-start gap-3">
+                                <div className="flex-1 min-w-0">
+                                    <VaulDrawer.Title className="text-lg font-semibold leading-tight tracking-tight truncate">
+                                        {headerTitle}
+                                    </VaulDrawer.Title>
+                                    <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug mt-0.5 truncate">
+                                        {transitLabel}
+                                    </VaulDrawer.Description>
+                                </div>
+                                {$mp && $code && (
+                                    <button
+                                        type="button"
+                                        onClick={handleLeaveGame}
+                                        aria-label="Leave game"
+                                        title="Leave this online game"
+                                        className={cn(
+                                            "shrink-0 inline-flex items-center gap-1.5",
+                                            "h-9 px-3 rounded-md",
+                                            "text-destructive-foreground border-2 border-destructive",
+                                            "bg-destructive hover:bg-destructive/85 active:bg-destructive/75",
+                                            "shadow-sm transition-colors",
+                                            "text-xs font-poppins font-semibold uppercase tracking-wider",
+                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
+                                        )}
+                                    >
+                                        <LogOut className="w-4 h-4" />
+                                        Leave
+                                    </button>
                                 )}
-                            </VaulDrawer.Description>
-                        ) : (
-                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                                {isMidGame
-                                    ? "Players, room code, mid-game tweaks."
-                                    : "Players and room code. Start when everyone's in."}
-                            </VaulDrawer.Description>
-                        )}
-                    </div>
-                    {/* Destructive Leave button — top-right of the
-                        drawer header (v272). Only renders when there's
-                        actually an online room to leave; collapses
-                        otherwise so the header keeps the same height. */}
-                    {$mp && $code && (
-                        <button
-                            type="button"
-                            onClick={handleLeaveGame}
-                            aria-label="Leave game"
-                            title="Leave this online game"
-                            className={cn(
-                                "shrink-0 inline-flex items-center justify-center",
-                                "w-9 h-9 rounded-md",
-                                "text-destructive-foreground border-2 border-destructive",
-                                "bg-destructive hover:bg-destructive/85 active:bg-destructive/75",
-                                "shadow-sm transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
+                            </div>
+                            {isHost && $playArea && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        lobbyManualOpen.set(false);
+                                        setupDialogOpen.set(true);
+                                    }}
+                                    className={cn(
+                                        "w-full flex items-center justify-center gap-2",
+                                        "h-9 px-3 rounded-md border border-border",
+                                        "bg-secondary/40 hover:bg-secondary/70 transition-colors",
+                                        "text-xs font-semibold text-foreground",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    )}
+                                >
+                                    <Settings className="w-3.5 h-3.5" />
+                                    Edit game settings
+                                </button>
                             )}
-                        >
-                            <LogOut className="w-4 h-4" />
-                        </button>
-                    )}
-                </div>
+                        </div>
+                    );
+                })()}
 
                 <div className="px-5 py-3 flex-1 overflow-y-auto space-y-3">
                     {/* Autohost status — pre-room. Reserves the same
@@ -673,20 +689,15 @@ export function GameLobbyDialog() {
                             <RoundEndSection />
                             <MidGameInfoSection
                                 playArea={$playArea}
-                            transit={$allowedTransit}
-                            size={$size}
-                            isHiderRole={isHiderRole}
-                            isHost={isHost}
-                            mp={$mp}
-                            sharing={$seekerSharing}
-                            foundAt={$foundAt}
-                            onEditSettings={() => {
-                                lobbyManualOpen.set(false);
-                                setupDialogOpen.set(true);
-                            }}
-                            onToggleSharing={() =>
-                                seekerLocationSharing.set(!$seekerSharing)
-                            }
+                                transit={$allowedTransit}
+                                size={$size}
+                                isHiderRole={isHiderRole}
+                                mp={$mp}
+                                sharing={$seekerSharing}
+                                foundAt={$foundAt}
+                                onToggleSharing={() =>
+                                    seekerLocationSharing.set(!$seekerSharing)
+                                }
                             />
                         </>
                     )}
@@ -1010,22 +1021,18 @@ function MidGameInfoSection({
     transit,
     size,
     isHiderRole,
-    isHost,
     mp,
     sharing,
     foundAt,
-    onEditSettings,
     onToggleSharing,
 }: {
     playArea: { displayName: string } | null;
     transit: TransitMode[];
     size: import("@/lib/gameSetup").GameSize;
     isHiderRole: boolean;
-    isHost: boolean;
     mp: boolean;
     sharing: boolean;
     foundAt: number | null;
-    onEditSettings: () => void;
     onToggleSharing: () => void;
 }) {
     return (
@@ -1086,28 +1093,10 @@ function MidGameInfoSection({
                 </div>
             )}
 
-            {/* v285: hider-host can edit settings too — the gate
-                used to be `!isHiderRole`, which locked out a hider
-                who happened to be the host. `isHost` is the right
-                axis: solo always counts, multiplayer host (regardless
-                of role) too. Non-host seekers see nothing — their
-                edits would be overwritten on the next host push. */}
-            {isHost && (
-                <button
-                    type="button"
-                    onClick={onEditSettings}
-                    className={cn(
-                        "w-full flex items-center justify-center gap-2",
-                        "px-3 py-2 rounded-md border border-border",
-                        "bg-secondary/40 hover:bg-secondary/70 transition-colors",
-                        "text-sm font-semibold text-foreground",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    )}
-                >
-                    <Settings className="w-4 h-4" />
-                    Edit game settings
-                </button>
-            )}
+            {/* v296: Edit game settings moved out of the mid-game
+                info block and into the lobby header so the action
+                sits next to the play-area title rather than buried
+                in the secondary info section. */}
 
             {/* GPS sharing toggle (seeker only, multiplayer, not found) */}
             {!isHiderRole && mp && foundAt === null && (
