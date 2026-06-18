@@ -1,20 +1,36 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import { Check, CloudDownload, Loader2, Trash2 } from "lucide-react";
+import { PMTiles } from "pmtiles";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { appConfirm } from "@/lib/confirm";
 import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
+import { pmtilesUrl } from "@/lib/protomapsStyle";
 import { cn } from "@/lib/utils";
 
 /**
  * "Pre-download offline tiles for this play area" — the feature the
  * user explicitly asked for. Walks the play-area bbox at each
- * user-selected zoom level (5–18), fetches each tile from CARTO
- * Voyager, and lets the service worker stash it in the `tiles-carto`
- * runtime cache. The tiles then serve offline on any subsequent
- * visit.
+ * user-selected zoom level, asks the Protomaps PMTiles archive for
+ * each (z, x, y), and lets the browser's HTTP cache stash the byte
+ * ranges that come back. The same ranges then serve from cache on
+ * subsequent visits — including offline.
+ *
+ * v322: switched from OSM raster PNGs to PMTiles vector tiles to
+ * match what the live map actually renders. The previous loop
+ * fetched `tile.openstreetmap.org/{z}/{x}/{y}.png` and let the SW's
+ * `tiles-osm` CacheFirst route stash each PNG; but the renderer has
+ * been on Protomaps vector tiles since v230, so "Map downloaded"
+ * could succeed while the actual basemap stayed blank (the Houston
+ * cold-load report). PMTiles uses HTTP byte-range requests rather
+ * than per-tile URLs, so this preloader can't rely on a Workbox
+ * cache route — `protomapsStyle.ts`' comment captures why. Instead
+ * we let the browser's native HTTP cache handle it: the JLHS cache
+ * worker emits `Cache-Control: immutable, max-age=1y` for the
+ * archive, and the same range request later returns from HTTP
+ * cache.
  *
  * UX shape:
  *
@@ -32,46 +48,50 @@ import { cn } from "@/lib/utils";
  * Implementation notes:
  *
  *   • Concurrency capped at 8 in-flight requests so we don't
- *     hammer the tile provider (their TOS asks for "reasonable"
- *     use) and the browser doesn't choke on thousands of pending
- *     fetches.
- *   • `fetch(url)` looks identical to what MapLibre sends at
- *     runtime, so the SW's runtimeCaching picks each one up.
- *   • Tiles already cached hit the SW's CacheFirst handler and
- *     skip the network entirely — re-running the download is
- *     cheap.
+ *     hammer the cache worker and the browser doesn't choke on
+ *     thousands of pending fetches.
+ *   • `PMTiles.getZxy()` issues the SAME byte-range request the
+ *     runtime `pmtiles://` protocol later makes, so an HTTP cache
+ *     hit on either side is a hit on the other.
+ *   • PMTiles tile-directories are fetched implicitly on the first
+ *     getZxy that touches a given leaf, so we don't have to walk
+ *     them separately — the directory bytes land in the same HTTP
+ *     cache as the tile bytes.
+ *   • One module-shared PMTiles instance per archive URL would
+ *     coalesce range fetches in memory, but it'd retain that
+ *     memory across re-mounts. We accept a fresh instance per
+ *     download — the goal is the HTTP cache, not the in-memory
+ *     directory cache.
  */
-
-// v225: was cartocdn voyager. Switched to OSM standard tiles so the
-// preloader actually preloads what the app now displays (cartocdn was
-// blocked by Firefox ETP and Adblock Plus EasyPrivacy for many users).
-const TILE_URL = (z: number, x: number, y: number) =>
-    `https://${["a", "b", "c"][(x + y) % 3]}.tile.openstreetmap.org/${z}/${x}/${y}.png`;
 
 const CONCURRENCY = 8;
 
-/** Bytes per tile estimate, by zoom. PNG tiles get larger as you
- *  zoom in (more pixel detail per tile). Numbers ballpark-sized
- *  from CARTO Voyager at typical city coverage. */
+/** Bytes per tile estimate, by zoom. Vector PMTiles tiles are
+ *  noticeably smaller than raster PNGs (compact serialised vectors
+ *  vs. compressed pixel data), especially at lower zooms where most
+ *  of the tile is land/water polygons rather than per-feature
+ *  detail. Ballpark numbers from the worldwide-z15 build at typical
+ *  city coverage; the user-facing "≈" prefix sets expectations. */
 const TILE_BYTES_BY_ZOOM: Record<number, number> = {
-    5: 6_000,
-    6: 7_000,
-    7: 8_000,
-    8: 9_000,
-    9: 10_000,
-    10: 11_000,
-    11: 12_000,
-    12: 13_000,
+    5: 4_000,
+    6: 5_000,
+    7: 6_000,
+    8: 6_500,
+    9: 7_000,
+    10: 8_000,
+    11: 9_000,
+    12: 11_000,
     13: 14_000,
-    14: 15_000,
-    15: 16_000,
-    16: 18_000,
-    17: 20_000,
-    18: 22_000,
+    14: 18_000,
+    15: 22_000,
 };
 
 const MIN_Z = 5;
-const MAX_Z = 18;
+/** PMTiles archive ceiling — the worker filename is
+ *  `basemap-z15-…pmtiles`, so requesting tiles beyond z15 would
+ *  resolve to overzoomed renders rather than fresh bytes. Capping
+ *  at z15 keeps the per-zoom estimates honest. */
+const MAX_Z = 15;
 const DEFAULT_SELECTED = new Set([11, 12, 13, 14, 15]);
 
 /**
@@ -89,6 +109,11 @@ let activeRun: {
 export function OfflineTilePreloader() {
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $mapGeoJSON = useStore(mapGeoJSON);
+    // v322: resolved PMTiles URL — follows the demo-bucket fallback the
+    // protomaps style flips to when our self-hosted archive fails. So if
+    // a session has fallen back, the preload caches the URL the runtime
+    // renderer is actually using, not a dead one.
+    const $pmtilesUrl = useStore(pmtilesUrl);
 
     const [selected, setSelected] = useState<Set<number>>(
         () => new Set(DEFAULT_SELECTED),
@@ -191,6 +216,13 @@ export function OfflineTilePreloader() {
         activeRun = { token, toastId };
         setBusy(true);
 
+        // One PMTiles instance per run — shares an in-memory directory
+        // cache across the worker pool so the leaf-directory range
+        // request for each (z, leafBlock) only happens once even when
+        // many getZxy calls race for tiles in the same leaf. Browser
+        // HTTP cache catches everything after that.
+        const pmt = new PMTiles($pmtilesUrl);
+
         let done = 0;
         let failed = 0;
         let nextIdx = 0;
@@ -201,9 +233,13 @@ export function OfflineTilePreloader() {
                 if (idx >= tiles.length) return;
                 const t = tiles[idx];
                 try {
-                    const url = TILE_URL(t.z, t.x, t.y);
-                    const r = await fetch(url, { cache: "default" });
-                    if (!r.ok) failed++;
+                    const resp = await pmt.getZxy(t.z, t.x, t.y);
+                    // `undefined` means the archive doesn't carry that
+                    // tile — fine for ocean/no-data tiles inside the
+                    // bbox, no need to count it as a failure.
+                    if (resp === undefined) {
+                        // Counted as done but not failed.
+                    }
                 } catch {
                     failed++;
                 } finally {
@@ -259,9 +295,9 @@ export function OfflineTilePreloader() {
 
     const clearTileCache = async () => {
         const ok = await appConfirm({
-            title: "Clear all cached map tiles?",
+            title: "Clear cached overlay tiles?",
             description:
-                "Frees up storage but means the next load will re-fetch them from the network.",
+                "Removes cached satellite, transit, and other overlay tiles. The Protomaps basemap lives in the browser's HTTP cache — that's managed by the browser and clears with its site-data controls.",
             confirmLabel: "Clear cache",
             destructive: true,
         });
@@ -271,8 +307,8 @@ export function OfflineTilePreloader() {
             const tileCaches = names.filter((n) => n.startsWith("tiles-"));
             await Promise.all(tileCaches.map((n) => caches.delete(n)));
             toast.success(
-                `Cleared ${tileCaches.length} tile cache${tileCaches.length === 1 ? "" : "s"}.`,
-                { autoClose: 2000 },
+                `Cleared ${tileCaches.length} overlay tile cache${tileCaches.length === 1 ? "" : "s"}.`,
+                { autoClose: 2500 },
             );
         } catch (e) {
             toast.error(`Couldn't clear caches: ${(e as Error).message}`);
@@ -303,10 +339,10 @@ export function OfflineTilePreloader() {
             </div>
 
             <p className="text-xs text-muted-foreground leading-snug">
-                Pre-download Voyager basemap tiles covering the play
-                area so the app keeps working without signal. Pick
-                the zoom levels you want — wider city overviews are
-                small; street-level (16+) gets big fast.
+                Pre-download Protomaps basemap tiles covering the play
+                area so the app keeps working without signal. Pick the
+                zoom levels you want — wider city overviews are small;
+                street-level (14–15) gets big faster.
             </p>
 
             {/* Per-zoom checklist. Each row: checkbox, zoom number,
