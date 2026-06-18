@@ -195,21 +195,21 @@ div.leaflet-control-attribution.leaflet-control {
  * perimeter, reading as a packet of faint light travelling along
  * the line.
  *
- * Cycle length 190 = pulse 10 + gap 180 (matches the inline
- * `strokeDasharray` in MapLoader.tsx). Duration 2.8 s is paired
- * with per-rect `animation-delay` so the pulses fall out of phase
- * with each other.
+ * Cycle length 200 = pulse 26 + gap 174 (matches the inline
+ * `strokeDasharray` in MapLoader.tsx). Duration 5.5 s — kept slow
+ * and paired with per-rect `animation-delay` so the pulses fall out
+ * of phase and drift as a calm ambient shimmer rather than a flash.
  */
 @keyframes jl-tile-pulse-travel {
     from {
         stroke-dashoffset: 0;
     }
     to {
-        stroke-dashoffset: -190;
+        stroke-dashoffset: -200;
     }
 }
 .jl-tile-pulse {
-    animation: jl-tile-pulse-travel 2.8s linear infinite;
+    animation: jl-tile-pulse-travel 5.5s linear infinite;
 }
 
 .leaflet-tooltip.jl-ref-tooltip {
