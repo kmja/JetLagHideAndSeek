@@ -211,6 +211,11 @@ export function HiderMap({
                 mapStyle={mapStyle}
                 attributionControl={false}
                 scrollZoom={false}
+                /* v326: match Map.tsx — PMTiles archive caps at z15,
+                   so z16 is one level of overzoom freedom and past
+                   that is just magnified vector data with no new
+                   detail. */
+                maxZoom={16}
                 onLoad={() => setStyleLoaded(true)}
                 onIdle={() => setIdledOnce(true)}
                 onError={handleMapLibreError}

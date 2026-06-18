@@ -1331,6 +1331,16 @@ export function Map({ className }: MapProps) {
                 dragRotate={false}
                 pitchWithRotate={false}
                 touchPitch={false}
+                /* v326: cap zoom one level past the PMTiles archive's
+                   z15 ceiling. The archive doesn't carry data above
+                   z15, so further zoom is pure overzoom — MapLibre
+                   re-rasterises the z15 vector tile larger but no
+                   new detail appears. z16 gives one level of inspect-
+                   a-block headroom; past that the gesture feels
+                   broken. Also short-circuits any temptation to push
+                   the preload to higher zooms — the source has
+                   nothing more to give. */
+                maxZoom={16}
                 /* Required so map.getCanvas().toDataURL() works
                    for the Save-image action (otherwise the WebGL
                    buffer is cleared before we can read it). */

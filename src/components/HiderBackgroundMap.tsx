@@ -162,6 +162,10 @@ export function HiderBackgroundMap() {
                 interactive={true}
                 dragRotate={false}
                 touchPitch={false}
+                /* v326: match Map.tsx / HiderMap.tsx — PMTiles
+                   archive caps at z15, so z16 is one level of
+                   overzoom freedom and that's all. */
+                maxZoom={16}
                 onError={handleMapLibreError}
             >
                 {$satellite && (
