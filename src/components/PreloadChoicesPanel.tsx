@@ -28,6 +28,7 @@ import {
     preloadBucketInFlight,
     preloadBucketTimestamps,
     preloadChoices,
+    preloadMapProgress,
     setupCompleted,
     type PreloadChoices,
 } from "@/lib/gameSetup";
@@ -278,6 +279,7 @@ export function PreloadChoicesPanel({
 
                         {displayStatus && (
                             <BucketStatus
+                                bucketId={b.id}
                                 inFlight={bucketInFlight}
                                 enabled={on}
                             />
@@ -298,13 +300,22 @@ export function PreloadChoicesPanel({
 }
 
 function BucketStatus({
+    bucketId,
     inFlight,
     enabled,
 }: {
+    bucketId: keyof PreloadChoices;
     inFlight: boolean;
     enabled: boolean;
 }) {
     if (inFlight) {
+        // v324: the map bucket gets a detailed progress bar — it can
+        // be thousands of byte-range requests against the PMTiles
+        // archive, so a generic "Downloading…" reads as stalled when
+        // it's actually busy paging through z14 / z15. References +
+        // transit are fast enough that the spinner is sufficient
+        // signal; they keep the original look.
+        if (bucketId === "map") return <MapBucketProgress />;
         return (
             <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
@@ -328,6 +339,56 @@ function BucketStatus({
                     ? "Not downloaded yet — will run at hiding period start"
                     : "Disabled — won't be downloaded"}
             </span>
+        </div>
+    );
+}
+
+function MapBucketProgress() {
+    const progress = useStore(preloadMapProgress);
+
+    // Pre-tile header read — short but visible on slow networks. Show
+    // a generic "Reading archive header…" so the bar doesn't sit empty
+    // and labelled with stale tile counts from the previous run.
+    if (!progress || progress.phase === "header") {
+        return (
+            <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
+                <span className="text-xs text-muted-foreground">
+                    {progress?.phase === "header"
+                        ? "Reading archive header…"
+                        : "Downloading…"}
+                </span>
+            </div>
+        );
+    }
+
+    const { tilesDone, tilesTotal, currentZoom, bytesFetched } = progress;
+    const pct =
+        tilesTotal === 0 ? 0 : Math.min(100, (tilesDone / tilesTotal) * 100);
+
+    return (
+        <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md space-y-1.5">
+            <div className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
+                <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate">
+                    Caching z{currentZoom} tiles…
+                </span>
+                <span className="text-[10px] font-mono tabular-nums text-muted-foreground shrink-0">
+                    {tilesDone.toLocaleString()} / {tilesTotal.toLocaleString()}
+                </span>
+            </div>
+            {/* Slim progress track. tabular-nums on the byte readout
+                keeps the rightmost digit from jittering as it updates. */}
+            <div className="h-1 w-full bg-background/60 rounded-full overflow-hidden">
+                <div
+                    className="h-full bg-primary transition-[width] duration-200 ease-out"
+                    style={{ width: `${pct.toFixed(1)}%` }}
+                />
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+                <span>{pct.toFixed(0)}%</span>
+                <span>{formatSize(bytesFetched / 1_000_000)} downloaded</span>
+            </div>
         </div>
     );
 }

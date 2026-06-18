@@ -232,6 +232,36 @@ export const preloadBucketBytes = atom<{
 }>({ map: null, references: null, transit: null });
 
 /**
+ * Live progress for the map bucket. The map preload walks z11→z15 and
+ * issues one byte-range request per tile in the bbox (thousands for a
+ * large city), so its wall-time is dominated by request latency rather
+ * than raw bytes — a generic "Downloading…" with no count reads as
+ * stalled (the v319 16 MB / many-minutes report). This atom is set
+ * once at the start of a map preload with the planned tile total, then
+ * updated as each tile completes; cleared when the run ends.
+ *
+ * References + transit don't get the same treatment: references is a
+ * single combined Overpass query (no meaningful sub-progress), and
+ * transit has only 4 sub-fetches (HSR + 3 modes) — both finish fast
+ * enough that the spinner is enough signal.
+ */
+export interface MapPreloadProgress {
+    /** Tiles completed (succeeded OR failed — what matters is "done"). */
+    tilesDone: number;
+    /** Total tiles planned across all in-scope zoom levels. */
+    tilesTotal: number;
+    /** Zoom level currently being walked. */
+    currentZoom: number;
+    /** Wire bytes accumulated so far (from CountingSource). */
+    bytesFetched: number;
+    /** Where we are in the run; "header" is the PMTiles archive
+     *  directory read that happens before any tiles, "tiles" is the
+     *  main loop. */
+    phase: "header" | "tiles";
+}
+export const preloadMapProgress = atom<MapPreloadProgress | null>(null);
+
+/**
  * Reset every map display overlay to its default OFF state. Called on
  * new game / new round / settings change so a fresh game never inherits
  * a stale overlay (e.g. a transit layer left on from a previous game).

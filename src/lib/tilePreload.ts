@@ -7,6 +7,7 @@ import {
 
 import { recordBytes } from "@/lib/bandwidthMeter";
 import { mapGeoLocation } from "@/lib/context";
+import { preloadMapProgress } from "@/lib/gameSetup";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
 
 /**
@@ -186,35 +187,44 @@ export async function preloadTilesForPlayArea(opts?: {
     });
     const archive = new PMTiles(source);
 
+    // Publish a "we're reading the archive header" phase so the UI can
+    // show something useful before per-tile counts arrive. The header
+    // read is a single tiny range request but on a cold network it can
+    // still take a noticeable beat.
+    preloadMapProgress.set({
+        tilesDone: 0,
+        tilesTotal: 0,
+        currentZoom: 0,
+        bytesFetched: 0,
+        phase: "header",
+    });
+
     let header;
     try {
         header = await archive.getHeader();
     } catch (e) {
         console.warn("[tilePreload] header read failed:", e);
+        preloadMapProgress.set(null);
         return { ...empty, bytesFetched };
     }
-    if (opts?.signal?.aborted) return { ...empty, bytesFetched };
+    if (opts?.signal?.aborted) {
+        preloadMapProgress.set(null);
+        return { ...empty, bytesFetched };
+    }
 
     const minZ = Math.max(opts?.minZoom ?? DEFAULT_MIN_ZOOM, header.minZoom ?? 0);
     const maxZ = Math.min(opts?.maxZoom ?? DEFAULT_MAX_ZOOM, header.maxZoom ?? 15);
 
+    // Plan every zoom level up front so the total reflects what we
+    // ACTUALLY intend to fetch (capped zooms are excluded). Honest
+    // total means the progress bar reaches 100 % at the end instead
+    // of stopping at some fraction the user can't predict.
     const covered: number[] = [];
     const skipped: number[] = [];
+    const plan: Array<{ z: number; tiles: Array<[number, number, number]> }> =
+        [];
     let tilesAttempted = 0;
-    let tilesSucceeded = 0;
-
-    console.info(
-        `[tilePreload] bbox ${bbox.map((v) => v.toFixed(3)).join(",")} — per-zoom tile counts:`,
-        Object.fromEntries(
-            Array.from({ length: maxZ - minZ + 1 }, (_, i) => {
-                const z = minZ + i;
-                return [`z${z}`, tilesInBbox(bbox, z).length];
-            }),
-        ),
-    );
-
     for (let z = minZ; z <= maxZ; z++) {
-        if (opts?.signal?.aborted) break;
         const tiles = tilesInBbox(bbox, z);
         if (tiles.length === 0) continue;
         if (tiles.length > MAX_TILES_PER_ZOOM) {
@@ -224,9 +234,49 @@ export async function preloadTilesForPlayArea(opts?: {
             skipped.push(z);
             continue;
         }
+        plan.push({ z, tiles });
         covered.push(z);
         tilesAttempted += tiles.length;
+    }
+    console.info(
+        `[tilePreload] bbox ${bbox.map((v) => v.toFixed(3)).join(",")} — planning ${tilesAttempted} tiles across ${plan.length} zoom levels:`,
+        Object.fromEntries(plan.map((p) => [`z${p.z}`, p.tiles.length])),
+    );
+
+    // Switch to the per-tile phase before the loop kicks off so the
+    // UI can flip the bar on immediately, even if z11 takes a beat to
+    // schedule its first request.
+    preloadMapProgress.set({
+        tilesDone: 0,
+        tilesTotal: tilesAttempted,
+        currentZoom: plan[0]?.z ?? minZ,
+        bytesFetched,
+        phase: "tiles",
+    });
+
+    let tilesSucceeded = 0;
+    let tilesCompleted = 0;
+    // Throttle the atom writes: at 32-way concurrency on a fast
+    // connection we'd otherwise dispatch a few thousand React renders
+    // a second for no visible benefit. Flush every N tiles and at
+    // every zoom-level boundary so the count never feels stale.
+    const PROGRESS_FLUSH_EVERY = 10;
+    let unflushedSinceLastWrite = 0;
+    const flushProgress = (currentZoom: number) => {
+        preloadMapProgress.set({
+            tilesDone: tilesCompleted,
+            tilesTotal: tilesAttempted,
+            currentZoom,
+            bytesFetched,
+            phase: "tiles",
+        });
+        unflushedSinceLastWrite = 0;
+    };
+
+    for (const { z, tiles } of plan) {
+        if (opts?.signal?.aborted) break;
         let next = 0;
+        flushProgress(z);
         const work = async () => {
             while (next < tiles.length) {
                 if (opts?.signal?.aborted) return;
@@ -241,12 +291,26 @@ export async function preloadTilesForPlayArea(opts?: {
                        silently swallowed. The map's own on-demand
                        fetch path still covers misses. */
                 }
+                tilesCompleted++;
+                unflushedSinceLastWrite++;
+                if (unflushedSinceLastWrite >= PROGRESS_FLUSH_EVERY) {
+                    flushProgress(z);
+                }
             }
         };
         await Promise.all(
             Array.from({ length: CONCURRENCY }, () => work()),
         );
+        // Force a flush at every zoom boundary so the count + zoom
+        // label both land together — even when this level finished
+        // mid-throttle-window.
+        flushProgress(z);
     }
+
+    // Clear progress so the panel flips back to the "Downloaded" card
+    // on the next render. The caller writes preloadBucketBytes /
+    // preloadBucketTimestamps as part of the same return path.
+    preloadMapProgress.set(null);
 
     return {
         tilesAttempted,
