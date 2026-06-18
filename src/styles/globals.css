@@ -23,6 +23,87 @@ div.leaflet-control-attribution.leaflet-control {
     z-index: 751;
 }
 
+/* ────────────────────── Press feedback (v337) ────────────────────── *
+ *
+ * Mobile browsers give minimal feedback when you tap a button — iOS
+ * shows a faint gray overlay, Android shows nothing. This block adds a
+ * consistent scale + opacity dip on `:active` to every interactive
+ * element so it's obvious you actually pressed the thing.
+ *
+ * Cadence matches the rest of the app (~200ms transitions). Press-DOWN
+ * is intentionally a touch faster (110ms) than release-UP (180ms) — the
+ * snap-down feels responsive, the snap-back feels soft. Both ease-out.
+ *
+ * Lives in `@layer components` (low specificity in Tailwind's hierarchy)
+ * so any component that already has its own `active:scale-95` /
+ * `active:bg-primary/80` etc. utility classes still wins via specificity.
+ * This is the BASELINE for the long tail of buttons that have nothing.
+ *
+ * Coverage: <button>, [role="button"], plus the common Radix-emitted
+ * interactive roles (menuitem, option, tab, switch, checkbox, radio).
+ * Excluded: :disabled, [aria-disabled="true"], and the opt-out attribute
+ * [data-no-press] for elements where transform would break layout
+ * (drag handles, dragging inside maps, sticky overlays whose centre is
+ * load-bearing).
+ *
+ * iOS Safari's grey tap-highlight overlay is also disabled — it would
+ * stack on top of our effect and look muddy on dark backgrounds.
+ *
+ * `touch-action: manipulation` removes the legacy 300 ms double-tap-to-
+ * zoom delay (long gone on modern iOS but still applies on some older
+ * Android WebViews). Keeps the press feel instant.
+ */
+@layer components {
+    /* Cheap no-state styles: tap-highlight kill + zero-delay touch.
+     * These don't need to beat Tailwind utility specificity. */
+    button,
+    [role="button"],
+    [role="menuitem"],
+    [role="option"],
+    [role="tab"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"] {
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    /* Base transition. The `:not()` chain is also a specificity bump —
+     * (0,3,1) beats Tailwind's `.transition-colors` (0,1,0), so this
+     * rule wins for the components that have that class declared. That
+     * matters: without it, those buttons get the colour transition but
+     * SNAP the transform/opacity. Same chain is mirrored on the :active
+     * rule below so the cascade behaviour is consistent on both sides. */
+    button:not(:disabled):not([aria-disabled="true"]):not([data-no-press]),
+    [role="button"]:not([aria-disabled="true"]):not([data-no-press]),
+    [role="menuitem"]:not([aria-disabled="true"]):not([data-no-press]),
+    [role="option"]:not([aria-disabled="true"]):not([data-no-press]),
+    [role="tab"]:not([aria-disabled="true"]):not([data-no-press]),
+    [role="switch"]:not([aria-disabled="true"]):not([data-no-press]),
+    [role="checkbox"]:not([aria-disabled="true"]):not([data-no-press]),
+    [role="radio"]:not([aria-disabled="true"]):not([data-no-press]) {
+        transition-property: transform, opacity, background-color,
+            border-color, color;
+        transition-duration: 180ms;
+        transition-timing-function: cubic-bezier(0.2, 0, 0, 1); /* ease-out */
+    }
+
+    button:active:not(:disabled):not([aria-disabled="true"]):not([data-no-press]),
+    [role="button"]:active:not([aria-disabled="true"]):not([data-no-press]),
+    [role="menuitem"]:active:not([aria-disabled="true"]):not([data-no-press]),
+    [role="option"]:active:not([aria-disabled="true"]):not([data-no-press]),
+    [role="tab"]:active:not([aria-disabled="true"]):not([data-no-press]),
+    [role="switch"]:active:not([aria-disabled="true"]):not([data-no-press]),
+    [role="checkbox"]:active:not([aria-disabled="true"]):not([data-no-press]),
+    [role="radio"]:active:not([aria-disabled="true"]):not([data-no-press]) {
+        transform: scale(0.97);
+        opacity: 0.85;
+        /* Snap DOWN faster than the release-UP — feels responsive
+         * while keeping the rebound soft. */
+        transition-duration: 110ms;
+    }
+}
+
 /* On mobile, the bottom-nav (fixed, ~64-72px tall, z-1040) sits at the
  * very bottom of the viewport. The Leaflet attribution control normally
  * sits at the bottom of the map container. Even though attribution is
