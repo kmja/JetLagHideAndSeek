@@ -414,6 +414,62 @@ export function Map({ className }: MapProps) {
             );
         }
     }, [tilesTimedOut]);
+
+    // Basemap-health watchdog (v321). The `tilesTimedOut` self-heal
+    // above is driven by `useMapTilesReady`, whose reveal LATCHES the
+    // moment MapLibre goes idle — and MapLibre goes idle even when the
+    // Protomaps PMTiles archive aborts its fetch WITHOUT emitting an
+    // `error` event (the silent NS_BINDING_ABORTED case the comment
+    // above describes). On a cold load the boundary polygon satisfies
+    // `dataReady` and `onLoad` + `onIdle` fire, so the gate reveals a
+    // BLANK canvas and clears its 15 s timeout — meaning `tilesTimedOut`
+    // never trips and the demo-bucket fallback never runs. Result: only
+    // the red boundary outline draws over bare background, forever
+    // (the Houston cold-load report).
+    //
+    // This watchdog is deliberately INDEPENDENT of the reveal latch. It
+    // listens for a single real Protomaps tile actually loading; if none
+    // arrives within the grace window we flip to the proxied demo
+    // bucket. `recordPmtilesError` is idempotent — it no-ops once we're
+    // already on the fallback, and a healthy load cancels the timer
+    // before it ever fires.
+    useEffect(() => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        // Only meaningful when the basemap is Protomaps — a
+        // Thunderforest raster style has no "protomaps" source, so the
+        // watchdog would false-positive on every load.
+        const usingThunderforest =
+            ($tileKey === "transport" || $tileKey === "neighbourhood") &&
+            Boolean($tfKey);
+        if (usingThunderforest) return;
+
+        let healthy = false;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const onSourceData = (e: any) => {
+            // A `sourcedata` event carrying an actual tile for the
+            // protomaps source means the archive responded and at least
+            // one tile decoded — the basemap is alive. Metadata-only
+            // events (no `e.tile`) don't count: the archive header can
+            // load and the tile range-requests still abort.
+            if (e?.sourceId === "protomaps" && e?.tile) healthy = true;
+        };
+        map.on("sourcedata", onSourceData);
+        const t = window.setTimeout(() => {
+            if (!healthy) {
+                recordPmtilesError(
+                    "protomaps basemap produced no tiles within grace window (likely aborted archive fetch)",
+                );
+            }
+        }, 10_000);
+        return () => {
+            map.off("sourcedata", onSourceData);
+            window.clearTimeout(t);
+        };
+        // Re-arm once the map finishes loading and on any style/url
+        // swap (e.g. after we flip to the fallback bucket).
+    }, [mapLoaded, $pmtilesUrl, $tileKey, $tfKey]);
+
     useEffect(() => {
         return () => {
             mapLibreContext.set(null);
