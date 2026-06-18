@@ -773,6 +773,9 @@ async function handleRequest(
         if (url.pathname.startsWith("/tiles/")) {
             return handleTiles(request, env, cors);
         }
+        if (url.pathname === "/admin/store-tile-pack") {
+            return handleAdminStoreTilePack(request, env, cors);
+        }
         if (url.pathname === "/api/photon/forward") {
             return handlePhoton(request, env, ctx, cors, "forward");
         }
@@ -3620,6 +3623,127 @@ async function handleAdminDiscover(
  * and the client (src/lib/protomapsStyle.ts) silently falls back to
  * Protomaps' public demo bucket — see PROTOMAPS_PMTILES_URL there.
  */
+
+/* ──────────────────────── City tile packs ──────────────────────── *
+ *
+ * v336. The map-preload bucket used to warm the basemap by issuing one
+ * PMTiles byte-range request per tile in the play-area bbox — thousands
+ * of round-trips (Trondheim alone planned 6,621 tiles at z13). Even at
+ * 32-way concurrency that's a slow, chatty preload.
+ *
+ * A "city pack" replaces that with ONE download: a small self-contained
+ * PMTiles archive (`pmtiles extract` of the master over the city bbox,
+ * z0..15) that the client fetches whole, holds in memory, and serves
+ * tiles from with zero per-tile network. The live map reads pack-first
+ * with master-fallback via a custom MapLibre protocol (see
+ * src/lib/tilePack.ts), so panning outside the pack still works.
+ *
+ * Storage: packs live in the SAME `env.TILES` bucket as the master,
+ * keyed `tile-packs/v1/<osmId>.pmtiles`, and are SERVED by the existing
+ * `/tiles/<key>` route (range support + immutable caching, no new serve
+ * code). Only the WRITE path is new — this admin upload endpoint, hit
+ * by the laptop prewarmer after it runs `pmtiles extract`.
+ *
+ * Key namespace `v1/` lets us bust every pack at once if the master
+ * basemap is re-rendered (tile contents change) — bump to v2 and the
+ * client's pack URL changes, old packs become orphans.
+ */
+
+/** R2 key for a city tile pack, keyed on the play area's OSM relation
+ *  id. Kept in one function so the laptop uploader and the client URL
+ *  builder (src/lib/tilePack.ts tilePackKey) stay byte-identical. */
+function tilePackKey(osmId: string | number): string {
+    return `tile-packs/v1/${osmId}.pmtiles`;
+}
+
+/**
+ * Admin endpoint: store a city tile pack. The laptop prewarmer POSTs
+ * the raw .pmtiles bytes with `?osmId=<id>`; we stream them into
+ * `env.TILES` under `tilePackKey(osmId)` with immutable cache headers
+ * (matching the master tile serving). The existing `/tiles/<key>`
+ * route serves them straight back out.
+ *
+ * Bounded by MAX_STORE_BYTES (60 MB) — a city pack should be a few to
+ * a few tens of MB; anything bigger means the bbox was too large
+ * (country-scale) and the laptop should have skipped it.
+ */
+async function handleAdminStoreTilePack(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "POST" },
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    const url = new URL(request.url);
+    const osmId = url.searchParams.get("osmId");
+    if (!osmId || !/^\d+$/.test(osmId)) {
+        return jsonResponse(
+            { error: "missing or non-numeric osmId param" },
+            400,
+            cors,
+        );
+    }
+    if (!request.body) {
+        return jsonResponse({ error: "missing body" }, 400, cors);
+    }
+    const declaredLen = parseInt(
+        request.headers.get("Content-Length") ?? "",
+        10,
+    );
+    if (Number.isFinite(declaredLen) && declaredLen > MAX_STORE_BYTES) {
+        return jsonResponse(
+            {
+                status: "skipped-too-large",
+                sizeBytes: declaredLen,
+                limit: MAX_STORE_BYTES,
+            },
+            200,
+            cors,
+        );
+    }
+    const key = tilePackKey(osmId);
+    try {
+        await env.TILES.put(key, request.body, {
+            httpMetadata: {
+                contentType: "application/octet-stream",
+                // Immutable: a pack for a given osmId + pack-version is
+                // byte-stable. Matches the master tile serving so the
+                // client's plain GET is browser-cached forever (instant
+                // reload). When the master basemap changes we bump the
+                // v1/ namespace, not this header.
+                cacheControl: "public, max-age=31536000, immutable",
+            },
+            customMetadata: {
+                storedAt: String(Date.now()),
+                osmId: String(osmId),
+                prewarmed: "true",
+                kind: "tile-pack",
+            },
+        });
+    } catch (e) {
+        console.warn(`[tile-pack] R2 put failed for ${key}:`, e);
+        return jsonResponse({ error: "r2 put failed" }, 500, cors);
+    }
+    return jsonResponse(
+        {
+            status: "stored",
+            key,
+            osmId,
+            ...(Number.isFinite(declaredLen)
+                ? { sizeBytes: declaredLen }
+                : {}),
+        },
+        200,
+        cors,
+    );
+}
 
 /* ────────────────────── Photon geocoding proxy ─────────────────────── *
  *
