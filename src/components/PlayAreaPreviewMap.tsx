@@ -99,6 +99,19 @@ export function PlayAreaPreviewMap({
         GeoJSON.Polygon | GeoJSON.MultiPolygon | null
     >(() => (osmId ? polygonCache.get(osmId) ?? null : null));
 
+    // v319: was this exact area already previewed earlier this session?
+    // A module-cache hit at first mount means the boundary geometry is in
+    // memory and the basemap tiles are HTTP-cached — so a fresh MapLibre
+    // instance (the wizard preview and the lobby preview are separate GL
+    // canvases) will repaint in well under a second. Skip the veil
+    // entirely in that case so we don't flash a misleading "loading"
+    // spinner over content the user already saw load. Captured once at
+    // mount via a ref — it must NOT change when `value` swaps to a
+    // different (uncached) area within the same mounted instance.
+    const cacheHitAtMount = useRef(
+        osmType === "R" && osmId ? polygonCache.has(osmId) : false,
+    );
+
     useEffect(() => {
         if (osmType !== "R" || !osmId) {
             setRealPolygon(null);
@@ -249,6 +262,7 @@ export function PlayAreaPreviewMap({
     const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
         dataReady: !boundaryExpected || polygon !== null,
         resetKey: polygon,
+        initialRevealed: cacheHitAtMount.current,
     });
 
     // Same self-heal as the main map: if the basemap tiles never settle

@@ -37,13 +37,27 @@ export function useMapTilesReady(opts: {
     resetKey?: unknown;
     /** Force-reveal after this long even if never idle. Default 12 s. */
     revealTimeoutMs?: number;
+    /**
+     * Start already revealed — no veil at all. For the case where the
+     * caller knows the map's data is in cache (e.g. a play-area boundary
+     * previewed earlier this session, with HTTP-cached basemap tiles):
+     * a fresh MapLibre instance would otherwise re-run the full
+     * load → idle wait and flash a misleading spinner over content that
+     * paints in well under a second. Latched like `revealed`.
+     */
+    initialRevealed?: boolean;
 }) {
-    const { dataReady, resetKey, revealTimeoutMs = 12_000 } = opts;
+    const {
+        dataReady,
+        resetKey,
+        revealTimeoutMs = 12_000,
+        initialRevealed = false,
+    } = opts;
 
     const [styleLoaded, setStyleLoaded] = useState(false);
     const [idle, setIdle] = useState(false);
     const [timedOut, setTimedOut] = useState(false);
-    const [revealed, setRevealed] = useState(false);
+    const [revealed, setRevealed] = useState(initialRevealed);
 
     // New data → wait for the next settle (unless we've already
     // committed to revealed — we never re-veil a map that's been shown).
