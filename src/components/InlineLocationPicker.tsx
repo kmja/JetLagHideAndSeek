@@ -2,7 +2,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
 import { circle as turfCircle } from "@turf/turf";
-import { Circle as CircleIcon, LocateFixed, LocateOff } from "lucide-react";
+import type maplibregl from "maplibre-gl";
+import { Circle as CircleIcon, LocateOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
     Layer,
@@ -13,18 +14,19 @@ import Map, {
     Source,
 } from "react-map-gl/maplibre";
 
-import { Button } from "@/components/ui/button";
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import {
-    baseTileLayer,
     lastKnownPosition,
     mapGeoLocation,
     questionFinishedMapData,
-    thunderforestApiKey,
 } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
-import { getTileLayerConfig } from "@/lib/mapTiles";
+import {
+    pmtilesUrl,
+    protomapsMapLibreStyle,
+} from "@/lib/protomapsStyle";
 import { type ImpactMode, useQuestionImpact } from "@/lib/questionImpact";
+import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 import { MapTilesVeil } from "./MapTilesVeil";
@@ -93,11 +95,12 @@ export function InlineLocationPicker({
     const mapRef = useRef<MapRef | null>(null);
     const $maskData = useStore(questionFinishedMapData);
     const $playArea = useStore(mapGeoLocation);
-    const $baseTileLayer = useStore(baseTileLayer);
-    const $thunderforestApiKey = useStore(thunderforestApiKey);
     const $satellite = useStore(satelliteView);
-
-    const tile = getTileLayerConfig($baseTileLayer, $thunderforestApiKey);
+    // v317: switched from raster tiles via `baseTileLayer` to the
+    // Protomaps vector flavor + `resolvedTheme` so this picker
+    // follows the same light/dark setting the rest of the maps do.
+    const $pmtilesUrl = useStore(pmtilesUrl);
+    const $theme = useStore(resolvedTheme);
 
     // Question-impact overlay (v239). Only computed when the caller
     // opts in (matching/measuring/tentacles configure dialogs).
@@ -271,6 +274,25 @@ export function InlineLocationPicker({
         onChange(e.lngLat.lat, e.lngLat.lng);
     };
 
+    // v317: register the matching-impact pattern tiles (= for the
+    // same-as region, ≠ for the different region) on map load.
+    // Earlier this was a green/red colour wash, which read as a
+    // success/fail diff rather than "two equally valid regions
+    // with different consequences". Neutral grey backgrounds
+    // carry the equals / not-equals glyph in a contrasting tone.
+    const registerImpactPatterns = (map: maplibregl.Map) => {
+        if (!map.hasImage("match-yes-pattern")) {
+            map.addImage("match-yes-pattern", makePatternImage("="), {
+                pixelRatio: 2,
+            });
+        }
+        if (!map.hasImage("match-no-pattern")) {
+            map.addImage("match-no-pattern", makePatternImage("≠"), {
+                pixelRatio: 2,
+            });
+        }
+    };
+
     // Reveal gate (v260): hold a veil until tiles paint AND any
     // reference / impact markers this preview is meant to show are in.
     // A reference point is a prop (sync); the impact candidates resolve
@@ -295,32 +317,11 @@ export function InlineLocationPicker({
     // down and re-creates every Source/Layer — including the
     // radius circle, which is what the hider saw as a once-a-
     // second flicker on the hiding-zone preview.
-    const tileUrls = useMemo(
-        () => rasterTilesFromTileConfig(tile),
-        [tile.url, tile.subdomains],
-    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const mapStyle = useMemo(
-        () => ({
-            version: 8 as const,
-            sources: {
-                base: {
-                    type: "raster" as const,
-                    tiles: tileUrls,
-                    tileSize: 256,
-                    attribution: tile.attribution,
-                    maxzoom: tile.maxZoom ?? 19,
-                    minzoom: tile.minZoom ?? 0,
-                },
-            },
-            layers: [
-                {
-                    id: "base-tiles",
-                    type: "raster" as const,
-                    source: "base",
-                },
-            ],
-        }),
-        [tileUrls, tile.attribution, tile.maxZoom, tile.minZoom],
+        () =>
+            protomapsMapLibreStyle($theme === "dark" ? "dark" : "light"),
+        [$pmtilesUrl, $theme],
     );
 
     return (
@@ -341,7 +342,10 @@ export function InlineLocationPicker({
                     style={{ width: "100%", height: "100%" }}
                     attributionControl={false}
                     onClick={handleClick}
-                    onLoad={onLoad}
+                    onLoad={(e) => {
+                        onLoad();
+                        registerImpactPatterns(e.target);
+                    }}
                     onIdle={onIdle}
                     mapStyle={mapStyle}
                 >
@@ -402,10 +406,18 @@ export function InlineLocationPicker({
                             <Layer
                                 id="impact-no-fill"
                                 type="fill"
-                                paint={{
-                                    "fill-color": "hsl(0, 75%, 50%)",
-                                    "fill-opacity": 0.22,
-                                }}
+                                paint={
+                                    impactMode === "matching"
+                                        ? {
+                                              "fill-pattern":
+                                                  "match-no-pattern",
+                                              "fill-opacity": 0.7,
+                                          }
+                                        : {
+                                              "fill-color": "hsl(0, 75%, 50%)",
+                                              "fill-opacity": 0.22,
+                                          }
+                                }
                             />
                         </Source>
                     )}
@@ -418,18 +430,29 @@ export function InlineLocationPicker({
                             <Layer
                                 id="impact-yes-fill"
                                 type="fill"
-                                paint={{
-                                    "fill-color": "hsl(140, 65%, 48%)",
-                                    "fill-opacity": 0.3,
-                                }}
+                                paint={
+                                    impactMode === "matching"
+                                        ? {
+                                              "fill-pattern":
+                                                  "match-yes-pattern",
+                                              "fill-opacity": 0.85,
+                                          }
+                                        : {
+                                              "fill-color": "hsl(140, 65%, 48%)",
+                                              "fill-opacity": 0.3,
+                                          }
+                                }
                             />
                             <Layer
                                 id="impact-yes-line"
                                 type="line"
                                 paint={{
-                                    "line-color": "hsl(140, 65%, 32%)",
+                                    "line-color":
+                                        impactMode === "matching"
+                                            ? "hsl(220, 8%, 60%)"
+                                            : "hsl(140, 65%, 32%)",
                                     "line-width": 1.5,
-                                    "line-opacity": 0.85,
+                                    "line-opacity": 0.7,
                                 }}
                             />
                         </Source>
@@ -570,11 +593,11 @@ export function InlineLocationPicker({
                                 <Marker
                                     longitude={referencePoint.lng}
                                     latitude={referencePoint.lat}
-                                    anchor="center"
+                                    anchor="bottom"
                                 >
                                     <div
                                         className="jl-ref-marker"
-                                        style={{ width: 18, height: 18 }}
+                                        style={{ width: 22, height: 28 }}
                                         dangerouslySetInnerHTML={{
                                             __html: REF_SVG,
                                         }}
@@ -599,78 +622,19 @@ export function InlineLocationPicker({
                 </Map>
                 <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
             </div>
-            <div className="flex items-center justify-between gap-2 text-xs">
-                <div
-                    className={cn(
-                        "flex items-center gap-1.5 min-w-0",
-                        gpsState === "denied"
-                            ? "text-muted-foreground italic"
-                            : "text-muted-foreground",
-                    )}
-                >
-                    {gpsState === "denied" ? (
-                        <>
-                            <LocateOff className="w-3.5 h-3.5 shrink-0" />
-                            <span>
-                                {coordsAreSet
-                                    ? "Drag the pin to adjust, or retry GPS"
-                                    : "GPS unavailable — tap the map to drop a pin"}
-                            </span>
-                        </>
-                    ) : gpsState === "granted" ? (
-                        <>
-                            <LocateFixed className="w-3.5 h-3.5 shrink-0 text-primary" />
-                            <span className="tabular-nums">
-                                {safeLat.toFixed(5)}, {safeLng.toFixed(5)}
-                            </span>
-                        </>
-                    ) : (
-                        <>
-                            <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin" />
-                            <span>Trying GPS…</span>
-                        </>
-                    )}
+            {/* v317: dropped the coords + Use GPS row that used to sit
+                here. The picker's lockToGps mode (configure-dialog
+                path) already auto-grabs the fix on mount; the raw
+                lat/lng readout was noise and the "Use GPS" button
+                was redundant with that. */}
+            {gpsState === "denied" && !coordsAreSet && (
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground italic">
+                    <LocateOff className="w-3 h-3 shrink-0" />
+                    <span>
+                        GPS unavailable — tap the map to drop a pin.
+                    </span>
                 </div>
-                {gpsState !== "unknown" && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        className="gap-1.5 shrink-0"
-                        onClick={() => {
-                            if (
-                                typeof navigator === "undefined" ||
-                                !navigator.geolocation
-                            ) {
-                                setGpsState("denied");
-                                return;
-                            }
-                            navigator.geolocation.getCurrentPosition(
-                                (pos) => {
-                                    onChange(
-                                        pos.coords.latitude,
-                                        pos.coords.longitude,
-                                    );
-                                    lastKnownPosition.set({
-                                        lat: pos.coords.latitude,
-                                        lng: pos.coords.longitude,
-                                    });
-                                    setGpsState("granted");
-                                },
-                                () => setGpsState("denied"),
-                                {
-                                    enableHighAccuracy: true,
-                                    timeout: 8000,
-                                    maximumAge: 0,
-                                },
-                            );
-                        }}
-                    >
-                        <LocateFixed className="w-3.5 h-3.5" />
-                        {gpsState === "denied" ? "Retry GPS" : "Use GPS"}
-                    </Button>
-                )}
-            </div>
+            )}
             {radiusMeters !== undefined && (
                 <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                     <CircleIcon className="w-3 h-3 text-primary" />
@@ -682,22 +646,6 @@ export function InlineLocationPicker({
             )}
         </div>
     );
-}
-
-/** The TileLayerConfig used by Leaflet expands `{s}` to a subdomain
- *  via Leaflet's TileLayer; MapLibre takes an explicit array. Build
- *  that array here from the subdomains list. */
-function rasterTilesFromTileConfig(tile: {
-    url: string;
-    subdomains?: string | string[];
-}): string[] {
-    const subs = tile.subdomains
-        ? Array.isArray(tile.subdomains)
-            ? tile.subdomains
-            : tile.subdomains.split("")
-        : [""];
-    if (!tile.url.includes("{s}")) return [tile.url];
-    return subs.map((s) => tile.url.replace("{s}", s));
 }
 
 /** Bigger radii deserve a wider zoom so the whole circle fits. */
@@ -732,11 +680,52 @@ const PIN_SVG = `
 </svg>
 `.trim();
 
+// v317: the reference marker matches the MapPin icon used in the
+// "Your nearest reference" header pill — concentric-circles target
+// glyph used to leave the seeker comparing two visually different
+// markers for the same concept. Drop-shaped pin in brand red.
 const REF_SVG = `
-<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="9" cy="9" r="7" fill="white" stroke="hsl(2, 70%, 54%)" stroke-width="2.5"/>
-  <circle cx="9" cy="9" r="3" fill="hsl(2, 70%, 54%)"/>
+<svg width="22" height="28" viewBox="0 0 22 28" xmlns="http://www.w3.org/2000/svg">
+  <path d="M11 0C4.92 0 0 4.92 0 11c0 8.25 11 17 11 17s11-8.75 11-17C22 4.92 17.08 0 11 0z" fill="hsl(2, 70%, 54%)" stroke="white" stroke-width="2"/>
+  <circle cx="11" cy="11" r="4" fill="white"/>
 </svg>
 `.trim();
+
+/**
+ * v317: build a small canvas tile carrying the equality or
+ * inequality glyph on a neutral grey backdrop. MapLibre's
+ * `addImage` accepts ImageData with width/height/data; the
+ * pixelRatio:2 we pass at the call-site keeps the glyph crisp on
+ * high-DPI screens. Two shades of grey distinguish the regions
+ * without leaning on green/red success/fail semantics.
+ */
+function makePatternImage(symbol: "=" | "≠"): maplibregl.StyleImageInterface {
+    const size = 28;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return {
+            width: size,
+            height: size,
+            data: new Uint8ClampedArray(size * size * 4),
+        };
+    }
+    // Backdrop colour shades the two regions differently so the
+    // border between "same" and "different" reads at a glance even
+    // before the glyph is parsed. Same → lighter, different →
+    // darker, both neutral.
+    ctx.fillStyle =
+        symbol === "=" ? "rgba(148, 163, 184, 0.55)" : "rgba(71, 85, 105, 0.6)";
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle =
+        symbol === "=" ? "rgba(15, 23, 42, 0.85)" : "rgba(241, 245, 249, 0.9)";
+    ctx.font = "bold 18px ui-sans-serif, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(symbol, size / 2, size / 2 + 1);
+    return ctx.getImageData(0, 0, size, size);
+}
 
 export default InlineLocationPicker;

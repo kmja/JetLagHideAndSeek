@@ -227,6 +227,27 @@ div.leaflet-control-attribution.leaflet-control {
     border-top-color: hsl(var(--primary) / 0.6);
 }
 
+/* v317: MapLibre popup variant of the reference tooltip. The picker
+ * migrated to MapLibre but the CSS still targeted .leaflet-tooltip,
+ * so the "nearest reference" label rendered with default MapLibre
+ * styling (white-on-white in light mode) and was unreadable. */
+.maplibregl-popup.jl-ref-tooltip .maplibregl-popup-content {
+    background: hsl(var(--background) / 0.95);
+    color: hsl(var(--foreground));
+    border: 1.5px solid hsl(var(--primary) / 0.6);
+    border-radius: 0.25rem;
+    padding: 2px 8px;
+    font-family: "Inter Tight", system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(4px);
+}
+.maplibregl-popup.jl-ref-tooltip .maplibregl-popup-tip {
+    border-top-color: hsl(var(--primary) / 0.6) !important;
+    border-bottom-color: hsl(var(--primary) / 0.6) !important;
+}
+
 /* Hider's "you are here" marker on the /h route */
 .jl-hider-marker-wrap {
     background: transparent !important;
