@@ -773,6 +773,12 @@ async function handleRequest(
         if (url.pathname.startsWith("/tiles/")) {
             return handleTiles(request, env, cors);
         }
+        if (url.pathname === "/api/photon/forward") {
+            return handlePhoton(request, env, ctx, cors, "forward");
+        }
+        if (url.pathname === "/api/photon/reverse") {
+            return handlePhoton(request, env, ctx, cors, "reverse");
+        }
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
         }
@@ -3607,6 +3613,151 @@ async function handleAdminDiscover(
  * and the client (src/lib/protomapsStyle.ts) silently falls back to
  * Protomaps' public demo bucket — see PROTOMAPS_PMTILES_URL there.
  */
+
+/* ────────────────────── Photon geocoding proxy ─────────────────────── *
+ *
+ * v333. The client (src/maps/api/geocode.ts) used to hit
+ * photon.komoot.io directly for every search box submission, every
+ * map-tap reverse lookup, and every play-area picker reverse
+ * candidate. That's a free public service, but it's the only
+ * external API not gated by our R2 cache — so it was the one
+ * remaining unbounded-rate cold path. Two routes here proxy it:
+ *
+ *   GET /api/photon/forward?lang=en&q=stockholm
+ *       → upstream `https://photon.komoot.io/api/?lang=en&q=stockholm`
+ *   GET /api/photon/reverse?lat=59.3&lon=18.0&lang=en
+ *       → upstream `https://photon.komoot.io/reverse?lat=59.3&lon=18.0&lang=en`
+ *
+ * Same edge-cache + R2 + upstream cascade as `/api/interpreter`,
+ * but simpler — Photon responses are kilobytes, not megabytes, so
+ * we just buffer-and-store rather than streaming through gzip.
+ * Canonical key is SHA-256 over `<kind>|<sorted-params>`; same kind
+ * + same params from any client land on the same R2 entry.
+ *
+ * 30-day TTL (geocoding data rarely changes meaningfully). Empty
+ * Photon responses are cached too — the worst case is "Photon
+ * couldn't resolve this string" stays cached for 30 days, but that
+ * answer is stable for any practical input.
+ */
+async function handlePhoton(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+    kind: "forward" | "reverse",
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "GET" },
+        });
+    }
+    const url = new URL(request.url);
+    const params = url.searchParams;
+
+    // Canonical key: sort params for byte-stable hashing across
+    // clients that emit them in different orders.
+    const collected: Array<[string, string]> = [];
+    params.forEach((v, k) => collected.push([k, v]));
+    collected.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const canonical = collected.map(([k, v]) => `${k}=${v}`).join("&");
+    const hash = await r2KeyForQuery(`${kind}|${canonical}`);
+    const r2Key = `photon/v1/${kind}/${hash}`;
+
+    // Edge cache (Cache API). Synthetic key over a fixed host so
+    // the cache lookup is stable regardless of the worker's public
+    // URL. Same trick the /api/interpreter handler uses.
+    const cacheUrl = `https://jlhs-photon-cache/${kind}/${hash}`;
+    const edgeCache = (caches as unknown as { default: Cache }).default;
+    const cacheReq = new Request(cacheUrl);
+    const edgeHit = await edgeCache.match(cacheReq);
+    if (edgeHit) {
+        return appendCacheStatus(edgeHit, cors, "EDGE_HIT");
+    }
+
+    // R2.
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+    let r2Obj: R2ObjectBody | null = null;
+    try {
+        r2Obj = await env.CACHE.get(r2Key);
+    } catch (e) {
+        console.warn(`[photon] R2 get failed for ${r2Key}:`, e);
+    }
+    if (r2Obj) {
+        const cachedAt = parseInt(
+            r2Obj.customMetadata?.cachedAt ?? "0",
+            10,
+        );
+        if (cachedAt && Date.now() - cachedAt < ttlMs) {
+            const body = await readR2Text(r2Obj);
+            const resp = new Response(body, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "application/json",
+                    "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                    "X-Cache": "R2_HIT",
+                },
+            });
+            ctx.waitUntil(edgeCache.put(cacheReq, resp.clone()));
+            return resp;
+        }
+    }
+
+    // Upstream — go straight to Photon. No mirror chain because
+    // Photon doesn't have public-mirror equivalents; if it's down,
+    // every client falls back to graceful nulls via geocode.ts's
+    // existing `.catch(() => null)` paths.
+    const upstreamUrl =
+        kind === "forward"
+            ? `https://photon.komoot.io/api/?${params.toString()}`
+            : `https://photon.komoot.io/reverse?${params.toString()}`;
+    let upstreamResp: Response;
+    try {
+        upstreamResp = await fetch(upstreamUrl, {
+            headers: { Accept: "application/json" },
+        });
+    } catch (e) {
+        console.warn(`[photon] upstream fetch failed for ${upstreamUrl}:`, e);
+        return new Response("Upstream Photon unreachable", {
+            status: 502,
+            headers: cors,
+        });
+    }
+    if (!upstreamResp.ok) {
+        // Forward Photon's error status (e.g. 4xx for malformed
+        // params, 5xx for outages) so the client can decide what to
+        // do. Don't cache errors — only successes go into R2.
+        return new Response(await upstreamResp.text(), {
+            status: upstreamResp.status,
+            headers: { ...cors, "Content-Type": "application/json" },
+        });
+    }
+    const bodyText = await upstreamResp.text();
+
+    // Store in R2 + edge cache. Both are best-effort via waitUntil
+    // so a slow R2 write doesn't delay the response.
+    ctx.waitUntil(
+        compressAndStoreAtKey(env, r2Key, bodyText, {
+            kind: "photon",
+        }).catch((e) =>
+            console.warn(`[photon] R2 put failed for ${r2Key}:`, e),
+        ),
+    );
+    const resp = new Response(bodyText, {
+        status: 200,
+        headers: {
+            ...corsHeadersAsObject(cors),
+            "Content-Type": "application/json",
+            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+            "X-Cache": "MISS",
+        },
+    });
+    ctx.waitUntil(edgeCache.put(cacheReq, resp.clone()));
+    return resp;
+}
+
 async function handleTiles(
     request: Request,
     env: Env,

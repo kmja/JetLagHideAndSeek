@@ -90,6 +90,24 @@ export const OVERPASS_API_QUATERNARY = readOverride(
     "jlhs:overpassApiQuaternary",
     DEFAULT_OVERPASS_API_QUATERNARY,
 );
+/** Photon forward-search endpoint, proxied through our worker so
+ *  responses land in R2 (search-box submissions are the single most
+ *  repeated upstream-touching call). Override via
+ *  localStorage[`overpass-api-photon-forward`] for local dev when the
+ *  worker isn't reachable. Mirrors the override pattern that
+ *  OVERPASS_API uses. */
+export const PHOTON_FORWARD_API = readOverride(
+    "jlhs:photonForwardApi",
+    `${JLHS_WORKER_BASE}/api/photon/forward`,
+);
+/** Photon reverse-geocode endpoint, same proxy + override pattern. */
+export const PHOTON_REVERSE_API = readOverride(
+    "jlhs:photonReverseApi",
+    `${JLHS_WORKER_BASE}/api/photon/reverse`,
+);
+/** Legacy direct-to-Photon URL. Retained as a last-resort fallback
+ *  for callers we haven't migrated; new code should use
+ *  `PHOTON_FORWARD_API` / `PHOTON_REVERSE_API` instead. */
 export const GEOCODER_API = "https://photon.komoot.io/api/";
 export const PASTEBIN_API_POST_URL =
     "https://cors-anywhere.com/https://pastebin.com/api/api_post.php";

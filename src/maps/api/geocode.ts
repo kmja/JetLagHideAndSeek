@@ -2,7 +2,7 @@ import memoize from "lodash/memoize";
 import uniq from "lodash/uniq";
 import uniqBy from "lodash/uniqBy";
 
-import { GEOCODER_API } from "./constants";
+import { PHOTON_FORWARD_API, PHOTON_REVERSE_API } from "./constants";
 import { convertToLatLong } from "./geo";
 import type { OpenStreetMap } from "./types";
 
@@ -205,7 +205,9 @@ export const geocode = async (
 ) => {
     const features = (
         await (
-            await fetch(`${GEOCODER_API}?lang=${language}&q=${address}`)
+            await fetch(
+                `${PHOTON_FORWARD_API}?lang=${language}&q=${encodeURIComponent(address)}`,
+            )
         ).json()
     ).features as OpenStreetMap[];
 
@@ -282,10 +284,7 @@ export const reverseGeocode = (
     const hit = REVERSE_CACHE.get(key);
     if (hit) return hit;
 
-    const url = `${GEOCODER_API.replace(
-        /\/api\/?$/,
-        "",
-    )}/reverse?lat=${lat}&lon=${lng}&lang=en`;
+    const url = `${PHOTON_REVERSE_API}?lat=${lat}&lon=${lng}&lang=en`;
     const promise = fetch(url, { headers: { Accept: "application/json" } })
         .then(async (resp) => {
             if (!resp.ok) return null;
@@ -333,10 +332,7 @@ export const reverseGeocodeCity = (
     if (typeof lat !== "number" || typeof lng !== "number") {
         return Promise.resolve(null);
     }
-    const url = `${GEOCODER_API.replace(
-        /\/api\/?$/,
-        "",
-    )}/reverse?lat=${lat}&lon=${lng}&lang=en`;
+    const url = `${PHOTON_REVERSE_API}?lat=${lat}&lon=${lng}&lang=en`;
     return fetch(url, { headers: { Accept: "application/json" } })
         .then(async (resp) => {
             if (!resp.ok) return null;
