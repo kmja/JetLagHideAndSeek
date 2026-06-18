@@ -25,6 +25,7 @@ import {
     OVERPASS_API_QUATERNARY,
     OVERPASS_API_TERTIARY,
 } from "./constants";
+import { familyForFilter, findCachedPlaces } from "./playAreaPrefetch";
 import {
     extractBoundaryRelationId,
     fetchBoundaryAsOverpassShape,
@@ -582,6 +583,45 @@ export const findPlacesInZone = async (
      *  toast a dozen times before the seeker can even ask anything. */
     silent: boolean = false,
 ) => {
+    // v331 fast path. If the caller's filter matches one of the
+    // standard reference families AND the requested shape (nwr +
+    // out center, no alternatives) is what the cache holds, serve
+    // from the per-family in-memory cache (warm) or trigger the
+    // combined-families bbox prewarm (cold) instead of building a
+    // poly:-shaped Overpass query that misses the R2 cache.
+    //
+    // Two wins: (a) per-question matching/measuring answers become
+    // instant once the play-area prewarm has landed, since the cron
+    // already populates the shard-scope bbox entry; (b) references
+    // outside the play-area polygon are included — per the rulebook
+    // a hospital just outside the boundary still counts as "nearest
+    // hospital", and the prefetch bbox is padded for exactly this.
+    //
+    // Dynamic filters (letter-zone admin-level regex, `[highspeed=yes]`,
+    // anything not in `STANDARD_REFERENCE_FAMILIES`) return null from
+    // `familyForFilter` and fall through to the original implementation.
+    if (
+        searchType === "nwr" &&
+        outType === "center" &&
+        alternatives.length === 0
+    ) {
+        const family = familyForFilter(filter);
+        if (family) {
+            try {
+                return await findCachedPlaces(family);
+            } catch (e) {
+                // Fast-path failure (cache miss + upstream down,
+                // typically) — fall through to the poly: path so the
+                // caller still gets a real answer attempt rather than
+                // an empty result that looks like "no features".
+                console.warn(
+                    `[findPlacesInZone] fast path for family ${family} threw, falling through:`,
+                    e,
+                );
+            }
+        }
+    }
+
     let query = "";
     const $polyGeoJSON = polyGeoJSON.get();
     if ($polyGeoJSON) {

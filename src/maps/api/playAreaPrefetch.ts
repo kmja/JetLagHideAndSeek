@@ -50,6 +50,11 @@ export interface PrefetchedFeature {
     lat: number;
     lng: number;
     name: string;
+    /** Full OSM tag dict from the source element. Preserved so the
+     *  Overpass-shape adapter (`findCachedPlaces`) can hand callers
+     *  the same `{ tags: {...} }` they'd read off a raw response —
+     *  matching/measuring's `uniqBy(... f.tags.iata)` relies on this. */
+    tags?: Record<string, string>;
 }
 
 const cache = new Map<string, PrefetchedFeature[]>();
@@ -209,14 +214,18 @@ function buildPaddedBboxFilter(padKm: number): string | null {
 }
 
 /** Turn a raw Overpass element into a cache feature, or null when it
- *  lacks usable coordinates or a name. */
+ *  lacks usable coordinates or a name. Preserves the original tag
+ *  dict so the `findCachedPlaces` Overpass-shape adapter can hand
+ *  callers the same `.tags.iata` / `.tags.name` they'd read off a
+ *  raw response. */
 function featureFromElement(el: any): PrefetchedFeature | null {
     const lat = el.lat ?? el.center?.lat;
     const lon = el.lon ?? el.center?.lon;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    const name = el.tags?.["name:en"] ?? el.tags?.["name"] ?? el.tags?.["iata"];
+    const tags = (el.tags ?? {}) as Record<string, string>;
+    const name = tags["name:en"] ?? tags["name"] ?? tags["iata"];
     if (!name) return null;
-    return { lat, lng: lon, name };
+    return { lat, lng: lon, name, tags };
 }
 
 /** Whether an Overpass element belongs to a given family, by tags.
@@ -428,6 +437,81 @@ export function getCachedCategory(
     family: FamilyKey,
 ): PrefetchedFeature[] | null {
     return cache.get(cacheKey(family)) ?? null;
+}
+
+/* ───────── Filter → family lookup (for findPlacesInZone fast path) ──── *
+ *
+ * `findPlacesInZone` (overpass.ts) historically issued a `poly:` query
+ * that constrained results to the play-area polygon. The cache uses a
+ * `[bbox:...]` query unioning every standard family. Different shape,
+ * different R2 key — every per-question matching/measuring call cold-
+ * missed the worker cache.
+ *
+ * Two problems with that, both fixed by the fast path below:
+ *
+ *   1. Cache miss → upstream Overpass on every question answer.
+ *   2. CORRECTNESS — references outside the play area were dropped.
+ *      The user's rule is "reference points don't need to be inside
+ *      the play area unless otherwise stated", so a hospital just
+ *      outside the polygon should count for "nearest hospital".
+ *
+ * Both go away if we recognise when a `findPlacesInZone` filter
+ * matches a family in `STANDARD_REFERENCE_FAMILIES` and serve the
+ * cached features (which sit on the padded bbox, not the polygon).
+ */
+
+/** Normalise an Overpass `[k=v][...]` filter string for byte-stable
+ *  comparison. Strips whitespace and the optional `"` around tag keys
+ *  and values, so `["amenity"="hospital"]` and `[amenity=hospital]`
+ *  hash to the same key. */
+function normaliseFilter(s: string): string {
+    return s.replace(/[\s"]/g, "");
+}
+
+/** Pre-computed inverse of `filterForFamily`, keyed on the normalised
+ *  filter form. Built once at module load. Used by `familyForFilter`. */
+const familyByNormalisedFilter: Map<string, FamilyKey> = new Map(
+    STANDARD_REFERENCE_FAMILIES.map((f) => [
+        normaliseFilter(filterForFamily(f)),
+        f,
+    ]),
+);
+
+/** Inverse of `filterForFamily`: given a raw filter string the way
+ *  callers pass it into `findPlacesInZone` (`["amenity"="hospital"]`
+ *  or `[amenity=hospital]` — both forms are accepted), return the
+ *  matching `FamilyKey`, or null if it doesn't correspond to any
+ *  standard family. Dynamic filters (regex on `name:en`, `admin_level`
+ *  variants, the `[highspeed=yes]` HSR shape) intentionally return null
+ *  so the caller falls through to the original poly/area path. */
+export function familyForFilter(filter: string): FamilyKey | null {
+    return familyByNormalisedFilter.get(normaliseFilter(filter)) ?? null;
+}
+
+/** Adapter that returns prefetched references in the Overpass response
+ *  shape `findPlacesInZone` callers consume: `{ elements: [...] }` of
+ *  `{ type, lat, lon, tags }` records. Reads the in-memory cache when
+ *  warm; awaits `prefetchCategory` (which goes through the same R2-
+ *  backed combined-bbox query the cron prewarms) when cold. Returns
+ *  the SAME shape on empty (no features matched) so callers can read
+ *  `data.elements.length === 0` without branching.
+ *
+ *  The `outType` parameter mirrors the Overpass setting. We only
+ *  support `center` here because the cron prewarm uses `out center`,
+ *  so we can't serve `geom` requests from cache. `geom`-needing
+ *  callers (letter-zone admin polygons, the `[highspeed=yes]` shape)
+ *  don't pass a standard family anyway — they fall through. */
+export async function findCachedPlaces(
+    family: FamilyKey,
+): Promise<{ elements: Array<Record<string, unknown>> }> {
+    const features = await prefetchCategory(family);
+    const elements = features.map((f) => ({
+        type: "node",
+        lat: f.lat,
+        lon: f.lng,
+        tags: f.tags ?? { name: f.name },
+    }));
+    return { elements };
 }
 
 /** Resolve the nearest prefetched feature to a point. Returns
