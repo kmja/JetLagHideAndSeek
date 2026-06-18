@@ -1,4 +1,4 @@
-import { startMeter, stopMeter } from "@/lib/bandwidthMeter";
+import { recordBytes, startMeter, stopMeter } from "@/lib/bandwidthMeter";
 import { gameStartPosition } from "@/lib/gameSetup";
 import {
     gameSize,
@@ -9,11 +9,16 @@ import {
     preloadBucketInFlight,
     preloadBucketTimestamps,
     preloadChoices,
+    preloadMapProgress,
     preloadTransitProgress,
     type TransitPreloadStep,
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
 import type { JourneyStop } from "@/lib/journey/types";
+import {
+    clearTilePack,
+    loadTilePackForPlayArea,
+} from "@/lib/tilePack";
 import { preloadTilesForPlayArea } from "@/lib/tilePreload";
 import { getOverpassData } from "@/maps/api/overpass";
 import {
@@ -102,35 +107,71 @@ export function runPreloadForBucket(
 function runMapPreload(): void {
     // Idempotent — a second call while one is in flight just returns.
     if (preloadBucketInFlight.get().map) return;
-    console.debug("[preload] warming basemap tiles for play-area bbox");
+    console.debug("[preload] warming basemap for play-area");
     preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), map: true });
     // Wire-byte accounting — CountingSource inside tilePreload calls
-    // `recordBytes` on every range response. Re-runs of an already-warm
-    // play area will mostly hit the browser HTTP cache, so the
-    // recorded total drops to ~the directory size — honest.
+    // `recordBytes` on every range response; the pack path records the
+    // single download total. Re-runs of an already-warm play area
+    // mostly hit the browser HTTP cache, so the recorded total drops —
+    // honest either way.
     startMeter("map");
-    void preloadTilesForPlayArea()
-        .then((result) => {
-            console.debug("[preload] map tiles done", result);
-            preloadBucketBytes.set({
-                ...preloadBucketBytes.get(),
-                map: stopMeter("map"),
+
+    const finishBucket = () => {
+        preloadBucketBytes.set({
+            ...preloadBucketBytes.get(),
+            map: stopMeter("map"),
+        });
+        preloadBucketTimestamps.set({
+            ...preloadBucketTimestamps.get(),
+            map: Date.now(),
+        });
+    };
+
+    void (async () => {
+        try {
+            // v336: prefer a city tile pack. One download (a few to a
+            // few tens of MB) instead of thousands of per-tile range
+            // requests. loadTilePackForPlayArea returns "absent" /
+            // "skipped" / "error" when there's no usable pack, and we
+            // fall back to the original range-walk preload.
+            const pack = await loadTilePackForPlayArea({
+                onProgress: (loaded, total) => {
+                    preloadMapProgress.set({
+                        phase: "pack",
+                        bytesFetched: loaded,
+                        packTotalBytes: total,
+                        tilesDone: 0,
+                        tilesTotal: 0,
+                        currentZoom: 0,
+                    });
+                },
             });
-            preloadBucketTimestamps.set({
-                ...preloadBucketTimestamps.get(),
-                map: Date.now(),
-            });
-        })
-        .catch((e) => {
-            console.warn("[preload] map tiles failed:", e);
+            if (pack.status === "loaded") {
+                if (pack.bytes) recordBytes(pack.bytes);
+                console.debug(
+                    `[preload] city pack active (osm ${pack.osmId}, ${pack.bytes} B)`,
+                );
+                preloadMapProgress.set(null);
+                finishBucket();
+                return;
+            }
+            // No pack for this area — clear any stale one and warm via
+            // the range walk exactly as before.
+            clearTilePack();
+            const result = await preloadTilesForPlayArea();
+            console.debug("[preload] map tiles done (range walk)", result);
+            finishBucket();
+        } catch (e) {
+            console.warn("[preload] map preload failed:", e);
             stopMeter("map");
-        })
-        .finally(() => {
+            preloadMapProgress.set(null);
+        } finally {
             preloadBucketInFlight.set({
                 ...preloadBucketInFlight.get(),
                 map: false,
             });
-        });
+        }
+    })();
 }
 
 function runReferencesPreload(): void {

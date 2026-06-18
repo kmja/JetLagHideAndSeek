@@ -365,6 +365,47 @@ function MapBucketProgress() {
         );
     }
 
+    // v336: city-pack download phase — a single-file download with a
+    // byte-based bar, distinct from the per-tile range walk.
+    if (progress.phase === "pack") {
+        const { bytesFetched, packTotalBytes } = progress;
+        const packPct =
+            packTotalBytes && packTotalBytes > 0
+                ? Math.min(100, (bytesFetched / packTotalBytes) * 100)
+                : 0;
+        return (
+            <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md space-y-1.5">
+                <div className="flex items-center gap-2">
+                    <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
+                    <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate">
+                        Downloading city map pack…
+                    </span>
+                </div>
+                <div className="h-1 w-full bg-background/60 rounded-full overflow-hidden">
+                    <div
+                        className="h-full bg-primary transition-[width] duration-200 ease-out"
+                        style={{
+                            width: packTotalBytes
+                                ? `${packPct.toFixed(1)}%`
+                                : "100%",
+                        }}
+                    />
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+                    <span>
+                        {packTotalBytes ? `${packPct.toFixed(0)}%` : "…"}
+                    </span>
+                    <span>
+                        {formatSize(bytesFetched / 1_000_000)}
+                        {packTotalBytes
+                            ? ` / ${formatSize(packTotalBytes / 1_000_000)}`
+                            : " downloaded"}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
     const { tilesDone, tilesTotal, currentZoom, bytesFetched } = progress;
     const pct =
         tilesTotal === 0 ? 0 : Math.min(100, (tilesDone / tilesTotal) * 100);

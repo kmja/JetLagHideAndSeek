@@ -280,12 +280,18 @@ export interface MapPreloadProgress {
     tilesTotal: number;
     /** Zoom level currently being walked. */
     currentZoom: number;
-    /** Wire bytes accumulated so far (from CountingSource). */
+    /** Wire bytes accumulated so far (from CountingSource, or the
+     *  pack download stream when phase === "pack"). */
     bytesFetched: number;
-    /** Where we are in the run; "header" is the PMTiles archive
-     *  directory read that happens before any tiles, "tiles" is the
-     *  main loop. */
-    phase: "header" | "tiles";
+    /** Where we are in the run. "header" = PMTiles directory read
+     *  before any tiles; "tiles" = the per-tile range walk; "pack" =
+     *  downloading a single city tile pack (v336), in which case
+     *  bytesFetched / packTotalBytes drive the bar instead of
+     *  tilesDone / tilesTotal. */
+    phase: "header" | "tiles" | "pack";
+    /** Total pack size in bytes (Content-Length) when phase === "pack".
+     *  Null when the server didn't send a length. */
+    packTotalBytes?: number | null;
 }
 export const preloadMapProgress = atom<MapPreloadProgress | null>(null);
 
