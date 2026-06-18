@@ -134,6 +134,16 @@ export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
         // MB total) and not in the per-tile critical path.
         glyphs:
             "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+        // v327: image sprites — provides the `generic_shield-{N}char`
+        // PNG icons the basemaps layer set references for highway
+        // shields. Without this MapLibre logs a 'styleimagemissing'
+        // warning on every missing icon (4 per panned region, every
+        // time the style rebuilds) and renders road numbers as plain
+        // text. Loaded from the same protomaps.github.io basemaps-
+        // assets bucket as glyphs, so a CORS-blocked environment
+        // would already have failed at glyphs first. Theme-keyed:
+        // the dark variant ships dark shields with light text.
+        sprite: `https://protomaps.github.io/basemaps-assets/sprites/v4/${theme === "dark" ? "dark" : "light"}`,
         sources: {
             [PROTOMAPS_SOURCE_ID]: {
                 type: "vector",

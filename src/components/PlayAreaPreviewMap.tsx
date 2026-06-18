@@ -11,7 +11,6 @@ import {
     handleMapLibreError,
     pmtilesUrl,
     protomapsMapLibreStyle,
-    recordPmtilesError,
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
@@ -265,14 +264,18 @@ export function PlayAreaPreviewMap({
         initialRevealed: cacheHitAtMount.current,
     });
 
-    // Same self-heal as the main map: if the basemap tiles never settle
-    // (aborted, not errored), flip to the proxied demo bucket so the
-    // preview shows a map rather than staying dark.
-    useEffect(() => {
-        if (timedOut) {
-            recordPmtilesError("preview basemap tiles never settled");
-        }
-    }, [timedOut]);
+    // v327: the wizard preview NO longer flips the global pmtilesUrl
+    // on a reveal timeout. The reveal gate's 12 s timer is a "should
+    // we keep the veil up" signal, not a "is the basemap broken"
+    // signal — one slow range request (Copenhagen test, v326 logs) is
+    // enough to trip it without anything actually being wrong, and
+    // flipping to the demo bucket made the load WORSE. The seeker
+    // Map's sourcedata-based watchdog (Map.tsx v321) is the canonical
+    // basemap-health check: it only fires when zero protomaps tiles
+    // arrive in the grace window, so genuinely-aborted archive fetches
+    // still self-heal once the seeker view mounts. `timedOut` is
+    // still consumed below to soften the veil copy from "Loading map"
+    // to "Map tiles are slow to load" while the user waits.
 
     if (!bbox) return null;
 
