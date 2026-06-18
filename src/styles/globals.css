@@ -187,18 +187,19 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
-/* ─────────── Map loader pulses (v294) ─────────────
- * `MapLoader.tsx` renders a static low-opacity tile grid plus a
- * second pass of brighter strokes whose `stroke-dasharray` carries
- * one short pulse per rect. This keyframe slides the dash offset
- * by the full cycle length so the pulse loops around the
- * perimeter, reading as a packet of faint light travelling along
- * the line.
+/* ─────────── Map loader pulses (v294, v323 comet) ─────────────
+ * `MapLoader.tsx` renders a static low-opacity tile grid plus three
+ * phase-locked dash layers per tile (head / body / wisp) which read
+ * as a single comet sliding around each tile's perimeter. This
+ * keyframe drives the dash offset for every layer; the cycle length
+ * (200) is shared so the layers maintain a constant phase offset
+ * after the first cycle — that fixed offset is what places the body
+ * and wisp BEHIND the head instead of next to it.
  *
- * Cycle length 200 = pulse 26 + gap 174 (matches the inline
- * `strokeDasharray` in MapLoader.tsx). Duration 5.5 s — kept slow
- * and paired with per-rect `animation-delay` so the pulses fall out
- * of phase and drift as a calm ambient shimmer rather than a flash.
+ * Cycle length 200 — matches every per-layer `strokeDasharray` sum
+ * in MapLoader.tsx (4+196, 16+184, 30+170). Duration 5.5 s is kept
+ * slow so the comets drift as a calm ambient shimmer; per-tile
+ * `animation-delay` jitter prevents all comets sharing a phase.
  */
 @keyframes jl-tile-pulse-travel {
     from {
