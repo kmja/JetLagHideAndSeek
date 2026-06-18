@@ -119,6 +119,29 @@ export function SeekerPage() {
     if (!gameStarted) {
         return (
             <div className="fixed inset-0 bg-jetlag overflow-hidden">
+                {/* v338: pre-mount the Map underneath the lobby so its
+                    PMTiles header read, style fetch, and (if the
+                    play area is set in the wizard) basemap tile
+                    fetches all finish during the time the player
+                    spends in the lobby. The lobby dialog uses a vaul
+                    drawer with its own full-screen overlay
+                    (z-[1050]+) and an opaque content panel, so the
+                    Map is hidden visually — only the network warmup
+                    runs.
+
+                    Caveat: the Map's MapLibre instance is re-created
+                    when this branch unmounts and the main branch
+                    mounts (component identity differs). The HTTP
+                    cache for tile range requests survives that
+                    transition though, which is where the bulk of
+                    perceived latency lives — so the second instance
+                    initialises against an already-warm cache and
+                    renders near-instantly. */}
+                <div className="absolute inset-0 pointer-events-none opacity-0">
+                    <MapErrorBoundary>
+                        <Map className="w-full h-full" />
+                    </MapErrorBoundary>
+                </div>
                 <Suspense fallback={null}>
                     <GameLobbyDialog />
                     <GameSetupDialog />

@@ -213,6 +213,58 @@ function buildPaddedBboxFilter(padKm: number): string | null {
     return `[bbox:${s},${w},${n},${e}]`;
 }
 
+/** Pad applied to the play-area extent when we fetch references. The
+ *  cache is guaranteed to hold every standard family within
+ *  `extent + REF_CACHE_PAD_KM` — but features beyond that are missing.
+ *  Callers who anchor "nearest X" on a SEEKER GPS that sits outside
+ *  this area must NOT trust the cache, since the nearest cached feature
+ *  is the nearest IN the cache, not globally nearest. See
+ *  `pointInsideCacheCoverage`. Matches the constant passed to
+ *  `buildPaddedBboxFilter` in `runBboxOverpassFetch`. */
+const REF_CACHE_PAD_KM = 50;
+
+/**
+ * Whether a (lat, lng) point sits inside the play-area cache's
+ * coverage area. The cache holds every standard reference family within
+ * the play area's Photon extent + REF_CACHE_PAD_KM; anything beyond is
+ * not in the cache.
+ *
+ * Anchors that need the truly-nearest reference (e.g.
+ * `NearestReferencePreview`, where the seeker's GPS is the anchor) use
+ * this to decide whether the cache result is trustworthy. Inside →
+ * trust the cache. Outside → bypass it and issue a GPS-anchored
+ * Overpass query, because a stale cached "nearest" (the only feature
+ * in the cache, which happens to be 300 km away) would be visibly
+ * wrong — the Umeå-game-from-Falun case from the bug report.
+ *
+ * Returns false when no play area / extent is set; the caller treats
+ * that the same as out-of-area.
+ */
+export function pointInsideCacheCoverage(
+    lat: number,
+    lng: number,
+): boolean {
+    const loc = mapGeoLocation.get();
+    const extent = (loc?.properties as { extent?: number[] })?.extent;
+    if (!extent || extent.length !== 4) return false;
+    // Photon extent shape: [maxLat, minLng, minLat, maxLng].
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    if (![maxLat, minLng, minLat, maxLng].every((v) => Number.isFinite(v))) {
+        return false;
+    }
+    // Same pad arithmetic as buildPaddedBboxFilter — keep in lockstep.
+    const latPad = REF_CACHE_PAD_KM / 111;
+    const midLat = (minLat + maxLat) / 2;
+    const lngPad =
+        REF_CACHE_PAD_KM / (111 * Math.cos((midLat * Math.PI) / 180));
+    return (
+        lat >= minLat - latPad &&
+        lat <= maxLat + latPad &&
+        lng >= minLng - lngPad &&
+        lng <= maxLng + lngPad
+    );
+}
+
 /** Turn a raw Overpass element into a cache feature, or null when it
  *  lacks usable coordinates or a name. Preserves the original tag
  *  dict so the `findCachedPlaces` Overpass-shape adapter can hand
