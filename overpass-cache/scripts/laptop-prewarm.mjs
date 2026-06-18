@@ -14,7 +14,7 @@
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
- *     [--skip-transit] [--skip-hsr] \
+ *     [--skip-transit] [--skip-hsr] [--skip-photon] \
  *     [--delay-ms 2000]
  *
  * What it does:
@@ -29,16 +29,29 @@
  *                   worker would issue. Requires the city's `extent`
  *                   (derived locally from the boundary geometry when
  *                   the list doesn't carry one).
- *     3. Transit  — per-city BUS route overlay (v329). Subway + ferry
- *                   moved to the cron's per-country-shard prewarm;
- *                   bus is too dense to shard so it stays per-city,
- *                   and the laptop is its primary warmer (it can reduce
- *                   a 91 MB NYC body the Worker's 20 MB cap rejects).
+ *     3. Transit  — per-city BUS / TRAIN / TRAM colored route
+ *                   overlays. Subway + ferry moved to the cron's
+ *                   per-country-shard prewarm (v329); bus / train /
+ *                   tram stay per-city because their networks are
+ *                   too dense to shard reliably under the worker's
+ *                   20 MB reduce cap (NYC bus alone is ~91 MB raw;
+ *                   German DB train, Tokyo tram networks similar
+ *                   scale). The laptop is the PRIMARY warmer for
+ *                   these — Node on a workstation has the RAM to
+ *                   reduce a 100 MB body the worker rejects.
  *                   Keys off the city's `extent` (bbox query), so
- *                   toggling bus in that city is an instant R2 hit
- *                   instead of a 5-15 s Overpass round-trip.
+ *                   toggling any of these in that city is an instant
+ *                   R2 hit instead of a 5-15 s Overpass round-trip.
+ *     4. Photon   — forward search for the city's name + reverse
+ *                   geocode at the city's centroid, both hitting our
+ *                   /api/photon/{forward,reverse} proxy (v333). One
+ *                   call each warms the worker's R2 cache so that
+ *                   "search for Stockholm" and "reverse-lookup a
+ *                   point near Stockholm centre" are instant for
+ *                   every future user. Skipped if the search-box
+ *                   query for that exact city is already cached.
  *   Once, after the city loop:
- *     3. HSR      — one `area["ISO3166-1"=XX]; way[...highspeed=yes]`
+ *     5. HSR      — one `area["ISO3166-1"=XX]; way[...highspeed=yes]`
  *                   query per country in HSR_COUNTRIES. HSR is an
  *                   inter-city network, so it's keyed by country, not
  *                   city (v214).
@@ -88,6 +101,7 @@ const DO_REFS = !args["skip-references"];
 const DO_HSR = !args["skip-hsr"];
 const DO_DISCOVER = !args["skip-discover"];
 const DO_TRANSIT = !args["skip-transit"];
+const DO_PHOTON = !args["skip-photon"];
 
 const UA =
     "jlhs-laptop-prewarm/1.0 (https://github.com/kmja/jetlaghideandseek)";
@@ -242,17 +256,21 @@ function boundaryQuery(relationId) {
     return `[out:json][timeout:120];relation(${relationId});out geom;`;
 }
 
-// Per-city transit modes the laptop warms. v329: this is now BUS ONLY.
-// Subway + ferry moved to the cron's per-country-shard prewarm
-// (overpass-cache/src/index.ts Phase 6a) — they're sparse enough that
-// one shard-scope `out skel geom` fetch covers every city in the
-// country, sliced to the play-area bbox at request time. Bus is dense
-// (NYC ≈ 91 MB raw) and can't be shard-warmed, so it stays per-city —
-// and the laptop is the PRIMARY warmer for it, since this script (Node,
-// GBs of RAM) can reduce a 91 MB body that the Worker's 20 MB cap
-// rejects. The route value matches the `route=` selector the client
-// passes through.
-const TRANSIT_ROUTE_TYPES = ["bus"];
+// Per-city transit modes the laptop warms. v334: extended to include
+// train + tram, both new colored overlays the client toggles (and
+// which the cron does TRY to per-shard prewarm, but DE/JP/CN-scale
+// rail networks blow the 20 MB reduce cap there; this script is the
+// reliable fallback). Subway + ferry stay shard-only (cron-side) —
+// sparse modes warm cleanly per country and don't need laptop help.
+//
+// Why per-city for bus/train/tram: every one of these is dense enough
+// that a whole-country `out skel geom` overruns the worker's reduce
+// buffer. Per-city queries are much smaller (single metro's network)
+// and this Node script has GBs of RAM to handle the reduce step the
+// worker can't. The route value matches the `route=` selector the
+// client passes through; the cache key is the byte-identical bbox
+// query so the client's runtime lookup hits R2 directly.
+const TRANSIT_ROUTE_TYPES = ["bus", "train", "tram"];
 
 /**
  * Shrink a raw transit Overpass response before storing it, keeping
@@ -855,6 +873,71 @@ async function processCity(city) {
             await sleep(DELAY_MS);
         }
     }
+
+    // v334: per-city Photon warm-up. One forward search for the
+    // city's name + one reverse geocode at its centroid. Both hit
+    // OUR worker's /api/photon/{forward,reverse} proxy (NOT
+    // photon.komoot.io directly), so the response lands in R2 and
+    // every subsequent identical request is an instant cache hit.
+    // Cheap — Photon responses are kilobytes — and unblocks the
+    // single most-clicked play-area picker flows. Pacing is the same
+    // DELAY_MS as everything else so this can't trip Photon's own
+    // rate limit either.
+    if (DO_PHOTON) {
+        const lat = effectiveExtent
+            ? (effectiveExtent[0] + effectiveExtent[2]) / 2
+            : null;
+        const lng = effectiveExtent
+            ? (effectiveExtent[1] + effectiveExtent[3]) / 2
+            : null;
+        // Forward: warm the search-box "type the city name" path.
+        try {
+            const url = `${WORKER}/api/photon/forward?lang=en&q=${encodeURIComponent(city.name)}`;
+            const r = await fetchRetry(url, { method: "GET" }, "photon-fwd");
+            if (r.ok) {
+                const xc = r.headers.get("X-Cache") ?? "?";
+                console.log(`  ✓ photon-forward "${city.name}" (${xc})`);
+            } else {
+                console.warn(
+                    `  ✗ photon-forward "${city.name}" status ${r.status}`,
+                );
+            }
+        } catch (e) {
+            console.warn(`  ✗ photon-forward "${city.name}": ${e.message}`);
+        }
+        await sleep(DELAY_MS);
+        // Reverse: warm the "click a point on the map" path at the
+        // city centroid. Same 4-decimal rounding the client uses, so
+        // a click within ~10 m of centre lands on this cached entry.
+        if (lat !== null && lng !== null) {
+            try {
+                const lat4 = lat.toFixed(4);
+                const lng4 = lng.toFixed(4);
+                const url = `${WORKER}/api/photon/reverse?lat=${lat4}&lon=${lng4}&lang=en`;
+                const r = await fetchRetry(
+                    url,
+                    { method: "GET" },
+                    "photon-rev",
+                );
+                if (r.ok) {
+                    const xc = r.headers.get("X-Cache") ?? "?";
+                    console.log(
+                        `  ✓ photon-reverse ${lat4},${lng4} (${xc})`,
+                    );
+                } else {
+                    console.warn(
+                        `  ✗ photon-reverse ${lat4},${lng4} status ${r.status}`,
+                    );
+                }
+            } catch (e) {
+                console.warn(
+                    `  ✗ photon-reverse ${city.name}: ${e.message}`,
+                );
+            }
+            await sleep(DELAY_MS);
+        }
+    }
+
     // HSR is no longer per-city — see processHsrCountries(), run once
     // after the whole city loop.
 }
