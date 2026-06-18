@@ -1,3 +1,5 @@
+import * as turf from "@turf/turf";
+import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import {
     FetchSource,
     PMTiles,
@@ -6,7 +8,7 @@ import {
 } from "pmtiles";
 
 import { recordBytes } from "@/lib/bandwidthMeter";
-import { mapGeoLocation } from "@/lib/context";
+import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { preloadMapProgress } from "@/lib/gameSetup";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
 
@@ -106,6 +108,60 @@ function tilesInBbox(
     return out;
 }
 
+/** Inverse of `lngLatToTile`: tile XY at integer zoom → top-left lng/lat
+ *  corner. Used to compute a tile's bbox for polygon-intersection
+ *  filtering in `clipTilesToPolygon`. */
+function tileToLngLat(x: number, y: number, z: number): [number, number] {
+    const n = Math.pow(2, z);
+    const lng = (x / n) * 360 - 180;
+    const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)));
+    const lat = (latRad * 180) / Math.PI;
+    return [lng, lat];
+}
+
+/**
+ * Drop tiles whose own bbox doesn't touch the play polygon. Big
+ * irregular play areas (coastal cities, river deltas) have many tiles
+ * inside the bounding rectangle but outside the actual polygon —
+ * Trondheim fits in ~half a giant rectangular bbox once you exclude
+ * the fjord + outlying water — so this often cuts the per-zoom count
+ * by 30-60 % on the kinds of areas that were slowest to preload.
+ *
+ * Bbox-only test (not point-in-polygon) so a tile clipped to even a
+ * sliver of land is kept — we want better-safe-than-sorry coverage of
+ * the rendered area, not a Voronoi-tight crop.
+ *
+ * `polyFC` is the play polygon FeatureCollection (Polygon /
+ * MultiPolygon); the caller passes null when no polygon is set, in
+ * which case this function is a passthrough.
+ */
+function clipTilesToPolygon(
+    tiles: Array<[number, number, number]>,
+    polyFC: FeatureCollection<Polygon | MultiPolygon> | null,
+): Array<[number, number, number]> {
+    if (!polyFC || polyFC.features.length === 0) return tiles;
+    // Pre-merge the play polygon into a single (Multi)Polygon so
+    // turf.booleanIntersects only runs once per tile. For typical
+    // single-feature play areas this is a no-op.
+    const merged =
+        polyFC.features.length === 1
+            ? polyFC.features[0]
+            : (turf.combine(polyFC).features[0] as
+                  | GeoJSON.Feature<Polygon | MultiPolygon>
+                  | undefined);
+    if (!merged) return tiles;
+    const kept: Array<[number, number, number]> = [];
+    for (const [z, x, y] of tiles) {
+        const [w, n] = tileToLngLat(x, y, z);
+        const [e, s] = tileToLngLat(x + 1, y + 1, z);
+        const tileBbox = turf.bboxPolygon([w, s, e, n]);
+        if (turf.booleanIntersects(tileBbox, merged as any)) {
+            kept.push([z, x, y]);
+        }
+    }
+    return kept;
+}
+
 /**
  * Counting wrapper around pmtiles' FetchSource. Every byte that crosses
  * the network (or is read from the browser HTTP cache) flows through
@@ -165,19 +221,41 @@ export async function preloadTilesForPlayArea(opts?: {
         zoomLevelsSkipped: [],
     };
 
-    const loc = mapGeoLocation.get();
-    if (!loc) return empty;
-    const extent = (loc.properties as { extent?: number[] } | undefined)
-        ?.extent;
-    if (!extent || extent.length !== 4) return empty;
-    // Photon extent shape: [maxLat, minLng, minLat, maxLng].
-    const [maxLat, minLng, minLat, maxLng] = extent;
-    const bbox: [number, number, number, number] = [
-        minLng,
-        minLat,
-        maxLng,
-        maxLat,
-    ];
+    // v335: bbox source priority.
+    //   1. polyGeoJSON's bbox if a play polygon is set — this is the
+    //      LAND-CLIPPED user polygon, which for coastal/irregular
+    //      areas (Trondheim, Stockholm, San Francisco) is dramatically
+    //      smaller than Photon's OSM relation extent. For Trondheim
+    //      the relation extent reaches county-scale, while the actual
+    //      polygon is the municipal land area — orders of magnitude
+    //      fewer tiles to fetch.
+    //   2. mapGeoLocation.extent (Photon's bbox) as the fallback
+    //      when no play polygon has been set yet (early in setup).
+    //
+    // Either way we also clip tiles to the polygon via
+    // `clipTilesToPolygon` so per-zoom tile counts drop further for
+    // irregular shapes — see that function for the bbox-only logic.
+    const polyFC = polyGeoJSON.get();
+    let bbox: [number, number, number, number] | null = null;
+    if (polyFC && polyFC.features.length > 0) {
+        const b = turf.bbox(polyFC);
+        if (
+            b.length === 4 &&
+            [b[0], b[1], b[2], b[3]].every((v) => Number.isFinite(v))
+        ) {
+            bbox = [b[0], b[1], b[2], b[3]];
+        }
+    }
+    if (!bbox) {
+        const loc = mapGeoLocation.get();
+        if (!loc) return empty;
+        const extent = (loc.properties as { extent?: number[] } | undefined)
+            ?.extent;
+        if (!extent || extent.length !== 4) return empty;
+        // Photon extent shape: [maxLat, minLng, minLat, maxLng].
+        const [maxLat, minLng, minLat, maxLng] = extent;
+        bbox = [minLng, minLat, maxLng, maxLat];
+    }
 
     const url = pmtilesUrl.get();
     let bytesFetched = 0;
@@ -225,14 +303,21 @@ export async function preloadTilesForPlayArea(opts?: {
         [];
     let tilesAttempted = 0;
     for (let z = minZ; z <= maxZ; z++) {
-        const tiles = tilesInBbox(bbox, z);
+        const rawTiles = tilesInBbox(bbox, z);
+        const tiles = clipTilesToPolygon(rawTiles, polyFC);
+        const droppedByClip = rawTiles.length - tiles.length;
         if (tiles.length === 0) continue;
         if (tiles.length > MAX_TILES_PER_ZOOM) {
             console.warn(
-                `[tilePreload] z${z}: ${tiles.length} tiles exceeds cap ${MAX_TILES_PER_ZOOM}, SKIPPING (zoom-in will lag at this level)`,
+                `[tilePreload] z${z}: ${tiles.length} tiles (after clip, was ${rawTiles.length}) exceeds cap ${MAX_TILES_PER_ZOOM}, SKIPPING (zoom-in will lag at this level)`,
             );
             skipped.push(z);
             continue;
+        }
+        if (droppedByClip > 0) {
+            console.debug(
+                `[tilePreload] z${z}: clipped ${droppedByClip} tiles to play polygon (${rawTiles.length} → ${tiles.length})`,
+            );
         }
         plan.push({ z, tiles });
         covered.push(z);

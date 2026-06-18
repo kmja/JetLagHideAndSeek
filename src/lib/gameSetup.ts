@@ -290,6 +290,40 @@ export interface MapPreloadProgress {
 export const preloadMapProgress = atom<MapPreloadProgress | null>(null);
 
 /**
+ * Per-step detail for the Transit bucket's preload progress (v335).
+ * The transit bucket fans out into multiple parallel fetches (HSR
+ * country, then each route mode + the journey-arrivals warm-up); a
+ * generic "Downloading…" left users staring at a spinner with no
+ * idea what was happening. This atom names the active step so the
+ * panel can surface "HSR network…", "Subway routes…", "Arrivals…"
+ * — same shape as the map bucket's per-zoom phase string.
+ */
+export type TransitPreloadStep =
+    | "hsr"
+    | "subway"
+    | "bus"
+    | "ferry"
+    | "train"
+    | "tram"
+    | "arrivals";
+
+export interface TransitPreloadProgress {
+    /** Which steps are CURRENTLY in flight. Multiple are possible —
+     *  the modes fire in parallel — so the UI can join them with "+"
+     *  rather than picking one to show. */
+    active: TransitPreloadStep[];
+    /** Steps that finished (success or error). Drives the
+     *  N-of-total summary in the panel. */
+    done: TransitPreloadStep[];
+    /** Total steps this run will attempt; used by the UI as the
+     *  denominator for "2 / 6". Set once at the start of the run. */
+    total: number;
+}
+export const preloadTransitProgress = atom<TransitPreloadProgress | null>(
+    null,
+);
+
+/**
  * Reset every map display overlay to its default OFF state. Called on
  * new game / new round / settings change so a fresh game never inherits
  * a stale overlay (e.g. a transit layer left on from a previous game).

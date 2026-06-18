@@ -9,6 +9,8 @@ import {
     preloadBucketInFlight,
     preloadBucketTimestamps,
     preloadChoices,
+    preloadTransitProgress,
+    type TransitPreloadStep,
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
 import type { JourneyStop } from "@/lib/journey/types";
@@ -174,27 +176,55 @@ function runTransitPreload(): void {
     // bandwidthMeter.ts. Cache hits don't count, so a repeat preload
     // of an already-warmed play area honestly reports 0 bytes.
     startMeter("transit");
+
+    // v335: per-step progress detail. We track each route mode + the
+    // HSR query as a distinct step so the panel can show "Subway,
+    // Bus…" instead of just "Downloading…". v334 fix: train + tram
+    // are full first-class overlays now, so they belong in the
+    // preload list too.
+    const hsrQuery = size !== "large" ? buildHsrQuery() : null;
+    // `modes` is typed for fetchTransitRoutesFeatures (route-mode
+    // subset); `steps` is the broader TransitPreloadStep set the
+    // UI tracks (route modes + hsr + arrivals).
+    const modes = ["subway", "bus", "ferry", "train", "tram"] as const;
+    const steps: TransitPreloadStep[] = hsrQuery
+        ? ["hsr", ...modes]
+        : [...modes];
+    preloadTransitProgress.set({ active: [...steps], done: [], total: steps.length });
+    const markDone = (step: TransitPreloadStep) => {
+        const curr = preloadTransitProgress.get();
+        if (!curr) return;
+        preloadTransitProgress.set({
+            ...curr,
+            active: curr.active.filter((s) => s !== step),
+            done: [...curr.done, step],
+        });
+    };
+
     const transitPromises: Promise<unknown>[] = [];
 
-    if (size !== "large") {
-        const hsrQuery = buildHsrQuery();
-        if (hsrQuery) {
-            transitPromises.push(
-                getOverpassData(
-                    hsrQuery,
-                    undefined,
-                    CacheType.ZONE_CACHE,
-                    undefined,
-                    false,
-                    undefined,
-                    true,
-                ).catch(() => {}),
-            );
-        }
+    if (hsrQuery) {
+        transitPromises.push(
+            getOverpassData(
+                hsrQuery,
+                undefined,
+                CacheType.ZONE_CACHE,
+                undefined,
+                false,
+                undefined,
+                true,
+            )
+                .catch(() => {})
+                .finally(() => markDone("hsr")),
+        );
     }
 
-    for (const mode of ["subway", "bus", "ferry"] as const) {
-        transitPromises.push(fetchTransitRoutesFeatures(mode).catch(() => {}));
+    for (const mode of modes) {
+        transitPromises.push(
+            fetchTransitRoutesFeatures(mode)
+                .catch(() => {})
+                .finally(() => markDone(mode)),
+        );
     }
 
     void Promise.allSettled(transitPromises).then(() => {
@@ -210,6 +240,7 @@ function runTransitPreload(): void {
             ...preloadBucketInFlight.get(),
             transit: false,
         });
+        preloadTransitProgress.set(null);
     });
 
     // Transit arrival times — the Travel Times overlay. We can't fire
@@ -273,6 +304,19 @@ function scheduleTransitPreload(): void {
         console.debug(
             `[preload] warming transit arrivals for ${stations.length} stations`,
         );
+        // Surface "Arrivals…" in the bucket UI for the duration of
+        // this last warm-up pass. The transit bucket's main fetch
+        // promise has already settled by this point, but the
+        // top-level inFlight stays true while arrivals are
+        // outstanding — see preloadDuringHidingPeriod's wait wiring.
+        const curr = preloadTransitProgress.get();
+        if (curr) {
+            preloadTransitProgress.set({
+                ...curr,
+                active: [...curr.active, "arrivals"],
+                total: curr.total + 1,
+            });
+        }
         provider
             .fetchArrivals(anchor, stations)
             .catch(() => {
@@ -281,6 +325,14 @@ function scheduleTransitPreload(): void {
             })
             .finally(() => {
                 transitScheduled = false;
+                const c = preloadTransitProgress.get();
+                if (c) {
+                    preloadTransitProgress.set({
+                        ...c,
+                        active: c.active.filter((s) => s !== "arrivals"),
+                        done: [...c.done, "arrivals"],
+                    });
+                }
             });
     };
 

@@ -29,6 +29,8 @@ import {
     preloadBucketTimestamps,
     preloadChoices,
     preloadMapProgress,
+    preloadTransitProgress,
+    type TransitPreloadStep,
     setupCompleted,
     type PreloadChoices,
 } from "@/lib/gameSetup";
@@ -316,6 +318,7 @@ function BucketStatus({
         // transit are fast enough that the spinner is sufficient
         // signal; they keep the original look.
         if (bucketId === "map") return <MapBucketProgress />;
+        if (bucketId === "transit") return <TransitBucketProgress />;
         return (
             <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
@@ -388,6 +391,70 @@ function MapBucketProgress() {
             <div className="flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
                 <span>{pct.toFixed(0)}%</span>
                 <span>{formatSize(bytesFetched / 1_000_000)} downloaded</span>
+            </div>
+        </div>
+    );
+}
+
+/** Display labels for each transit preload step, used in the
+ *  "Subway, Bus + 2 more…" running summary. Keep short — the
+ *  panel row is space-constrained on phones. */
+const TRANSIT_STEP_LABELS: Record<TransitPreloadStep, string> = {
+    hsr: "High-speed rail",
+    subway: "Subway",
+    bus: "Bus",
+    ferry: "Ferry",
+    train: "Train",
+    tram: "Tram",
+    arrivals: "Arrivals",
+};
+
+function TransitBucketProgress() {
+    const progress = useStore(preloadTransitProgress);
+
+    // Atom hasn't been initialised yet — the parallel modes were
+    // dispatched but the first finally() hasn't run. Show the same
+    // generic "Downloading…" so the panel isn't blank.
+    if (!progress) {
+        return (
+            <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
+                <span className="text-xs text-muted-foreground">
+                    Downloading…
+                </span>
+            </div>
+        );
+    }
+
+    const { active, done, total } = progress;
+    // Compose the summary line. With 5 modes + HSR running in
+    // parallel the active list can be long; cap the named-in-line
+    // count at 3 and roll the rest into a "+ N more…" tail.
+    const NAMED = 3;
+    const named = active.slice(0, NAMED).map((s) => TRANSIT_STEP_LABELS[s]);
+    const extra = active.length - named.length;
+    const summary =
+        active.length === 0
+            ? "Finishing…"
+            : `${named.join(", ")}${extra > 0 ? ` + ${extra} more` : ""}…`;
+    const pct = total === 0 ? 0 : Math.min(100, (done.length / total) * 100);
+
+    return (
+        <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md space-y-1.5">
+            <div className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-primary" />
+                <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate">
+                    {summary}
+                </span>
+                <span className="text-[10px] font-mono tabular-nums text-muted-foreground shrink-0">
+                    {done.length} / {total}
+                </span>
+            </div>
+            <div className="h-1 w-full bg-background/60 rounded-full overflow-hidden">
+                <div
+                    className="h-full bg-primary transition-[width] duration-200 ease-out"
+                    style={{ width: `${pct.toFixed(1)}%` }}
+                />
             </div>
         </div>
     );
