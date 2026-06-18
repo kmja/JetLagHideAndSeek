@@ -15,6 +15,7 @@
  *     [--max 200] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] \
+ *     [--tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
  *     [--delay-ms 2000]
  *
  * What it does:
@@ -50,6 +51,16 @@
  *                   point near Stockholm centre" are instant for
  *                   every future user. Skipped if the search-box
  *                   query for that exact city is already cached.
+ *     5. Tile pack — (OPT-IN, --tile-packs) `pmtiles extract` the
+ *                   master basemap over the city bbox into a small
+ *                   self-contained .pmtiles, upload to
+ *                   /admin/store-tile-pack. The client downloads it
+ *                   whole and serves city tiles from memory instead
+ *                   of thousands of per-tile range requests. Requires
+ *                   the pmtiles Go CLI (github.com/protomaps/
+ *                   go-pmtiles); skipped with guidance if absent.
+ *                   County-scale extents (deepest fitting zoom < 12)
+ *                   are skipped — too big for a one-shot pack.
  *   Once, after the city loop:
  *     5. HSR      — one `area["ISO3166-1"=XX]; way[...highspeed=yes]`
  *                   query per country in HSR_COUNTRIES. HSR is an
@@ -71,7 +82,11 @@
  * city list each run so newly-discovered cities get picked up.
  */
 
+import { execFileSync } from "node:child_process";
 import dns from "node:dns";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import process from "node:process";
 import { gzipSync } from "node:zlib";
 
@@ -102,6 +117,30 @@ const DO_HSR = !args["skip-hsr"];
 const DO_DISCOVER = !args["skip-discover"];
 const DO_TRANSIT = !args["skip-transit"];
 const DO_PHOTON = !args["skip-photon"];
+// Tile packs are OPT-IN (--tile-packs): they require the external
+// `pmtiles` Go binary (github.com/protomaps/go-pmtiles), which most
+// hosts won't have. The other phases need only Node.
+const DO_TILE_PACKS = !!args["tile-packs"];
+// Flipped off at startup if the pmtiles binary check fails, so the
+// per-city loop skips pack extraction cleanly instead of throwing.
+let tilePacksEnabled = DO_TILE_PACKS;
+const PMTILES_BIN = args["pmtiles-bin"] || "pmtiles";
+// Master archive to extract city packs FROM. Defaults to the current
+// self-hosted basemap; override with --master-pmtiles when the
+// basemap filename changes (it carries a build date).
+const MASTER_PMTILES_URL =
+    args["master-pmtiles"] ||
+    `${WORKER}/tiles/basemap-z15-20260614.pmtiles`;
+// Pack sizing. We extract z0..maxzoom where maxzoom is the deepest
+// level whose single-zoom tile count stays under this cap — so tight
+// city bboxes get full z15 detail while county-scale Photon extents
+// fall back to a coarser (but still one-download) z13/z12 pack.
+const TILE_PACK_MAX_TILES = 12000;
+const TILE_PACK_MAX_ZOOM = 15;
+const TILE_PACK_MIN_ZOOM = 0;
+// Matches MAX_STORE_BYTES on the worker — packs over this are rejected
+// server-side, so don't bother uploading them.
+const TILE_PACK_MAX_BYTES = 60 * 1024 * 1024;
 
 const UA =
     "jlhs-laptop-prewarm/1.0 (https://github.com/kmja/jetlaghideandseek)";
@@ -938,8 +977,193 @@ async function processCity(city) {
         }
     }
 
+    // v336: per-city tile pack. Heavy + needs the external pmtiles
+    // binary, so it's opt-in (--tile-packs) and runs last per city.
+    // Uses the resolved effectiveExtent (derived from boundary geometry
+    // when the city list didn't carry one), same as refs/transit.
+    if (tilePacksEnabled) {
+        await processTilePack(city, effectiveExtent);
+    }
+
     // HSR is no longer per-city — see processHsrCountries(), run once
     // after the whole city loop.
+}
+
+/* ───────────────────────── Tile packs (v336) ────────────────────────── *
+ *
+ * Extract a small self-contained PMTiles archive for one city from the
+ * master basemap (server-side range reads, so we don't download the
+ * whole 127 GB), and upload it to /admin/store-tile-pack. The client
+ * downloads it whole and serves city tiles from memory — replacing the
+ * map-preload bucket's thousands of per-tile range requests with one
+ * download.
+ *
+ * Requires the `pmtiles` Go CLI (github.com/protomaps/go-pmtiles).
+ * checkPmtilesBinary() verifies it once at startup.
+ */
+
+/** Web-Mercator tile X for a longitude at integer zoom. */
+function lonToTileX(lon, z) {
+    return Math.floor(((lon + 180) / 360) * 2 ** z);
+}
+/** Web-Mercator tile Y for a latitude at integer zoom. */
+function latToTileY(lat, z) {
+    const r = (lat * Math.PI) / 180;
+    return Math.floor(
+        ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z,
+    );
+}
+/** Tile count covering [minLon,minLat,maxLon,maxLat] at zoom z. */
+function tileCountForBbox([minLon, minLat, maxLon, maxLat], z) {
+    const x0 = lonToTileX(minLon, z);
+    const x1 = lonToTileX(maxLon, z);
+    const y0 = latToTileY(maxLat, z); // north → smaller y
+    const y1 = latToTileY(minLat, z);
+    return (Math.abs(x1 - x0) + 1) * (Math.abs(y1 - y0) + 1);
+}
+/** Deepest zoom whose single-zoom tile count fits the cap, or null if
+ *  even z12 is too big (county-scale extent — skip, the range walk +
+ *  master fallback handles it). */
+function chooseTilePackMaxZoom(bbox) {
+    for (let z = TILE_PACK_MAX_ZOOM; z >= 12; z--) {
+        if (tileCountForBbox(bbox, z) <= TILE_PACK_MAX_TILES) return z;
+    }
+    return null;
+}
+
+/** Verify the pmtiles CLI is callable. Returns true/false; logs install
+ *  guidance on failure. Called once at startup when --tile-packs is on. */
+function checkPmtilesBinary() {
+    try {
+        execFileSync(PMTILES_BIN, ["version"], { stdio: "pipe" });
+        return true;
+    } catch {
+        try {
+            // Older builds use --version instead of the `version` verb.
+            execFileSync(PMTILES_BIN, ["--version"], { stdio: "pipe" });
+            return true;
+        } catch {
+            console.error(
+                `[tile-packs] '${PMTILES_BIN}' not runnable. Install the pmtiles CLI:\n` +
+                    "  https://github.com/protomaps/go-pmtiles/releases\n" +
+                    "  (download the binary for your OS, put it on PATH, or pass --pmtiles-bin <path>)\n" +
+                    "Continuing with tile packs DISABLED for this run.",
+            );
+            return false;
+        }
+    }
+}
+
+async function processTilePack(city, effectiveExtent) {
+    if (!effectiveExtent || !city.relationId) {
+        return;
+    }
+    // Photon extent shape: [maxLat, minLng, minLat, maxLng].
+    const [maxLat, minLng, minLat, maxLng] = effectiveExtent;
+    const bbox = [minLng, minLat, maxLng, maxLat];
+    const maxZoom = chooseTilePackMaxZoom(bbox);
+    if (maxZoom === null) {
+        console.log(
+            `  ⤼ tile-pack ${city.name}: bbox too large (county-scale), skipping`,
+        );
+        return;
+    }
+
+    // Skip if already uploaded (HEAD on the public /tiles route).
+    const packUrl = `${WORKER}/tiles/tile-packs/v1/${city.relationId}.pmtiles`;
+    try {
+        const head = await fetch(packUrl, { method: "HEAD" });
+        if (head.ok) {
+            console.log(
+                `  ⤼ tile-pack ${city.name} already present — skipping`,
+            );
+            return;
+        }
+    } catch {
+        /* HEAD failed (network) — fall through and try to build it */
+    }
+
+    const tmp = path.join(
+        os.tmpdir(),
+        `jlhs-pack-${city.relationId}.pmtiles`,
+    );
+    const bboxArg = `${minLng},${minLat},${maxLng},${maxLat}`;
+    try {
+        // `pmtiles extract` reads the master over HTTP range requests
+        // (only the bbox tiles + directories, not the whole archive)
+        // and writes a self-contained pack.
+        execFileSync(
+            PMTILES_BIN,
+            [
+                "extract",
+                MASTER_PMTILES_URL,
+                tmp,
+                `--bbox=${bboxArg}`,
+                `--minzoom=${TILE_PACK_MIN_ZOOM}`,
+                `--maxzoom=${maxZoom}`,
+            ],
+            { stdio: "pipe" },
+        );
+    } catch (e) {
+        console.warn(
+            `  ✗ tile-pack ${city.name} extract failed: ${e.message?.split("\n")[0] ?? e}`,
+        );
+        safeUnlink(tmp);
+        return;
+    }
+
+    let size;
+    try {
+        size = fs.statSync(tmp).size;
+    } catch {
+        console.warn(`  ✗ tile-pack ${city.name}: extract produced no file`);
+        return;
+    }
+    if (size > TILE_PACK_MAX_BYTES) {
+        console.log(
+            `  ⤼ tile-pack ${city.name}: ${(size / 1e6).toFixed(1)} MB over cap, skipping`,
+        );
+        safeUnlink(tmp);
+        return;
+    }
+
+    try {
+        const buf = fs.readFileSync(tmp);
+        const resp = await fetchRetry(
+            `${WORKER}/admin/store-tile-pack?osmId=${city.relationId}`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/octet-stream",
+                    Authorization: `Bearer ${SECRET}`,
+                },
+                body: buf,
+            },
+            "store-tile-pack",
+        );
+        if (resp.ok) {
+            console.log(
+                `  ✓ tile-pack ${city.name} stored (z0-${maxZoom}, ${(size / 1e6).toFixed(1)} MB)`,
+            );
+        } else {
+            console.warn(
+                `  ✗ tile-pack ${city.name} upload status ${resp.status}`,
+            );
+        }
+    } catch (e) {
+        console.warn(`  ✗ tile-pack ${city.name} upload: ${e.message}`);
+    } finally {
+        safeUnlink(tmp);
+    }
+    await sleep(DELAY_MS);
+}
+
+function safeUnlink(p) {
+    try {
+        fs.unlinkSync(p);
+    } catch {
+        /* already gone */
+    }
 }
 
 /**
@@ -1142,6 +1366,15 @@ async function drainDiscovery() {
 
 async function main() {
     console.log(`=== laptop-prewarm against ${WORKER} ===`);
+
+    if (DO_TILE_PACKS) {
+        tilePacksEnabled = checkPmtilesBinary();
+        if (tilePacksEnabled) {
+            console.log(
+                `tile packs ENABLED (extracting from ${MASTER_PMTILES_URL})`,
+            );
+        }
+    }
 
     if (DO_DISCOVER) {
         try {
