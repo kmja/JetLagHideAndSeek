@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Flag, Footprints, Timer } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
@@ -12,7 +12,7 @@ import {
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
-import { roundFoundAt } from "@/lib/hiderRole";
+import { roundFoundAt, roundLog } from "@/lib/hiderRole";
 import { seekerMarkFound, seekerStartEndgame } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,7 @@ export function HiderTimer() {
     const $setupCompleted = useStore(setupCompleted);
     const $endgameStartedAt = useStore(endgameStartedAt);
     const $foundAt = useStore(roundFoundAt);
+    const $roundLog = useStore(roundLog);
 
     const handleTriggerEndgame = async () => {
         const ok = await appConfirm({
@@ -69,10 +70,27 @@ export function HiderTimer() {
         Boolean($endsAt && $setupCompleted),
     );
 
+    // v318: best previous hiding time across logged rounds, surfaced
+    // as a "Time to beat" reference once at least one round has been
+    // completed in this game.
+    const timeToBeatMs = useMemo(() => {
+        if ($roundLog.length === 0) return null;
+        return Math.max(...$roundLog.map((r) => r.hidingMs));
+    }, [$roundLog]);
+
     if (!$setupCompleted || !$endsAt) return null;
 
     const inHidingPeriod = now < $endsAt;
     const phaseLabel = inHidingPeriod ? "Hiding period" : "Hidden for";
+
+    const formatTtb = (ms: number) => {
+        const total = Math.floor(ms / 1000);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = total % 60;
+        const pad = (n: number) => String(n).padStart(2, "0");
+        return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    };
 
     let display: string;
     if (inHidingPeriod) {
@@ -186,6 +204,14 @@ export function HiderTimer() {
                     <span className="font-inter-tight italic font-black tabular-nums text-base text-primary leading-none">
                         {display}
                     </span>
+                    {!inHidingPeriod && timeToBeatMs !== null && (
+                        <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.1em] text-muted-foreground mt-0.5">
+                            To beat:{" "}
+                            <span className="tabular-nums text-foreground/80">
+                                {formatTtb(timeToBeatMs)}
+                            </span>
+                        </span>
+                    )}
                 </div>
             </div>
         </div>

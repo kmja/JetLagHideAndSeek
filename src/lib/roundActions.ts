@@ -24,7 +24,12 @@ import {
     playerRole,
     resetHiderRoundState,
     roundFoundAt,
+    roundLog,
 } from "@/lib/hiderRole";
+import {
+    displayName as displayNameAtom,
+    participants,
+} from "@/lib/multiplayer/session";
 import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
 
 /**
@@ -46,6 +51,34 @@ import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
  *     page (or via "New game" in their toolbar).
  */
 export function startNewRound() {
+    // v318: before wiping the previous round's state, append a
+    // result to the rolling leaderboard if the hider was actually
+    // found. Skip incomplete rounds (no found-at timestamp) —
+    // those weren't finished, just abandoned.
+    const prevFoundAt = roundFoundAt.get();
+    const prevEndsAt = hidingPeriodEndsAt.get();
+    if (prevFoundAt !== null && prevEndsAt !== null) {
+        const hidingMs = Math.max(0, prevFoundAt - prevEndsAt);
+        // Resolve the hider's name: multiplayer participant if we
+        // have one, otherwise the local display-name (solo plays
+        // through the seeker chrome, single device).
+        const ps = participants.get();
+        const hiderEntry = ps.find((p) => p.role === "hider");
+        const hiderName =
+            hiderEntry?.displayName?.trim() ||
+            displayNameAtom.get()?.trim() ||
+            "Hider";
+        const existing = roundLog.get();
+        roundLog.set([
+            ...existing,
+            {
+                roundNumber: existing.length + 1,
+                hiderName,
+                hidingMs,
+                foundAt: prevFoundAt,
+            },
+        ]);
+    }
     // Wipe seeker-side question stack so the new round starts
     // empty. mapGeoJSON / polyGeoJSON intentionally stay — the
     // play area didn't change, no need to refetch.
@@ -107,6 +140,10 @@ export function startNewGame() {
     permanentOverlay.set(null);
     resetHiderRoundState();
     roundFoundAt.set(null);
+    // v318: fresh game = fresh leaderboard. `startNewRound` does
+    // NOT clear this so the rolling tally survives across rounds
+    // within one game's settings.
+    roundLog.set([]);
     hidingPeriodEndsAt.set(null);
     pendingHidingDurationMin.set(null);
     gameStartPosition.set(null);

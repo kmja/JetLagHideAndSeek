@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Flag, Plus, Sparkles, Timer, Trophy } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
     hidingSpot,
     hidingZone,
     roundFoundAt,
+    roundLog,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
@@ -99,6 +100,16 @@ export function HiderTimeHeader() {
             $hidingZone.stationLat,
             $hidingZone.stationLng,
         ) <= $hidingZone.radiusMeters;
+
+    // v318: rolling "time to beat" — longest hide so far this
+    // game. Surfaced beneath the live countdown / elapsed timer so
+    // the hider knows what they're racing against. Hidden in the
+    // first round and pre-game where there's nothing to compare to.
+    const $roundLog = useStore(roundLog);
+    const timeToBeatMs = useMemo(() => {
+        if ($roundLog.length === 0) return null;
+        return Math.max(...$roundLog.map((r) => r.hidingMs));
+    }, [$roundLog]);
 
     const handleSaveMark = () => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -189,6 +200,22 @@ export function HiderTimeHeader() {
                         hiddenElapsedMs={hiddenElapsedMs}
                         endgameOn={$endgameStartedAt !== null}
                     />
+                    {/* v318: "time to beat" hint — longest hide
+                        recorded in earlier rounds of this game.
+                        Only shown during phases where the hider is
+                        actively racing the clock; pre-game / round-
+                        over surfaces don't benefit from it. */}
+                    {timeToBeatMs !== null &&
+                        (phase === "seeking" ||
+                            phase === "endgame" ||
+                            phase === "hiding") && (
+                            <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-semibold text-muted-foreground tabular-nums mt-0.5">
+                                Time to beat:{" "}
+                                <span className="text-foreground">
+                                    {formatTimeRemaining(timeToBeatMs)}
+                                </span>
+                            </div>
+                        )}
                 </div>
                 {insideZone && (
                     <Popover

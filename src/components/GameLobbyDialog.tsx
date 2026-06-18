@@ -41,7 +41,12 @@ import {
     type TransitMode,
     welcomeSeen,
 } from "@/lib/gameSetup";
-import { playerRole, rolePickerOpen, roundFoundAt } from "@/lib/hiderRole";
+import {
+    playerRole,
+    rolePickerOpen,
+    roundFoundAt,
+    roundLog,
+} from "@/lib/hiderRole";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -64,6 +69,7 @@ import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
+import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
 
@@ -385,33 +391,42 @@ export function GameLobbyDialog() {
                 {(() => {
                     const cityLabel =
                         $playArea?.displayName.split(",")[0]?.trim() ?? "";
-                    const sizeLabel =
-                        $size.charAt(0).toUpperCase() + $size.slice(1);
-                    const headerTitle = cityLabel
-                        ? `${sizeLabel} game in ${cityLabel}`
-                        : "Lobby";
                     return (
-                        <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border space-y-2">
+                        // v318: header gets a touch more vertical room
+                        // (pt-5/pb-4) so the bigger title + the spaced
+                        // transit pills breathe. Inside, content stacks
+                        // with a wider gap.
+                        <div className="px-5 pt-5 pb-4 shrink-0 border-b border-border space-y-3">
                             <div className="flex items-start gap-3">
-                                <div className="flex-1 min-w-0">
-                                    <VaulDrawer.Title className="text-lg font-semibold leading-tight tracking-tight truncate">
-                                        {headerTitle}
-                                    </VaulDrawer.Title>
-                                    {/* v308: transit modes now render
-                                        as the same icon-pill chips
-                                        used in MidGameInfoSection so
-                                        the title-row reads at a
-                                        glance instead of being a
-                                        comma-separated text blob.
-                                        Walking is implicit (always
-                                        on); when no other modes are
-                                        allowed we surface that. */}
+                                <div className="flex-1 min-w-0 space-y-2">
+                                    {/* v318: title bumped one notch
+                                        (text-xl), and the size now
+                                        renders as the brand SizeBadge
+                                        pill instead of bare
+                                        "Medium"/"Large" prose. The
+                                        pill carries the same colour
+                                        coding the wizard uses. */}
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        {cityLabel && (
+                                            <SizeBadge size={$size} />
+                                        )}
+                                        <VaulDrawer.Title className="text-xl font-bold leading-tight tracking-tight truncate min-w-0">
+                                            {cityLabel
+                                                ? `Game in ${cityLabel}`
+                                                : "Lobby"}
+                                        </VaulDrawer.Title>
+                                    </div>
+                                    {/* v318: transit pills get a
+                                        bigger gap above + between
+                                        them so the chip row reads as
+                                        its own thing, not a sub-line
+                                        of the title. */}
                                     <VaulDrawer.Description className="sr-only">
                                         {$allowedTransit.length > 0
                                             ? `Allowed transit: ${$allowedTransit.map((m) => TRANSIT_LABELS[m]).join(", ")}`
                                             : "Walking only"}
                                     </VaulDrawer.Description>
-                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                    <div className="flex flex-wrap gap-1.5">
                                         {$allowedTransit.length === 0 ? (
                                             <span className="text-xs text-muted-foreground italic">
                                                 Walking only
@@ -422,9 +437,9 @@ export function GameLobbyDialog() {
                                                 return (
                                                     <span
                                                         key={m}
-                                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-xs"
+                                                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-sm bg-secondary border border-border text-xs"
                                                     >
-                                                        <Icon className="w-3 h-3" />
+                                                        <Icon className="w-3.5 h-3.5" />
                                                         <span>
                                                             {TRANSIT_LABELS[m]}
                                                         </span>
@@ -435,6 +450,13 @@ export function GameLobbyDialog() {
                                     </div>
                                 </div>
                                 {$mp && $code && (
+                                    /* v318: switched from solid-fill
+                                       destructive to an outline
+                                       variant. Still primary-red
+                                       (text + border) so the action
+                                       reads as destructive, but the
+                                       button no longer screams over
+                                       the rest of the header chrome. */
                                     <button
                                         type="button"
                                         onClick={handleLeaveGame}
@@ -443,9 +465,9 @@ export function GameLobbyDialog() {
                                         className={cn(
                                             "shrink-0 inline-flex items-center gap-1.5",
                                             "h-9 px-3 rounded-md",
-                                            "text-destructive-foreground border-2 border-destructive",
-                                            "bg-destructive hover:bg-destructive/85 active:bg-destructive/75",
-                                            "shadow-sm transition-colors",
+                                            "text-destructive border-2 border-destructive",
+                                            "bg-transparent hover:bg-destructive/10 active:bg-destructive/15",
+                                            "transition-colors",
                                             "text-xs font-poppins font-semibold uppercase tracking-wider",
                                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
                                         )}
@@ -549,10 +571,13 @@ export function GameLobbyDialog() {
                                     {$code}
                                 </span>
                             </div>
-                            {/* Icon-only buttons keep the row narrow
-                                enough to coexist with the room code
-                                + label even on the dialog's tighter
-                                width. Tooltips carry the verb. */}
+                            {/* v318: dropped the icon-only treatment.
+                                "Copy" and "Share" now carry their verb
+                                as a text label so the action is
+                                obvious without hovering for a tooltip
+                                — the row stays narrow because the
+                                QR button alone keeps the icon-only
+                                form. */}
                             <div className="ml-auto flex items-center gap-1.5">
                                 <Button
                                     size="sm"
@@ -564,22 +589,24 @@ export function GameLobbyDialog() {
                                             ? "Copied!"
                                             : "Copy invite link"
                                     }
-                                    className="px-2"
+                                    className="gap-1.5"
                                 >
                                     {copied ? (
                                         <Check className="w-3.5 h-3.5" />
                                     ) : (
                                         <Copy className="w-3.5 h-3.5" />
                                     )}
+                                    {copied ? "Copied" : "Copy"}
                                 </Button>
                                 <Button
                                     size="sm"
                                     onClick={handleShare}
                                     aria-label="Share invite link"
                                     title="Share invite link"
-                                    className="px-2"
+                                    className="gap-1.5"
                                 >
                                     <Share2 className="w-3.5 h-3.5" />
+                                    Share
                                 </Button>
                                 {shareUrl && (
                                     <Button
@@ -718,6 +745,14 @@ export function GameLobbyDialog() {
                         </p>
                     )}
 
+                    {/* v318: leaderboard — surfaces the rolling
+                        round results once at least one round has
+                        finished. Shown anywhere in the lobby (pre-
+                        round, mid-game, between rounds) so the
+                        next-round host can see the current "time
+                        to beat" before pressing Start round. */}
+                    <LeaderboardSection />
+
                     {/* Mid-game info section — shown only when
                         manually reopened during an active game. */}
                     {isMidGame && (
@@ -772,7 +807,7 @@ export function GameLobbyDialog() {
                                             <AnimatedEllipsis />
                                         </>
                                     ) : (
-                                        "Start game"
+                                        "Start round"
                                     )}
                                 </span>
                                 {startReady && (
@@ -1094,6 +1129,78 @@ function MidGameInfoSection({
             )}
         </div>
     );
+}
+
+/**
+ * v318: leaderboard of completed rounds in the current game. Each
+ * row carries the round number, the hider's name at the time, and
+ * the wall-clock the hider stayed hidden after the hiding period
+ * ended (the rulebook's scoring metric). Sorted longest-hide-first
+ * so the current "time to beat" sits at the top.
+ *
+ * Hidden entirely when the log is empty — first round of a new
+ * game has nothing to show.
+ */
+function LeaderboardSection() {
+    const $log = useStore(roundLog);
+    if ($log.length === 0) return null;
+    const sorted = [...$log].sort((a, b) => b.hidingMs - a.hidingMs);
+    return (
+        <div className="border-t border-border pt-3 space-y-2 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                    Leaderboard
+                </span>
+                <span className="text-[10px] tabular-nums text-muted-foreground">
+                    {sorted.length}{" "}
+                    {sorted.length === 1 ? "round" : "rounds"}
+                </span>
+            </div>
+            <ol className="space-y-1">
+                {sorted.map((row, idx) => (
+                    <li
+                        key={`${row.roundNumber}-${row.foundAt}`}
+                        className={cn(
+                            "flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
+                            "border border-border bg-secondary/40",
+                            idx === 0 && "border-primary/50 bg-primary/10",
+                        )}
+                    >
+                        <span
+                            className={cn(
+                                "shrink-0 inline-flex items-center justify-center",
+                                "w-5 h-5 rounded-full text-[10px] font-bold tabular-nums",
+                                idx === 0
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-secondary text-muted-foreground",
+                            )}
+                            aria-label={`Position ${idx + 1}`}
+                        >
+                            {idx + 1}
+                        </span>
+                        <span className="text-xs font-medium truncate min-w-0 flex-1">
+                            {row.hiderName}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                            Round {row.roundNumber}
+                        </span>
+                        <span className="text-xs font-poppins font-bold tabular-nums shrink-0">
+                            {formatHiddenDuration(row.hidingMs)}
+                        </span>
+                    </li>
+                ))}
+            </ol>
+        </div>
+    );
+}
+
+function formatHiddenDuration(ms: number): string {
+    const totalSec = Math.floor(ms / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 export default GameLobbyDialog;

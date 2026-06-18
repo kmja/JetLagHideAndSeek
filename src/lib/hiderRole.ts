@@ -155,6 +155,45 @@ export const roundFoundAt = __globalPersistent<number | null>(
     (v) => (v ? Number(v) : null),
 );
 
+/**
+ * v318: per-round leaderboard. Each completed round in the current
+ * game appends an entry here; the lobby surfaces it as a
+ * "Leaderboard" section once at least one round has finished.
+ *
+ *   hiderName   — the hider's display name at the time the round
+ *                 ran (so a swap mid-game still attributes
+ *                 historical rounds to the right person).
+ *   hidingMs    — the wall-clock the hider stayed hidden after
+ *                 the hiding period ended (foundAt - hidingEndsAt).
+ *                 The headline scoring metric the rulebook uses.
+ *   foundAt     — Unix ms the seeker(s) declared the hider found.
+ *   roundNumber — 1-indexed within the game.
+ *
+ * Reset by `startNewGame()` (new settings = new game = new
+ * leaderboard); `startNewRound()` LEAVES it alone so the running
+ * tally survives across rounds.
+ */
+export interface RoundResult {
+    roundNumber: number;
+    hiderName: string;
+    hidingMs: number;
+    foundAt: number;
+}
+export const roundLog = __globalPersistent<RoundResult[]>(
+    "__jlhs_roundLog",
+    "roundLog",
+    [],
+    JSON.stringify,
+    (v) => {
+        try {
+            const parsed = JSON.parse(v);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    },
+);
+
 /* ────────────────── Hiding spot ────────────────── */
 
 /**
