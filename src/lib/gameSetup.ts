@@ -135,11 +135,13 @@ export const showSubwayRoutes = persistentAtom<boolean>(
  * Three coarse buckets, mapping to the real fetch boundaries:
  *
  *   `map`        — play-area boundary polygon + base map tiles.
- *                  Already runs at play-area pick time (Map.tsx);
- *                  toggling this off SKIPS the on-demand tile
- *                  preload that the user kicks off via the existing
- *                  OfflineTilePreloader path. Default ON since the
- *                  boundary is a few hundred KB max.
+ *                  Boundary already runs at play-area pick time
+ *                  (Map.tsx); this bucket adds the PMTiles z11→z15
+ *                  walk for the play-area bbox so zoom-ins don't
+ *                  stutter mid-game. See preloadTilesForPlayArea.
+ *                  Default ON since the boundary alone is a few
+ *                  hundred KB; the tile walk is gated on this
+ *                  toggle too.
  *   `references` — all 15 reference families
  *                  (STANDARD_REFERENCE_FAMILIES). The big bucket
  *                  — a dense city like London is 1-5 MB depending
