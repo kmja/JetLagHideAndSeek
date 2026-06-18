@@ -612,6 +612,33 @@ export default {
                 }
             }
         }
+
+        // Phase 6: TRANSIT ROUTES, per-city (subway / bus / ferry).
+        // Opt-out flag (enabled unless explicitly "false"). Unlike HSR
+        // (Phase 3, per-country) these are keyed on the city's bbox —
+        // the client's overlay query — so they must be warmed per-city
+        // with the byte-identical query string or the R2 key won't
+        // match. Heavy phase, so it runs LAST (never starves boundaries
+        // / references) over a small rotating slice; oversized bus
+        // bodies are size-capped and left to the laptop prewarmer.
+        if (env.TRANSIT_PREWARM_ENABLED !== "false") {
+            const transitCities = picked.filter((c) => c.extent);
+            const transitSlice = [...transitCities]
+                .sort(() => Math.random() - 0.5)
+                .slice(0, TRANSIT_CITIES_PER_TICK);
+            for (const city of transitSlice) {
+                try {
+                    const r = await prewarmTransitForCity(env, city, ttlMs);
+                    if (r.stored > 0 || r.skippedBig > 0) {
+                        console.log(
+                            `[prewarm] transit ${city.name}: stored ${r.stored}, fresh ${r.skippedFresh}, oversized ${r.skippedBig}`,
+                        );
+                    }
+                } catch (e) {
+                    console.warn(`[prewarm] transit ${city.name} threw:`, e);
+                }
+            }
+        }
     },
 };
 
@@ -1785,6 +1812,290 @@ area["ISO3166-1"="${iso}"]["admin_level"="2"]->.hsrArea;
 way["railway"="rail"]["highspeed"="yes"](area.hsrArea);
 out geom;
 `;
+}
+
+/* ───────────────── Transit-route prewarm (Phase 6) ───────────────── *
+ *
+ * Why per-CITY, not per-country (the obvious question once HSR went
+ * per-country): the client's overlay query is bbox-scoped —
+ * `relation["route"="bus"](s,w,n,e); out skel geom;` where the bbox is
+ * the play area's Photon extent. The R2 key is a SHA-256 of that exact
+ * string, so the ONLY way the cron can produce a cache hit is to issue
+ * the byte-identical per-city bbox query. A per-country form (the HSR
+ * `area["ISO3166-1"=…]` shape) would be a different string → different
+ * key → the client would never read it. It would also be enormous: a
+ * whole country's bus `out skel geom` is gigabytes, where a single
+ * city's is already up to ~90 MB.
+ *
+ * KEEP THESE THREE IN LOCKSTEP (same pad, same toFixed(3), same
+ * whitespace) — any drift makes the key miss:
+ *   - buildTransitBboxTuple + fetchTransitRelations  (client, transitRoutes.ts)
+ *   - transitBboxTuple + transitRouteQuery           (laptop-prewarm.mjs)
+ *   - the two functions below                        (this cron)
+ */
+const TRANSIT_ROUTE_TYPES = ["subway", "bus", "ferry"] as const;
+const TRANSIT_BBOX_PAD_KM = 5;
+/** Decimation ceiling — must equal MAX_VERTICES in transitRoutes.ts and
+ *  laptop-prewarm.mjs so prewarmed + on-demand renders are identical. */
+const TRANSIT_MAX_VERTICES = 50;
+/**
+ * Hard ceiling on the RAW upstream transit body we'll buffer + reduce
+ * inside the worker. The reduce step needs the whole response in heap
+ * to JSON.parse it, and parsed Overpass JSON runs ~3-5× the text size;
+ * the streaming-into-R2 path exists precisely because `.text()` on an
+ * NYC-bus-sized body (≈90 MB) trips Cloudflare error 1102. 20 MB raw →
+ * ~80-100 MB parsed leaves headroom under the 128 MB isolate limit.
+ * Anything bigger is skipped here and left to the laptop prewarmer
+ * (Node, GBs of RAM) / the live on-tap path. Subway + ferry are tiny
+ * everywhere; only dense mega-metro bus networks exceed this. */
+const MAX_TRANSIT_REDUCE_BYTES = 20 * 1024 * 1024;
+/** Cities to prewarm transit for per cron tick. Transit is the heaviest
+ *  phase (3 modes × up-to-20 MB each), so we keep the per-tick slice
+ *  small and let it rotate; the continuous laptop prewarmer covers the
+ *  long tail far faster anyway. */
+const TRANSIT_CITIES_PER_TICK = 3;
+
+/** Byte-identical to `buildTransitBboxTuple` (transitRoutes.ts) and
+ *  `transitBboxTuple` (laptop-prewarm.mjs). extent is
+ *  [maxLat, minLng, minLat, maxLng]. */
+function transitBboxTuple(
+    extent: [number, number, number, number],
+): string {
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const south = minLat;
+    const west = minLng;
+    const north = maxLat;
+    const east = maxLng;
+    const latPad = TRANSIT_BBOX_PAD_KM / 111;
+    const midLat = (south + north) / 2;
+    const lngPad =
+        TRANSIT_BBOX_PAD_KM / (111 * Math.cos((midLat * Math.PI) / 180));
+    const s = (south - latPad).toFixed(3);
+    const w = (west - lngPad).toFixed(3);
+    const n = (north + latPad).toFixed(3);
+    const e = (east + lngPad).toFixed(3);
+    return `${s},${w},${n},${e}`;
+}
+
+/** Byte-identical to `fetchTransitRelations`'s query string. The newline
+ *  framing is load-bearing — the SHA-256 R2 key includes it. */
+function transitRouteQuery(
+    extent: [number, number, number, number],
+    routeType: string,
+): string {
+    const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180];\nrelation["route"="${routeType}"](${tuple});\nout skel geom;\n`;
+}
+
+/** Decimate a way's geometry to TRANSIT_MAX_VERTICES points, same
+ *  stride algorithm as the client + laptop reducer so the stored
+ *  geometry matches an on-demand fetch. Rounds to 5 decimals (~1 m). */
+function decimateTransitGeom(
+    geom: Array<{ lat: number; lon: number }>,
+): Array<{ lat: number; lon: number }> {
+    const round5 = (x: number) => Math.round(x * 1e5) / 1e5;
+    const n = geom.length;
+    let pts: Array<{ lat: number; lon: number }>;
+    if (n <= TRANSIT_MAX_VERTICES) {
+        pts = geom;
+    } else {
+        const stride = Math.ceil(n / TRANSIT_MAX_VERTICES);
+        pts = [];
+        for (let i = 0; i < n; i += stride) pts.push(geom[i]);
+        const last = geom[n - 1];
+        const tail = pts[pts.length - 1];
+        if (tail.lat !== last.lat || tail.lon !== last.lon) pts.push(last);
+    }
+    return pts.map((p) => ({ lat: round5(p.lat), lon: round5(p.lon) }));
+}
+
+/**
+ * Shrink a raw transit Overpass response, keeping the SAME Overpass
+ * JSON shape so the client parser reads it unchanged. Mirror of
+ * `reduceTransitResponse` in laptop-prewarm.mjs: dedupe ways by ref,
+ * decimate geometry, round coords, collapse to one synthetic relation
+ * (the client draws each way as a bare LineString, so route grouping
+ * is discarded anyway). A dense bus network shrinks from tens of MB to
+ * a few hundred KB, which is what lets us store it at all.
+ */
+function reduceTransitResponse(text: string): {
+    text: string;
+    wayCount: number;
+} {
+    const parsed = JSON.parse(text) as {
+        version?: unknown;
+        generator?: unknown;
+        osm3s?: unknown;
+        elements?: Array<{
+            type: string;
+            members?: Array<{
+                type?: string;
+                ref?: number;
+                geometry?: Array<{ lat: number; lon: number }>;
+            }>;
+        }>;
+    };
+    const seen = new Set<number>();
+    const members: Array<{
+        type: "way";
+        ref: number | undefined;
+        geometry: Array<{ lat: number; lon: number }>;
+    }> = [];
+    for (const el of parsed.elements ?? []) {
+        if (el.type !== "relation") continue;
+        for (const m of el.members ?? []) {
+            if (m.type !== "way") continue;
+            if (!Array.isArray(m.geometry) || m.geometry.length < 2) continue;
+            if (m.ref !== undefined) {
+                if (seen.has(m.ref)) continue;
+                seen.add(m.ref);
+            }
+            members.push({
+                type: "way",
+                ref: m.ref,
+                geometry: decimateTransitGeom(m.geometry),
+            });
+        }
+    }
+    const reduced = {
+        version: parsed.version,
+        generator: parsed.generator,
+        osm3s: parsed.osm3s,
+        elements: [{ type: "relation", id: 0, tags: {}, members }],
+    };
+    return { text: JSON.stringify(reduced), wayCount: members.length };
+}
+
+/**
+ * Read a Response body to text but abort once it exceeds `capBytes`,
+ * returning null instead of buffering the whole thing. This is the
+ * memory guard that lets the worker reduce transit responses without
+ * risking the OOM the streaming path was built to avoid: we accumulate
+ * decoded chunks, and the moment the running total crosses the cap we
+ * cancel the stream and bail. The skipped (oversized) city stays
+ * covered by the laptop prewarmer / live path.
+ */
+async function readBodyCapped(
+    resp: Response,
+    capBytes: number,
+): Promise<string | null> {
+    if (!resp.body) {
+        // No stream to meter — fall back to a plain read, but only when
+        // a Content-Length (if present) is within cap.
+        const len = parseInt(resp.headers.get("content-length") ?? "0", 10);
+        if (Number.isFinite(len) && len > capBytes) return null;
+        const text = await resp.text();
+        return text.length > capBytes ? null : text;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let total = 0;
+    let out = "";
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > capBytes) {
+                await reader.cancel();
+                return null;
+            }
+            out += decoder.decode(value, { stream: true });
+        }
+        out += decoder.decode();
+        return out;
+    } catch {
+        try {
+            await reader.cancel();
+        } catch {
+            /* already closed */
+        }
+        return null;
+    }
+}
+
+/**
+ * Prewarm the three local transit-route overlays (subway / bus / ferry)
+ * for one city, reducing each response server-side before storing so
+ * the client reads a few hundred KB instead of tens of MB. Per-mode
+ * skip-if-fresh; oversized raw bodies (mega-metro bus) are skipped via
+ * the readBodyCapped guard rather than OOM-ing the worker.
+ */
+async function prewarmTransitForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ stored: number; skippedFresh: number; skippedBig: number }> {
+    let stored = 0;
+    let skippedFresh = 0;
+    let skippedBig = 0;
+    if (!city.extent) return { stored, skippedFresh, skippedBig };
+    for (const routeType of TRANSIT_ROUTE_TYPES) {
+        const query = transitRouteQuery(city.extent, routeType);
+        const cacheKey = await r2KeyForQuery(query);
+        // Skip if a fresh entry already exists.
+        try {
+            const hit = await env.CACHE.get(`overpass/${cacheKey}`);
+            if (hit) {
+                const cachedAt = parseInt(
+                    hit.customMetadata?.cachedAt ?? "0",
+                    10,
+                );
+                if (cachedAt && Date.now() - cachedAt < ttlMs) {
+                    skippedFresh++;
+                    continue;
+                }
+            }
+        } catch (e) {
+            console.warn(
+                `R2 get failed during transit prewarm (${city.name} ${routeType}):`,
+                e,
+            );
+        }
+        // Each mode is its own upstream round-trip; pace through the
+        // shared slot gate so a transit batch can't starve live traffic.
+        const slotOk = await waitForOverpassSlot(
+            `transit ${city.name} ${routeType}`,
+        );
+        if (!slotOk) continue;
+        const upstream = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(query),
+        );
+        if (!upstream) continue;
+        const raw = await readBodyCapped(upstream, MAX_TRANSIT_REDUCE_BYTES);
+        if (raw === null) {
+            skippedBig++;
+            console.warn(
+                `[prewarm] transit ${city.name} ${routeType}: response over ${MAX_TRANSIT_REDUCE_BYTES} B cap — skipping (laptop prewarmer covers it)`,
+            );
+            continue;
+        }
+        let reduced: { text: string; wayCount: number };
+        try {
+            reduced = reduceTransitResponse(raw);
+        } catch (e) {
+            console.warn(
+                `[prewarm] transit ${city.name} ${routeType} reduce failed:`,
+                e,
+            );
+            continue;
+        }
+        try {
+            await compressAndStoreString(env, cacheKey, reduced.text, {
+                sourceName: `${city.name} (${routeType})`,
+                sourceRelationId: String(city.relationId),
+                prewarmed: "true",
+                kind: "transit",
+            });
+            stored++;
+        } catch (e) {
+            console.warn(
+                `R2 put failed during transit prewarm (${city.name} ${routeType}):`,
+                e,
+            );
+        }
+    }
+    return { stored, skippedFresh, skippedBig };
 }
 
 /** Build the `[bbox:s,w,n,e]` filter from a Photon extent + pad,

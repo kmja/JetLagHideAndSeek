@@ -31,6 +31,16 @@ export interface Env {
      *  wrangler.toml to start warming the 214 country shards. See
      *  overpass-cache/scripts/global-prewarm.md. */
     COUNTRY_REFS_PREWARM_ENABLED?: string;
+    /** Feature flag for the per-city transit-route prewarm (Phase 6 —
+     *  subway / bus / ferry overlays). Opt-OUT: enabled unless set to
+     *  the exact string "false". Unlike HSR (an inter-city network
+     *  warmed per-country), local transit routes are keyed on the
+     *  city's bbox, so they're warmed per-city with the byte-identical
+     *  query the client issues. Set to "false" in the dashboard /
+     *  wrangler.toml to disable if the heavy bus responses strain the
+     *  worker. See overpass-cache/scripts/laptop-prewarm.mjs for the
+     *  offline equivalent that covers mega-metros over the size cap. */
+    TRANSIT_PREWARM_ENABLED?: string;
     /** Bearer token guarding `/admin/*` endpoints. Configure via
      *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
     ADMIN_SECRET?: string;
