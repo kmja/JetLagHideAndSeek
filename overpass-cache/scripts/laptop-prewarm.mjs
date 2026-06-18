@@ -29,10 +29,14 @@
  *                   worker would issue. Requires the city's `extent`
  *                   (derived locally from the boundary geometry when
  *                   the list doesn't carry one).
- *     3. Transit  — subway/bus/ferry route overlays via map_to_area
- *                   (keys off the relation id, no extent needed) so
- *                   toggling any overlay in that city is an instant
- *                   R2 hit instead of a 5-15 s Overpass round-trip.
+ *     3. Transit  — per-city BUS route overlay (v329). Subway + ferry
+ *                   moved to the cron's per-country-shard prewarm;
+ *                   bus is too dense to shard so it stays per-city,
+ *                   and the laptop is its primary warmer (it can reduce
+ *                   a 91 MB NYC body the Worker's 20 MB cap rejects).
+ *                   Keys off the city's `extent` (bbox query), so
+ *                   toggling bus in that city is an instant R2 hit
+ *                   instead of a 5-15 s Overpass round-trip.
  *   Once, after the city loop:
  *     3. HSR      — one `area["ISO3166-1"=XX]; way[...highspeed=yes]`
  *                   query per country in HSR_COUNTRIES. HSR is an
@@ -238,10 +242,17 @@ function boundaryQuery(relationId) {
     return `[out:json][timeout:120];relation(${relationId});out geom;`;
 }
 
-// The three map transit-route overlays (subway / bus / ferry). The
-// route values match the `TransitMode` the client passes straight
-// through as the `route=` selector.
-const TRANSIT_ROUTE_TYPES = ["subway", "bus", "ferry"];
+// Per-city transit modes the laptop warms. v329: this is now BUS ONLY.
+// Subway + ferry moved to the cron's per-country-shard prewarm
+// (overpass-cache/src/index.ts Phase 6a) — they're sparse enough that
+// one shard-scope `out skel geom` fetch covers every city in the
+// country, sliced to the play-area bbox at request time. Bus is dense
+// (NYC ≈ 91 MB raw) and can't be shard-warmed, so it stays per-city —
+// and the laptop is the PRIMARY warmer for it, since this script (Node,
+// GBs of RAM) can reduce a 91 MB body that the Worker's 20 MB cap
+// rejects. The route value matches the `route=` selector the client
+// passes through.
+const TRANSIT_ROUTE_TYPES = ["bus"];
 
 /**
  * Shrink a raw transit Overpass response before storing it, keeping
@@ -777,17 +788,18 @@ async function processCity(city) {
         }
     }
 
-    // Transit-route overlays (subway / bus / ferry). v249: keyed off
-    // the city's Photon extent (same `effectiveExtent` the refs step
-    // uses), NOT map_to_area — which silently returned an empty area
-    // for some boundary relations (Cleveland's buses came back 0). The
-    // bbox form matches the client's query byte-for-byte, so it finally
-    // warms what the client reads. One query per mode; each gated by
-    // isFresh so a re-run skips already-warmed modes. Big metros' bus
-    // networks can be heavy (out skel geom over thousands of routes),
-    // so they share the same waitForSlot + 180 s timeout + DELAY_MS
-    // pacing as everything else. A failure (timeout / empty) just
-    // leaves that mode for the on-tap client fetch.
+    // Per-city BUS overlay (v329: subway + ferry are the cron's
+    // per-shard job now — see TRANSIT_ROUTE_TYPES). v249: keyed off the
+    // city's Photon extent (same `effectiveExtent` the refs step uses),
+    // NOT map_to_area — which silently returned an empty area for some
+    // boundary relations (Cleveland's buses came back 0). The bbox form
+    // matches the client's query byte-for-byte, so it warms what the
+    // client reads. isFresh-gated so a re-run skips already-warmed
+    // cities. Big metros' bus networks are heavy (out skel geom over
+    // thousands of routes) — exactly why this lives on the laptop and
+    // not the Worker — so they share the same waitForSlot + 180 s
+    // timeout + DELAY_MS pacing as everything else. A failure
+    // (timeout / empty) just leaves it for the on-tap client fetch.
     if (DO_TRANSIT && !effectiveExtent) {
         console.log(`  ⤼ no extent available — skipping transit`);
     }
