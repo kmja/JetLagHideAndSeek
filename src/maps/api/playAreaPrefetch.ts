@@ -387,6 +387,49 @@ export const HSR_COUNTRIES = new Set<string>([
 ]);
 
 /**
+ * Rough geographic centroids of every country in `HSR_COUNTRIES`,
+ * used by the nearest-HSR cross-border fallback in
+ * `NearestReferencePreview`. When the seeker's own country isn't a
+ * prewarmed HSR country, we sort these by distance to the seeker
+ * and try the cached HSR query for the closest few — so a Latvian
+ * seeker gets Polish HSR from the cache instead of a 1500 km radius
+ * walk hitting public Overpass mirrors.
+ *
+ * Precision is country-scale on purpose: we only need a stable
+ * ordering of "which HSR country is closest", not pinpoint accuracy.
+ * Keep in lockstep with `HSR_COUNTRIES`.
+ */
+export const HSR_COUNTRY_CENTROIDS: Record<
+    string,
+    { lat: number; lng: number }
+> = {
+    JP: { lat: 36, lng: 138 },
+    CN: { lat: 35, lng: 105 },
+    FR: { lat: 47, lng: 2 },
+    DE: { lat: 51, lng: 10 },
+    ES: { lat: 40, lng: -4 },
+    IT: { lat: 42, lng: 12 },
+    GB: { lat: 54, lng: -2 },
+    BE: { lat: 50, lng: 4.5 },
+    NL: { lat: 52, lng: 5 },
+    CH: { lat: 47, lng: 8 },
+    AT: { lat: 47, lng: 14 },
+    KR: { lat: 36, lng: 128 },
+    TW: { lat: 24, lng: 121 },
+    TR: { lat: 39, lng: 35 },
+    SA: { lat: 24, lng: 45 },
+    MA: { lat: 32, lng: -6 },
+    SE: { lat: 62, lng: 16 },
+    RU: { lat: 56, lng: 38 }, // Moscow-centric; nearly all HSR is in the west
+    PL: { lat: 52, lng: 19 },
+    DK: { lat: 56, lng: 10 },
+    PT: { lat: 39, lng: -8 },
+    UZ: { lat: 41, lng: 64 },
+    NO: { lat: 60, lng: 9 },
+    FI: { lat: 64, lng: 26 },
+};
+
+/**
  * The per-country high-speed-rail query string. Resolves all
  * `highspeed=yes` railway lines inside the country's admin-level-2
  * boundary area, `out geom` for the line geometry (we need the

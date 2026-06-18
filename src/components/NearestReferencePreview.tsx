@@ -2,6 +2,7 @@ import * as turf from "@turf/turf";
 import { Loader2, MapPin, Ruler } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { mapGeoLocation } from "@/lib/context";
 import { cn } from "@/lib/utils";
 import { fetchCoastline, LOCATION_FIRST_TAG } from "@/maps/api";
 import {
@@ -10,8 +11,10 @@ import {
     getOverpassData,
 } from "@/maps/api/overpass";
 import {
+    buildHsrCountryQuery,
     buildHsrQuery,
     type FamilyKey,
+    HSR_COUNTRY_CENTROIDS,
     nearestFromCache,
     prefetchCategory,
 } from "@/maps/api/playAreaPrefetch";
@@ -625,11 +628,8 @@ async function fetchNearestHighspeedRail(
     // First try the play-area COUNTRY query — same string the cron +
     // laptop warm and the preload primes, so it's usually an instant
     // R2 / in-memory cache hit covering the whole national network.
-    // Only when that returns nothing (the play area's country has no
-    // HSR, or isn't a prewarmed country) do we fall through to the
-    // wider radius walk below — which also catches the cross-border
-    // case where the nearest line is in a neighbouring country.
     const countryQuery = buildHsrQuery();
+    let ownIso: string | null = null;
     if (countryQuery) {
         const data = await getOverpassData(
             countryQuery,
@@ -639,12 +639,53 @@ async function fetchNearestHighspeedRail(
         const els = (data as { elements?: any[] }).elements ?? [];
         const ref = nearestOnHsrWays(els, lat, lng);
         if (ref) return ref;
+        // Track own ISO so we don't retry it below.
+        const cc = mapGeoLocation.get()?.properties?.countrycode;
+        if (cc) ownIso = cc.toUpperCase();
     }
 
-    // Radius-walk fallback: the nearest HSR line is outside the play
-    // area's own country (cross-border), or the country isn't one we
-    // prewarm. Not cacheable by the cron — the `around:` center is the
-    // seeker's exact position — but it's the rare far case.
+    // v331 cross-border fallback. The seeker's country has no HSR
+    // cache hit — either it isn't a prewarmed HSR country at all
+    // (Latvia, Slovenia, Iceland) or the prewarm is genuinely empty
+    // (NO/FI). Instead of going straight to the upstream-hitting
+    // radius walk, try the cached HSR country queries for the few
+    // closest HSR countries — sorted by centroid distance. A Latvian
+    // seeker resolves to Polish HSR from R2; a Slovenian seeker to
+    // Austrian / Italian; an Icelander to Norwegian. All cache hits,
+    // no Overpass traffic.
+    const ranked = Object.entries(HSR_COUNTRY_CENTROIDS)
+        .filter(([iso]) => iso !== ownIso)
+        .map(([iso, c]) => ({
+            iso,
+            d: turf.distance(
+                turf.point([lng, lat]),
+                turf.point([c.lng, c.lat]),
+                { units: "kilometers" },
+            ),
+        }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 3);
+    for (const { iso } of ranked) {
+        try {
+            const q = buildHsrCountryQuery(iso);
+            const data = await getOverpassData(
+                q,
+                undefined,
+                CacheType.ZONE_CACHE,
+            );
+            const els = (data as { elements?: any[] }).elements ?? [];
+            const ref = nearestOnHsrWays(els, lat, lng);
+            if (ref) return ref;
+        } catch {
+            /* try next neighbour */
+        }
+    }
+
+    // Radius-walk last resort: every cached neighbour was empty too
+    // (truly remote seeker — central Australia, mid-Atlantic). The
+    // around: queries aren't cacheable since the centre is the seeker's
+    // exact point, but this fires for a vanishingly small slice of
+    // games after the cross-border attempt above.
     for (const km of [50, 200, 500, 1500]) {
         const query = `
 [out:json][timeout:60];
