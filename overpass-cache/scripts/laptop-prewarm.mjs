@@ -332,11 +332,19 @@ function reduceTransitResponse(text) {
  * the client takes the poly:/bbox path, not map_to_area).
  *
  *   tuple = transitBboxTuple(extent)  // "s,w,n,e", 3-decimal, +5km pad
- *   query = `\n[out:json][timeout:180];\nrelation["route"="<type>"](${tuple});\nout skel geom;\n`
+ *   query = `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="<type>"];\nout skel geom;\n`
+ *
+ * v329: bbox lives in the `[bbox:...]` global setting (it used to be
+ * a per-statement `(${tuple})` filter on the route relation). The new
+ * form lets the worker's query canonicaliser strip the bbox and match
+ * a stable template fingerprint, which is how subway + ferry queries
+ * dispatch into the per-shard slicing path on the worker side. Bus
+ * still matches via the byte-identical exact-key path.
  *
  * KEEP IN LOCKSTEP with buildTransitBboxTuple + fetchTransitRelations
- * in src/maps/api/transitRoutes.ts (same pad, same toFixed(3), same
- * whitespace).
+ * in src/maps/api/transitRoutes.ts AND transitRouteQuery in
+ * overpass-cache/src/index.ts (same pad, same toFixed(3), same
+ * whitespace, same setting order).
  */
 const TRANSIT_BBOX_PAD_KM = 5;
 
@@ -360,7 +368,11 @@ function transitBboxTuple(extent) {
 
 function transitRouteQuery(extent, routeType) {
     const tuple = transitBboxTuple(extent);
-    return `\n[out:json][timeout:180];\nrelation["route"="${routeType}"](${tuple});\nout skel geom;\n`;
+    // v329: bbox in `[bbox:...]` global-setting form (mirrors
+    // src/maps/api/transitRoutes.ts + overpass-cache transitRouteQuery)
+    // so the worker's query canonicaliser strips it and the per-shard
+    // slicing path (subway/ferry) recognises the template fingerprint.
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="${routeType}"];\nout skel geom;\n`;
 }
 
 function bboxFilter(extent, padKm) {

@@ -49,7 +49,10 @@ import {
     findContainingShard,
     type OverpassResponse,
     sliceResponseByBbox,
+    sliceTransitByBbox,
     templateFingerprint,
+    transitShardKey,
+    type TransitReducedResponse,
 } from "./querySlicing";
 
 /**
@@ -613,15 +616,64 @@ export default {
             }
         }
 
-        // Phase 6: TRANSIT ROUTES, per-city (subway / bus / ferry).
-        // Opt-out flag (enabled unless explicitly "false"). Unlike HSR
-        // (Phase 3, per-country) these are keyed on the city's bbox —
-        // the client's overlay query — so they must be warmed per-city
-        // with the byte-identical query string or the R2 key won't
-        // match. Heavy phase, so it runs LAST (never starves boundaries
-        // / references) over a small rotating slice; oversized bus
-        // bodies are size-capped and left to the laptop prewarmer.
+        // Phase 6: TRANSIT ROUTES — split by sparsity (v329).
+        //
+        //   6a. SUBWAY + FERRY per-country-shard. Sparse globally and
+        //       small per country, so one shard-scope `out skel geom`
+        //       fetch covers every play area in that shard via the
+        //       runtime slicer (Step 2.6). Rotating slice across the
+        //       ~214 shards × 2 modes; warm shards skip cheaply.
+        //   6b. BUS per-city. Dense everywhere — a country-scope bus
+        //       fetch trips the worker's resource budget AND the
+        //       slicer's MAX_SLICE_PARSE_BYTES cap. Stays per-city,
+        //       exact-key match.
+        //
+        // Both halves are opt-out via TRANSIT_PREWARM_ENABLED (the
+        // request-time read paths use the same flag). Heavy phase, so
+        // it runs LAST (never starves boundaries / references) over
+        // small per-tick slices; oversized bus bodies are size-capped
+        // and left to the laptop prewarmer.
         if (env.TRANSIT_PREWARM_ENABLED !== "false") {
+            // 6a — transit shards.
+            const shardShuffle = [...COUNTRY_SHARDS].sort(
+                () => Math.random() - 0.5,
+            );
+            const shardSlice = shardShuffle.slice(0, TRANSIT_SHARDS_PER_TICK);
+            for (const shard of shardSlice) {
+                for (const routeType of TRANSIT_SHARD_MODES) {
+                    try {
+                        const r = await prewarmTransitForShard(
+                            env,
+                            shard,
+                            routeType,
+                            ttlMs,
+                        );
+                        if (
+                            r.status === "stored" ||
+                            r.status === "oversize-skipped"
+                        ) {
+                            console.log(
+                                `[prewarm] transit-shard ${shard.iso} ${routeType}: ${r.status}${r.sizeBytes ? ` (${r.sizeBytes} B)` : ""}`,
+                            );
+                        } else if (r.status === "slot-timeout") {
+                            // Mirror is busy — stop the shard pass for
+                            // this tick rather than thrashing on a
+                            // throttled server.
+                            console.warn(
+                                `[prewarm] transit-shard ${shard.iso} ${routeType}: slot timeout, ending shard pass`,
+                            );
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(
+                            `[prewarm] transit-shard ${shard.iso} ${routeType} threw:`,
+                            e,
+                        );
+                    }
+                }
+            }
+
+            // 6b — per-city bus.
             const transitCities = picked.filter((c) => c.extent);
             const transitSlice = [...transitCities]
                 .sort(() => Math.random() - 0.5)
@@ -631,11 +683,14 @@ export default {
                     const r = await prewarmTransitForCity(env, city, ttlMs);
                     if (r.stored > 0 || r.skippedBig > 0) {
                         console.log(
-                            `[prewarm] transit ${city.name}: stored ${r.stored}, fresh ${r.skippedFresh}, oversized ${r.skippedBig}`,
+                            `[prewarm] transit-city ${city.name}: stored ${r.stored}, fresh ${r.skippedFresh}, oversized ${r.skippedBig}`,
                         );
                     }
                 } catch (e) {
-                    console.warn(`[prewarm] transit ${city.name} threw:`, e);
+                    console.warn(
+                        `[prewarm] transit-city ${city.name} threw:`,
+                        e,
+                    );
                 }
             }
         }
@@ -841,6 +896,40 @@ async function handleRequest(
                 });
                 // Seed the edge cache so a re-ask of the same play-area
                 // bbox skips the shard fetch + parse entirely.
+                ctx.waitUntil(edgeCache.put(cacheApiKey, resp.clone()));
+                return resp;
+            }
+        }
+
+        // Step 2.6 — transit-route shard slicing (v329). Same shape as
+        // 2.5, different shard space: SUBWAY + FERRY queries get sliced
+        // out of `transit-routes/v1/<iso>/<routeType>/all`. Bus is
+        // excluded by template-fingerprint mismatch (dense networks
+        // can't be country-warmed safely; bus runs through the per-city
+        // exact-key path in Step 2). Same opt-out flag as the per-city
+        // bus prewarm (`TRANSIT_PREWARM_ENABLED`) so the runtime read
+        // path stays consistent with the cron writes.
+        if (env.TRANSIT_PREWARM_ENABLED !== "false") {
+            let sliced: SlicedResult | null = null;
+            try {
+                sliced = await trySliceFromTransitShard(query, env);
+            } catch (e) {
+                console.warn(
+                    "transit-shard slice threw, falling through:",
+                    e,
+                );
+            }
+            if (sliced) {
+                const resp = new Response(JSON.stringify(sliced.body), {
+                    status: 200,
+                    headers: {
+                        ...corsHeadersAsObject(cors),
+                        "Content-Type": "application/json",
+                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                        "X-Cache": "SLICED",
+                        "X-Cache-Shard": `${sliced.shardIso}/transit`,
+                    },
+                });
                 ctx.waitUntil(edgeCache.put(cacheApiKey, resp.clone()));
                 return resp;
             }
@@ -1816,24 +1905,35 @@ out geom;
 
 /* ───────────────── Transit-route prewarm (Phase 6) ───────────────── *
  *
- * Why per-CITY, not per-country (the obvious question once HSR went
- * per-country): the client's overlay query is bbox-scoped —
- * `relation["route"="bus"](s,w,n,e); out skel geom;` where the bbox is
- * the play area's Photon extent. The R2 key is a SHA-256 of that exact
- * string, so the ONLY way the cron can produce a cache hit is to issue
- * the byte-identical per-city bbox query. A per-country form (the HSR
- * `area["ISO3166-1"=…]` shape) would be a different string → different
- * key → the client would never read it. It would also be enormous: a
- * whole country's bus `out skel geom` is gigabytes, where a single
- * city's is already up to ~90 MB.
+ * v329 splits this by sparsity:
  *
+ *   - SUBWAY + FERRY → per-country-shard, sliced at request time.
+ *     Sparse globally (~50 countries have a subway, ~80 have ferries)
+ *     and dense within them, so one country-scope `out skel geom`
+ *     fetch is small (a few MB reduced) and covers every play area
+ *     in the country — uncurated suburbs included.
+ *   - BUS → per-city, exact-key match (no slicing). NYC bus alone is
+ *     ~91 MB raw; a country-wide bus query blows both the worker's
+ *     resource budget and the slicer's MAX_SLICE_PARSE_BYTES cap.
+ *     Stays warmed only for the curated cities; mega-metros bigger
+ *     than the size cap fall to the laptop prewarmer.
+ *
+ * All three modes share the SAME query template — only the route value
+ * differs — so the canonicaliser (querySlicing.ts) strips the bbox and
+ * we get one stable fingerprint per route. v328's `(s,w,n,e)`-on-the-
+ * filter form is replaced by the `[bbox:s,w,n,e]` global-setting form
+ * used everywhere else (reference template etc.) so the existing
+ * `extractBbox` + canonicaliser already match it without special-casing.
  * KEEP THESE THREE IN LOCKSTEP (same pad, same toFixed(3), same
- * whitespace) — any drift makes the key miss:
+ * whitespace, same setting order) — any drift makes the key miss:
  *   - buildTransitBboxTuple + fetchTransitRelations  (client, transitRoutes.ts)
  *   - transitBboxTuple + transitRouteQuery           (laptop-prewarm.mjs)
- *   - the two functions below                        (this cron)
+ *   - the helpers below                              (this cron)
  */
-const TRANSIT_ROUTE_TYPES = ["subway", "bus", "ferry"] as const;
+/** Modes warmed at country-shard scope and sliced at request time. */
+const TRANSIT_SHARD_MODES = ["subway", "ferry"] as const;
+/** Modes warmed per-city (exact-key match — no slicing). */
+const TRANSIT_CITY_MODES = ["bus"] as const;
 const TRANSIT_BBOX_PAD_KM = 5;
 /** Decimation ceiling — must equal MAX_VERTICES in transitRoutes.ts and
  *  laptop-prewarm.mjs so prewarmed + on-demand renders are identical. */
@@ -1849,11 +1949,21 @@ const TRANSIT_MAX_VERTICES = 50;
  * (Node, GBs of RAM) / the live on-tap path. Subway + ferry are tiny
  * everywhere; only dense mega-metro bus networks exceed this. */
 const MAX_TRANSIT_REDUCE_BYTES = 20 * 1024 * 1024;
-/** Cities to prewarm transit for per cron tick. Transit is the heaviest
- *  phase (3 modes × up-to-20 MB each), so we keep the per-tick slice
- *  small and let it rotate; the continuous laptop prewarmer covers the
- *  long tail far faster anyway. */
+/** Cities to prewarm BUS transit for per cron tick. v329 dropped this
+ *  from "3 modes per city" to "bus only per city" since subway/ferry
+ *  moved to per-shard, so each tick does less per-city work and we can
+ *  cover the curated bus list faster. Long-tail mega-metro bus is
+ *  still left to the laptop prewarmer (size-cap fall-through). */
 const TRANSIT_CITIES_PER_TICK = 3;
+
+/** Country shards to prewarm transit (subway + ferry) for per cron
+ *  tick. Each shard tick does up to TRANSIT_SHARD_MODES.length upstream
+ *  fetches, so this slice times the shard-warm cadence. With ~214
+ *  shards × 2 modes / 3 shards per hourly tick the world warms in
+ *  ~3 days from cold, then skip-if-fresh keeps subsequent ticks cheap.
+ *  Many shards (countries with no subway, no ferry) will store nothing
+ *  but still consume an Overpass slot — keep this small. */
+const TRANSIT_SHARDS_PER_TICK = 3;
 
 /** Byte-identical to `buildTransitBboxTuple` (transitRoutes.ts) and
  *  `transitBboxTuple` (laptop-prewarm.mjs). extent is
@@ -1878,13 +1988,35 @@ function transitBboxTuple(
 }
 
 /** Byte-identical to `fetchTransitRelations`'s query string. The newline
- *  framing is load-bearing — the SHA-256 R2 key includes it. */
+ *  framing is load-bearing — the SHA-256 R2 key includes it. v329:
+ *  bbox moved to the `[bbox:...]` global setting form so the existing
+ *  query canonicaliser (querySlicing.ts) strips it during template-
+ *  fingerprint computation. */
 function transitRouteQuery(
     extent: [number, number, number, number],
     routeType: string,
 ): string {
     const tuple = transitBboxTuple(extent);
-    return `\n[out:json][timeout:180];\nrelation["route"="${routeType}"](${tuple});\nout skel geom;\n`;
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="${routeType}"];\nout skel geom;\n`;
+}
+
+/** Cron-side shard query. Same template as `transitRouteQuery`, with
+ *  the country-shard bbox in place of the city extent. Stored under
+ *  `transitShardKey(iso, routeType)` (not the query-hash space) so it's
+ *  read by the slicing path, not the exact-key lookup. */
+function transitShardQuery(
+    shardBbox: [number, number, number, number],
+    routeType: string,
+): string {
+    // CountryShard.bbox is GeoJSON-order [minLng, minLat, maxLng, maxLat];
+    // Overpass wants `s,w,n,e`. Match the per-city 3-decimal precision so
+    // the shard query is also tractable at Overpass's parser.
+    const [w, s, e, n] = shardBbox;
+    const sf = s.toFixed(3);
+    const wf = w.toFixed(3);
+    const nf = n.toFixed(3);
+    const ef = e.toFixed(3);
+    return `\n[out:json][timeout:180][bbox:${sf},${wf},${nf},${ef}];\nrelation["route"="${routeType}"];\nout skel geom;\n`;
 }
 
 /** Decimate a way's geometry to TRANSIT_MAX_VERTICES points, same
@@ -2015,8 +2147,9 @@ async function readBodyCapped(
 }
 
 /**
- * Prewarm the three local transit-route overlays (subway / bus / ferry)
- * for one city, reducing each response server-side before storing so
+ * Prewarm the per-CITY transit overlays. v329 scopes this to bus only
+ * (TRANSIT_CITY_MODES) — subway + ferry are warmed per-shard instead
+ * and sliced at request time. Reduces server-side before storing so
  * the client reads a few hundred KB instead of tens of MB. Per-mode
  * skip-if-fresh; oversized raw bodies (mega-metro bus) are skipped via
  * the readBodyCapped guard rather than OOM-ing the worker.
@@ -2030,7 +2163,7 @@ async function prewarmTransitForCity(
     let skippedFresh = 0;
     let skippedBig = 0;
     if (!city.extent) return { stored, skippedFresh, skippedBig };
-    for (const routeType of TRANSIT_ROUTE_TYPES) {
+    for (const routeType of TRANSIT_CITY_MODES) {
         const query = transitRouteQuery(city.extent, routeType);
         const cacheKey = await r2KeyForQuery(query);
         // Skip if a fresh entry already exists.
@@ -2096,6 +2229,85 @@ async function prewarmTransitForCity(
         }
     }
     return { stored, skippedFresh, skippedBig };
+}
+
+/**
+ * Prewarm ONE (shard, routeType) transit response into R2 under
+ * `transit-routes/v1/<iso>/<routeType>/all`. Used for subway + ferry
+ * (TRANSIT_SHARD_MODES) — sparse modes where a whole-country
+ * `out skel geom` is small enough to reduce + store under the
+ * MAX_TRANSIT_REDUCE_BYTES cap. Stored at the shard key (not the
+ * query-hash key) because the runtime slicer reads by shard, not by
+ * exact-query match. Skip-if-fresh; oversize → skipped, the laptop
+ * prewarmer covers it.
+ */
+async function prewarmTransitForShard(
+    env: Env,
+    shard: CountryShard,
+    routeType: string,
+    ttlMs: number,
+): Promise<{ status: string; ageMs?: number; sizeBytes?: number }> {
+    const key = transitShardKey(shard.iso, routeType);
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(key);
+    } catch (e) {
+        console.warn(
+            `R2 get failed during transit-shard prewarm (${shard.iso} ${routeType}):`,
+            e,
+        );
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const ageMs = Date.now() - cachedAt;
+        if (cachedAt && ageMs < ttlMs) {
+            return { status: "skipped-fresh", ageMs };
+        }
+    }
+    const slotOk = await waitForOverpassSlot(
+        `transit-shard ${shard.iso} ${routeType}`,
+    );
+    if (!slotOk) return { status: "slot-timeout" };
+    const query = transitShardQuery(shard.bbox, routeType);
+    const upstream = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(query),
+    );
+    if (!upstream) return { status: "upstream-failed" };
+    const raw = await readBodyCapped(upstream, MAX_TRANSIT_REDUCE_BYTES);
+    if (raw === null) {
+        return { status: "oversize-skipped" };
+    }
+    let reduced: { text: string; wayCount: number };
+    try {
+        reduced = reduceTransitResponse(raw);
+    } catch (e) {
+        console.warn(
+            `transit-shard reduce failed (${shard.iso} ${routeType}):`,
+            e,
+        );
+        return { status: "reduce-failed" };
+    }
+    try {
+        const { rawBytes } = await compressAndStoreAtKey(
+            env,
+            key,
+            reduced.text,
+            {
+                sourceName: `${shard.label} (${routeType})`,
+                shardIso: shard.iso,
+                prewarmed: "true",
+                kind: "transit-shard",
+                wayCount: String(reduced.wayCount),
+            },
+        );
+        return { status: "stored", sizeBytes: rawBytes };
+    } catch (e) {
+        console.warn(
+            `R2 put failed during transit-shard prewarm (${shard.iso} ${routeType}):`,
+            e,
+        );
+        return { status: "r2-put-failed" };
+    }
 }
 
 /** Build the `[bbox:s,w,n,e]` filter from a Photon extent + pad,
@@ -2315,6 +2527,99 @@ async function trySliceFromCountryShard(
 
     const sliced = sliceResponseByBbox(parsed, bbox);
     return { body: sliced, shardIso: shard.iso };
+}
+
+/**
+ * Memoised template fingerprints for the per-mode transit-route
+ * queries. The canonicaliser strips the `[bbox:...]` setting but keeps
+ * the route literal ("subway"/"ferry"/"bus"), so each mode has its own
+ * stable fingerprint. Only the shard-warmed modes are tracked here;
+ * bus queries are answered by the exact-key R2 hash path (or a live
+ * upstream miss), so we deliberately don't fingerprint-match them
+ * into the slicer.
+ */
+const _transitTemplateFps: Map<string, string> = new Map();
+async function transitShardTemplateFp(routeType: string): Promise<string> {
+    const cached = _transitTemplateFps.get(routeType);
+    if (cached) return cached;
+    // Any extent works — the bbox is stripped during canonicalisation.
+    const dummy = transitRouteQuery([1, 0, 0, 1], routeType);
+    const fp = await templateFingerprint(dummy);
+    _transitTemplateFps.set(routeType, fp);
+    return fp;
+}
+
+/**
+ * Attempt to answer a transit-route overlay query by slicing a
+ * prewarmed country-shard transit cache. Mirrors the reference-shard
+ * pattern (`trySliceFromCountryShard`):
+ *
+ *   1. Extract bbox; bail if absent.
+ *   2. Match the query template fingerprint against the SUBWAY/FERRY
+ *      shapes — anything else (notably bus) falls through.
+ *   3. Find the smallest shard fully containing the bbox.
+ *   4. Read the shard's `transit-routes/v1/<iso>/<routeType>/all`.
+ *   5. Decompress, parse, way-bbox-intersect with `sliceTransitByBbox`,
+ *      return. Empty ways result is fine — same shape Overpass would
+ *      return for a clean miss.
+ *
+ * Pure optimisation: every failure mode is a clean fall-through, never
+ * wrong data. Same MAX_SLICE_PARSE_BYTES cap as country-refs.
+ */
+async function trySliceFromTransitShard(
+    query: string,
+    env: Env,
+): Promise<SlicedResult | null> {
+    const bbox = extractBbox(query);
+    if (!bbox) return null;
+
+    const fp = await templateFingerprint(query);
+    let matchedRouteType: string | null = null;
+    for (const mode of TRANSIT_SHARD_MODES) {
+        if (fp === (await transitShardTemplateFp(mode))) {
+            matchedRouteType = mode;
+            break;
+        }
+    }
+    if (!matchedRouteType) return null;
+
+    const shard = findContainingShard(bbox);
+    if (!shard) return null;
+
+    let obj: R2ObjectBody | null = null;
+    try {
+        obj = await env.CACHE.get(transitShardKey(shard.iso, matchedRouteType));
+    } catch (e) {
+        console.warn(
+            `transit-shard slice: R2 get failed for ${shard.iso} ${matchedRouteType}:`,
+            e,
+        );
+        return null;
+    }
+    if (!obj) return null;
+
+    const rawSize = parseInt(obj.customMetadata?.sizeBytes ?? "0", 10);
+    if (Number.isFinite(rawSize) && rawSize > MAX_SLICE_PARSE_BYTES) {
+        // Shouldn't happen — prewarm caps at MAX_TRANSIT_REDUCE_BYTES
+        // (also 20 MB) BEFORE reducing, and the reduced output is
+        // typically far smaller. Guard anyway.
+        return null;
+    }
+
+    let parsed: TransitReducedResponse;
+    try {
+        const text = await readR2Text(obj);
+        parsed = JSON.parse(text) as TransitReducedResponse;
+    } catch (e) {
+        console.warn(
+            `transit-shard slice: parse failed for ${shard.iso} ${matchedRouteType}:`,
+            e,
+        );
+        return null;
+    }
+
+    const sliced = sliceTransitByBbox(parsed, bbox);
+    return { body: sliced as OverpassResponse, shardIso: shard.iso };
 }
 
 /**
@@ -4279,8 +4584,13 @@ interface R2WriteMetadata {
     prewarmed?: string;
     source?: string;
     kind?: string;
-    /** Country-shard ISO for `kind: "country-references"` entries. */
+    /** Country-shard ISO for `kind: "country-references"` and
+     *  `kind: "transit-shard"` entries. */
     shardIso?: string;
+    /** Number of deduplicated ways stored, for `kind: "transit-shard"`.
+     *  Stringified so it can ride in R2 custom metadata (which is
+     *  string-only). Cheap diagnostic; not load-bearing. */
+    wayCount?: string;
 }
 
 /**

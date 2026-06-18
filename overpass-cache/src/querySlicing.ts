@@ -211,3 +211,106 @@ export function sliceResponseByBbox(
 export function countryRefsKey(shardIso: string): string {
     return `country-refs/v1/${shardIso}/all`;
 }
+
+/* ─────────────── Transit-route shard storage + slicing ──────────────── *
+ *
+ * Local transit (subway / bus / ferry) uses `out skel geom`, so each
+ * element is a route relation whose members are ways carrying full
+ * geometry. References (`out center`) are filtered by per-element
+ * centroid; transit must be filtered by way-level bbox intersection.
+ *
+ * Storage layout — per (shard, routeType), reduced JSON:
+ *     transit-routes/v1/<shardIso>/<routeType>/all
+ *
+ * Routes prewarmed at shard scope are deliberately limited to the
+ * sparse ones (subway, ferry). Bus is dense — a country-wide
+ * `out skel geom` blows the worker's resource budget AND the slicer's
+ * MAX_SLICE_PARSE_BYTES cap — so buses stay per-city (exact-key R2
+ * hash hit on the byte-identical query, no slicing involved).
+ */
+export function transitShardKey(shardIso: string, routeType: string): string {
+    return `transit-routes/v1/${shardIso}/${routeType}/all`;
+}
+
+/**
+ * Reduced transit response shape (the format both the cron-side
+ * reducer and the laptop prewarmer produce): one synthetic relation
+ * whose members are deduplicated ways with geometry. The client
+ * parser doesn't care about route grouping — it draws each way as a
+ * bare LineString — so collapsing to one relation is lossless and
+ * makes the slicer simple (one pass over the way list).
+ */
+export interface TransitWayMember {
+    type: "way";
+    ref?: number;
+    geometry?: Array<{ lat: number; lon: number }>;
+    [extra: string]: unknown;
+}
+export interface TransitRelation {
+    type: string;
+    id?: number;
+    tags?: Record<string, string>;
+    members?: TransitWayMember[];
+    [extra: string]: unknown;
+}
+export interface TransitReducedResponse {
+    version?: number;
+    generator?: string;
+    osm3s?: unknown;
+    elements?: TransitRelation[];
+    [extra: string]: unknown;
+}
+
+/**
+ * Filter a reduced transit response to ways whose own bounding box
+ * (min/max of vertices) intersects `bbox`. Slightly over-inclusive vs.
+ * a true line-clip — we keep any way whose extent touches the play
+ * area even if no vertex is actually inside — but that matches the
+ * client's behaviour exactly: `fetchTransitRoutesFeatures` does the
+ * same way-bbox AABB test before pushing a feature, then draws the
+ * whole LineString. Doing the clip server-side too would re-implement
+ * line-clipping for no visible gain. Pure: input is not mutated.
+ */
+export function sliceTransitByBbox(
+    response: TransitReducedResponse,
+    bbox: Bbox,
+): TransitReducedResponse {
+    const [w, s, e, n] = bbox;
+    const srcElements = response.elements ?? [];
+    const outElements: TransitRelation[] = [];
+    for (const rel of srcElements) {
+        if (rel.type !== "relation") {
+            outElements.push(rel);
+            continue;
+        }
+        const members = rel.members ?? [];
+        const keptMembers: TransitWayMember[] = [];
+        for (const m of members) {
+            if (m.type !== "way" || !Array.isArray(m.geometry)) {
+                // Non-way / geometry-less members can't be bbox-tested.
+                // The reducer only ever emits ways-with-geometry, so this
+                // is the "unknown legacy entry" path: keep it rather than
+                // silently drop — over-inclusion is harmless.
+                keptMembers.push(m);
+                continue;
+            }
+            // Way AABB.
+            let mw = Infinity;
+            let ms = Infinity;
+            let me = -Infinity;
+            let mn = -Infinity;
+            for (let i = 0; i < m.geometry.length; i++) {
+                const pt = m.geometry[i];
+                if (pt.lon < mw) mw = pt.lon;
+                if (pt.lon > me) me = pt.lon;
+                if (pt.lat < ms) ms = pt.lat;
+                if (pt.lat > mn) mn = pt.lat;
+            }
+            // Reject if AABB lies entirely outside the play-area bbox.
+            if (me < w || mw > e || mn < s || ms > n) continue;
+            keptMembers.push(m);
+        }
+        outElements.push({ ...rel, members: keptMembers });
+    }
+    return { ...response, elements: outElements };
+}

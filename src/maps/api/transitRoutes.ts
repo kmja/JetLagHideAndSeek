@@ -125,9 +125,15 @@ function buildTransitBboxTuple(): string | null {
 async function fetchTransitRelations(routeType: string): Promise<unknown> {
     const tuple = buildTransitBboxTuple();
     if (!tuple) return { elements: [] };
-    // Byte-identical to laptop-prewarm.mjs transitRouteQuery — the R2
-    // cache key is a SHA-256 of this exact string. Keep in lockstep.
-    const query = `\n[out:json][timeout:180];\nrelation["route"="${routeType}"](${tuple});\nout skel geom;\n`;
+    // Byte-identical to overpass-cache transitRouteQuery (worker AND
+    // laptop-prewarm.mjs). v329: bbox moved to the global
+    // `[bbox:...]` setting form so the worker's query canonicaliser
+    // (querySlicing.ts) strips it during template-fingerprint
+    // computation, which is what lets SUBWAY + FERRY queries dispatch
+    // into the per-shard slicing path on the worker side. BUS still
+    // matches the byte-identical exact R2-key path. Newline framing
+    // is load-bearing — the SHA-256 R2 key includes it.
+    const query = `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="${routeType}"];\nout skel geom;\n`;
     // No loadingText: the toggle button in MapDisplayControls
     // already renders a spinner for the in-flight mode (driven
     // by transitRoutesLoading). A toast on top of that just
