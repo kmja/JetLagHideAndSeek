@@ -98,6 +98,16 @@ const thermometerQuestionSchema = z
         distance: z.string().optional(),
         /** Unix ms timestamp when the thermometer was started (latA/lngA captured). */
         startedAt: z.number().optional(),
+        /**
+         * v339: target distance preset the seeker chose UP FRONT, e.g.
+         * "5km". Set at start (before the seeker moves) and used by the
+         * overlay to drive a single-target progress UI. Distinct from
+         * `distance` which is only stamped at finish — typically equal,
+         * unless the seeker overshoots and finishes at the same target
+         * anyway. Optional for backward compat with v338-era thermometers
+         * that didn't have a target picker.
+         */
+        targetSig: z.string().optional(),
     })
     .transform((question) => {
         if (question.colorA === question.colorB) {
@@ -145,6 +155,13 @@ const tentacleLocationsFifteen = z.union([
     z.literal("zoo").describe("Zoos"),
     z.literal("aquarium").describe("Aquariums"),
 ]);
+// v339: rulebook p38 — "Metro Lines Within 25 km" (Large only). Deferred
+// from this catalogue pass: metro lines are route=subway relations (line
+// strings), not POI points, so they don't fit the existing
+// LOCATION_FIRST_TAG / `out center` pipeline the other tentacle types
+// share. Adding them properly needs a separate "closest line" computation
+// (per-vertex distance check against the cached subway shard slice) and
+// its own picker tile. Tracked but not surfaced in subtypes.ts.
 
 const tentacleLocationsOne = z.union([
     z.literal("museum").describe("Museums"),
@@ -319,10 +336,17 @@ const hidingZoneMatchingQuestionsSchema = baseMatchingQuestionSchema.extend({
             .describe("Station Starts With Same Letter Question"),
         z
             .literal("same-length-station")
-            .describe("Station Has Same Length Question"),
+            .describe("Station Name Has Same Length Question"),
         z
             .literal("same-train-line")
-            .describe("Station On Same Train Line Question"),
+            .describe("Station On Same Transit Line Question"),
+        // v339: rulebook p18 additions. "Street or Path" and "Landmass"
+        // round out the rulebook's Matching catalogue. They share the
+        // base shape; the matching engine routes by `type`.
+        z
+            .literal("same-street-or-path")
+            .describe("Same Street Or Path Question"),
+        z.literal("same-landmass").describe("Same Landmass Question"),
     ]),
 });
 
@@ -390,6 +414,20 @@ const ordinaryMeasuringQuestionSchema = baseMeasuringQuestionSchema.extend({
             z
                 .literal("park-full")
                 .describe("Park Question (Small+Medium Games)"),
+            // v339: rulebook p23 — additional Measuring categories that
+            // were in the rulebook but missing from the schema.
+            z.literal("rail-measure-ordinary").describe("Rail Station Question"),
+            z
+                .literal("international-border")
+                .describe("International Border Question"),
+            z
+                .literal("admin1-border")
+                .describe("1st Administrative Division Border Question"),
+            z
+                .literal("admin2-border")
+                .describe("2nd Administrative Division Border Question"),
+            z.literal("sea-level").describe("Sea Level (Altitude) Question"),
+            z.literal("body-of-water").describe("Body Of Water Question"),
         ])
         .default("coastline"),
 });

@@ -115,6 +115,12 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
             );
         }
     }
+    // v339: rulebook-completion matching types (same-street-or-path,
+    // same-landmass, …) reach this point. They're sent to the hider and
+    // answered manually; the seeker just doesn't get automatic map
+    // elimination for them yet. Empty feature list = no elimination,
+    // not a crash. Implementing them in turn is a follow-up.
+    return [];
 };
 
 export const determineMatchingBoundary = memoize(

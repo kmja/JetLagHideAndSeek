@@ -144,6 +144,7 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
     if (stripped === "airport") return "airport";
     if (
         stripped === "rail-measure" ||
+        stripped === "rail-measure-ordinary" ||
         stripped === "same-train-line" ||
         stripped === "same-length-station"
     ) {
@@ -154,6 +155,9 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
     if (stripped in LOCATION_FIRST_TAG) {
         return `api:${stripped}` as FamilyKey;
     }
+    // v339: rulebook-completion types that need bespoke data sources
+    // (admin polygons, coastlines, borders, altitude) — they're handled
+    // by their own data paths, not the family cache.
     return null;
 }
 

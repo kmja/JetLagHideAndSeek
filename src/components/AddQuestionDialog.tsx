@@ -47,6 +47,7 @@ import {
     TentacleQuestionComponent,
     ThermometerQuestionComponent,
 } from "./QuestionCards";
+import { ThermometerConfigureDialog } from "./ThermometerConfigureDialog";
 import { Button } from "./ui/button";
 
 /**
@@ -225,6 +226,9 @@ export const AddQuestionDialog = ({
     >(null);
     // Key of the just-added question awaiting Confirm/Cancel.
     const [pendingKey, setPendingKey] = React.useState<number | null>(null);
+    // v339: thermometer now needs a target-distance + Start confirm
+    // dialog before we capture GPS — no longer an immediate start.
+    const [thermConfigureOpen, setThermConfigureOpen] = React.useState(false);
 
     const pendingQuestion =
         pendingKey !== null
@@ -389,33 +393,11 @@ export const AddQuestionDialog = ({
         return true;
     };
 
-    const runAddThermometer = () => {
-        const center = resolveCenter();
-        if (!center) return false;
-        // Thermometer per rulebook: capture the seeker's current location
-        // as point A and enter "started" state. Point B mirrors A until the
-        // seeker has moved and hits Finish in the question card. Map center
-        // is the best proxy we have for "seeker's current location" without
-        // a GPS prompt at this step (we'd block the tap-to-add flow).
-        //
-        // Note: no `createdAt` — the answer countdown shouldn't run during
-        // the "started" phase (seeker is moving, not waiting for an
-        // answer). It gets stamped once the seeker finishes + shares the
-        // ending point.
-        addQuestion({
-            id: "thermometer",
-            data: {
-                latA: center.lat,
-                lngA: center.lng,
-                latB: center.lat,
-                lngB: center.lng,
-                status: "started",
-                startedAt: Date.now(),
-            },
-        });
-
-        return true;
-    };
+    // v339 removed: runAddThermometer captured the MAP CENTRE as the
+    // thermometer's starting point, which broke rulebook p31 — the
+    // start point is the seeker's current GPS, full stop. Thermometer
+    // creation now goes through ThermometerConfigureDialog, which
+    // requests a fresh GPS fix on confirm.
 
     const runAddTentacles = (subtype?: string) => {
         const center = resolveCenter();
@@ -572,13 +554,14 @@ export const AddQuestionDialog = ({
                                     category="thermometer"
                                     description="After traveling ___, am I hotter or colder?"
                                     onClick={() => {
-                                        if (runAddThermometer()) {
-                                            setOpen(false);
-                                            toast.info(
-                                                "Thermometer started. Move away from here to finish.",
-                                                { autoClose: 3000 },
-                                            );
-                                        }
+                                        // v339: open the configure
+                                        // dialog instead of starting
+                                        // immediately. The dialog asks
+                                        // for a target distance + grabs
+                                        // a fresh GPS fix before
+                                        // committing the question.
+                                        setOpen(false);
+                                        setThermConfigureOpen(true);
                                     }}
                                     disabled={thermInProgress}
                                     blockedReason={
@@ -877,6 +860,10 @@ export const AddQuestionDialog = ({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            <ThermometerConfigureDialog
+                open={thermConfigureOpen}
+                onOpenChange={setThermConfigureOpen}
+            />
         </>
     );
 };

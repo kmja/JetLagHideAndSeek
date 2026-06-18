@@ -5,11 +5,6 @@ import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
-import {
     questionModified,
     questions,
     triggerLocalRefresh,
@@ -56,7 +51,6 @@ export function ThermometerOverlay() {
     // so we don't pay the geolocation cost during normal play.
     const [pos, setPos] = useState<{ lat: number; lng: number } | null>(null);
     const [gpsError, setGpsError] = useState(false);
-    const [finishOpen, setFinishOpen] = useState(false);
 
     useEffect(() => {
         if (!started) {
@@ -90,145 +84,137 @@ export function ThermometerOverlay() {
           )
         : null;
 
-    // Which preset signatures are taken by other finished thermometer
-    // questions in this game. The active question is excluded so all
-    // presets are candidates here.
-    const usedPresetSigs = new Set(
-        $questions
-            .filter(
-                (q) =>
-                    q.id === "thermometer" &&
-                    q.key !== started.key &&
-                    (q.data as ThermometerQuestion).status !== "started" &&
-                    (q.data as ThermometerQuestion).distance,
-            )
-            .map((q) => (q.data as ThermometerQuestion).distance!),
-    );
+    // v339: single-target progress UI. The seeker chose a target
+    // distance up front (targetSig — "1km", "5km", "15km", "75km"),
+    // and the overlay tracks progress against THAT target only. The
+    // "End thermometer & send question" button unlocks once they reach
+    // it. Legacy thermometers without targetSig (pre-v339, or imported
+    // from older saves) still render with the bare distance readout so
+    // they don't lose UX entirely — but they can't be ended from the
+    // overlay (use the card's preset picker instead).
+    const target = data.targetSig
+        ? THERMOMETER_PRESETS.find((p) => p.sig === data.targetSig)
+        : undefined;
+    const reachedTarget = target !== undefined && travelKm !== null && travelKm >= target.km;
 
-    const canFinish = travelKm !== null;
-    const finishThermometer = (
-        preset: { km: number; label: string; sig: string },
-        finishLat: number,
-        finishLng: number,
-    ) => {
-        data.latB = finishLat;
-        data.lngB = finishLng;
+    const endThermometer = () => {
+        if (!pos || !target) return;
+        data.latB = pos.lat;
+        data.lngB = pos.lng;
         data.status = "finished";
-        data.distance = preset.sig;
+        data.distance = target.sig;
         questionModified();
-        setFinishOpen(false);
         toast.success(
-            `Thermometer finished at ${preset.label}. Share the ending point to send to the hider.`,
+            `Thermometer ended at ${target.label}. Sent to the hider.`,
             { autoClose: 3500 },
         );
     };
 
+    // Bar progress percentage (0..100) toward the target. Clamped so a
+    // seeker who overshoots stays at 100 % instead of running past.
+    const targetKm = target?.km ?? 0;
+    const progressPct =
+        target && travelKm !== null
+            ? Math.min(100, (travelKm / targetKm) * 100)
+            : 0;
+
     return (
         <div
             className={cn(
-                // Bottom-center, lifted above the mobile bottom nav (and
-                // Leaflet's attribution that we already push up above the
-                // nav in globals.css). On desktop, sits above the bottom-
-                // right OptionDrawers cluster.
                 "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1030]",
                 "bottom-[calc(96px+env(safe-area-inset-bottom))] md:bottom-20",
-                "max-w-[90vw]",
+                "max-w-[90vw] w-[340px]",
             )}
         >
             <div
                 className={cn(
                     "pointer-events-auto",
-                    "flex items-center gap-2.5 px-3.5 py-2 rounded-full",
+                    "px-3.5 py-2.5 rounded-2xl",
                     "bg-background/95 backdrop-blur-md shadow-lg",
                     "border border-primary/40",
+                    "space-y-2",
                 )}
             >
-                <Thermometer className="w-4 h-4 text-primary shrink-0" />
-                <span className="text-xs uppercase tracking-wider font-poppins font-semibold text-muted-foreground">
-                    Thermometer
-                </span>
-                <span className="text-sm font-poppins font-bold tabular-nums text-primary min-w-[70px] text-right">
-                    {travelKm === null
-                        ? gpsError
-                            ? "no GPS"
-                            : "locating…"
-                        : formatTravel(travelKm)}
-                </span>
-                <Popover open={finishOpen} onOpenChange={setFinishOpen}>
-                    <PopoverTrigger asChild>
-                        <button
-                            type="button"
-                            disabled={!canFinish}
-                            title={
-                                canFinish
-                                    ? "Finish thermometer at your current location"
-                                    : "Waiting for GPS"
-                            }
-                            className={cn(
-                                "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs",
-                                "bg-primary text-primary-foreground font-poppins font-semibold",
-                                "hover:bg-primary/90 transition-colors",
-                                "disabled:opacity-40 disabled:cursor-not-allowed",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                <div className="flex items-center gap-2">
+                    <Thermometer className="w-4 h-4 text-primary shrink-0" />
+                    <span className="text-xs uppercase tracking-wider font-poppins font-semibold text-muted-foreground">
+                        Thermometer
+                    </span>
+                    {target && (
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80 ml-auto">
+                            Target {target.label}
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-baseline gap-2">
+                    <span className="text-base font-poppins font-bold tabular-nums text-primary">
+                        {travelKm === null
+                            ? gpsError
+                                ? "no GPS"
+                                : "locating…"
+                            : formatTravel(travelKm)}
+                    </span>
+                    {target && travelKm !== null && (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                            of {target.label}
+                            {!reachedTarget && (
+                                <>
+                                    {" · "}
+                                    {formatRemaining(
+                                        target.km - travelKm,
+                                    )}{" "}
+                                    to go
+                                </>
                             )}
-                        >
-                            <Flag className="w-3 h-3" />
-                            Finish here
-                        </button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[260px] p-3" align="end">
-                        <div className="text-xs font-poppins font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                            Finish at preset
-                        </div>
-                        <div className="grid grid-cols-3 gap-1.5">
-                            {THERMOMETER_PRESETS.map((preset) => {
-                                const reached =
-                                    travelKm !== null && travelKm >= preset.km;
-                                const used = usedPresetSigs.has(preset.sig);
-                                const enabled = reached && !used;
-                                return (
-                                    <button
-                                        key={preset.sig}
-                                        type="button"
-                                        onClick={() => {
-                                            if (!pos) return;
-                                            finishThermometer(
-                                                preset,
-                                                pos.lat,
-                                                pos.lng,
-                                            );
-                                        }}
-                                        disabled={!enabled || !pos}
-                                        title={
-                                            used
-                                                ? `${preset.label} already used`
-                                                : !reached
-                                                  ? `Move ${formatRemaining(
-                                                        preset.km -
-                                                            (travelKm ?? 0),
-                                                    )} more`
-                                                  : `Finish at ${preset.label}`
-                                        }
-                                        className={cn(
-                                            "py-1.5 px-1 rounded-md text-xs font-poppins font-semibold",
-                                            "border transition-colors",
-                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                            enabled
-                                                ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90"
-                                                : "bg-secondary text-muted-foreground border-border opacity-50 cursor-not-allowed",
-                                        )}
-                                    >
-                                        {preset.label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground mt-2 leading-snug">
-                            Grey presets aren&apos;t reached yet or have
-                            already been used in this game.
-                        </p>
-                    </PopoverContent>
-                </Popover>
+                        </span>
+                    )}
+                </div>
+                {target && (
+                    <div className="h-1.5 w-full bg-secondary/60 rounded-full overflow-hidden">
+                        <div
+                            className={cn(
+                                "h-full transition-[width] duration-300 ease-out",
+                                reachedTarget
+                                    ? "bg-emerald-500"
+                                    : "bg-primary",
+                            )}
+                            style={{ width: `${progressPct.toFixed(1)}%` }}
+                        />
+                    </div>
+                )}
+                {target && (
+                    <button
+                        type="button"
+                        onClick={endThermometer}
+                        disabled={!reachedTarget || !pos}
+                        title={
+                            !pos
+                                ? "Waiting for GPS"
+                                : reachedTarget
+                                  ? `End thermometer at ${target.label} and send to the hider`
+                                  : `Move ${formatRemaining(
+                                        target.km - (travelKm ?? 0),
+                                    )} more to enable`
+                        }
+                        className={cn(
+                            "w-full flex items-center justify-center gap-1.5 py-2 rounded-md text-xs",
+                            "font-poppins font-semibold",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            reachedTarget
+                                ? "bg-emerald-500 text-white hover:bg-emerald-500/90"
+                                : "bg-secondary text-muted-foreground cursor-not-allowed",
+                        )}
+                    >
+                        <Flag className="w-3.5 h-3.5" />
+                        End thermometer &amp; send question
+                    </button>
+                )}
+                {!target && travelKm !== null && (
+                    <p className="text-[10px] text-muted-foreground leading-snug">
+                        Legacy thermometer — finish from the question
+                        card&apos;s preset picker.
+                    </p>
+                )}
             </div>
         </div>
     );

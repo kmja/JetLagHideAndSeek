@@ -246,6 +246,17 @@ export const determineMeasuringBoundary = async (
         case "mcdonalds":
         case "seven11":
         case "rail-measure":
+        // v339: rulebook-completion measuring types — picker-visible
+        // and schema-valid so the hider receives them, but seeker-side
+        // map elimination isn't implemented yet. `false` falls through
+        // the elimination pipeline as a no-op (same path the
+        // hider-only types above take).
+        case "rail-measure-ordinary":
+        case "international-border":
+        case "admin1-border":
+        case "admin2-border":
+        case "sea-level":
+        case "body-of-water":
             return false;
     }
 };

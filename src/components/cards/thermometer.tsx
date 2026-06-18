@@ -119,6 +119,12 @@ export const ThermometerQuestionComponent = ({
                     startLng={data.lngA}
                     unit={DISTANCE_UNIT}
                     usedPresetSigs={usedPresetSigs}
+                    // v339: when targetSig is present, the card only
+                    // surfaces that ONE preset — the seeker committed to
+                    // that distance up front and can't bail to a different
+                    // one. Legacy thermometers without targetSig still
+                    // get the full pick-any-reached-preset UI.
+                    targetSig={data.targetSig}
                     disabled={$isLoading}
                     onFinish={(preset, finishLat, finishLng) => {
                         data.latB = finishLat;
@@ -302,6 +308,7 @@ function StartedBody({
     startLng,
     unit,
     usedPresetSigs,
+    targetSig,
     disabled,
     onFinish,
 }: {
@@ -309,6 +316,11 @@ function StartedBody({
     startLng: number;
     unit: "miles" | "kilometers" | "meters";
     usedPresetSigs: Set<string>;
+    /** v339: when set, only this preset is shown — the seeker chose it
+     *  at start time and the card mirrors the overlay's single-target
+     *  UI. Legacy started thermometers without targetSig get the full
+     *  multi-preset picker (so they can still be finished). */
+    targetSig?: string;
     disabled?: boolean;
     onFinish: (
         preset: { km: number; label: string; sig: string },
@@ -431,7 +443,17 @@ function StartedBody({
                         Finish with
                     </div>
                     <div className="grid grid-cols-5 gap-1.5">
-                        {THERMOMETER_PRESETS.map((preset) => {
+                        {/* v339: a targetSig'd thermometer only ever
+                            offers the chosen preset (single column on
+                            a five-column grid). Legacy ones (no
+                            targetSig) keep the original
+                            pick-any-reached-preset row. */}
+                        {(targetSig
+                            ? THERMOMETER_PRESETS.filter(
+                                  (p) => p.sig === targetSig,
+                              )
+                            : THERMOMETER_PRESETS
+                        ).map((preset) => {
                             const reached = travelKm >= preset.km;
                             const used = usedPresetSigs.has(preset.sig);
                             const isAvailable = reached && !used;

@@ -16,7 +16,6 @@ import {
     type FamilyKey,
     HSR_COUNTRY_CENTROIDS,
     nearestFromCache,
-    pointInsideCacheCoverage,
     prefetchCategory,
 } from "@/maps/api/playAreaPrefetch";
 import { CacheType } from "@/maps/api/types";
@@ -288,15 +287,15 @@ async function tryCacheNearest(
                   : null;
     if (!key) return null;
 
-    // v338: when the seeker's anchor sits outside the play-area cache's
-    // coverage (extent + 50 km pad), the cache's "nearest" is the
-    // nearest feature IN the cache — not the truly nearest. That's
-    // the Umeå-game-from-Falun bug: the cache held only Umeå-region
-    // airports, so Umeå Airport "won" even though Stockholm / Dala /
-    // Mora are far closer to the seeker. Skip the cache here and let
-    // the GPS-anchored Overpass fallback in `fetchNearest` answer.
-    if (!pointInsideCacheCoverage(lat, lng)) return null;
-
+    // v339: rulebook p17 — "If locations are not within a map's
+    // boundaries, players must operate as if they do not exist." The
+    // reference for a matching/measuring question is THE NEAREST ONE
+    // INSIDE THE PLAY AREA, not the nearest globally. The play-area
+    // cache (bbox + 50 km pad) holds exactly the right candidate set,
+    // so the cache-first lookup IS the correct answer — even when
+    // the seeker physically stands far outside the play area (e.g.
+    // remote-testing). v338's "bypass cache when seeker is outside"
+    // path was reverted on that basis.
     const cached = nearestFromCache(key, lat, lng);
     if (cached) return cached;
 
@@ -326,31 +325,6 @@ async function fetchNearest(
     if (fromCache) return fromCache;
 
     if (family.kind === "airport") {
-        // v338: when the anchor is outside the cache coverage,
-        // findPlacesInZone would also go through the v331 cache
-        // fast-path and serve the same play-area-scoped result. Do a
-        // GPS-anchored around: walk instead, mirroring the rail-station
-        // / brand / HSR fallback shape. Inside coverage, the cache
-        // hit above already returned; this only fires when we KNOW
-        // the cache can't help.
-        if (!pointInsideCacheCoverage(lat, lng)) {
-            for (const km of [30, 100, 300, 1000]) {
-                const query = `
-[out:json][timeout:60];
-nwr["aeroway"="aerodrome"]["iata"](around:${km * 1000},${lat},${lng});
-out center;
-`;
-                const data = await getOverpassData(
-                    query,
-                    undefined,
-                    CacheType.ZONE_CACHE,
-                );
-                const els = (data as { elements?: any[] }).elements ?? [];
-                const ref = pickNearestNamed(els, lat, lng);
-                if (ref) return ref;
-            }
-            return null;
-        }
         const data = await findPlacesInZone(
             '["aeroway"="aerodrome"]["iata"]',
             undefined,
