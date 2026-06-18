@@ -1936,8 +1936,15 @@ out geom;
  *   - transitBboxTuple + transitRouteQuery           (laptop-prewarm.mjs)
  *   - the helpers below                              (this cron)
  */
-/** Modes warmed at country-shard scope and sliced at request time. */
-const TRANSIT_SHARD_MODES = ["subway", "ferry"] as const;
+/** Modes warmed at country-shard scope and sliced at request time.
+ *  v334 added train + tram. Both are denser than subway/ferry but
+ *  still tractable per-shard in most countries — the rare mega-network
+ *  (German DB, Japan JR, China high-speed) may exceed the 20 MB
+ *  reduce cap and skip, falling through to the live per-city query
+ *  path. Worst-case behaviour: the colored overlay shows nothing for
+ *  those countries on first ask, and the per-query exact-key R2 cache
+ *  fills as users tap. */
+const TRANSIT_SHARD_MODES = ["subway", "ferry", "train", "tram"] as const;
 /** Modes warmed per-city (exact-key match — no slicing). */
 const TRANSIT_CITY_MODES = ["bus"] as const;
 const TRANSIT_BBOX_PAD_KM = 5;

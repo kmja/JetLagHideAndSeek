@@ -24,7 +24,7 @@ import { CacheType } from "@/maps/api/types";
  * transit-route query path.)
  */
 
-export type TransitMode = "subway" | "bus" | "ferry";
+export type TransitMode = "subway" | "bus" | "ferry" | "train" | "tram";
 
 const MAX_VERTICES = 50;
 

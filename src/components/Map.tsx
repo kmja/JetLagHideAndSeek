@@ -54,6 +54,8 @@ import {
     showBusRoutes,
     showFerryRoutes,
     showSubwayRoutes,
+    showTrainRoutes,
+    showTramRoutes,
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
@@ -303,6 +305,8 @@ export function Map({ className }: MapProps) {
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
     const $ferry = useStore(showFerryRoutes);
+    const $train = useStore(showTrainRoutes);
+    const $tram = useStore(showTramRoutes);
     const $tileKey = useStore(baseTileLayer);
     const $satellite = useStore(satelliteView);
     const $rail = useStore(showTransitLines);
@@ -836,9 +840,11 @@ export function Map({ className }: MapProps) {
     const subwayOn = $subway && $allowedTransit.includes("subway");
     const busOn = $bus && $allowedTransit.includes("bus");
     const ferryOn = $ferry && $allowedTransit.includes("ferry");
+    const trainOn = $train && $allowedTransit.includes("train");
+    const tramOn = $tram && $allowedTransit.includes("tram");
     const [transitFC, setTransitFC] = useState<
         Record<TransitMode, GeoJSON.FeatureCollection | null>
-    >({ subway: null, bus: null, ferry: null });
+    >({ subway: null, bus: null, ferry: null, train: null, tram: null });
     const areaKey =
         $mapGeoLocation?.properties?.osm_id ??
         ($polyGeoJSON ? "custom-poly" : "none");
@@ -872,11 +878,13 @@ export function Map({ className }: MapProps) {
         fetchAndSet("subway", subwayOn);
         fetchAndSet("bus", busOn);
         fetchAndSet("ferry", ferryOn);
+        fetchAndSet("train", trainOn);
+        fetchAndSet("tram", tramOn);
         return () => {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [subwayOn, busOn, ferryOn, areaKey]);
+    }, [subwayOn, busOn, ferryOn, trainOn, tramOn, areaKey]);
 
     // Pending-radius circles. The "elimination" pipeline above
     // deliberately skips radius questions so the Leaflet
@@ -1420,6 +1428,46 @@ export function Map({ className }: MapProps) {
                                 "line-width": 2,
                                 "line-opacity": 0.8,
                                 "line-dasharray": [4, 4],
+                            }}
+                        />
+                    </Source>
+                )}
+                {/* v334: colored train + tram overlays. Train uses a
+                    saturated green so it reads distinctly from the
+                    OpenRailwayMap raster's brown track; tram uses a
+                    pink so it doesn't collide with subway purple in
+                    cities that have both. Same width/opacity as the
+                    other modes for visual parity. */}
+                {transitFC.train && (
+                    <Source
+                        id="transit-train"
+                        type="geojson"
+                        data={transitFC.train}
+                    >
+                        <Layer
+                            id="transit-train-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(140, 55%, 45%)",
+                                "line-width": 2,
+                                "line-opacity": 0.8,
+                            }}
+                        />
+                    </Source>
+                )}
+                {transitFC.tram && (
+                    <Source
+                        id="transit-tram"
+                        type="geojson"
+                        data={transitFC.tram}
+                    >
+                        <Layer
+                            id="transit-tram-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(330, 75%, 60%)",
+                                "line-width": 2,
+                                "line-opacity": 0.8,
                             }}
                         />
                     </Source>

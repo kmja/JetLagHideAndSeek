@@ -123,6 +123,32 @@ export const showSubwayRoutes = persistentAtom<boolean>(
 );
 
 /**
+ * Train-routes overlay (v334). `route=train` relations: regional
+ * commuter + intercity services. Complements the OpenRailwayMap
+ * raster — that one shows raw track, this one shows named services —
+ * and gives train/tram users the same colored-overlay treatment
+ * subway/bus/ferry already had. Default off because train networks
+ * can be dense on first fetch in well-mapped countries.
+ */
+export const showTrainRoutes = persistentAtom<boolean>(
+    "showTrainRoutes",
+    false,
+    { encode: JSON.stringify, decode: JSON.parse },
+);
+
+/**
+ * Tram-routes overlay (v334). `route=tram` relations. Sparser than
+ * subway globally (~few hundred cities have a tram network) but
+ * dense within them; the per-shard prewarm fits comfortably under
+ * the reduce cap. Same default-off + colored-toggle pattern.
+ */
+export const showTramRoutes = persistentAtom<boolean>(
+    "showTramRoutes",
+    false,
+    { encode: JSON.stringify, decode: JSON.parse },
+);
+
+/**
  * What to preload during the hiding period.
  *
  * Players on slow connections / pay-per-MB plans may not want the
@@ -274,6 +300,8 @@ export function resetMapOverlays() {
     showBusRoutes.set(false);
     showSubwayRoutes.set(false);
     showFerryRoutes.set(false);
+    showTrainRoutes.set(false);
+    showTramRoutes.set(false);
     // Hiding-zones analysis overlay lives in context.ts. Plain static
     // import — there's no circular dep going the other way.
     displayHidingZones.set(false);
@@ -313,6 +341,8 @@ type TransitLoadingState = {
     subway: boolean;
     bus: boolean;
     ferry: boolean;
+    train: boolean;
+    tram: boolean;
 };
 const __TRANSIT_LOADING_KEY = "__jlhs_transitRoutesLoading";
 export const transitRoutesLoading: ReturnType<
@@ -324,6 +354,8 @@ export const transitRoutesLoading: ReturnType<
             subway: false,
             bus: false,
             ferry: false,
+            train: false,
+            tram: false,
         });
     }
     return g[__TRANSIT_LOADING_KEY] as ReturnType<typeof atom<TransitLoadingState>>;

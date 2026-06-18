@@ -11,6 +11,7 @@ import {
     Ship,
     Target,
     Train,
+    TrainFront,
     TrainTrack,
 } from "lucide-react";
 
@@ -27,6 +28,8 @@ import {
     showBusRoutes,
     showFerryRoutes,
     showSubwayRoutes,
+    showTrainRoutes,
+    showTramRoutes,
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
@@ -53,6 +56,8 @@ export function MapDisplayControls() {
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
     const $ferry = useStore(showFerryRoutes);
+    const $train = useStore(showTrainRoutes);
+    const $tram = useStore(showTramRoutes);
     const $hidingZones = useStore(displayHidingZones);
     const $isLoading = useStore(isLoading);
     const $allowedTransit = useStore(allowedTransit);
@@ -67,8 +72,15 @@ export function MapDisplayControls() {
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
     const showFerryBtn = $allowedTransit.includes("ferry");
+    const showTrainBtn = $allowedTransit.includes("train");
+    const showTramBtn = $allowedTransit.includes("tram");
     const hasAnyTransitBtn =
-        showRailBtn || showSubwayBtn || showBusBtn || showFerryBtn;
+        showRailBtn ||
+        showSubwayBtn ||
+        showBusBtn ||
+        showFerryBtn ||
+        showTrainBtn ||
+        showTramBtn;
 
     // How many overlays are currently active? Surfaces a tiny count
     // badge on the Map-options chip so the user can see at a glance
@@ -79,7 +91,9 @@ export function MapDisplayControls() {
         (Number($rail && showRailBtn) || 0) +
         (Number($subway && showSubwayBtn) || 0) +
         (Number($bus && showBusBtn) || 0) +
-        (Number($ferry && showFerryBtn) || 0);
+        (Number($ferry && showFerryBtn) || 0) +
+        (Number($train && showTrainBtn) || 0) +
+        (Number($tram && showTramBtn) || 0);
 
     return (
         <div className="flex flex-col gap-2 items-end">
@@ -344,6 +358,48 @@ export function MapDisplayControls() {
                                                 onToggle={() =>
                                                     showFerryRoutes.set(
                                                         !$ferry,
+                                                    )
+                                                }
+                                                borderLeft={buttons.length > 0}
+                                            />,
+                                        );
+                                    }
+                                    // v334: colored train + tram
+                                    // overlays separate from the rail
+                                    // raster above. Raster = raw
+                                    // track, colored = named services.
+                                    if (showTrainBtn) {
+                                        buttons.push(
+                                            <TransitIconToggle
+                                                key="train"
+                                                icon={TrainFront}
+                                                label="Train (lines)"
+                                                on={$train}
+                                                loading={
+                                                    $transitLoading.train
+                                                }
+                                                onToggle={() =>
+                                                    showTrainRoutes.set(
+                                                        !$train,
+                                                    )
+                                                }
+                                                borderLeft={buttons.length > 0}
+                                            />,
+                                        );
+                                    }
+                                    if (showTramBtn) {
+                                        buttons.push(
+                                            <TransitIconToggle
+                                                key="tram"
+                                                icon={TrainTrack}
+                                                label="Tram (lines)"
+                                                on={$tram}
+                                                loading={
+                                                    $transitLoading.tram
+                                                }
+                                                onToggle={() =>
+                                                    showTramRoutes.set(
+                                                        !$tram,
                                                     )
                                                 }
                                                 borderLeft={buttons.length > 0}
