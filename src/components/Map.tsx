@@ -70,6 +70,7 @@ import {
     recordPmtilesError,
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
+import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { clearCache, determineMapBoundaries } from "@/maps/api";
@@ -325,10 +326,13 @@ export function Map({ className }: MapProps) {
     // v241: rebuild style when the resolved PMTiles URL flips (e.g.
     // fallback from our worker to the demo bucket on tile error).
     const $pmtilesUrl = useStore(pmtilesUrl);
+    // v336: rebuild the style when a city tile pack activates so the
+    // basemap source flips to the merge scheme (pack-first rendering).
+    const $tilePackId = useStore(activeTilePackId);
     const style = useMemo(
         () => buildStyle($tileKey, $satellite, $rail, $tfKey ?? "", $theme),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [$tileKey, $satellite, $rail, $tfKey, $theme, $pmtilesUrl],
+        [$tileKey, $satellite, $rail, $tfKey, $theme, $pmtilesUrl, $tilePackId],
     );
 
     // Initial view priority: persisted viewport > OSM extent of

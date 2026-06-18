@@ -38,6 +38,11 @@ import { atom } from "nanostores";
 import { Protocol } from "pmtiles";
 
 import { PMTILES_URL, PMTILES_URL_FALLBACK } from "@/maps/api/constants";
+import {
+    activeTilePackId,
+    MERGE_SCHEME,
+    registerMergeProtocol,
+} from "@/lib/tilePack";
 
 /**
  * Resolved PMTiles source URL — a nanostore so map components can
@@ -121,12 +126,21 @@ export type ProtomapsTheme =
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
     registerPMTilesProtocol();
+    registerMergeProtocol();
     probePmtilesAvailability();
     const flavor = namedFlavor(theme);
     const layers = curatedBasemapLayers(
         protomapsLayers(PROTOMAPS_SOURCE_ID, flavor, { lang: "en" }),
     );
     const url = pmtilesUrl.get();
+    // v336: when a city tile pack is active, route the basemap source
+    // through the merge protocol (pack-first, master-fallback). With no
+    // pack the plain `pmtiles://` path is byte-identical to before — so
+    // the default render path for non-curated cities is untouched.
+    const sourceUrl =
+        activeTilePackId.get() !== null
+            ? `${MERGE_SCHEME}://${url}`
+            : `pmtiles://${url}`;
     return {
         version: 8,
         // Glyphs (font sprites). Protomaps' canonical glyph URL — we
@@ -147,7 +161,7 @@ export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
         sources: {
             [PROTOMAPS_SOURCE_ID]: {
                 type: "vector",
-                url: `pmtiles://${url}`,
+                url: sourceUrl,
                 attribution:
                     '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
             },

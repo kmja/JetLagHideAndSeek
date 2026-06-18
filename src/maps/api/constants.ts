@@ -82,6 +82,12 @@ export const PMTILES_URL = readOverride(
  *  demo bucket server-side. Active only when our R2 file is missing. */
 export const PMTILES_URL_FALLBACK =
     `${JLHS_WORKER_BASE}/tiles/protomaps-fallback`;
+/** Base URL for city tile packs (v336). A pack for OSM relation N is
+ *  at `${TILE_PACK_BASE}/N.pmtiles`, served by the worker's /tiles/
+ *  route. The `v1/` namespace MUST match `tilePackKey` in
+ *  overpass-cache/src/index.ts and the laptop uploader — bump together
+ *  if the master basemap is re-rendered. */
+export const TILE_PACK_BASE = `${JLHS_WORKER_BASE}/tiles/tile-packs/v1`;
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",
     DEFAULT_OVERPASS_API_TERTIARY,
