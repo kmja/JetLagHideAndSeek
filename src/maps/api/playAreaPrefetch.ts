@@ -4,6 +4,7 @@ import { atom } from "nanostores";
 import {
     additionalMapGeoLocations,
     mapGeoLocation,
+    polyGeoJSON,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
@@ -189,38 +190,65 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
 }
 
 /**
+ * The CANONICAL reference-prefetch extent for the current play area,
+ * as `[maxLat, minLng, minLat, maxLng]` (Photon shape) — or null when
+ * no boundary/extent is available.
+ *
+ * v356: this is the single source of truth that the client, the laptop
+ * prewarm, and the worker cron MUST all agree on, because the R2 cache
+ * key is a SHA-256 of the exact query string (bbox to 3 decimals). For
+ * a long time the three diverged:
+ *
+ *   - laptop  → min/max of the boundary polygon (`relation(N);out geom;`)
+ *   - client  → Photon's `extent` field
+ *   - cron    → polygons.osm.fr bbox OR Photon, depending on path
+ *
+ * Photon's extent and the polygon's true min/max are independent numbers
+ * that routinely differ in the 3rd decimal, so the client looked up a
+ * different key than the prewarms wrote — every reference query missed
+ * R2 and went live to Overpass (the Frankfurt cascade). We standardise
+ * on the BOUNDARY-GEOMETRY min/max because it's deterministic from the
+ * boundary everyone already fetches, and it's what the laptop already
+ * used — so existing warmed entries become hittable with no re-warming.
+ *
+ * Prefers `polyGeoJSON` (the assembled boundary, byte-equal source data
+ * to the laptop's `extentFromBoundaryResponse` walk — interior member
+ * nodes can't push the bbox outward, so the min/max agree). Falls back
+ * to Photon's extent only when the boundary hasn't loaded yet, so a
+ * race on first paint can't break the lookup permanently (the next
+ * lookup, once the boundary is in, uses the canonical value).
+ */
+function referenceExtent(): [number, number, number, number] | null {
+    const poly = polyGeoJSON.get();
+    if (poly && poly.features.length > 0) {
+        // turf.bbox → [minLng, minLat, maxLng, maxLat]. Same min/max
+        // doubles as the laptop's coordinate walk; reshape to Photon
+        // order [maxLat, minLng, minLat, maxLng].
+        const [minLng, minLat, maxLng, maxLat] = turf.bbox(poly);
+        if (
+            [minLng, minLat, maxLng, maxLat].every((v) => Number.isFinite(v))
+        ) {
+            return [maxLat, minLng, minLat, maxLng];
+        }
+    }
+    const extent = (mapGeoLocation.get()?.properties as { extent?: number[] })
+        ?.extent;
+    if (extent && extent.length === 4) {
+        return extent as [number, number, number, number];
+    }
+    return null;
+}
+
+/**
  * Build an Overpass `[bbox:south,west,north,east]` filter string for
- * the current play area, padded by `padKm`.
- *
- * Sources the bbox from `mapGeoLocation.properties.extent` (Photon's
- * raw OSM relation bbox), NOT from the land-clipped polyGeoJSON.
- * Two reasons:
- *
- *   1. The cron mirror in `overpass-cache/src/index.ts`
- *      (`buildReferenceBboxQuery`) starts from the same Photon
- *      extent stored on each `CityEntry`. Both sides MUST produce
- *      byte-identical query strings — the R2 cache key is a SHA-256
- *      hash of the string — so we standardise on the Photon extent,
- *      `[bbox:s,w,n,e]` with 3-decimal coordinates, and identical
- *      whitespace/newlines. Any divergence and the cron's
- *      lovingly pre-warmed reference entries silently miss the
- *      client's cache.
- *
- *   2. The nearest-reference lookup doesn't care whether the
- *      museum is inside the play area, only that it's the closest
- *      to the seeker — so the OSM relation bbox is the right
- *      reference frame anyway, and the land-clip / island-filter
- *      from `landClip.ts` would just make the bbox arbitrarily
- *      different from what the cron computes.
- *
+ * the current play area, padded by `padKm`, off the canonical
+ * `referenceExtent()` (see that function for the byte-match contract).
  * Returns null when no play area is set or no extent is available.
  */
 function buildPaddedBboxFilter(padKm: number): string | null {
-    const primary = mapGeoLocation.get();
-    const extent = (primary?.properties as { extent?: number[] })?.extent;
-    if (!extent || extent.length !== 4) return null;
-    // extent is [maxLat, minLng, minLat, maxLng] post-normalize
-    // (see src/maps/api/geocode.ts).
+    const extent = referenceExtent();
+    if (!extent) return null;
+    // extent is [maxLat, minLng, minLat, maxLng].
     const [maxLat, minLng, minLat, maxLng] = extent;
     const south = minLat;
     const west = minLng;
@@ -275,9 +303,10 @@ export function pointInsideCacheCoverage(
     lat: number,
     lng: number,
 ): boolean {
-    const loc = mapGeoLocation.get();
-    const extent = (loc?.properties as { extent?: number[] })?.extent;
-    if (!extent || extent.length !== 4) return false;
+    // v356: use the SAME canonical extent the cache was keyed under, so
+    // "is this point covered" agrees with what was actually fetched.
+    const extent = referenceExtent();
+    if (!extent) return false;
     // Photon extent shape: [maxLat, minLng, minLat, maxLng].
     const [maxLat, minLng, minLat, maxLng] = extent;
     if (![maxLat, minLng, minLat, maxLng].every((v) => Number.isFinite(v))) {
@@ -696,10 +725,17 @@ export function nearestFromCache(
 export async function prefetchFamiliesInOneQuery(
     families: FamilyKey[],
 ): Promise<void> {
-    const sig = playAreaSignature();
-    if (!sig) return;
+    if (!playAreaSignature()) return;
     const todo = families.filter((f) => !cache.get(cacheKey(f)));
     if (todo.length === 0) return;
+
+    // v356: key the master gates on the play-area signature AND the
+    // actual bbox. The bbox can transiently fall back to Photon's extent
+    // before the boundary polygon loads, then switch to the canonical
+    // boundary extent (see referenceExtent). Keying on the bbox keeps a
+    // Photon-fallback failure from blocking the real boundary-extent
+    // attempt under the 60 s backoff — they're tracked as distinct keys.
+    const sig = `${playAreaSignature()}|${buildPaddedBboxFilter(50) ?? "?"}`;
 
     // v355: backoff after a recent failure — see masterRecentFailureAt
     // comment above for the cascade this prevents.

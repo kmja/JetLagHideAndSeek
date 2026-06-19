@@ -1630,6 +1630,88 @@ function singleRelationQuery(relationId: number): string {
 }
 
 /**
+ * Walk an Overpass `out geom` boundary response for the min/max of every
+ * coordinate and return it as a Photon-shaped extent
+ * `[maxLat, minLng, minLat, maxLng]`. Byte-identical in result to the
+ * laptop prewarm's `extentFromBoundaryResponse` (same source data, same
+ * min/max) — interior member nodes (admin_centre / label) can't push the
+ * bbox outward, so this agrees with the client's `turf.bbox(polyGeoJSON)`
+ * too. v356: this is the canonical reference extent every warmer + the
+ * client now share. Returns null on no usable coordinate.
+ */
+function extentFromBoundaryJson(
+    parsed: unknown,
+): [number, number, number, number] | null {
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    let found = false;
+    const consume = (lat: number, lon: number) => {
+        if (typeof lat !== "number" || typeof lon !== "number") return;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+        found = true;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lon < minLng) minLng = lon;
+        if (lon > maxLng) maxLng = lon;
+    };
+    const visit = (node: any) => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) {
+            if (
+                node.length >= 2 &&
+                typeof node[0] === "number" &&
+                typeof node[1] === "number"
+            ) {
+                consume(node[1], node[0]); // GeoJSON [lon, lat]
+                return;
+            }
+            for (const child of node) visit(child);
+            return;
+        }
+        if (typeof node.lat === "number" && typeof node.lon === "number") {
+            consume(node.lat, node.lon); // Overpass {lat, lon}
+        }
+        if (node.geometry) visit(node.geometry);
+        if (node.members) visit(node.members);
+        if (node.elements) visit(node.elements);
+        if (node.coordinates) visit(node.coordinates);
+    };
+    visit(parsed);
+    if (!found) return null;
+    return [maxLat, minLng, minLat, maxLng];
+}
+
+/**
+ * Resolve a city's CANONICAL reference extent from the boundary the cron
+ * already warmed into R2 (`relation(N);out geom;`). Falls back to the
+ * stored `city.extent` only when the boundary isn't cached / unparseable.
+ * v356: keeps the cron's reference cache keys aligned with the client and
+ * the laptop prewarm, both of which key off the boundary geometry.
+ */
+async function canonicalReferenceExtent(
+    env: Env,
+    city: CityEntry,
+): Promise<[number, number, number, number] | null> {
+    try {
+        const key = await r2KeyForQuery(singleRelationQuery(city.relationId));
+        const obj = await env.CACHE.get(`overpass/${key}`);
+        if (obj) {
+            const text = await readR2Text(obj);
+            if (text) {
+                const derived = extentFromBoundaryJson(JSON.parse(text));
+                if (derived) return derived;
+            }
+        }
+    } catch {
+        /* fall through to stored extent */
+    }
+    return city.extent ?? null;
+}
+
+/**
  * Compute the [south, west, north, east] tuple for a city's bbox
  * with a given pad. Same arithmetic as `buildBboxFilter`, just
  * returning the numeric corners instead of an Overpass filter
@@ -1715,12 +1797,23 @@ async function prewarmReferencesBatch(
     const out = { stored: 0, upstreamFailed: false };
     if (cities.length === 0) return out;
 
+    // v356: resolve each city's CANONICAL reference extent (the boundary
+    // geometry the cron warmed into R2) up front, so every reference key
+    // this batch writes matches what the client now looks up. Falls back
+    // to the stored `city.extent` when the boundary isn't cached yet.
+    const extentByRelation = new Map<number, [number, number, number, number]>();
+    for (const city of cities) {
+        const ext = await canonicalReferenceExtent(env, city);
+        if (ext) extentByRelation.set(city.relationId, ext);
+    }
+
     // Skip already-fresh cities to avoid wasted upstream work.
     const stale: CityEntry[] = [];
     const perCityKey = new Map<number, string>();
     for (const city of cities) {
-        if (!city.extent) continue;
-        const singleQuery = buildReferenceBboxQuery(city.extent);
+        const ext = extentByRelation.get(city.relationId);
+        if (!ext) continue;
+        const singleQuery = buildReferenceBboxQuery(ext);
         const cacheKey = await r2KeyForQuery(singleQuery);
         let r2Hit: R2ObjectBody | null = null;
         try {
@@ -1745,7 +1838,10 @@ async function prewarmReferencesBatch(
     // city, just repeated.
     const subBlocks: string[] = [];
     for (const city of stale) {
-        const bbox = paddedBboxCorners(city.extent!, PAD_KM);
+        const bbox = paddedBboxCorners(
+            extentByRelation.get(city.relationId)!,
+            PAD_KM,
+        );
         const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
         for (const { filter } of REFERENCE_FAMILY_FILTERS) {
             subBlocks.push(`  nwr${filter}(${bboxStr});`);
@@ -1780,7 +1876,7 @@ out center;
     // intended (overlapping bboxes from the 50 km pad).
     const cityBboxes = stale.map((city) => ({
         city,
-        bbox: paddedBboxCorners(city.extent!, PAD_KM),
+        bbox: paddedBboxCorners(extentByRelation.get(city.relationId)!, PAD_KM),
         bucket: [] as any[],
     }));
     for (const el of elements) {
@@ -2782,10 +2878,15 @@ async function prewarmReferencesForCity(
     city: CityEntry,
     ttlMs: number,
 ): Promise<{ status: string }> {
-    if (!city.extent) return { status: "skipped-no-extent" };
+    // v356: prefer the canonical boundary-geometry extent (what the
+    // client + laptop key off). Also unblocks legacy entries that have
+    // no `city.extent` but whose boundary IS cached — they used to
+    // return "skipped-no-extent" and never warm references at all.
+    const ext = await canonicalReferenceExtent(env, city);
+    if (!ext) return { status: "skipped-no-extent" };
     return prewarmQuery(
         env,
-        buildReferenceBboxQuery(city.extent),
+        buildReferenceBboxQuery(ext),
         city,
         ttlMs,
         "references",

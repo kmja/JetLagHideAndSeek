@@ -756,24 +756,38 @@ async function processCity(city) {
     // happen to have a server-side extent already. (HSR is no longer
     // per-city — see processHsrCountries.)
     let effectiveExtent = city.extent ?? null;
+    // v356: the REFERENCE query must key off the boundary-geometry
+    // min/max — NOT the server-side / Photon `city.extent` — because
+    // that's the canonical extent the client now uses too
+    // (`referenceExtent` in src/maps/api/playAreaPrefetch.ts). Photon's
+    // extent and the polygon's true min/max differ in the 3rd decimal,
+    // so a refs entry warmed under `city.extent` would miss the client's
+    // boundary-extent lookup (the Frankfurt cascade). We always derive
+    // `boundaryExtent` from the boundary geometry below and use it for
+    // refs, falling back to `effectiveExtent` only if derivation fails.
+    // Transit/elevation still ride `effectiveExtent` for now — they have
+    // the same latent mismatch, tracked separately.
+    let boundaryExtent = null;
 
     if (DO_BOUNDARIES) {
         const q = boundaryQuery(city.relationId);
         if (await isFresh(q, "boundary")) {
             console.log(`  ⤼ boundary already cached — skipping`);
-            // Still pull the extent from the cached boundary so refs+HSR
-            // can run. We don't actually need to download it from
-            // upstream — we have it in R2 — but the laptop script
-            // doesn't have a direct R2 read path. Easiest: hit the
-            // public /api/interpreter, which serves from R2 in <10 ms
-            // on a hit, and parse the geometry locally. No upstream
-            // traffic, no rate-limit cost.
-            if (!effectiveExtent) {
+            // Pull the extent from the cached boundary so refs (and,
+            // as a fallback, transit) can run. We don't download it from
+            // upstream — we have it in R2 — but the laptop script doesn't
+            // have a direct R2 read path. Easiest: hit the public
+            // /api/interpreter, which serves from R2 in <10 ms on a hit,
+            // and parse the geometry locally. No upstream traffic, no
+            // rate-limit cost. v356: fetch it even when `effectiveExtent`
+            // is already set, because refs need the boundary-derived one.
+            if (!effectiveExtent || !boundaryExtent) {
                 const cached = await fetchCached(q);
                 if (cached) {
                     const derived = extentFromBoundaryResponse(cached);
                     if (derived) {
-                        effectiveExtent = derived;
+                        boundaryExtent = derived;
+                        if (!effectiveExtent) effectiveExtent = derived;
                         console.log(
                             `  ⌐ extent derived from cached boundary geom`,
                         );
@@ -799,14 +813,13 @@ async function processCity(city) {
                 } catch (e) {
                     console.warn(`  ✗ boundary upload: ${e.message}`);
                 }
-                if (!effectiveExtent) {
-                    const derived = extentFromBoundaryResponse(parsed);
-                    if (derived) {
-                        effectiveExtent = derived;
-                        console.log(
-                            `  ⌐ extent derived from boundary geom: [${derived.map((n) => n.toFixed(3)).join(", ")}]`,
-                        );
-                    }
+                const derived = extentFromBoundaryResponse(parsed);
+                if (derived) {
+                    boundaryExtent = derived;
+                    if (!effectiveExtent) effectiveExtent = derived;
+                    console.log(
+                        `  ⌐ extent derived from boundary geom: [${derived.map((n) => n.toFixed(3)).join(", ")}]`,
+                    );
                 }
             } else {
                 console.warn(`  ⚠ boundary response empty / unparseable`);
@@ -824,12 +837,16 @@ async function processCity(city) {
         }
     }
 
-    if (!effectiveExtent && DO_REFS) {
+    // v356: refs key off the boundary-geometry extent (canonical), with
+    // effectiveExtent as a last-resort fallback if boundary derivation
+    // failed entirely.
+    const refExtent = boundaryExtent ?? effectiveExtent;
+    if (!refExtent && DO_REFS) {
         console.log(`  ⤼ no extent available — skipping refs`);
     }
 
-    if (effectiveExtent && DO_REFS) {
-        const q = referenceQuery(effectiveExtent);
+    if (refExtent && DO_REFS) {
+        const q = referenceQuery(refExtent);
         if (await isFresh(q, "refs")) {
             console.log(`  ⤼ refs already cached — skipping`);
         } else {
