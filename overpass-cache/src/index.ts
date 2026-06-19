@@ -3693,6 +3693,117 @@ async function handleAdminStoreTilePack(
             cors,
         );
     }
+    const key = tilePackKey(osmId);
+    const tilePackHttpMeta = {
+        httpMetadata: {
+            contentType: "application/octet-stream",
+            // Immutable: a pack for a given osmId + pack-version is
+            // byte-stable. Matches the master tile serving so the
+            // client's plain GET is browser-cached forever (instant
+            // reload). When the master basemap changes we bump the
+            // v1/ namespace, not this header.
+            cacheControl: "public, max-age=31536000, immutable",
+        },
+        customMetadata: {
+            storedAt: String(Date.now()),
+            osmId: String(osmId),
+            prewarmed: "true",
+            kind: "tile-pack",
+        },
+    } as const;
+
+    // v345: multipart protocol for packs over Cloudflare's single-
+    // request body limit. The laptop drives it: ?action=create →
+    // ?action=part (×N) → ?action=complete. Absent action = the
+    // original single-shot put (small packs).
+    const action = url.searchParams.get("action");
+
+    if (action === "create") {
+        try {
+            const mpu = await env.TILES.createMultipartUpload(
+                key,
+                tilePackHttpMeta,
+            );
+            return jsonResponse(
+                { status: "created", key, uploadId: mpu.uploadId },
+                200,
+                cors,
+            );
+        } catch (e) {
+            console.warn(`[tile-pack] createMultipart failed ${key}:`, e);
+            return jsonResponse({ error: "create failed" }, 500, cors);
+        }
+    }
+
+    if (action === "part") {
+        const uploadId = url.searchParams.get("uploadId");
+        const partNumber = parseInt(
+            url.searchParams.get("partNumber") ?? "",
+            10,
+        );
+        if (!uploadId || !Number.isFinite(partNumber) || partNumber < 1) {
+            return jsonResponse(
+                { error: "missing uploadId / partNumber" },
+                400,
+                cors,
+            );
+        }
+        if (!request.body) {
+            return jsonResponse({ error: "missing body" }, 400, cors);
+        }
+        try {
+            const mpu = env.TILES.resumeMultipartUpload(key, uploadId);
+            const uploaded = await mpu.uploadPart(
+                partNumber,
+                request.body,
+            );
+            return jsonResponse(
+                {
+                    status: "part-ok",
+                    partNumber: uploaded.partNumber,
+                    etag: uploaded.etag,
+                },
+                200,
+                cors,
+            );
+        } catch (e) {
+            console.warn(
+                `[tile-pack] uploadPart ${partNumber} failed ${key}:`,
+                e,
+            );
+            return jsonResponse({ error: "part upload failed" }, 500, cors);
+        }
+    }
+
+    if (action === "complete") {
+        const uploadId = url.searchParams.get("uploadId");
+        if (!uploadId) {
+            return jsonResponse({ error: "missing uploadId" }, 400, cors);
+        }
+        let parts: Array<{ partNumber: number; etag: string }>;
+        try {
+            parts = (await request.json()) as Array<{
+                partNumber: number;
+                etag: string;
+            }>;
+        } catch {
+            return jsonResponse({ error: "bad parts JSON" }, 400, cors);
+        }
+        try {
+            const mpu = env.TILES.resumeMultipartUpload(key, uploadId);
+            await mpu.complete(parts);
+            return jsonResponse(
+                { status: "stored", key, osmId, parts: parts.length },
+                200,
+                cors,
+            );
+        } catch (e) {
+            console.warn(`[tile-pack] complete failed ${key}:`, e);
+            return jsonResponse({ error: "complete failed" }, 500, cors);
+        }
+    }
+
+    // ── Single-shot path (default) ──────────────────────────────────
     if (!request.body) {
         return jsonResponse({ error: "missing body" }, 400, cors);
     }
@@ -3700,36 +3811,25 @@ async function handleAdminStoreTilePack(
         request.headers.get("Content-Length") ?? "",
         10,
     );
-    if (Number.isFinite(declaredLen) && declaredLen > MAX_STORE_BYTES) {
+    if (
+        Number.isFinite(declaredLen) &&
+        declaredLen > TILE_PACK_SINGLE_SHOT_MAX
+    ) {
+        // Too big for one request — the laptop should have used
+        // multipart. Reject so it's visible rather than silently
+        // truncated.
         return jsonResponse(
             {
-                status: "skipped-too-large",
+                status: "use-multipart",
                 sizeBytes: declaredLen,
-                limit: MAX_STORE_BYTES,
+                singleShotLimit: TILE_PACK_SINGLE_SHOT_MAX,
             },
-            200,
+            413,
             cors,
         );
     }
-    const key = tilePackKey(osmId);
     try {
-        await env.TILES.put(key, request.body, {
-            httpMetadata: {
-                contentType: "application/octet-stream",
-                // Immutable: a pack for a given osmId + pack-version is
-                // byte-stable. Matches the master tile serving so the
-                // client's plain GET is browser-cached forever (instant
-                // reload). When the master basemap changes we bump the
-                // v1/ namespace, not this header.
-                cacheControl: "public, max-age=31536000, immutable",
-            },
-            customMetadata: {
-                storedAt: String(Date.now()),
-                osmId: String(osmId),
-                prewarmed: "true",
-                kind: "tile-pack",
-            },
-        });
+        await env.TILES.put(key, request.body, tilePackHttpMeta);
     } catch (e) {
         console.warn(`[tile-pack] R2 put failed for ${key}:`, e);
         return jsonResponse({ error: "r2 put failed" }, 500, cors);
@@ -4953,7 +5053,17 @@ const MAX_CACHE_BYTES = 25 * 1024 * 1024; // 25 MB
  * pre-reduces transit payloads (dedupe + decimate + round) so they
  * arrive well under this; the cap is just a backstop.
  */
-const MAX_STORE_BYTES = 60 * 1024 * 1024; // 60 MB
+const MAX_STORE_BYTES = 60 * 1024 * 1024; // 60 MB (Overpass bodies)
+/** v345: city tile packs get a much higher ceiling than Overpass
+ *  bodies — full-z15 major-metro packs (NYC, Tokyo, London) run well
+ *  past 60 MB, and loading-speed for those cities matters more than
+ *  the storage. 150 MB exceeds Cloudflare's ~100 MB single-request
+ *  body limit, so packs over MULTIPART_THRESHOLD are uploaded via R2
+ *  multipart (see handleAdminStoreTilePack). */
+const MAX_TILE_PACK_BYTES = 150 * 1024 * 1024; // 150 MB
+/** Packs at/under this go in one request; larger use multipart. Kept
+ *  under Cloudflare's inbound request-body limit with headroom. */
+const TILE_PACK_SINGLE_SHOT_MAX = 90 * 1024 * 1024; // 90 MB
 
 /* ─────────────────────── Response builders ─────────────────────── */
 

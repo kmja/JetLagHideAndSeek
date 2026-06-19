@@ -140,7 +140,19 @@ const TILE_PACK_MAX_ZOOM = 15;
 const TILE_PACK_MIN_ZOOM = 0;
 // Matches MAX_STORE_BYTES on the worker — packs over this are rejected
 // server-side, so don't bother uploading them.
-const TILE_PACK_MAX_BYTES = 60 * 1024 * 1024;
+// v345: raised from 60 MB. Full-z15 major-metro packs (NYC / Tokyo /
+// London) run well past 60 MB and loading speed for those cities is
+// the priority. Packs over TILE_PACK_SINGLE_SHOT use R2 multipart
+// upload (chunked through the worker), so the only ceiling is this.
+const TILE_PACK_MAX_BYTES = 150 * 1024 * 1024; // 150 MB
+// Packs at/under this upload in one POST; larger go multipart. Kept
+// under Cloudflare's ~100 MB inbound request-body limit with headroom,
+// and matches the worker's TILE_PACK_SINGLE_SHOT_MAX.
+const TILE_PACK_SINGLE_SHOT = 90 * 1024 * 1024; // 90 MB
+// R2 multipart parts must be >= 5 MiB (except the last). 25 MB keeps
+// the part count low for a 150 MB pack (6 parts) while staying well
+// under the single-request limit.
+const TILE_PACK_PART_BYTES = 25 * 1024 * 1024; // 25 MB
 
 const UA =
     "jlhs-laptop-prewarm/1.0 (https://github.com/kmja/jetlaghideandseek)";
@@ -1234,26 +1246,30 @@ async function processTilePack(city, effectiveExtent) {
 
     try {
         const buf = fs.readFileSync(tmp);
-        const resp = await fetchRetry(
-            `${WORKER}/admin/store-tile-pack?osmId=${city.relationId}`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/octet-stream",
-                    Authorization: `Bearer ${SECRET}`,
+        if (size <= TILE_PACK_SINGLE_SHOT) {
+            const resp = await fetchRetry(
+                `${WORKER}/admin/store-tile-pack?osmId=${city.relationId}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/octet-stream",
+                        Authorization: `Bearer ${SECRET}`,
+                    },
+                    body: buf,
                 },
-                body: buf,
-            },
-            "store-tile-pack",
-        );
-        if (resp.ok) {
-            console.log(
-                `  ✓ tile-pack ${city.name} stored (z0-${maxZoom}, ${(size / 1e6).toFixed(1)} MB)`,
+                "store-tile-pack",
             );
+            if (resp.ok) {
+                console.log(
+                    `  ✓ tile-pack ${city.name} stored (z0-${maxZoom}, ${(size / 1e6).toFixed(1)} MB)`,
+                );
+            } else {
+                console.warn(
+                    `  ✗ tile-pack ${city.name} upload status ${resp.status}`,
+                );
+            }
         } else {
-            console.warn(
-                `  ✗ tile-pack ${city.name} upload status ${resp.status}`,
-            );
+            await uploadTilePackMultipart(city, buf, size, maxZoom);
         }
     } catch (e) {
         console.warn(`  ✗ tile-pack ${city.name} upload: ${e.message}`);
@@ -1261,6 +1277,80 @@ async function processTilePack(city, effectiveExtent) {
         safeUnlink(tmp);
     }
     await sleep(DELAY_MS);
+}
+
+/**
+ * Upload a large tile pack via R2 multipart (v345): create → part×N →
+ * complete. Each part is TILE_PACK_PART_BYTES (last is the remainder).
+ * Bails (and abandons the upload) on any part failure — a half-written
+ * multipart upload that never completes is auto-reaped by R2, so
+ * there's nothing to clean up.
+ */
+async function uploadTilePackMultipart(city, buf, size, maxZoom) {
+    const base = `${WORKER}/admin/store-tile-pack?osmId=${city.relationId}`;
+    const auth = { Authorization: `Bearer ${SECRET}` };
+    // 1. create
+    const createResp = await fetchRetry(
+        `${base}&action=create`,
+        { method: "POST", headers: auth },
+        "tile-pack create",
+    );
+    if (!createResp.ok) {
+        console.warn(
+            `  ✗ tile-pack ${city.name} multipart create status ${createResp.status}`,
+        );
+        return;
+    }
+    const { uploadId } = await createResp.json();
+    // 2. parts
+    const parts = [];
+    let partNumber = 1;
+    for (let off = 0; off < buf.length; off += TILE_PACK_PART_BYTES) {
+        const chunk = buf.subarray(
+            off,
+            Math.min(off + TILE_PACK_PART_BYTES, buf.length),
+        );
+        const partResp = await fetchRetry(
+            `${base}&action=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
+            {
+                method: "POST",
+                headers: {
+                    ...auth,
+                    "Content-Type": "application/octet-stream",
+                },
+                body: chunk,
+            },
+            `tile-pack part ${partNumber}`,
+        );
+        if (!partResp.ok) {
+            console.warn(
+                `  ✗ tile-pack ${city.name} part ${partNumber} status ${partResp.status} — abandoning`,
+            );
+            return;
+        }
+        const { etag } = await partResp.json();
+        parts.push({ partNumber, etag });
+        partNumber++;
+    }
+    // 3. complete
+    const completeResp = await fetchRetry(
+        `${base}&action=complete&uploadId=${encodeURIComponent(uploadId)}`,
+        {
+            method: "POST",
+            headers: { ...auth, "Content-Type": "application/json" },
+            body: JSON.stringify(parts),
+        },
+        "tile-pack complete",
+    );
+    if (completeResp.ok) {
+        console.log(
+            `  ✓ tile-pack ${city.name} stored multipart (z0-${maxZoom}, ${(size / 1e6).toFixed(1)} MB, ${parts.length} parts)`,
+        );
+    } else {
+        console.warn(
+            `  ✗ tile-pack ${city.name} multipart complete status ${completeResp.status}`,
+        );
+    }
 }
 
 function safeUnlink(p) {
