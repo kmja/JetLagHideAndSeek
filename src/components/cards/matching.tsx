@@ -624,7 +624,21 @@ function MatchingMeasuringLocation({
     // unrelated centroid, then a fly-to-GPS, then a fit-bounds — three
     // animations the user didn't ask for. Outside the configure dialog
     // (drawer/sidebar render) the map renders as before.
-    const mapReady = !forceExpanded || (coordsSet && Boolean(referencePoint));
+    //
+    // v354: also unblock once the lookup has SETTLED with no point —
+    // status "none" (referenceless types like same-landmass /
+    // same-street-or-path, where resolveFamily returns null) or "error"
+    // (a timed-out / failed Overpass reference). Without this the map
+    // stayed forever on the "Locating you and the nearest reference…"
+    // placeholder for those types — the same-landmass hang. This mirrors
+    // measuring.tsx's `lookupSettled` (v346).
+    const lookupSettled =
+        ref.status === "ok" ||
+        ref.status === "error" ||
+        ref.status === "none";
+    const mapReady =
+        !forceExpanded ||
+        (coordsSet && (Boolean(referencePoint) || lookupSettled));
 
     return (
         <LatitudeLongitude
