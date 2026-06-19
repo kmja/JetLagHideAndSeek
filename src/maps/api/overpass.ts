@@ -465,6 +465,64 @@ export const fetchCoastline = async () => {
     return data;
 };
 
+/* ── v341: bundled Natural Earth 1:50m datasets ──────────────────────── *
+ *
+ * Per the "preloaded and stable" project principle, these three helpers
+ * replace the v340 Overpass round-trips for international-border,
+ * admin1-border, and body-of-water with single PERMANENT_CACHE hits on
+ * static assets — fetched once per device per app version, then served
+ * from disk forever. Zero external dependency at game time.
+ *
+ * Coverage notes (so the call sites don't lie about precision):
+ *   - 1:50m simplification means fjord / inlet shapes are smoothed and
+ *     some border points sit a few hundred metres off true OSM. Fine
+ *     for km-precision questions ("closer to or further from a state
+ *     border?") which is the whole class these answer.
+ *   - admin0 = country borders (390 land border lines, no maritime).
+ *     Matches rulebook p23 "International Border — Enclaves count!".
+ *   - admin1 = state / province / canton / prefecture borders (581
+ *     lines). Matches rulebook's "1st Administrative Division Border".
+ *   - lakes = named lake POLYGONS (411 worldwide, 326 named). Matches
+ *     "Body of Water — Any named body of water on your maps app,
+ *     excluding pools." Caveat: lakes only — named bays / channels /
+ *     rivers aren't in this dataset, so the seeker-side cut is
+ *     conservatively narrow. Hiders still answer based on their own
+ *     mapping app per the rulebook, so a hider near a named bay
+ *     correctly answers from their app even though we didn't auto-cut
+ *     for it.
+ *
+ * 2nd-administrative-division borders (county / district) aren't in
+ * Natural Earth at any global resolution — those still go through
+ * Overpass (cached at the worker, not bundled) for the foreseeable
+ * future. See the admin2-border case comment in measuring.ts.
+ */
+export const fetchBorders0Land = async () => {
+    const response = await cacheFetch(
+        import.meta.env.BASE_URL + "/borders0_50m.geojson",
+        "Fetching international border data...",
+        CacheType.PERMANENT_CACHE,
+    );
+    return await response.json();
+};
+
+export const fetchBorders1States = async () => {
+    const response = await cacheFetch(
+        import.meta.env.BASE_URL + "/borders1_50m.geojson",
+        "Fetching state border data...",
+        CacheType.PERMANENT_CACHE,
+    );
+    return await response.json();
+};
+
+export const fetchLakes = async () => {
+    const response = await cacheFetch(
+        import.meta.env.BASE_URL + "/lakes50.geojson",
+        "Fetching lake data...",
+        CacheType.PERMANENT_CACHE,
+    );
+    return await response.json();
+};
+
 export const trainLineNodeFinder = async (node: string): Promise<number[]> => {
     const nodeId = node.split("/")[1];
     const tagQuery = `

@@ -13,7 +13,10 @@ import {
     trainStations,
 } from "@/lib/context";
 import {
+    fetchBorders0Land,
+    fetchBorders1States,
     fetchCoastline,
+    fetchLakes,
     findPlacesInZone,
     findPlacesSpecificInZone,
     LOCATION_FIRST_TAG,
@@ -62,6 +65,71 @@ const highSpeedBase = memoize(
     },
     (features) => `${JSON.stringify(features.map((x) => x.geometry))}`,
 );
+
+/* ── v341: bundled-dataset clip helpers ───────────────────────────── *
+ *
+ * Used by the international-border / admin1-border / body-of-water
+ * cases to prune the bundled Natural Earth FeatureCollections down to
+ * just the features near the current play area's bbox BEFORE running
+ * the expensive geodesic buffer. Without these, we'd buffer every
+ * country border on Earth on every measuring-question render — that
+ * was a noticeable hitch in early prototyping.
+ *
+ * The bbox is widened by ~3 degrees on each side (`pad`) so a border /
+ * lake that sits just outside the play-area rectangle but is still the
+ * nearest feature to the seeker stays in the candidate set.
+ */
+type Bbox4 = [number, number, number, number];
+
+/** turf.bbox returns BBox which can be 4- or 6-element (with elevation).
+ *  Coerce to a 4-tuple [w, s, e, n] for our planar intersection tests. */
+function bbox4(b: GeoJSON.BBox | number[]): Bbox4 {
+    return [b[0], b[1], b[2], b[3]];
+}
+
+function widenedBbox(b: GeoJSON.BBox | number[], pad = 3): Bbox4 {
+    return [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
+}
+
+function bboxesIntersect(a: Bbox4, b: Bbox4): boolean {
+    return !(b[0] > a[2] || b[2] < a[0] || b[1] > a[3] || b[3] < a[1]);
+}
+
+function clipLinesToBbox(
+    fc: GeoJSON.FeatureCollection,
+    bbox: GeoJSON.BBox | number[],
+): Feature[] {
+    const widened = widenedBbox(bbox);
+    const kept: Feature[] = [];
+    for (const f of fc.features) {
+        const g = f.geometry as GeoJSON.Geometry | undefined;
+        if (!g) continue;
+        if (g.type !== "LineString" && g.type !== "MultiLineString") continue;
+        const fb = bbox4(turf.bbox(f));
+        if (!bboxesIntersect(fb, widened)) continue;
+        kept.push(f as Feature);
+    }
+    return kept;
+}
+
+function clipPolygonsToBbox(
+    fc: GeoJSON.FeatureCollection,
+    bbox: GeoJSON.BBox | number[],
+    predicate?: (f: GeoJSON.Feature) => boolean,
+): Feature[] {
+    const widened = widenedBbox(bbox);
+    const kept: Feature[] = [];
+    for (const f of fc.features) {
+        if (predicate && !predicate(f)) continue;
+        const g = f.geometry as GeoJSON.Geometry | undefined;
+        if (!g) continue;
+        if (g.type !== "Polygon" && g.type !== "MultiPolygon") continue;
+        const fb = bbox4(turf.bbox(f));
+        if (!bboxesIntersect(fb, widened)) continue;
+        kept.push(f as Feature);
+    }
+    return kept;
+}
 
 const bboxExtension = (
     bBox: [number, number, number, number],
@@ -268,39 +336,34 @@ export const determineMeasuringBoundary = async (
             ];
         }
         case "international-border": {
-            // Country borders — ways tagged admin_level=2 +
-            // boundary=administrative. Lines get combined +
-            // simplified by highSpeedBase, then buffered.
-            const features = osmtogeojson(
-                await findPlacesInZone(
-                    '["admin_level"="2"]["boundary"="administrative"]',
-                    undefined,
-                    "way",
-                    "geom",
-                ),
-            ).features;
-            if (features.length === 0) return [turf.multiPolygon([])];
-            return [highSpeedBase(features)];
+            // v341: bundled Natural Earth 1:50m admin_0 borders —
+            // 760 KB static asset cached PERMANENT, zero external at
+            // game time. Per-play-area clip via bboxClip so we only
+            // buffer what's nearby (a 4-degree bbox is enough; a few
+            // border lines in a city's frame, not the world's set).
+            const bordersFC = await fetchBorders0Land();
+            const clipped = clipLinesToBbox(bordersFC, bBox);
+            if (clipped.length === 0) return [turf.multiPolygon([])];
+            return [highSpeedBase(clipped)];
         }
         case "admin1-border": {
-            // 1st administrative division border — rulebook p23 maps
-            // this to state / canton / prefecture borders, which OSM
-            // tags as admin_level=4 in most countries (3-5 in a few
-            // outliers, but 4 is the rulebook's "biggest formal" tier).
-            const features = osmtogeojson(
-                await findPlacesInZone(
-                    '["admin_level"="4"]["boundary"="administrative"]',
-                    undefined,
-                    "way",
-                    "geom",
-                ),
-            ).features;
-            if (features.length === 0) return [turf.multiPolygon([])];
-            return [highSpeedBase(features)];
+            // v341: bundled Natural Earth 1:50m admin_1 borders.
+            // Same Tier-1 (zero external) treatment as admin_0.
+            // 882 KB static asset, ~580 state/province borders globally.
+            const bordersFC = await fetchBorders1States();
+            const clipped = clipLinesToBbox(bordersFC, bBox);
+            if (clipped.length === 0) return [turf.multiPolygon([])];
+            return [highSpeedBase(clipped)];
         }
         case "admin2-border": {
             // 2nd administrative division — county / district borders,
-            // typically OSM admin_level=6.
+            // typically OSM admin_level=6. Natural Earth has no global
+            // dataset for this tier, so this case still goes through
+            // Overpass (cached at our worker, not bundled). A follow-up
+            // could prewarm county borders per-shard to eliminate the
+            // first-seeker cold fetch, but the bundle alternative isn't
+            // available without OSM-derived data we'd have to host
+            // ourselves.
             const features = osmtogeojson(
                 await findPlacesInZone(
                     '["admin_level"="6"]["boundary"="administrative"]',
@@ -313,25 +376,26 @@ export const determineMeasuringBoundary = async (
             return [highSpeedBase(features)];
         }
         case "body-of-water": {
-            // Named bodies of water — natural=water polygons with a
-            // name. Excludes unnamed ponds/puddles per rulebook ("Any
-            // named body of water on your maps app, excluding pools").
-            // Polygons buffer directly.
-            const features = osmtogeojson(
-                await findPlacesInZone(
-                    '["natural"="water"]["name"]',
-                    undefined,
-                    "way",
-                    "geom",
-                ),
-            ).features.filter(
-                (f) =>
-                    f.geometry?.type === "Polygon" ||
-                    f.geometry?.type === "MultiPolygon",
+            // v341: bundled Natural Earth 1:50m lakes — 411 named lake
+            // polygons globally, already shipped as `lakes50.geojson`.
+            // Zero-external like the borders cases. Caveat documented
+            // in fetchLakes: rivers / bays / channels aren't in this
+            // dataset, so the seeker-side cut is conservatively narrow.
+            // The hider answers from their own mapping app per the
+            // rulebook, so a hider near a named bay still answers
+            // correctly even though we didn't auto-cut for that body.
+            const lakesFC = await fetchLakes();
+            // Filter to NAMED bodies (rulebook excludes unnamed) and
+            // to those touching the play-area bbox so we don't buffer
+            // every lake on Earth.
+            const polys = clipPolygonsToBbox(
+                lakesFC,
+                bBox,
+                (f) => Boolean(f.properties?.name),
             );
-            if (features.length === 0) return [turf.multiPolygon([])];
+            if (polys.length === 0) return [turf.multiPolygon([])];
             return [
-                turf.combine(turf.featureCollection(features as any))
+                turf.combine(turf.featureCollection(polys as any))
                     .features[0],
             ];
         }
