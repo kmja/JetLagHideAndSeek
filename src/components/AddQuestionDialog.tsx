@@ -20,6 +20,7 @@ import {
     mapContext,
     questionModified,
     questions,
+    addQuestion,
 } from "@/lib/context";
 import { type GameSize, gameSize, playArea } from "@/lib/gameSetup";
 import { fitMapToRadius } from "@/lib/mapFit";
@@ -27,7 +28,6 @@ import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import {
     isHiderConnected,
     seekerResendQuestion,
-    seekerAddQuestion as addQuestion,
 } from "@/lib/multiplayer/store";
 import {
     encodeQuestionForHider,
@@ -293,21 +293,17 @@ export const AddQuestionDialog = ({
         setPendingKey(null);
         releaseBodyLock();
 
-        // v347: if multiplayer is enabled at all, the question is
-        // already on the server (seekerAddQuestion pushed it on Add).
-        // Skip the OS share sheet whether or not the hider is
-        // currently online — re-pushing via the wire keeps state
-        // consistent and avoids surprising the seeker with an OS
-        // sharer when they expect the app's pipeline to own delivery.
-        // Only when multiplayer is DISABLED do we fall through to the
-        // share-link path (the only delivery channel in that mode).
+        // v348: questions are LOCAL-ONLY until the seeker confirms in
+        // the configure dialog. The local add happened in runAdd* via
+        // context.addQuestion (no MP push). NOW we stamp createdAt —
+        // which both starts the hider's answer-window countdown AND
+        // locks all subsequent edits via the cards' `disabled` logic
+        // (see cards/base.tsx). The seeker sets the location once,
+        // sends, and the question is fixed thereafter.
         if (multiplayerEnabled.get()) {
-            // Re-send so any picker edits (location nudges in the
-            // configure dialog after the initial Add-time push) reach
-            // the hider. seekerResendQuestion is idempotent by key.
-            seekerResendQuestion(q.key);
             (q.data as { createdAt?: number }).createdAt = Date.now();
             questionModified();
+            seekerResendQuestion(q.key);
             if (isHiderConnected()) {
                 toast.success("Sent to hider", { autoClose: 1500 });
             } else {

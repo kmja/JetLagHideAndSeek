@@ -17,6 +17,8 @@ import {
     questions,
 } from "@/lib/context";
 import { gameSize } from "@/lib/gameSetup";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import { seekerResendQuestion } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 import type { Question, ThermometerQuestion } from "@/maps/schema";
 
@@ -161,9 +163,14 @@ export function ThermometerConfigureDialog({
                 } as ThermometerQuestion,
             };
             addQuestion(q);
-            // Push to the multiplayer channel — that's the "notify hider"
-            // half of the button. questionModified() is the standard hook.
             questionModified();
+            // v348: push to multiplayer at confirm time — that's the
+            // "notify hider" half of the button label.
+            // questionModified() above only updates local state;
+            // seekerResendQuestion sends {addQ} to peers when MP is on.
+            if (multiplayerEnabled.get()) {
+                seekerResendQuestion(q.key);
+            }
             const presetLabel =
                 presets.find((p) => p.sig === selected)?.label ?? selected;
             toast.success(

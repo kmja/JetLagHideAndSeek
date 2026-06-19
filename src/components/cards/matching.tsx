@@ -23,6 +23,7 @@ import {
     drawingQuestionKey,
     hiderMode,
     isLoading,
+    isQuestionEditable,
     questionModified,
     questions,
     triggerLocalRefresh,
@@ -128,7 +129,7 @@ export const MatchingQuestionComponent = ({
                                         | 10),
                                 )
                             }
-                            disabled={!data.drag || $isLoading}
+                            disabled={!isQuestionEditable(data) || $isLoading}
                         />
                     </SidebarMenuItem>
                     {data.type === "letter-zone" && (
@@ -421,7 +422,7 @@ export const MatchingQuestionComponent = ({
                         }
                         questionModified((data.type = value));
                     }}
-                    disabled={!data.drag || $isLoading}
+                    disabled={!isQuestionEditable(data) || $isLoading}
                 />
             </SidebarMenuItem>
             {questionSpecific}
@@ -445,7 +446,7 @@ export const MatchingQuestionComponent = ({
                     lng={data.lng}
                     color={data.color}
                     type={data.type}
-                    disabled={!data.drag || $isLoading}
+                    disabled={!isQuestionEditable(data) || $isLoading}
                     forceExpanded={forceExpanded}
                     dragLive={data.drag}
                     onChange={(lat, lng) => {

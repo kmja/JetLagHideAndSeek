@@ -143,6 +143,28 @@ export const questions = persistentAtom<Questions>("questions", [], {
 });
 export const addQuestion = (question: DeepPartial<Question>) =>
     questionModified(questions.get().push(questionSchema.parse(question)));
+
+/**
+ * v348: single source of truth for "can the seeker edit this question?"
+ *
+ * Rulebook-aligned: a question is editable ONLY before the seeker
+ * confirms it in the configure dialog. The moment "Send question"
+ * fires, `createdAt` is stamped — from then on, the question is fixed.
+ * Editing was previously allowed for as long as `drag === true`, which
+ * meant the seeker could drag the pin / change subtype AFTER sending.
+ * That's now disallowed: once sent, locked.
+ *
+ *  - `drag === false`      → answered  (locked)
+ *  - `createdAt` is set    → sent      (locked)
+ *  - both unset/true       → drafting  (editable)
+ *
+ * Card components plumb this into their `disabled` props.
+ */
+export function isQuestionEditable(
+    data: { drag?: boolean; createdAt?: number },
+): boolean {
+    return data.drag === true && !data.createdAt;
+}
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const questionModified = (..._: any[]) => {
     if (autoSave.get()) {

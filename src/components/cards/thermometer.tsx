@@ -12,6 +12,7 @@ import { defaultUnit, mapContext } from "@/lib/context";
 import {
     hiderMode,
     isLoading,
+    isQuestionEditable,
     questionModified,
     questions,
     triggerLocalRefresh,
@@ -200,7 +201,7 @@ export const ThermometerQuestionComponent = ({
                     if (lng !== null) data.lngA = lng;
                     questionModified();
                 }}
-                disabled={!data.drag || $isLoading}
+                disabled={!isQuestionEditable(data) || $isLoading}
             />
 
             <LatitudeLongitude
@@ -213,7 +214,7 @@ export const ThermometerQuestionComponent = ({
                     if (lng !== null) data.lngB = lng;
                     questionModified();
                 }}
-                disabled={!data.drag || $isLoading}
+                disabled={!isQuestionEditable(data) || $isLoading}
             />
 
             {/* Rule book: seekers should notify hiders when starting and

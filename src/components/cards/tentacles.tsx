@@ -16,6 +16,7 @@ import {
     drawingQuestionKey,
     hiderMode,
     isLoading,
+    isQuestionEditable,
     questionModified,
     questions,
     triggerLocalRefresh,
@@ -110,14 +111,14 @@ export const TentacleQuestionComponent = ({
                                 (data.radius = parseFloat(e.target.value)),
                             )
                         }
-                        disabled={!data.drag || $isLoading}
+                        disabled={!isQuestionEditable(data) || $isLoading}
                     />
                     <UnitSelect
                         unit={data.unit}
                         onChange={(unit) =>
                             questionModified((data.unit = unit))
                         }
-                        disabled={!data.drag || $isLoading}
+                        disabled={!isQuestionEditable(data) || $isLoading}
                     />
                 </div>
             </SidebarMenuItem>
@@ -196,7 +197,7 @@ export const TentacleQuestionComponent = ({
                         }
                         questionModified();
                     }}
-                    disabled={!data.drag || $isLoading}
+                    disabled={!isQuestionEditable(data) || $isLoading}
                 />
             </SidebarMenuItem>
             {data.locationType === "custom" && data.drag && (
@@ -213,7 +214,7 @@ export const TentacleQuestionComponent = ({
                                     drawingQuestionKey.set(-1);
                                 }
                             }}
-                            disabled={!data.drag || $isLoading}
+                            disabled={!isQuestionEditable(data) || $isLoading}
                         />
                         and use the buttons at the bottom left of the map.
                     </p>
@@ -238,7 +239,7 @@ export const TentacleQuestionComponent = ({
                     }
                     questionModified();
                 }}
-                disabled={!data.drag || $isLoading}
+                disabled={!isQuestionEditable(data) || $isLoading}
                 // v239: draw the tentacle reach circle + every candidate
                 // on the picker map so the seeker reads the density.
                 impactMode={
@@ -290,7 +291,7 @@ export const TentacleQuestionComponent = ({
                                         )
                                       : findTentacleLocations(data as any)
                             }
-                            disabled={!data.drag || $isLoading}
+                            disabled={!isQuestionEditable(data) || $isLoading}
                         />
                     </Suspense>
                 </SidebarMenuItem>

@@ -23,6 +23,7 @@ import {
     drawingQuestionKey,
     hiderMode,
     isLoading,
+    isQuestionEditable,
     questionModified,
     questions,
     triggerLocalRefresh,
@@ -134,7 +135,7 @@ export const MeasuringQuestionComponent = ({
                                         drawingQuestionKey.set(-1);
                                     }
                                 }}
-                                disabled={!data.drag || $isLoading}
+                                disabled={!isQuestionEditable(data) || $isLoading}
                             />
                             and use the buttons at the bottom left of the map.
                         </p>
@@ -302,7 +303,7 @@ export const MeasuringQuestionComponent = ({
                         data.type = value;
                         questionModified();
                     }}
-                    disabled={!data.drag || $isLoading}
+                    disabled={!isQuestionEditable(data) || $isLoading}
                 />
             </SidebarMenuItem>
             {questionSpecific}
@@ -326,7 +327,7 @@ export const MeasuringQuestionComponent = ({
                 lng={data.lng}
                 color={data.color}
                 type={data.type}
-                disabled={!data.drag || $isLoading}
+                disabled={!isQuestionEditable(data) || $isLoading}
                 forceExpanded={forceExpanded}
                 dragLive={data.drag}
                 manualReference={data.manualReference}
@@ -346,7 +347,7 @@ export const MeasuringQuestionComponent = ({
                     seekerLat={data.lat}
                     seekerLng={data.lng}
                     value={data.manualReference}
-                    disabled={!data.drag || $isLoading}
+                    disabled={!isQuestionEditable(data) || $isLoading}
                     onChange={(ref) => {
                         if (ref) {
                             data.manualReference = ref;

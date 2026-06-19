@@ -19,6 +19,7 @@ import { UnitSelect } from "@/components/UnitSelect";
 import {
     hiderMode,
     isLoading,
+    isQuestionEditable,
     mapContext,
     questionModified,
     questions,
@@ -275,7 +276,7 @@ export const RadiusQuestionComponent = ({
                                     <PopoverTrigger asChild>
                                         <button
                                             type="button"
-                                            disabled={!data.drag}
+                                            disabled={!isQuestionEditable(data)}
                                             className={cn(
                                                 "flex-1 basis-[120px] py-2 px-2 rounded-md text-sm font-poppins font-semibold",
                                                 "bg-secondary text-foreground hover:bg-accent",
@@ -371,7 +372,7 @@ export const RadiusQuestionComponent = ({
                                         max={SLIDER_TRACK}
                                         step={1}
                                         value={radiusToSlider(data.radius)}
-                                        disabled={!data.drag || $isLoading}
+                                        disabled={!isQuestionEditable(data) || $isLoading}
                                         onChange={(e) =>
                                             questionModified(
                                                 (data.radius = sliderToRadius(
@@ -417,7 +418,7 @@ export const RadiusQuestionComponent = ({
                     }
                     questionModified();
                 }}
-                disabled={!data.drag || $isLoading}
+                disabled={!isQuestionEditable(data) || $isLoading}
                 // Pass the current radius (converted to meters) so the
                 // inline picker draws a preview circle while the user
                 // positions the pin.
