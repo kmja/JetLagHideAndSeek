@@ -152,6 +152,47 @@ export const QuestionCard = ({
                 ).padStart(2, "0")} to answer`
               : "answer overdue";
 
+    // v344: explicit lifecycle status so the seeker never has to infer
+    // "is this answered?" from the presence of a countdown. Four states:
+    //   - in-progress : thermometer mid-run (status "started")
+    //   - not-sent    : created but never shared (drag true, no createdAt)
+    //   - awaiting     : shared, waiting on the hider (drag true + createdAt)
+    //   - answered     : hider replied (drag false / locked)
+    // `forceExpanded` = the configure dialog, where the question hasn't
+    // been committed yet; we suppress the pill there to avoid implying
+    // it's already in a lifecycle state.
+    type Lifecycle = "in-progress" | "not-sent" | "awaiting" | "answered";
+    const lifecycle: Lifecycle | null = forceExpanded
+        ? null
+        : thermStatus === "started"
+          ? "in-progress"
+          : locked === true
+            ? "answered"
+            : createdAt
+              ? "awaiting"
+              : "not-sent";
+    const lifecycleMeta: Record<
+        Lifecycle,
+        { label: string; cls: string }
+    > = {
+        "in-progress": {
+            label: "In progress",
+            cls: "bg-primary/15 text-primary border-primary/30",
+        },
+        "not-sent": {
+            label: "Not sent",
+            cls: "bg-muted text-muted-foreground border-border",
+        },
+        awaiting: {
+            label: "Awaiting answer",
+            cls: "bg-[hsl(var(--accent-yellow))]/15 text-[hsl(var(--accent-yellow))] border-[hsl(var(--accent-yellow))]/30",
+        },
+        answered: {
+            label: "Answered",
+            cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+        },
+    };
+
     const toggleCollapse = () => {
         if (setCollapsed) {
             setCollapsed(!isCollapsed);
@@ -275,10 +316,22 @@ export const QuestionCard = ({
                         <span>
                             {label} {sub && `(${sub})`}
                         </span>
+                        {lifecycle && (
+                            <span
+                                className={cn(
+                                    "ml-auto text-[9px] uppercase tracking-wider font-poppins font-semibold",
+                                    "px-1.5 py-0.5 rounded border shrink-0",
+                                    lifecycleMeta[lifecycle].cls,
+                                )}
+                            >
+                                {lifecycleMeta[lifecycle].label}
+                            </span>
+                        )}
                         {answerDeadlineLabel && (
                             <span
                                 className={cn(
-                                    "ml-auto text-[10px] font-mono tabular-nums shrink-0",
+                                    "text-[10px] font-mono tabular-nums shrink-0",
+                                    !lifecycle && "ml-auto",
                                     remainingSec === 0
                                         ? "text-destructive"
                                         : "text-primary",
@@ -290,7 +343,10 @@ export const QuestionCard = ({
                         )}
                         {!answerDeadlineLabel && relativeTime && (
                             <span
-                                className="ml-auto text-[10px] text-muted-foreground font-mono shrink-0"
+                                className={cn(
+                                    "text-[10px] text-muted-foreground font-mono shrink-0",
+                                    !lifecycle && "ml-auto",
+                                )}
                                 title={new Date(createdAt!).toLocaleString()}
                             >
                                 {relativeTime}

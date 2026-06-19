@@ -103,8 +103,6 @@ export const SUBTYPES: Record<
         { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Same hospital.", validSizes: SM },
         { value: "library-full", label: "Library", icon: Library, description: "Same library.", validSizes: SM },
         { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Same foreign consulate (excludes honorary consulates).", validSizes: SM },
-        // Bonus extension (pre-rulebook)
-        { value: "major-city", label: "Major city", icon: Building2, description: "Same major city (1M+) in zone — pre-rulebook extension.", validSizes: ALL },
     ],
     /* Measuring — rulebook p23-26. Transit-Related, Borders, Natural,
      * Places of Interest, Public Utilities. */
@@ -134,8 +132,6 @@ export const SUBTYPES: Record<
         { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Closer to a hospital?", validSizes: SM },
         { value: "library-full", label: "Library", icon: Library, description: "Closer to a library?", validSizes: SM },
         { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Closer to a foreign consulate (excludes honorary)?", validSizes: SM },
-        // Bonus extension (pre-rulebook)
-        { value: "city", label: "Major city", icon: Building2, description: "Closer or further to a major city? — pre-rulebook extension.", validSizes: ALL },
     ],
     /* Tentacles — rulebook p37-38. Cannot be used in Small games (per
      * SubtypeMeta.validSizes). Medium = 2 km presets, Large adds the
@@ -155,10 +151,6 @@ export const SUBTYPES: Record<
         { value: "zoo", label: "Zoo", icon: TentTree, description: "Closest zoo within 25 km.", validSizes: L },
         { value: "aquarium", label: "Aquarium", icon: Fish, description: "Closest aquarium within 25 km.", validSizes: L },
         { value: "theme_park", label: "Amusement park", icon: Rocket, description: "Closest amusement park within 25 km.", validSizes: L },
-        // Bonus extensions (pre-rulebook)
-        { value: "golf_course", label: "Golf course", icon: Flag, description: "Closest golf course within range — pre-rulebook extension.", validSizes: ML },
-        { value: "park", label: "Park", icon: Trees, description: "Closest park within range — pre-rulebook extension.", validSizes: ML },
-        { value: "peak", label: "Mountain", icon: Mountain, description: "Closest mountain within range — pre-rulebook extension.", validSizes: ML },
     ],
     /* Photo subtypes — rulebook pp32–35. Validity scales with game size:
      *   S/M/L  — base set (building visible, widest street, tree, sky, you, tallest in sightline)
