@@ -18,6 +18,7 @@ import {
     polyGeoJSON,
 } from "@/lib/context";
 import {
+    fetchCoastline,
     findAdminBoundary,
     findPlacesInZone,
     LOCATION_FIRST_TAG,
@@ -216,6 +217,134 @@ export const determineMatchingBoundary = memoize(
                     }),
                 );
 
+                break;
+            }
+            case "same-landmass": {
+                // v340: rulebook p18 — "An area of land that is in one
+                // piece, not broken up by a waterway." We use the
+                // bundled Natural Earth 1:50m coastline (already
+                // imported for the coastline measuring question) which
+                // gives a global FeatureCollection of LineStrings;
+                // turf.lineToPolygon closes each loop into a polygon,
+                // and the polygon CONTAINING the seeker IS their
+                // landmass. Same coastline-as-truth contract the
+                // measuring side uses, so answers agree across both
+                // question categories.
+                const coastFC = await fetchCoastline();
+                const polys = turf.lineToPolygon(
+                    coastFC as any,
+                );
+                const seekerPt = turf.point([question.lng, question.lat]);
+                // lineToPolygon can return either a single Polygon /
+                // MultiPolygon Feature, or a FeatureCollection of
+                // Polygons — both shapes need to be walked. Coerce to
+                // a per-Polygon iterable.
+                const collected: Feature<Polygon>[] = [];
+                if ((polys as any).type === "FeatureCollection") {
+                    for (const f of (polys as any).features) {
+                        if (f.geometry?.type === "Polygon") collected.push(f);
+                        if (f.geometry?.type === "MultiPolygon") {
+                            for (const ring of f.geometry.coordinates) {
+                                collected.push(turf.polygon(ring));
+                            }
+                        }
+                    }
+                } else if ((polys as any).geometry?.type === "Polygon") {
+                    collected.push(polys as Feature<Polygon>);
+                } else if ((polys as any).geometry?.type === "MultiPolygon") {
+                    for (const ring of (
+                        polys as Feature<MultiPolygon>
+                    ).geometry.coordinates) {
+                        collected.push(turf.polygon(ring));
+                    }
+                }
+                for (const f of collected) {
+                    if (turf.booleanPointInPolygon(seekerPt, f)) {
+                        boundary = f;
+                        break;
+                    }
+                }
+                if (!boundary) {
+                    toast.error(
+                        "Couldn't determine your landmass — are you in a body of water?",
+                    );
+                    throw new Error("No landmass found");
+                }
+                break;
+            }
+            case "same-street-or-path": {
+                // v340: rulebook p18 — "A street or path is considered
+                // to have ended when it acquires a different name."
+                // The matching boundary is the geometry of every OSM
+                // way sharing the seeker's nearest-street name.
+                //
+                // Two-step Overpass: (1) find the nearest named highway
+                // way to the seeker via a small around: query, read
+                // its name; (2) fetch every way with that exact name
+                // inside the play area + 50 km pad, union, return as
+                // the matching polygon. Unnamed streets fall back to
+                // intersection-bounded segments per rulebook, which is
+                // hard to compute automatically — those return a
+                // "couldn't determine" error so the seeker falls back
+                // to manual map work.
+                const seekerLat = question.lat;
+                const seekerLng = question.lng;
+                // Step 1: nearest named highway.
+                const nearbyQuery = `
+[out:json][timeout:30];
+way["highway"]["name"](around:500,${seekerLat},${seekerLng});
+out tags;
+`;
+                const nearbyData = await (
+                    await import("@/maps/api/overpass")
+                ).getOverpassData(nearbyQuery);
+                const candidates = (
+                    (nearbyData as { elements?: any[] }).elements ?? []
+                ).filter((el) => el?.tags?.name);
+                if (candidates.length === 0) {
+                    toast.error(
+                        "No named street within 500 m of your location.",
+                    );
+                    throw new Error("No nearby street name");
+                }
+                // Pick the first candidate's name (Overpass returns
+                // closest first by default for around: queries on small
+                // radii). Could be refined to true nearest by re-
+                // computing distances, but the difference is rarely
+                // meaningful at this radius.
+                const streetName: string = candidates[0].tags.name;
+                // Step 2: all matching ways inside the play area.
+                const wayFeatures = osmtogeojson(
+                    await findPlacesInZone(
+                        `["highway"]["name"="${streetName.replace(/"/g, '\\"')}"]`,
+                        undefined,
+                        "way",
+                        "geom",
+                    ),
+                ).features.filter(
+                    (f): f is Feature<any> =>
+                        f.geometry?.type === "LineString" ||
+                        f.geometry?.type === "MultiLineString",
+                );
+                if (wayFeatures.length === 0) {
+                    toast.error(
+                        `No "${streetName}" segments found in the play area.`,
+                    );
+                    throw new Error("No matching streets");
+                }
+                // Buffer the line union by a small amount so it has
+                // area (matching needs a polygon boundary, not a
+                // line). 25 m is wide enough to enclose typical
+                // streets without overflowing into neighbours.
+                const buffered = turf.buffer(
+                    turf.featureCollection(wayFeatures),
+                    25,
+                    { units: "meters" },
+                );
+                if (!buffered) {
+                    throw new Error("Buffer failed for street segments");
+                }
+                boundary = turf.combine(buffered as any).features[0];
                 break;
             }
             case "airport":

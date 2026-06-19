@@ -228,6 +228,122 @@ export const determineMeasuringBoundary = async (
                 ).features[0],
             ];
         }
+        /* ── v340: rulebook-completion measuring types ──────────────── *
+         *
+         * Each case fetches the relevant OSM features inside the play
+         * area + 50 km pad (via findPlacesInZone) and returns them as
+         * Feature[]. The downstream bufferedDeterminer →
+         * arcBufferToPoint pipeline geodesic-buffers them by the
+         * seeker-to-feature distance, exactly like coastline / airport
+         * / *-full. Line-shaped queries reuse the highSpeedBase line
+         * combiner; polygon queries combine directly; point queries
+         * follow the *-full pattern.
+         */
+        case "rail-measure-ordinary": {
+            // All railway stations (heavy + light + metro) inside the
+            // play area. Same shape as the *-full POI cases — points
+            // get buffered radially by the seeker-distance arc.
+            const data = await findPlacesInZone(
+                '["railway"="station"]',
+                undefined,
+                "nwr",
+                "center",
+                [],
+                60,
+            );
+            if (data.elements.length === 0) {
+                return [turf.multiPolygon([])];
+            }
+            return [
+                turf.combine(
+                    turf.featureCollection(
+                        data.elements.map((x: any) =>
+                            turf.point([
+                                x.center ? x.center.lon : x.lon,
+                                x.center ? x.center.lat : x.lat,
+                            ]),
+                        ),
+                    ),
+                ).features[0],
+            ];
+        }
+        case "international-border": {
+            // Country borders — ways tagged admin_level=2 +
+            // boundary=administrative. Lines get combined +
+            // simplified by highSpeedBase, then buffered.
+            const features = osmtogeojson(
+                await findPlacesInZone(
+                    '["admin_level"="2"]["boundary"="administrative"]',
+                    undefined,
+                    "way",
+                    "geom",
+                ),
+            ).features;
+            if (features.length === 0) return [turf.multiPolygon([])];
+            return [highSpeedBase(features)];
+        }
+        case "admin1-border": {
+            // 1st administrative division border — rulebook p23 maps
+            // this to state / canton / prefecture borders, which OSM
+            // tags as admin_level=4 in most countries (3-5 in a few
+            // outliers, but 4 is the rulebook's "biggest formal" tier).
+            const features = osmtogeojson(
+                await findPlacesInZone(
+                    '["admin_level"="4"]["boundary"="administrative"]',
+                    undefined,
+                    "way",
+                    "geom",
+                ),
+            ).features;
+            if (features.length === 0) return [turf.multiPolygon([])];
+            return [highSpeedBase(features)];
+        }
+        case "admin2-border": {
+            // 2nd administrative division — county / district borders,
+            // typically OSM admin_level=6.
+            const features = osmtogeojson(
+                await findPlacesInZone(
+                    '["admin_level"="6"]["boundary"="administrative"]',
+                    undefined,
+                    "way",
+                    "geom",
+                ),
+            ).features;
+            if (features.length === 0) return [turf.multiPolygon([])];
+            return [highSpeedBase(features)];
+        }
+        case "body-of-water": {
+            // Named bodies of water — natural=water polygons with a
+            // name. Excludes unnamed ponds/puddles per rulebook ("Any
+            // named body of water on your maps app, excluding pools").
+            // Polygons buffer directly.
+            const features = osmtogeojson(
+                await findPlacesInZone(
+                    '["natural"="water"]["name"]',
+                    undefined,
+                    "way",
+                    "geom",
+                ),
+            ).features.filter(
+                (f) =>
+                    f.geometry?.type === "Polygon" ||
+                    f.geometry?.type === "MultiPolygon",
+            );
+            if (features.length === 0) return [turf.multiPolygon([])];
+            return [
+                turf.combine(turf.featureCollection(features as any))
+                    .features[0],
+            ];
+        }
+        case "sea-level": {
+            // Rulebook p25: "A player's altitude. Use your phone's
+            // compass." This is answered manually by the hider — no
+            // automatic map elimination is possible without per-pixel
+            // elevation data (which we don't bundle, and live-querying
+            // an elevation API per cell would be prohibitive). Falls
+            // through to the false branch below.
+            return false;
+        }
         case "custom-measure":
             return turf.combine(
                 turf.featureCollection((question as any).geo.features),
@@ -246,17 +362,6 @@ export const determineMeasuringBoundary = async (
         case "mcdonalds":
         case "seven11":
         case "rail-measure":
-        // v339: rulebook-completion measuring types — picker-visible
-        // and schema-valid so the hider receives them, but seeker-side
-        // map elimination isn't implemented yet. `false` falls through
-        // the elimination pipeline as a no-op (same path the
-        // hider-only types above take).
-        case "rail-measure-ordinary":
-        case "international-border":
-        case "admin1-border":
-        case "admin2-border":
-        case "sea-level":
-        case "body-of-water":
             return false;
     }
 };
