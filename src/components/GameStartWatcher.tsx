@@ -49,6 +49,18 @@ export function GameStartWatcher() {
         // new round so the next game still gets the celebration.
         if ($endsAt === null) return;
         if ($firedFor === $endsAt) return;
+        // v350: only celebrate a hiding period that's actually
+        // STARTING — i.e. whose end is in the future. The bug: when the
+        // seeker taps "End hiding period · Start seeking",
+        // `endHidingPeriodNow` sets hidingPeriodEndsAt to Date.now() (a
+        // NEW value). That slipped past the value-keyed dedupe and
+        // re-fired the GO-GO-GO overlay right on top of the SEEK! one.
+        // A period being ENDED is at/just-past `now` by the time this
+        // effect runs, while a period STARTING is 30-180 min in the
+        // future — so the future check cleanly tells start from end.
+        // We return WITHOUT claiming the fire so a later legitimate
+        // start (new round → future endsAt) still celebrates.
+        if ($endsAt <= Date.now()) return;
         // Claim the fire BEFORE any side effects so a paired mount
         // on the other route (e.g. SeekerPage + HiderPage both up
         // in one tab) doesn't double-fire on the same value.

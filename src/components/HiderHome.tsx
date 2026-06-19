@@ -907,9 +907,6 @@ function FinalScoreBanner({
         });
         if (!ok) return;
         startNewRound();
-        toast.success("New round — hiding period starting now.", {
-            autoClose: 2500,
-        });
     };
 
     const handleConfirmRotation = (newHiderId: string) => {
@@ -920,9 +917,6 @@ function FinalScoreBanner({
         // out of the hider seat doesn't carry stale zone/hand data.
         startNewRound();
         setRotateDialogOpen(false);
-        toast.success("New round — hiding period starting now.", {
-            autoClose: 2500,
-        });
     };
 
     const onNewGame = async () => {

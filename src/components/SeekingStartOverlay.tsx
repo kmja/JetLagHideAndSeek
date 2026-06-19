@@ -1,7 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Footprints } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
@@ -24,9 +23,8 @@ import { cn } from "@/lib/utils";
  * That's a major game-flow transition for both roles, so we fire:
  *
  *   - A full-screen "SEEK!" overlay (mirror of GoGoGoOverlay) until
- *     the player taps Got it.
- *   - A toast.success so the moment registers even if the overlay was
- *     mid-dismiss.
+ *     the player taps Got it. (v350: dropped the duplicate toast
+ *     banner — the overlay already owns the moment on-screen.)
  *   - An OS notification (via notify()) so a backgrounded device
  *     still gets a buzz.
  *
@@ -65,12 +63,10 @@ export function SeekingStartWatcher() {
         seekingStartFiredFor.set($endsAt);
         seekingStartCelebrationAt.set(Date.now());
         const isHider = $role === "hider" || $role === "coHider";
-        toast.success(
-            isHider
-                ? "Hiding period over — seekers are now looking for you."
-                : "Hiding period over — the chase is on!",
-            { autoClose: 4000, toastId: "seeking-start" },
-        );
+        // v350: no toast banner here — the full-screen SEEK! /
+        // ON THE HUNT! overlay below already announces the moment, so a
+        // duplicate banner is noise. The OS notification stays: it's
+        // for a BACKGROUNDED device, which the overlay can't reach.
         notify({
             title: "Seeking phase started",
             body: isHider

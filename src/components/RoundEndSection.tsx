@@ -1,7 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Copy, Share2, Sparkles, Trophy } from "lucide-react";
 import { useState } from "react";
-import { toast } from "react-toastify";
 
 import { appConfirm } from "@/lib/confirm";
 import { copyFoundLink, shareFoundLink } from "@/lib/foundShare";
@@ -64,18 +63,12 @@ export function RoundEndSection() {
         });
         if (!ok) return;
         startNewRound();
-        toast.success("New round — hiding period starting now.", {
-            autoClose: 2500,
-        });
     };
 
     const handleConfirmRotation = (newHiderId: string) => {
         seekerRotateHider(newHiderId);
         startNewRound();
         setRotateDialogOpen(false);
-        toast.success("New round — hiding period starting now.", {
-            autoClose: 2500,
-        });
     };
 
     const handleNewGame = async () => {
