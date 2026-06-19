@@ -75,13 +75,19 @@ export const SUBTYPES: Record<
         { value: "same-train-line", label: "Transit line", icon: Train, description: "Hider's station is on the line you're currently riding.", validSizes: ALL },
         { value: "same-length-station", label: "Station name length", icon: Languages, description: "Same number of characters in your nearest station's name.", validSizes: ALL },
         { value: "same-street-or-path", label: "Street or path", icon: Footprints, description: "Hider is on the same named street or path as you.", validSizes: ALL },
-        // Administrative Divisions (1st-4th, rulebook p18). Tracked but
-        // not surfaced as picker tiles here — they reuse the existing
-        // `zone` matching schema (with `cat.adminLevel`) and need a
-        // dedicated adminLevel-picker step before commit. The existing
-        // zone-question flow handles them via a different UI path;
-        // adding a clean "1st / 2nd / 3rd / 4th" multi-step from this
-        // picker is a follow-up.
+        // Administrative Divisions (1st-4th, rulebook p18). Each
+        // picker tile commits a `zone` matching question with a
+        // pre-filled `cat.adminLevel` (mapped from rulebook tier to
+        // OSM admin_level by AddQuestionDialog's runAddMatching). The
+        // seeker can still override the level in the configure card
+        // — admin_level mapping varies by country and the dropdown
+        // is the escape hatch for the unusual cases (Tokyo wards,
+        // Zurich Kreise, etc.). Picker shortcuts cover the common
+        // tier mapping (1→4, 2→6, 3→8, 4→9).
+        { value: "admin-1", label: "1st admin division", icon: MapLucide, description: "Same state / canton / prefecture (largest formal division).", validSizes: ALL },
+        { value: "admin-2", label: "2nd admin division", icon: MapLucide, description: "Same county / district / subprefecture.", validSizes: ALL },
+        { value: "admin-3", label: "3rd admin division", icon: MapLucide, description: "Same municipality.", validSizes: ALL },
+        { value: "admin-4", label: "4th admin division", icon: MapLucide, description: "Same borough / ward / inner-city district (not all areas have one).", validSizes: ALL },
         // Natural
         { value: "peak-full", label: "Mountain", icon: Mountain, description: "Same mountain.", validSizes: SM },
         { value: "same-landmass", label: "Landmass", icon: Globe, description: "Same contiguous landmass (not broken by waterways).", validSizes: ALL },
@@ -141,10 +147,11 @@ export const SUBTYPES: Record<
         { value: "library", label: "Library", icon: Library, description: "Closest library within 2 km.", validSizes: ML },
         { value: "cinema", label: "Movie theater", icon: Film, description: "Closest movie theater within 2 km.", validSizes: ML },
         { value: "hospital", label: "Hospital", icon: Hospital, description: "Closest hospital within 2 km.", validSizes: ML },
-        // Large — 25 km tier. (Metro Lines per rulebook p38 are tracked
-        // but not surfaced yet — see the comment in schema.ts; line-based
-        // tentacle search needs its own data path before the picker can
-        // safely commit a metro question.)
+        // Large — 25 km tier including Metro Lines (rulebook p38).
+        // v343: metro now has its own schema variant + data path
+        // (representative-point-per-route fed into the Voronoi
+        // pipeline), so it's safe to surface here.
+        { value: "metro", label: "Metro line", icon: TrainTrack, description: "Closest metro line within 25 km.", validSizes: L },
         { value: "zoo", label: "Zoo", icon: TentTree, description: "Closest zoo within 25 km.", validSizes: L },
         { value: "aquarium", label: "Aquarium", icon: Fish, description: "Closest aquarium within 25 km.", validSizes: L },
         { value: "theme_park", label: "Amusement park", icon: Rocket, description: "Closest amusement park within 25 km.", validSizes: L },

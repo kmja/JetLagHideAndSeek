@@ -439,6 +439,32 @@ export const AddQuestionDialog = ({
         // preferred over NaN because the Zod schema rejects NaN at
         // parse time.
         const seed = lastKnownPosition.get();
+        // v343: rulebook p18 admin-division picker shortcuts. They map
+        // to the existing zone schema (cat.adminLevel) — the elimination
+        // is identical to a manually-built zone question, just with a
+        // pre-filled OSM admin_level. Mapping is a best-default per
+        // tier; the seeker can still override via the configure
+        // card's adminLevel dropdown for countries where the tier
+        // sits at a different level (Tokyo special wards on 7, Zurich
+        // Kreise on 10, etc.).
+        const ADMIN_TIER_TO_OSM_LEVEL: Record<string, number> = {
+            "admin-1": 4,
+            "admin-2": 6,
+            "admin-3": 8,
+            "admin-4": 9,
+        };
+        if (subtype && subtype in ADMIN_TIER_TO_OSM_LEVEL) {
+            addQuestion({
+                id: "matching",
+                data: {
+                    lat: seed?.lat ?? 0,
+                    lng: seed?.lng ?? 0,
+                    type: "zone",
+                    cat: { adminLevel: ADMIN_TIER_TO_OSM_LEVEL[subtype] },
+                } as never,
+            });
+            return true;
+        }
         addQuestion({
             id: "matching",
             data: defaultCustomQuestions.get()

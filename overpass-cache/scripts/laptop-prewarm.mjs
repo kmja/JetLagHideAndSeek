@@ -994,6 +994,15 @@ async function processCity(city) {
         await processElevation(effectiveExtent);
     }
 
+    // v343: metro-line tentacle routes (Large games per rulebook p38).
+    // Single bbox-scoped query for relation[route=subway][name] over the
+    // play area; result is the candidate set for every metro tentacle
+    // question asked in this city. Goes through the standard
+    // /admin/store-prewarmed pipeline alongside refs / transit / HSR.
+    if (DO_TRANSIT) {
+        await processMetroRoutes(city, effectiveExtent);
+    }
+
     // HSR is no longer per-city — see processHsrCountries(), run once
     // after the whole city loop.
 }
@@ -1034,6 +1043,55 @@ async function processElevation(extent) {
     if (warmed > 0) {
         console.log(`  ✓ elevation: warmed ${warmed}/${count} tiles (z${z})`);
     }
+}
+
+/* ───────────────────── Metro tentacle routes (v343) ─────────────────── *
+ *
+ * Single play-area-bbox query for `relation[route=subway][name]` per
+ * city. Used by the metro-line tentacle question (rulebook p38, Large
+ * games) to enumerate candidate metro lines. Stored at the standard
+ * /admin/store-prewarmed endpoint; the client issues the byte-identical
+ * query at game time so it lands on the cached entry.
+ *
+ * MUST match `metroRoutesQuery` in src/maps/questions/tentacles.ts AND
+ * `playAreaBboxTuple` (5 km pad, 3-decimal). Drift = cache miss.
+ */
+function metroRoutesQuery(extent) {
+    const tuple = transitBboxTuple(extent); // same pad/precision as the client
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
+}
+
+async function processMetroRoutes(city, extent) {
+    if (!extent) return;
+    const q = metroRoutesQuery(extent);
+    if (await isFresh(q, "metro-routes")) {
+        console.log(`  ⤼ metro routes already cached — skipping`);
+        return;
+    }
+    const res = await fetchOverpass(q, "metro routes");
+    if (!res) return;
+    const sizeBytes = Buffer.byteLength(res.text, "utf8");
+    if (sizeBytes > MAX_UPLOAD_BYTES) {
+        console.log(
+            `  ⤼ metro routes ${sizeBytes} B over cap — skipping`,
+        );
+        return;
+    }
+    try {
+        const r = await uploadToWorker({
+            query: q,
+            bodyText: res.text,
+            kind: "metro-routes",
+            sourceName: `${city.name} (metro)`,
+            sourceRelationId: String(city.relationId),
+        });
+        console.log(
+            `  ✓ metro routes stored (${sizeBytes} B → gz ${r.gzipBytes} B in ${res.ms} ms)`,
+        );
+    } catch (e) {
+        console.warn(`  ✗ metro routes upload: ${e.message}`);
+    }
+    await sleep(DELAY_MS);
 }
 
 /* ───────────────────────── Tile packs (v336) ────────────────────────── *

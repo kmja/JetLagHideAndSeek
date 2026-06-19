@@ -155,13 +155,13 @@ const tentacleLocationsFifteen = z.union([
     z.literal("zoo").describe("Zoos"),
     z.literal("aquarium").describe("Aquariums"),
 ]);
-// v339: rulebook p38 — "Metro Lines Within 25 km" (Large only). Deferred
-// from this catalogue pass: metro lines are route=subway relations (line
-// strings), not POI points, so they don't fit the existing
-// LOCATION_FIRST_TAG / `out center` pipeline the other tentacle types
-// share. Adding them properly needs a separate "closest line" computation
-// (per-vertex distance check against the cached subway shard slice) and
-// its own picker tile. Tracked but not surfaced in subtypes.ts.
+// v343: rulebook p38 — "Metro Lines Within 25 km" (Large only). Metro
+// lines don't fit the POI-point pipeline the other tentacle types use
+// (route=subway relations carry LINES, not points), so they get their
+// own variant below + dedicated data path in tentacles.ts. The
+// representative-point-per-route mapping makes them Voronoi-compatible
+// without a true line-Voronoi.
+const tentacleLocationsMetro = z.literal("metro").describe("Metro Lines");
 
 const tentacleLocationsOne = z.union([
     z.literal("museum").describe("Museums"),
@@ -211,6 +211,16 @@ const tentacleQuestionSpecificSchemaOne = baseTentacleQuestionSchema.extend({
     places: z.array(z.any()).optional(),
 });
 
+// v343: dedicated metro-tentacle variant (rulebook p38, Large only).
+// Same shape as the other tentacle schemas; the differentiator is
+// `locationType: "metro"`, which routes the data fetch to the
+// representative-points-per-route helper instead of POI fetch.
+const tentacleQuestionSpecificSchemaMetro =
+    baseTentacleQuestionSchema.extend({
+        locationType: tentacleLocationsMetro,
+        places: z.array(z.any()).optional(),
+    });
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const encompassingTentacleQuestionSchema = baseTentacleQuestionSchema.extend({
     locationType: apiLocationSchema,
@@ -238,6 +248,7 @@ export const tentacleQuestionSchema = z.union([
     customTentacleQuestionSchema.describe(NO_GROUP),
     tentacleQuestionSpecificSchemaFifteen.describe("15 Miles (Typically)"),
     tentacleQuestionSpecificSchemaOne.describe("1 Mile (Typically)"),
+    tentacleQuestionSpecificSchemaMetro.describe("25 km (Metro Lines)"),
 ]);
 
 const baseMatchingQuestionSchema = ordinaryBaseQuestionSchema.extend({

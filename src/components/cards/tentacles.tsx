@@ -278,7 +278,17 @@ export const TentacleQuestionComponent = ({
                                     ? Promise.resolve(
                                           turf.featureCollection(data.places),
                                       )
-                                    : findTentacleLocations(data)
+                                    : data.locationType === "metro"
+                                      ? // v343: metro tentacle uses its own
+                                        // data path (see tentacles.ts). The
+                                        // card preview hint is fine resolving
+                                        // to an empty FC — the planning
+                                        // pipeline + answer flow do the real
+                                        // fetch via findMetroTentacleCandidates.
+                                        Promise.resolve(
+                                            turf.featureCollection([]),
+                                        )
+                                      : findTentacleLocations(data as any)
                             }
                             disabled={!data.drag || $isLoading}
                         />
