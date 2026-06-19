@@ -60,6 +60,33 @@ export interface PrefetchedFeature {
 const cache = new Map<string, PrefetchedFeature[]>();
 const inFlight = new Map<string, Promise<PrefetchedFeature[]>>();
 
+/** Single-flight gate + recent-failure backoff for the master
+ *  prefetchFamiliesInOneQuery — what tries to warm every reference
+ *  family in one combined Overpass call. Keyed on the play-area
+ *  signature so a play-area change resets both.
+ *
+ *  v355: the Frankfurt-with-spoofed-GPS HAR showed 41 attempts at
+ *  the same master query firing in bursts of 2-3 simultaneous calls
+ *  over 9 minutes — every subtype hover/click triggered a fresh
+ *  `prefetchCategory("…")` whose per-family inFlight gate doesn't
+ *  cover the SHARED master query underneath. Every burst got
+ *  rate-limited by Overpass (`429 rate_limited`), which left the
+ *  whole reference cache empty and made the per-question `around:`
+ *  lookups also rate-limited. Net effect: matching/measuring
+ *  "couldn't find a reference" for the whole session.
+ *
+ *  - `masterInFlight` coalesces concurrent callers to ONE underlying
+ *    request, so a burst of clicks fires one query, not N.
+ *  - `masterRecentFailureAt` records the wall-clock of the last
+ *    failed attempt. While we're inside the backoff window, callers
+ *    return immediately without re-issuing — the lazy per-tap
+ *    radius-walk path still runs for the specific family the user
+ *    actually wants, and the master can be re-attempted after the
+ *    window expires (or on a play-area change). */
+const masterInFlight = new Map<string, Promise<void>>();
+const masterRecentFailureAt = new Map<string, number>();
+const MASTER_FAILURE_BACKOFF_MS = 60_000;
+
 /** Stable string identifying the *current* play area. Built from
  *  the OSM relation IDs of the primary play area plus any added
  *  extras (subtracted polygons don't change the search universe —
@@ -669,10 +696,38 @@ export function nearestFromCache(
 export async function prefetchFamiliesInOneQuery(
     families: FamilyKey[],
 ): Promise<void> {
-    if (!playAreaSignature()) return;
+    const sig = playAreaSignature();
+    if (!sig) return;
     const todo = families.filter((f) => !cache.get(cacheKey(f)));
     if (todo.length === 0) return;
 
+    // v355: backoff after a recent failure — see masterRecentFailureAt
+    // comment above for the cascade this prevents.
+    const lastFail = masterRecentFailureAt.get(sig);
+    if (lastFail && Date.now() - lastFail < MASTER_FAILURE_BACKOFF_MS) {
+        // Surface "failed" on the status pill so the cache-status UI is
+        // honest about what just happened (no quiet no-op).
+        todo.forEach((f) => bumpStatus({ failedKey: cacheKey(f) }));
+        return;
+    }
+    // v355: single-flight coalescing — a burst of subtype clicks fires
+    // ONE master query, not N. Subsequent callers await the same promise.
+    const racing = masterInFlight.get(sig);
+    if (racing) return racing;
+
+    const promise = runPrefetchFamiliesInOneQuery(sig, todo);
+    masterInFlight.set(sig, promise);
+    try {
+        return await promise;
+    } finally {
+        masterInFlight.delete(sig);
+    }
+}
+
+async function runPrefetchFamiliesInOneQuery(
+    sig: string,
+    todo: FamilyKey[],
+): Promise<void> {
     todo.forEach(() => bumpStatus({ inFlightDelta: 1 }));
     try {
         // One unioned query keyed on the play-area BBOX (see
@@ -738,6 +793,10 @@ export async function prefetchFamiliesInOneQuery(
                     bumpStatus({ failedKey: cacheKey(f) });
                 });
             }
+            // Partial success still counts: at least one family landed,
+            // clear any stale failure mark so a *useful* retry isn't
+            // blocked behind the backoff.
+            masterRecentFailureAt.delete(sig);
         } else if (allEmpty) {
             // Combined query yielded nothing for anyone — treat as a
             // failure (no amplification). Mark each family failed so
@@ -747,12 +806,18 @@ export async function prefetchFamiliesInOneQuery(
                 `[preload] combined query returned no references (likely worker/mirror failure) — not amplifying`,
             );
             todo.forEach((f) => bumpStatus({ failedKey: cacheKey(f) }));
+            masterRecentFailureAt.set(sig, Date.now());
+        } else {
+            // Every requested family had a non-zero count and was
+            // cached. Clean run — clear any stale failure mark.
+            masterRecentFailureAt.delete(sig);
         }
     } catch {
         // Whole-batch failure: mark each family failed so the status
         // pill is honest, then let the lazy per-tap path retry them
         // one at a time when actually needed.
         todo.forEach((f) => bumpStatus({ failedKey: cacheKey(f) }));
+        masterRecentFailureAt.set(sig, Date.now());
     } finally {
         todo.forEach(() => bumpStatus({ inFlightDelta: -1 }));
     }
