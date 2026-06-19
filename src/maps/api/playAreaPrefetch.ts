@@ -718,15 +718,35 @@ export async function prefetchFamiliesInOneQuery(
                 });
             }
         }
-        if (emptyFamilies.length > 0) {
+        // v351: only re-fetch individually on a PARTIAL result — i.e.
+        // SOME families had data and others were empty (the truncation
+        // case). When EVERY family is empty the combined query didn't
+        // succeed at all (worker 500/timeout → getOverpassData returns
+        // {elements:[]}); re-issuing 15 single-family queries would just
+        // fail again AND hammer an already-struggling worker — that's
+        // the amplification cascade seen in the LA-large-game HAR. In
+        // that case we bail and leave the families uncached; the lazy
+        // on-tap prefetch + the per-question radius-walk fallback cover
+        // each one on demand, one at a time, when actually needed.
+        const allEmpty = emptyFamilies.length === todo.length;
+        if (emptyFamilies.length > 0 && !allEmpty) {
             console.debug(
-                `[preload] ${emptyFamilies.length} families empty in combined query — re-fetching individually`,
+                `[preload] ${emptyFamilies.length}/${todo.length} families empty in combined query — re-fetching just those`,
             );
             for (const f of emptyFamilies) {
                 prefetchCategory(f).catch(() => {
                     bumpStatus({ failedKey: cacheKey(f) });
                 });
             }
+        } else if (allEmpty) {
+            // Combined query yielded nothing for anyone — treat as a
+            // failure (no amplification). Mark each family failed so
+            // the status pill is honest; the lazy on-tap path retries
+            // on demand.
+            console.debug(
+                `[preload] combined query returned no references (likely worker/mirror failure) — not amplifying`,
+            );
+            todo.forEach((f) => bumpStatus({ failedKey: cacheKey(f) }));
         }
     } catch {
         // Whole-batch failure: mark each family failed so the status

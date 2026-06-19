@@ -81,7 +81,14 @@ const OVERPASS_MIRRORS = [
  *  itself asks for [timeout:180] server-side, so this is just our
  *  patience on top of that. Boundary queries respond in 1-5 s and
  *  never get near this. */
-const UPSTREAM_TIMEOUT_MS = 60_000;
+// v351: lowered from 60 s. A single hung public mirror was holding the
+// request open for 84 s (observed in a HAR), well past the point where
+// Cloudflare kills the isolate (CORS-less 1101) and the seeker's
+// browser/fetch has given up anyway. 25 s is plenty for a healthy
+// boundary/reference fetch and lets the worker return a clean CORS'd
+// 502 promptly when the mirrors are genuinely down, so the client can
+// fall back (radius walk) instead of seeing an unreadable error.
+const UPSTREAM_TIMEOUT_MS = 25_000;
 
 const CACHE_API_TTL_SECS = 24 * 60 * 60; // 24 h at the edge
 
@@ -790,6 +797,9 @@ async function handleRequest(
         }
         if (url.pathname.startsWith("/api/mapasset/")) {
             return handleMapAsset(request, env, ctx, cors);
+        }
+        if (url.pathname.startsWith("/api/railtile/")) {
+            return handleRailTile(request, env, ctx, cors);
         }
 
         if (url.pathname !== "/api/interpreter") {
@@ -2494,11 +2504,40 @@ async function referenceTemplateFingerprint(): Promise<string> {
  * are comfortably under it. Raise once we've measured real headroom
  * or move to per-family shard files (see global-prewarm.md).
  */
-const MAX_SLICE_PARSE_BYTES = 20 * 1024 * 1024;
+// v351: lowered from 20 MB. A 20 MB shard's JSON.parse + per-feature
+// bbox slice is heavy CPU/heap, and the client fires the combined
+// references query plus up-to-15 per-family fallbacks in parallel —
+// 16 concurrent 20 MB slices blew the isolate's CPU/memory budget and
+// Cloudflare killed the request with a CORS-less 1101 ("Worker threw
+// exception"), which the browser then can't even read. 8 MB keeps a
+// single slice cheap and many-concurrent safe. Shards over this fall
+// through to upstream (dense regions like US-west are huge anyway and
+// time out upstream too — but now with a clean CORS'd 502, not a 1101).
+const MAX_SLICE_PARSE_BYTES = 8 * 1024 * 1024;
 
 interface SlicedResult {
     body: OverpassResponse;
     shardIso: string;
+}
+
+/**
+ * v351: decide whether a stored shard is too big to JSON.parse + slice
+ * safely in-Worker. Uses the uncompressed `sizeBytes` metadata when
+ * present; when it's missing or zero (older entries / a different write
+ * path), estimates the uncompressed size from the COMPRESSED R2 object
+ * size at a conservative ~5× gzip ratio. Either way, anything over
+ * MAX_SLICE_PARSE_BYTES skips the slice and falls through to upstream
+ * rather than risking a CPU/memory kill (the bug behind the CORS-less
+ * 1101s). Better to lose the fast path than crash the request.
+ */
+function sliceTooBigToParse(obj: R2ObjectBody): boolean {
+    const rawSize = parseInt(obj.customMetadata?.sizeBytes ?? "0", 10);
+    if (Number.isFinite(rawSize) && rawSize > 0) {
+        return rawSize > MAX_SLICE_PARSE_BYTES;
+    }
+    // Unknown uncompressed size — estimate from compressed bytes.
+    const estimated = (obj.size || 0) * 5;
+    return estimated > MAX_SLICE_PARSE_BYTES;
 }
 
 /**
@@ -2532,11 +2571,7 @@ async function trySliceFromCountryShard(
     }
     if (!obj) return null;
 
-    const rawSize = parseInt(obj.customMetadata?.sizeBytes ?? "0", 10);
-    if (Number.isFinite(rawSize) && rawSize > MAX_SLICE_PARSE_BYTES) {
-        // Too big to parse safely in-Worker — let it fall through.
-        return null;
-    }
+    if (sliceTooBigToParse(obj)) return null;
 
     let parsed: OverpassResponse;
     try {
@@ -2620,13 +2655,8 @@ async function trySliceFromTransitShard(
     }
     if (!obj) return null;
 
-    const rawSize = parseInt(obj.customMetadata?.sizeBytes ?? "0", 10);
-    if (Number.isFinite(rawSize) && rawSize > MAX_SLICE_PARSE_BYTES) {
-        // Shouldn't happen — prewarm caps at MAX_TRANSIT_REDUCE_BYTES
-        // (also 20 MB) BEFORE reducing, and the reduced output is
-        // typically far smaller. Guard anyway.
-        return null;
-    }
+    // v351: same defensive size guard as the country-refs slice.
+    if (sliceTooBigToParse(obj)) return null;
 
     let parsed: TransitReducedResponse;
     try {
@@ -3849,6 +3879,137 @@ async function handleAdminStoreTilePack(
         200,
         cors,
     );
+}
+
+/* ──────────────── OpenRailwayMap tile proxy (v351) ─────────────────── *
+ *
+ * The "Transit lines" overlay rendered OpenRailwayMap raster tiles
+ * straight from *.tiles.openrailwaymap.org. Their servers were 503ing
+ * hard (140 of them in one session's HAR) — a single overloaded
+ * volunteer service the app has no control over. Proxy + R2-cache them
+ * through the worker:
+ *   - Self-hosted, per the everything-from-R2 principle.
+ *   - RESILIENT: once a tile is cached, it serves from R2 even while
+ *     OpenRailwayMap is down. Cold tiles during an outage still 503
+ *     (nothing to cache yet) but degrade to a blank overlay, which is
+ *     exactly today's behaviour — strictly an improvement.
+ *
+ *   GET /api/railtile/{z}/{x}/{y}.png
+ *       → upstream https://tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png
+ *
+ * Rail tiles change slowly; a 30-day TTL keeps R2 fresh-ish without
+ * re-hammering the upstream. Stored under env.TILES key
+ * `railtile/v1/{z}/{x}/{y}.png`.
+ */
+const RAILTILE_UPSTREAM = "https://tiles.openrailwaymap.org/standard";
+const RAILTILE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+async function handleRailTile(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "GET, HEAD" },
+        });
+    }
+    const url = new URL(request.url);
+    const m = url.pathname.match(/^\/api\/railtile\/(\d+)\/(\d+)\/(\d+)\.png$/);
+    if (!m) {
+        return new Response("Bad rail tile path", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    const [, z, x, y] = m;
+    const r2Key = `railtile/v1/${z}/${x}/${y}.png`;
+
+    let obj: R2ObjectBody | null = null;
+    try {
+        obj = await env.TILES.get(r2Key);
+    } catch (e) {
+        console.warn(`[railtile] R2 get failed for ${r2Key}:`, e);
+    }
+    if (obj) {
+        const cachedAt = parseInt(obj.customMetadata?.storedAt ?? "0", 10);
+        const fresh = cachedAt && Date.now() - cachedAt < RAILTILE_TTL_MS;
+        if (fresh) {
+            return new Response(request.method === "HEAD" ? null : obj.body, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "image/png",
+                    "Cache-Control": "public, max-age=604800",
+                    "X-Cache": "R2_HIT",
+                },
+            });
+        }
+    }
+
+    const upstreamUrl = `${RAILTILE_UPSTREAM}/${z}/${x}/${y}.png`;
+    let upstream: Response;
+    try {
+        upstream = await fetch(upstreamUrl, {
+            headers: {
+                // OpenRailwayMap blocks blank UAs; identify politely.
+                "User-Agent":
+                    "jlhs-tile-proxy/1.0 (+https://github.com/kmja/jetlaghideandseek)",
+            },
+        });
+    } catch (e) {
+        console.warn(`[railtile] upstream fetch failed ${upstreamUrl}:`, e);
+        // Serve a stale R2 copy if we have one — better a slightly
+        // old rail overlay than a hole.
+        if (obj) {
+            return new Response(request.method === "HEAD" ? null : obj.body, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "image/png",
+                    "X-Cache": "R2_STALE",
+                },
+            });
+        }
+        return new Response(null, { status: 503, headers: cors });
+    }
+    if (!upstream.ok) {
+        // Upstream 503/404 — fall back to stale R2 if present.
+        if (obj) {
+            return new Response(request.method === "HEAD" ? null : obj.body, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "image/png",
+                    "X-Cache": "R2_STALE",
+                },
+            });
+        }
+        return new Response(null, { status: upstream.status, headers: cors });
+    }
+    const bytes = await upstream.arrayBuffer();
+    ctx.waitUntil(
+        env.TILES.put(r2Key, bytes, {
+            httpMetadata: {
+                contentType: "image/png",
+                cacheControl: "public, max-age=604800",
+            },
+            customMetadata: { storedAt: String(Date.now()), kind: "railtile" },
+        }).catch((e) =>
+            console.warn(`[railtile] R2 put failed for ${r2Key}:`, e),
+        ),
+    );
+    return new Response(request.method === "HEAD" ? null : bytes, {
+        status: 200,
+        headers: {
+            ...corsHeadersAsObject(cors),
+            "Content-Type": "image/png",
+            "Cache-Control": "public, max-age=604800",
+            "X-Cache": "MISS",
+        },
+    });
 }
 
 /* ───────────────── Map glyph + sprite proxy (v349) ──────────────────── *

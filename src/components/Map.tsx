@@ -74,6 +74,7 @@ import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { clearCache, determineMapBoundaries } from "@/maps/api";
+import { RAIL_TILE_BASE } from "@/maps/api/constants";
 import {
     fetchTransitRoutesFeatures,
     type TransitMode,
@@ -184,11 +185,11 @@ const SATELLITE_SOURCE = {
 };
 
 const RAIL_OVERLAY_SOURCE = {
-    tiles: [
-        "https://a.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
-        "https://b.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
-        "https://c.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
-    ],
+    // v351: proxied + R2-cached through our worker (was the three
+    // a/b/c.tiles.openrailwaymap.org hosts directly). OpenRailwayMap's
+    // servers 503 constantly; the proxy serves cached tiles from R2 even
+    // during their outages, and removes the external dependency.
+    tiles: [`${RAIL_TILE_BASE}/{z}/{x}/{y}.png`],
     attribution:
         '&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>',
 };

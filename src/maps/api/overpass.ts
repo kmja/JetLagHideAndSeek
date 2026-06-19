@@ -239,7 +239,22 @@ export const getOverpassData = async (
         } catch {
             /* no-op */
         }
-        return await winner.json();
+        // v351: a "winning" 200 can still carry a non-JSON body — e.g.
+        // a Cloudflare error page that slipped through as 200, or a
+        // truncated/garbled gzip. Parsing must NOT throw out of here:
+        // callers like the transit overlay would crash with
+        // "JSON.parse: unexpected character at line 1 column 1". Treat
+        // a parse failure as "no data" (same as a total miss) so the
+        // caller degrades gracefully.
+        try {
+            return await winner.json();
+        } catch (e) {
+            console.warn(
+                "[overpass] winning response wasn't valid JSON — treating as empty:",
+                e,
+            );
+            return { elements: [] };
+        }
     }
 
     if (!silent) {
