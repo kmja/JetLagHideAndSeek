@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { Bug, LayoutGrid, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "react-toastify";
 
 import { appConfirm } from "@/lib/confirm";
 import {
@@ -10,6 +11,11 @@ import {
     questionModified,
     questions,
 } from "@/lib/context";
+import {
+    clearGpsSpoof,
+    spoofedPosition,
+    spoofRandomInPlayArea,
+} from "@/lib/debugGpsSpoof";
 import { debugPanelOpen } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
 import { type Card,shuffledDeck } from "@/lib/hiderDeck";
@@ -65,6 +71,7 @@ export function DebugPhaseControls() {
     const $map = useStore(mapContext);
     const $role = useStore(playerRole);
     const $demo = useStore(demoMode);
+    const $spoof = useStore(spoofedPosition);
 
     /* ─────── seeker actions ─────── */
 
@@ -540,10 +547,14 @@ export function DebugPhaseControls() {
                 "text-[11px] font-mono text-muted-foreground/40",
                 "hover:text-muted-foreground hover:bg-secondary/80 hover:border-border transition-colors",
                 "shadow-sm",
+                // v353: amber-tint the launcher while GPS is spoofed so a
+                // forgotten spoof can't masquerade as broken real GPS.
+                $spoof &&
+                    "text-amber-400 border-amber-400/60 bg-amber-950/40",
             )}
         >
             <Bug className="w-3 h-3" />
-            debug
+            {$spoof ? "debug · GPS spoofed" : "debug"}
         </button>
     );
 
@@ -600,6 +611,53 @@ export function DebugPhaseControls() {
                         )}
                     </div>
                 </div>
+
+                <Section
+                    title={`GPS spoof · ${$spoof ? "ON" : "off (real GPS)"}`}
+                >
+                    <DebugButton
+                        onClick={() => {
+                            if (!spoofRandomInPlayArea()) {
+                                toast.error(
+                                    "No play area set — pick one first.",
+                                    { autoClose: 2500 },
+                                );
+                                return;
+                            }
+                            toast.success(
+                                "GPS spoofed to a random point in the play area.",
+                                { autoClose: 2000 },
+                            );
+                        }}
+                        variant="primary"
+                    >
+                        🎲 Random point in play area
+                    </DebugButton>
+                    {$spoof && (
+                        <DebugButton
+                            onClick={() => {
+                                clearGpsSpoof();
+                                toast.info("Spoof cleared — real GPS resumed.", {
+                                    autoClose: 1800,
+                                });
+                            }}
+                            variant="danger"
+                        >
+                            Clear spoof (use real GPS)
+                        </DebugButton>
+                    )}
+                    {$spoof && (
+                        <p className="text-[10px] text-amber-400/90 font-mono px-1">
+                            {$spoof.lat.toFixed(5)}, {$spoof.lng.toFixed(5)}
+                        </p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground italic px-1">
+                        Overrides your device GPS everywhere (blue dot,
+                        question anchors, thermometer, multiplayer
+                        broadcast) so you can test play areas worldwide
+                        without travelling. Clears on reload.
+                    </p>
+                </Section>
 
                 <Section title={`Demo game · ${$demo ? "running" : "off"}`}>
                     {$demo ? (

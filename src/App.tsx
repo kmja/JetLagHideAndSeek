@@ -9,9 +9,16 @@ import { ToastContainer } from "react-toastify";
 
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { installGpsSpoof } from "@/lib/debugGpsSpoof";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
+
+// v353: install the debug GPS-spoof monkey-patch at module load —
+// BEFORE any component mounts — so a watchPosition started on mount
+// (the main map's blue dot, the seeker-location broadcast) is already
+// spoof-aware. A no-op until the debug panel actually sets a spoof.
+installGpsSpoof();
 
 // Each route is lazy-loaded so a user landing on `/` never has to
 // download the hider bundle (and vice versa for `/h`). Wrapped in
