@@ -876,22 +876,24 @@ async function processCity(city) {
 
     // Per-city BUS overlay (v329: subway + ferry are the cron's
     // per-shard job now — see TRANSIT_ROUTE_TYPES). v249: keyed off the
-    // city's Photon extent (same `effectiveExtent` the refs step uses),
-    // NOT map_to_area — which silently returned an empty area for some
-    // boundary relations (Cleveland's buses came back 0). The bbox form
-    // matches the client's query byte-for-byte, so it warms what the
-    // client reads. isFresh-gated so a re-run skips already-warmed
-    // cities. Big metros' bus networks are heavy (out skel geom over
-    // thousands of routes) — exactly why this lives on the laptop and
+    // city's bbox via the `[bbox:...]` form (NOT map_to_area, which
+    // silently returned an empty area for some boundary relations —
+    // Cleveland's buses came back 0). v357: prefer the boundary-geometry
+    // extent (canonical, what the client now uses too) — Photon's extent
+    // and the polygon's true min/max differ in the 3rd decimal, so a
+    // Photon-keyed transit cache missed the client's lookup by one
+    // digit. Big metros' bus networks are heavy (out skel geom over
+    // thousands of routes), exactly why this lives on the laptop and
     // not the Worker — so they share the same waitForSlot + 180 s
     // timeout + DELAY_MS pacing as everything else. A failure
     // (timeout / empty) just leaves it for the on-tap client fetch.
-    if (DO_TRANSIT && !effectiveExtent) {
+    const transitExtent = boundaryExtent ?? effectiveExtent;
+    if (DO_TRANSIT && !transitExtent) {
         console.log(`  ⤼ no extent available — skipping transit`);
     }
-    if (DO_TRANSIT && effectiveExtent) {
+    if (DO_TRANSIT && transitExtent) {
         for (const routeType of TRANSIT_ROUTE_TYPES) {
-            const q = transitRouteQuery(effectiveExtent, routeType);
+            const q = transitRouteQuery(transitExtent, routeType);
             if (await isFresh(q, `transit ${routeType}`)) {
                 console.log(`  ⤼ transit ${routeType} already cached — skipping`);
                 continue;
@@ -1029,7 +1031,9 @@ async function processCity(city) {
     // question asked in this city. Goes through the standard
     // /admin/store-prewarmed pipeline alongside refs / transit / HSR.
     if (DO_TRANSIT) {
-        await processMetroRoutes(city, effectiveExtent);
+        // v357: boundary-geometry extent (matches client's
+        // `referenceExtent` in src/maps/api/playAreaPrefetch.ts).
+        await processMetroRoutes(city, boundaryExtent ?? effectiveExtent);
     }
 
     // HSR is no longer per-city — see processHsrCountries(), run once

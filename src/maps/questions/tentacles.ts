@@ -1,6 +1,7 @@
 import * as turf from "@turf/turf";
 
-import { hiderMode, mapGeoLocation } from "@/lib/context";
+import { hiderMode } from "@/lib/context";
+import { referenceExtent } from "@/maps/api/playAreaPrefetch";
 import { findTentacleLocations, getOverpassData } from "@/maps/api";
 import { arcBuffer, safeUnion } from "@/maps/geo-utils";
 import { geoSpatialVoronoi } from "@/maps/geo-utils";
@@ -39,10 +40,12 @@ import type { TentacleQuestion, Units } from "@/maps/schema";
 const METRO_BBOX_PAD_KM = 5;
 
 function playAreaBboxTuple(): string | null {
-    const loc = mapGeoLocation.get();
-    const extent = (loc?.properties as { extent?: number[] })?.extent;
-    if (!extent || extent.length !== 4) return null;
-    // Photon extent: [maxLat, minLng, minLat, maxLng].
+    // v357: same canonical-extent contract as the reference / transit
+    // queries — the laptop's `processMetroRoutes` keys off the same
+    // boundary-derived extent, so the R2 lookup matches.
+    const extent = referenceExtent();
+    if (!extent) return null;
+    // Photon extent shape: [maxLat, minLng, minLat, maxLng].
     const [maxLat, minLng, minLat, maxLng] = extent;
     const latPad = METRO_BBOX_PAD_KM / 111;
     const midLat = (maxLat + minLat) / 2;

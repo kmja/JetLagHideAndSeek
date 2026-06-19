@@ -218,7 +218,7 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
  * race on first paint can't break the lookup permanently (the next
  * lookup, once the boundary is in, uses the canonical value).
  */
-function referenceExtent(): [number, number, number, number] | null {
+export function referenceExtent(): [number, number, number, number] | null {
     const poly = polyGeoJSON.get();
     if (poly && poly.features.length > 0) {
         // turf.bbox → [minLng, minLat, maxLng, maxLat]. Same min/max

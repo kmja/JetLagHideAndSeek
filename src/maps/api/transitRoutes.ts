@@ -3,10 +3,10 @@ import * as turf from "@turf/turf";
 import {
     additionalMapGeoLocations,
     mapGeoJSON,
-    mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
 import { getOverpassData } from "@/maps/api/overpass";
+import { referenceExtent } from "@/maps/api/playAreaPrefetch";
 import { CacheType } from "@/maps/api/types";
 
 /**
@@ -85,10 +85,21 @@ const TRANSIT_BBOX_PAD_KM = 5;
  * falls through to an on-demand fetch.
  */
 function buildTransitBboxTuple(): string | null {
-    const primary = mapGeoLocation.get();
     const extents: number[][] = [];
-    const pe = (primary?.properties as { extent?: number[] })?.extent;
-    if (pe && pe.length === 4) extents.push(pe);
+    // v357: the PRIMARY extent goes through `referenceExtent()` (the
+    // canonical boundary-geometry min/max) so the cron's/laptop's per-
+    // shard and per-city transit prewarms — which key off the same
+    // boundary geometry — land on the cache keys the client looks up.
+    // Photon's extent and the polygon's true min/max differ in the 3rd
+    // decimal; the R2 key embeds the bbox to 3 decimals, so the old
+    // Photon-fed primary missed the warmed entries by one digit.
+    //
+    // Additional play areas (user-added adjacencies) stay on Photon's
+    // extent: the prewarm pipeline only mirrors the single-area case, so
+    // there's no warmed key to align against — the unioned multi-area
+    // query falls through to an on-demand fetch either way.
+    const primary = referenceExtent();
+    if (primary) extents.push(primary);
     for (const entry of additionalMapGeoLocations.get()) {
         if (!entry.added) continue;
         const ex = (entry.location?.properties as { extent?: number[] })
