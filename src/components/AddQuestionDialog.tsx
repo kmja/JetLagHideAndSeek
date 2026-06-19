@@ -12,12 +12,14 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
+import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     defaultCustomQuestions,
     defaultUnit,
     lastKnownPosition,
     mapContext,
+    mapGeoLocation,
     questionModified,
     questions,
     addQuestion,
@@ -115,6 +117,37 @@ function isPendingQuestionReady(
  * A single category tile in the Add Question picker.
  * Visual identity (color + icon) comes from CATEGORIES.
  */
+/**
+ * v355: rewrite the `admin-1` … `admin-4` subtype tiles with the
+ * country-specific division name for the active play area. A German
+ * player sees "Bundesland / Kreis / Gemeinde / Stadtteil"; a Japanese
+ * player sees "Prefecture / City / Town / Ward". When we don't have
+ * a row for the country, the generic "1st admin division" stays.
+ * Non-admin subtypes pass through unchanged.
+ */
+const ADMIN_TIER_NUM: Record<string, 1 | 2 | 3 | 4> = {
+    "admin-1": 1,
+    "admin-2": 2,
+    "admin-3": 3,
+    "admin-4": 4,
+};
+function localizeAdminSubtype(
+    subtype: SubtypeMeta,
+    iso: string | undefined,
+): SubtypeMeta {
+    const tier = ADMIN_TIER_NUM[subtype.value];
+    if (!tier || !iso) return subtype;
+    const level = adminTierToOsmLevel(iso, tier);
+    const localised = adminDivisionName(iso, level);
+    // Only relabel when we have a country-specific name — the generic
+    // fallback already lives in the static SUBTYPES table, so swapping
+    // it back in here would be a no-op.
+    if (localised.startsWith("OSM") || localised.includes("admin division")) {
+        return subtype;
+    }
+    return { ...subtype, label: localised };
+}
+
 const SubtypeTile = ({
     category,
     subtype,
@@ -218,6 +251,8 @@ export const AddQuestionDialog = ({
 }) => {
     const $questions = useStore(questions);
     const $gameSize = useStore(gameSize);
+    // v355: country-aware labels on the admin-division subtype tiles.
+    const $mapGeo = useStore(mapGeoLocation);
     const [open, setOpen] = React.useState(false);
     // Step 2 of the add flow: when the user picks a category that has
     // multiple subtypes (matching / measuring / tentacles / photo), we
@@ -455,25 +490,28 @@ export const AddQuestionDialog = ({
         // v343: rulebook p18 admin-division picker shortcuts. They map
         // to the existing zone schema (cat.adminLevel) — the elimination
         // is identical to a manually-built zone question, just with a
-        // pre-filled OSM admin_level. Mapping is a best-default per
-        // tier; the seeker can still override via the configure
-        // card's adminLevel dropdown for countries where the tier
-        // sits at a different level (Tokyo special wards on 7, Zurich
-        // Kreise on 10, etc.).
-        const ADMIN_TIER_TO_OSM_LEVEL: Record<string, number> = {
-            "admin-1": 4,
-            "admin-2": 6,
-            "admin-3": 8,
-            "admin-4": 9,
+        // pre-filled OSM admin_level. v355: the tier→level mapping is now
+        // country-aware (`adminTierToOsmLevel`) so Japan picks 4/7/8/9
+        // for State/City/Town/Ward while Germany still gets 4/6/8/9. The
+        // seeker can still override via the configure card's adminLevel
+        // dropdown for the edge cases.
+        const ADMIN_TIER: Record<string, 1 | 2 | 3 | 4> = {
+            "admin-1": 1,
+            "admin-2": 2,
+            "admin-3": 3,
+            "admin-4": 4,
         };
-        if (subtype && subtype in ADMIN_TIER_TO_OSM_LEVEL) {
+        if (subtype && subtype in ADMIN_TIER) {
+            const iso = mapGeoLocation.get()?.properties?.countrycode;
             addQuestion({
                 id: "matching",
                 data: {
                     lat: seed?.lat ?? 0,
                     lng: seed?.lng ?? 0,
                     type: "zone",
-                    cat: { adminLevel: ADMIN_TIER_TO_OSM_LEVEL[subtype] },
+                    cat: {
+                        adminLevel: adminTierToOsmLevel(iso, ADMIN_TIER[subtype]),
+                    },
                 } as never,
             });
             return true;
@@ -745,7 +783,11 @@ export const AddQuestionDialog = ({
                                                     category={
                                                         subtypePickerFor
                                                     }
-                                                    subtype={subtype}
+                                                    subtype={localizeAdminSubtype(
+                                                        subtype,
+                                                        $mapGeo?.properties
+                                                            ?.countrycode,
+                                                    )}
                                                     onClick={() => {
                                                         const cat =
                                                             subtypePickerFor;

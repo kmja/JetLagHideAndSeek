@@ -24,10 +24,12 @@ import {
     hiderMode,
     isLoading,
     isQuestionEditable,
+    mapGeoLocation,
     questionModified,
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { adminDivisionName } from "@/lib/adminDivisions";
 import { gameSize } from "@/lib/gameSetup";
 import { cleanDescription, isSubtypeAllowed } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
@@ -67,6 +69,10 @@ export const MatchingQuestionComponent = ({
     const $isLoading = useStore(isLoading);
     const $customInitPref = useStore(customInitPreference);
     const $gameSize = useStore(gameSize);
+    // v355: subscribe so the admin-zone dropdown labels refresh when the
+    // play area's country changes (e.g. switching from a Germany game
+    // to a Japan game without a reload).
+    const $mapGeo = useStore(mapGeoLocation);
     const [customDialogOpen, setCustomDialogOpen] = React.useState(false);
     const [pendingCustomType, setPendingCustomType] = React.useState<
         "custom-zone" | "custom-points" | null
@@ -102,18 +108,29 @@ export const MatchingQuestionComponent = ({
                 <>
                     <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
                         <Select
-                            trigger="OSM Zone"
-                            options={{
-                                2: "OSM Zone 2 (Country)",
-                                3: "OSM Zone 3 (region in Japan)",
-                                4: "OSM Zone 4 (prefecture in Japan)",
-                                5: "OSM Zone 5",
-                                6: "OSM Zone 6",
-                                7: "OSM Zone 7",
-                                8: "OSM Zone 8",
-                                9: "OSM Zone 9",
-                                10: "OSM Zone 10",
-                            }}
+                            trigger="Admin division"
+                            options={(() => {
+                                // v355: per-country admin labels so a
+                                // German player sees "Bundesland" instead
+                                // of "OSM Zone 4". Falls back to the
+                                // generic Nth-order description when the
+                                // play area is in a country we haven't
+                                // tabled yet — see lib/adminDivisions.ts.
+                                const iso = $mapGeo?.properties?.countrycode;
+                                const labelFor = (n: number) =>
+                                    `${adminDivisionName(iso, n)} (OSM ${n})`;
+                                return {
+                                    2: "Country (OSM 2)",
+                                    3: "Region (OSM 3)",
+                                    4: labelFor(4),
+                                    5: labelFor(5),
+                                    6: labelFor(6),
+                                    7: labelFor(7),
+                                    8: labelFor(8),
+                                    9: labelFor(9),
+                                    10: labelFor(10),
+                                };
+                            })()}
                             value={data.cat.adminLevel.toString()}
                             onValueChange={(value) =>
                                 questionModified(
