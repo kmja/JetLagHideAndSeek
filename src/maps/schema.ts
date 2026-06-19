@@ -379,6 +379,18 @@ export const matchingQuestionSchema = z.union([
 
 const baseMeasuringQuestionSchema = ordinaryBaseQuestionSchema.extend({
     hiderCloser: z.boolean().default(true),
+    /**
+     * v346: manual reference-point fallback. When the data path for a
+     * measuring question fails (Overpass / elevation down AND not
+     * cached), the seeker can tap the map to mark where the reference
+     * (nearest airport / station / etc.) actually is. When set, the
+     * elimination uses this point directly — the "closer" region is the
+     * circle of radius |seeker→ref| around it — bypassing the data
+     * fetch entirely. Optional; absent = normal automatic path.
+     */
+    manualReference: z
+        .object({ lat: z.number(), lng: z.number() })
+        .optional(),
 });
 
 const ordinaryMeasuringQuestionSchema = baseMeasuringQuestionSchema.extend({

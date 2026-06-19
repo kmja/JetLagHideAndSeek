@@ -158,6 +158,19 @@ export const determineMeasuringBoundary = async (
 ) => {
     const bBox = turf.bbox(mapGeoJSON.get()!);
 
+    // v346: manual reference-point fallback. When the seeker has tapped
+    // a reference point (because the data path failed), use it directly
+    // — the downstream arcBufferToPoint turns this single point into the
+    // "closer than the seeker" circle, which is exactly the measuring
+    // semantics. Bypasses all data fetching. (sea-level is excluded:
+    // it's a contour split handled in adjustPerMeasuring, not a
+    // point-buffer, so a manual point doesn't apply.)
+    const manual = (question as { manualReference?: { lat: number; lng: number } })
+        .manualReference;
+    if (manual && question.type !== "sea-level") {
+        return [turf.point([manual.lng, manual.lat])];
+    }
+
     switch (question.type) {
         case "highspeed-measure-shinkansen": {
             const features = osmtogeojson(
@@ -451,6 +464,9 @@ const bufferedDeterminer = memoize(
                 ? polyGeoJSON.get()
                 : mapGeoLocation.get(),
             geo: (question as any).geo,
+            // v346: manual reference invalidates the memo so toggling it
+            // recomputes the buffer from the picked point.
+            manualReference: (question as any).manualReference,
         }),
 );
 

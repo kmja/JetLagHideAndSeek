@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Label } from "@radix-ui/react-label";
+import { MapPinned, X } from "lucide-react";
 import * as React from "react";
 import { useEffect, useState } from "react";
 
@@ -328,12 +329,36 @@ export const MeasuringQuestionComponent = ({
                 disabled={!data.drag || $isLoading}
                 forceExpanded={forceExpanded}
                 dragLive={data.drag}
+                manualReference={data.manualReference}
                 onChange={(lat, lng) => {
                     if (lat !== null) data.lat = lat;
                     if (lng !== null) data.lng = lng;
                     questionModified();
                 }}
             />
+            {/* v346: manual reference-point fallback. When the automatic
+                "nearest X" lookup fails (data path down + not cached) the
+                seeker can drop the reference on the map themselves; the
+                elimination then arcs from that point. sea-level is a
+                contour, not a point-distance, so it's excluded. */}
+            {forceExpanded && data.drag && data.type !== "sea-level" && (
+                <ManualReferenceControl
+                    seekerLat={data.lat}
+                    seekerLng={data.lng}
+                    value={data.manualReference}
+                    disabled={!data.drag || $isLoading}
+                    onChange={(ref) => {
+                        if (ref) {
+                            data.manualReference = ref;
+                        } else {
+                            delete (
+                                data as { manualReference?: unknown }
+                            ).manualReference;
+                        }
+                        questionModified();
+                    }}
+                />
+            )}
             <ManualAnswerDisclosure compact={compactAnswer}>
                 <div className="flex gap-2 items-center p-2">
                     <Label
@@ -388,6 +413,7 @@ function MeasuringLocation({
     disabled,
     forceExpanded,
     dragLive,
+    manualReference,
     onChange,
 }: {
     lat: number;
@@ -397,6 +423,10 @@ function MeasuringLocation({
     disabled?: boolean;
     forceExpanded?: boolean;
     dragLive?: boolean;
+    /** v346: when set, this overrides the auto-looked-up nearest
+     *  reference for the dashed-line preview, and unblocks the map even
+     *  if the auto lookup failed. */
+    manualReference?: { lat: number; lng: number };
     onChange: (lat: number | null, lng: number | null) => void;
 }) {
     // Guard the lookup on real coords. 0,0 is the "not set yet"
@@ -428,17 +458,35 @@ function MeasuringLocation({
         setStickyRef(null);
     }, [type]);
 
-    const referencePoint =
-        showRef
-            ? ref.status === "ok"
-                ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
-                : stickyRef ?? undefined
-            : undefined;
+    // v346: a manually-dropped reference always wins over the auto
+    // lookup (the seeker set it precisely because the auto one was
+    // wrong / missing).
+    const referencePoint = manualReference
+        ? {
+              lat: manualReference.lat,
+              lng: manualReference.lng,
+              name: "Manual reference",
+          }
+        : showRef
+          ? ref.status === "ok"
+              ? { lat: ref.ref.lat, lng: ref.ref.lng, name: ref.ref.name }
+              : stickyRef ?? undefined
+          : undefined;
 
     // See cards/matching.tsx — defer the map inside the configure
-    // dialog until both the seeker pin and the resolved nearest
-    // reference are known. Avoids the play-area-centroid flash.
-    const mapReady = !forceExpanded || (coordsSet && Boolean(referencePoint));
+    // dialog until the seeker pin and a reference are known. v346: also
+    // unblock once the auto lookup has SETTLED on error (status
+    // "error"/"none") so a failed data path doesn't strand the map on
+    // the "Locating…" placeholder — the seeker needs the map to drop a
+    // manual reference.
+    const lookupSettled =
+        ref.status === "ok" ||
+        ref.status === "error" ||
+        ref.status === "none";
+    const mapReady =
+        !forceExpanded ||
+        (coordsSet &&
+            (Boolean(referencePoint) || lookupSettled));
 
     return (
         <LatitudeLongitude
@@ -460,5 +508,98 @@ function MeasuringLocation({
             impactMode={forceExpanded ? "measuring" : undefined}
             impactType={type}
         />
+    );
+}
+
+/**
+ * v346: manual reference-point fallback control for measuring
+ * questions. Collapsed by default to a one-line prompt; expanding
+ * reveals a freely-tappable map (lockToGps=false) seeded at the
+ * seeker's position. Whatever point the seeker drops becomes
+ * `data.manualReference`, which `determineMeasuringBoundary` uses
+ * directly (arc from that point) instead of fetching the nearest X.
+ */
+function ManualReferenceControl({
+    seekerLat,
+    seekerLng,
+    value,
+    disabled,
+    onChange,
+}: {
+    seekerLat: number;
+    seekerLng: number;
+    value?: { lat: number; lng: number };
+    disabled?: boolean;
+    onChange: (ref: { lat: number; lng: number } | undefined) => void;
+}) {
+    const [open, setOpen] = useState(Boolean(value));
+
+    if (!open && !value) {
+        return (
+            <SidebarMenuItem>
+                <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setOpen(true)}
+                    className={cn(
+                        "w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px]",
+                        "text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors",
+                        "disabled:opacity-50",
+                    )}
+                >
+                    <MapPinned className="w-3.5 h-3.5 shrink-0" />
+                    Reference didn&apos;t load? Set it on the map manually.
+                </button>
+            </SidebarMenuItem>
+        );
+    }
+
+    // Seed the picker at the existing manual point, else the seeker's
+    // own position (a sensible nearby starting place to drag from).
+    const pickLat = value?.lat ?? seekerLat;
+    const pickLng = value?.lng ?? seekerLng;
+
+    return (
+        <SidebarMenuItem>
+            <div className="px-1 space-y-1.5">
+                <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-poppins font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                        <MapPinned className="w-3.5 h-3.5" />
+                        Manual reference
+                    </span>
+                    <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => {
+                            onChange(undefined);
+                            setOpen(false);
+                        }}
+                        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                    >
+                        <X className="w-3 h-3" />
+                        Clear
+                    </button>
+                </div>
+                <LatitudeLongitude
+                    latitude={pickLat}
+                    longitude={pickLng}
+                    label="Reference point"
+                    disabled={disabled}
+                    // Freely tappable — this IS the manual point-pick.
+                    lockToGps={false}
+                    onChange={(la, ln) => {
+                        onChange({
+                            lat: la ?? pickLat,
+                            lng: ln ?? pickLng,
+                        });
+                    }}
+                />
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                    Tap where the nearest reference actually is. The map
+                    will split by distance to this point instead of the
+                    automatic lookup.
+                </p>
+            </div>
+        </SidebarMenuItem>
     );
 }
