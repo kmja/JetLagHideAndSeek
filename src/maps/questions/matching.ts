@@ -289,30 +289,50 @@ export const determineMatchingBoundary = memoize(
                 // to manual map work.
                 const seekerLat = question.lat;
                 const seekerLng = question.lng;
-                // Step 1: nearest named highway.
+                // Step 1: nearest named highway. v342: fetch GEOMETRY
+                // (out geom, not out tags) so we can compute the TRUE
+                // nearest by point-to-line distance rather than trusting
+                // Overpass's element order — which isn't distance-sorted
+                // and was the fragile bit flagged in v340.
                 const nearbyQuery = `
 [out:json][timeout:30];
 way["highway"]["name"](around:500,${seekerLat},${seekerLng});
-out tags;
+out geom;
 `;
                 const nearbyData = await (
                     await import("@/maps/api/overpass")
                 ).getOverpassData(nearbyQuery);
-                const candidates = (
-                    (nearbyData as { elements?: any[] }).elements ?? []
-                ).filter((el) => el?.tags?.name);
-                if (candidates.length === 0) {
+                const seekerPt = turf.point([seekerLng, seekerLat]);
+                let streetName: string | null = null;
+                let bestDist = Infinity;
+                for (const el of (nearbyData as { elements?: any[] })
+                    .elements ?? []) {
+                    const name = el?.tags?.name;
+                    const geom = el?.geometry as
+                        | Array<{ lat: number; lon: number }>
+                        | undefined;
+                    if (!name || !geom || geom.length < 2) continue;
+                    try {
+                        const line = turf.lineString(
+                            geom.map((p) => [p.lon, p.lat]),
+                        );
+                        const d = turf.pointToLineDistance(seekerPt, line, {
+                            units: "meters",
+                        });
+                        if (d < bestDist) {
+                            bestDist = d;
+                            streetName = name;
+                        }
+                    } catch {
+                        /* skip malformed way */
+                    }
+                }
+                if (!streetName) {
                     toast.error(
                         "No named street within 500 m of your location.",
                     );
                     throw new Error("No nearby street name");
                 }
-                // Pick the first candidate's name (Overpass returns
-                // closest first by default for around: queries on small
-                // radii). Could be refined to true nearest by re-
-                // computing distances, but the difference is rarely
-                // meaningful at this radius.
-                const streetName: string = candidates[0].tags.name;
                 // Step 2: all matching ways inside the play area.
                 const wayFeatures = osmtogeojson(
                     await findPlacesInZone(

@@ -785,6 +785,9 @@ async function handleRequest(
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
         }
+        if (url.pathname.startsWith("/api/elevation/")) {
+            return handleElevationTile(request, env, ctx, cors);
+        }
 
         if (url.pathname !== "/api/interpreter") {
             return new Response("Not found", { status: 404, headers: cors });
@@ -3743,6 +3746,127 @@ async function handleAdminStoreTilePack(
         200,
         cors,
     );
+}
+
+/* ──────────────────── Elevation tile proxy (v342) ──────────────────── *
+ *
+ * Sea-level measuring questions need a digital elevation model to split
+ * the map by altitude contour. We self-host it the same way as the
+ * basemap: proxy the public AWS "Terrain Tiles" dataset (Terrarium PNG
+ * encoding) through this worker, cache each tile in R2, and serve it
+ * back with immutable cache headers + CORS so the client can decode it
+ * with a Canvas without tainting it.
+ *
+ *   GET /api/elevation/{z}/{x}/{y}.png
+ *       → upstream https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png
+ *
+ * Terrarium encoding: elevation_m = (R*256 + G + B/256) - 32768. The
+ * client does that decode; the worker just moves + caches bytes. Tiles
+ * are immutable (the DEM doesn't change), so first request per tile
+ * hits AWS, every subsequent request anywhere hits R2 / the edge.
+ * Prewarmable per-city by the laptop, same as basemap tile packs.
+ *
+ * Stored under env.TILES (same bucket as the basemap) keyed
+ * `elevation/v1/{z}/{x}/{y}.png`.
+ */
+const ELEVATION_UPSTREAM =
+    "https://s3.amazonaws.com/elevation-tiles-prod/terrarium";
+
+async function handleElevationTile(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "GET, HEAD" },
+        });
+    }
+    const url = new URL(request.url);
+    // Path: /api/elevation/{z}/{x}/{y}.png
+    const m = url.pathname.match(
+        /^\/api\/elevation\/(\d+)\/(\d+)\/(\d+)\.png$/,
+    );
+    if (!m) {
+        return new Response("Bad elevation tile path", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    const [, z, x, y] = m;
+    const r2Key = `elevation/v1/${z}/${x}/${y}.png`;
+
+    // R2 first.
+    let obj: R2ObjectBody | null = null;
+    try {
+        obj = await env.TILES.get(r2Key);
+    } catch (e) {
+        console.warn(`[elevation] R2 get failed for ${r2Key}:`, e);
+    }
+    if (obj) {
+        return new Response(
+            request.method === "HEAD" ? null : obj.body,
+            {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "image/png",
+                    "Cache-Control":
+                        "public, max-age=31536000, immutable",
+                    "X-Cache": "R2_HIT",
+                },
+            },
+        );
+    }
+
+    // Upstream AWS Terrain Tiles.
+    const upstreamUrl = `${ELEVATION_UPSTREAM}/${z}/${x}/${y}.png`;
+    let upstream: Response;
+    try {
+        upstream = await fetch(upstreamUrl);
+    } catch (e) {
+        console.warn(`[elevation] upstream fetch failed ${upstreamUrl}:`, e);
+        return new Response("Upstream elevation unreachable", {
+            status: 502,
+            headers: cors,
+        });
+    }
+    if (!upstream.ok) {
+        // AWS 404s for tiles outside data coverage (e.g. far ocean at
+        // high zoom). Forward the status; the client treats a missing
+        // tile as "no data here" and skips it.
+        return new Response(null, {
+            status: upstream.status,
+            headers: cors,
+        });
+    }
+    // Tee: one copy to the client, one buffered into R2.
+    const bytes = await upstream.arrayBuffer();
+    ctx.waitUntil(
+        env.TILES.put(r2Key, bytes, {
+            httpMetadata: {
+                contentType: "image/png",
+                cacheControl: "public, max-age=31536000, immutable",
+            },
+            customMetadata: {
+                storedAt: String(Date.now()),
+                kind: "elevation",
+            },
+        }).catch((e) =>
+            console.warn(`[elevation] R2 put failed for ${r2Key}:`, e),
+        ),
+    );
+    return new Response(request.method === "HEAD" ? null : bytes, {
+        status: 200,
+        headers: {
+            ...corsHeadersAsObject(cors),
+            "Content-Type": "image/png",
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Cache": "MISS",
+        },
+    });
 }
 
 /* ────────────────────── Photon geocoding proxy ─────────────────────── *

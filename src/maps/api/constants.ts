@@ -88,6 +88,12 @@ export const PMTILES_URL_FALLBACK =
  *  overpass-cache/src/index.ts and the laptop uploader — bump together
  *  if the master basemap is re-rendered. */
 export const TILE_PACK_BASE = `${JLHS_WORKER_BASE}/tiles/tile-packs/v1`;
+/** Base URL for self-hosted elevation tiles (v342). A Terrarium-encoded
+ *  PNG for tile z/x/y is at `${ELEVATION_TILE_BASE}/{z}/{x}/{y}.png`,
+ *  proxied + R2-cached by the worker from the AWS Terrain Tiles dataset.
+ *  Used by the sea-level measuring question to build an altitude
+ *  contour. */
+export const ELEVATION_TILE_BASE = `${JLHS_WORKER_BASE}/api/elevation`;
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",
     DEFAULT_OVERPASS_API_TERTIARY,

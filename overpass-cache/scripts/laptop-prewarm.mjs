@@ -985,8 +985,55 @@ async function processCity(city) {
         await processTilePack(city, effectiveExtent);
     }
 
+    // v342: per-city elevation tiles (for sea-level questions). Just a
+    // few GET requests through the worker's /api/elevation proxy — the
+    // first request stores the Terrarium tile in R2, so this primes the
+    // play area's DEM coverage. Cheap (no decode here, the worker just
+    // moves bytes), so it's on by default whenever references run.
+    if (DO_REFS) {
+        await processElevation(effectiveExtent);
+    }
+
     // HSR is no longer per-city — see processHsrCountries(), run once
     // after the whole city loop.
+}
+
+/* ───────────────────── Elevation prewarm (v342) ─────────────────────── *
+ *
+ * The sea-level measuring question decodes Terrarium elevation tiles
+ * over the play-area bbox at z11. Warming = GET each covering tile
+ * through the worker proxy once, which stores it in R2. Mirrors the
+ * client's ELEVATION_ZOOM / coverage math in src/maps/api/elevation.ts.
+ */
+const ELEVATION_ZOOM = 11;
+const ELEVATION_MAX_TILES = 36;
+
+async function processElevation(extent) {
+    if (!extent) return;
+    // Photon extent shape: [maxLat, minLng, minLat, maxLng].
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const z = ELEVATION_ZOOM;
+    const x0 = lonToTileX(minLng, z);
+    const x1 = lonToTileX(maxLng, z);
+    const y0 = latToTileY(maxLat, z);
+    const y1 = latToTileY(minLat, z);
+    const count = (x1 - x0 + 1) * (y1 - y0 + 1);
+    if (count <= 0 || count > ELEVATION_MAX_TILES) return;
+    let warmed = 0;
+    for (let tx = x0; tx <= x1; tx++) {
+        for (let ty = y0; ty <= y1; ty++) {
+            const url = `${WORKER}/api/elevation/${z}/${tx}/${ty}.png`;
+            try {
+                const r = await fetch(url, { method: "GET" });
+                if (r.ok) warmed++;
+            } catch {
+                /* skip — best effort */
+            }
+        }
+    }
+    if (warmed > 0) {
+        console.log(`  ✓ elevation: warmed ${warmed}/${count} tiles (z${z})`);
+    }
 }
 
 /* ───────────────────────── Tile packs (v336) ────────────────────────── *

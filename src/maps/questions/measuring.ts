@@ -24,6 +24,7 @@ import {
     prettifyLocation,
     QuestionSpecificLocation,
 } from "@/maps/api";
+import { seaLevelRegion } from "@/maps/api/elevation";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -400,12 +401,11 @@ export const determineMeasuringBoundary = async (
             ];
         }
         case "sea-level": {
-            // Rulebook p25: "A player's altitude. Use your phone's
-            // compass." This is answered manually by the hider — no
-            // automatic map elimination is possible without per-pixel
-            // elevation data (which we don't bundle, and live-querying
-            // an elevation API per cell would be prohibitive). Falls
-            // through to the false branch below.
+            // v342: handled out-of-band in adjustPerMeasuring via the
+            // self-hosted elevation DEM (seaLevelRegion). It's an
+            // altitude contour split, not a feature buffer, so it
+            // returns false HERE (skip the buffer pipeline) and the
+            // real elimination happens in adjustPerMeasuring.
             return false;
         }
         case "custom-measure":
@@ -454,11 +454,50 @@ const bufferedDeterminer = memoize(
         }),
 );
 
+// v342: memoised sea-level contour region. Keyed on seeker position +
+// play area so the elevation tiles are fetched/decoded + isobanded once
+// per (question, area), not on every map render. Mirrors
+// bufferedDeterminer's memo discipline.
+const seaLevelDeterminer = memoize(
+    async (question: MeasuringQuestion) => {
+        const $map = mapGeoJSON.get();
+        if (!$map) return null;
+        const bBox = turf.bbox($map).slice(0, 4) as [
+            number,
+            number,
+            number,
+            number,
+        ];
+        return seaLevelRegion(bBox, question.lng, question.lat);
+    },
+    (question) =>
+        JSON.stringify({
+            type: question.type,
+            lat: question.lat,
+            lng: question.lng,
+            entirety: polyGeoJSON.get()
+                ? polyGeoJSON.get()
+                : mapGeoLocation.get(),
+        }),
+);
+
 export const adjustPerMeasuring = async (
     question: MeasuringQuestion,
     mapData: any,
 ) => {
     if (mapData === null) return;
+
+    // v342: sea-level is an altitude CONTOUR split, not a
+    // distance-to-feature buffer, so it bypasses the
+    // bufferedDeterminer / arcBufferToPoint pipeline. seaLevelRegion
+    // builds the "closer to sea level" polygon directly from the
+    // self-hosted elevation DEM; modifyMapData then keeps the inside
+    // (hiderCloser) or outside.
+    if (question.type === "sea-level") {
+        const region = await seaLevelDeterminer(question);
+        if (!region) return mapData;
+        return modifyMapData(mapData, region, question.hiderCloser);
+    }
 
     const buffer = await bufferedDeterminer(question);
 
