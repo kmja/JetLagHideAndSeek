@@ -67,6 +67,25 @@ export const getOverpassData = async (
     const tertiaryUrl = `${OVERPASS_API_TERTIARY}?data=${encodedQuery}`;
     const quaternaryUrl = `${OVERPASS_API_QUATERNARY}?data=${encodedQuery}`;
 
+    // v349: cache-first short-circuit. If our own cache already holds
+    // this query's response, serve it and fire NOTHING external — not
+    // the polygons.openstreetmap.fr boundary fast-path below, not the
+    // public Overpass mirrors. This is the common case for a play area
+    // that's been loaded before on this device (or that the cron/laptop
+    // prewarmed into R2 and the worker leg has since cached locally),
+    // and it's what stops a re-opened game from re-hitting
+    // polygons.osm.fr just to redraw a boundary it already has. On any
+    // cache miss / Cache-API hiccup we fall through to the normal race.
+    try {
+        const cache = await determineCache(cacheType);
+        const hit = await cache.match(primaryUrl);
+        if (hit && hit.ok) {
+            return await hit.clone().json();
+        }
+    } catch {
+        /* Cache API unavailable (private mode / iOS quirk) — race. */
+    }
+
     // Fast-path racer: if this is a simple relation-boundary
     // fetch (the heavy hitter for play-area loading), also race
     // polygons.openstreetmap.fr in parallel. Their pre-computed
@@ -153,16 +172,25 @@ export const getOverpassData = async (
     const hostOf = (url: string) =>
         url.replace(/^https?:\/\//, "").split("/")[0];
 
-    // Tier 1 — our own cache worker, plus (for boundary queries) the
-    // pre-computed polygon fast-path. Neither hammers the public
-    // Overpass mirrors: the worker is R2-backed and is the single
-    // coordinated upstream caller, and polygons.osm.fr is a separate
-    // service. These race immediately.
+    // Tier 1 — our own R2-backed cache worker. Starts immediately. On
+    // a prewarmed / previously-fetched boundary this returns from R2
+    // in a few hundred ms, before tier 1.5 even starts — so the
+    // external polygons.osm.fr request is never made.
     const tier1: Racer[] = [
         { name: hostOf(primaryUrl), run: () => tryFetch(primaryUrl) },
     ];
+
+    // Tier 1.5 — polygons.openstreetmap.fr's pre-computed polygons.
+    // v349: moved out of the immediate race and behind a short stagger
+    // so it ONLY fires when the worker hasn't answered quickly (a cold
+    // / un-prewarmed boundary). It's still the fast path for monster
+    // relations (Shanghai / Tokyo) where Overpass crawls — but for the
+    // common cached case the worker wins first and this never runs,
+    // keeping the request off an external service per the
+    // self-hosted-first principle. Only added for boundary queries.
+    const midTier: Racer[] = [];
     if (fastPathRelationId !== null) {
-        tier1.unshift({
+        midTier.push({
             name: "polygons.osm.fr",
             run: async () => {
                 const t0 = Date.now();
@@ -176,9 +204,7 @@ export const getOverpassData = async (
                     );
                     return null;
                 }
-                console.log(
-                    `[overpass] polygons.osm.fr OK (${ms}ms)`,
-                );
+                console.log(`[overpass] polygons.osm.fr OK (${ms}ms)`);
                 return new Response(JSON.stringify(json), {
                     status: 200,
                     headers: { "Content-Type": "application/json" },
@@ -187,27 +213,21 @@ export const getOverpassData = async (
         });
     }
 
-    // Tier 2 — the public Overpass mirrors, held back behind a
-    // stagger. Previously the client raced these in parallel with the
-    // worker on EVERY query, which (a) flooded the mirrors directly
-    // from the user's IP and tripped their per-IP rate limit — the
-    // 429/CORS cascade in the console — and (b) defeated the cache
-    // worker's purpose of being the sole upstream contact (so R2
-    // never filled). Now they only kick in when the worker has
-    // actually failed, or when it's been slow for longer than the
-    // stagger window. A healthy cache hit returns long before that;
-    // a cache miss lets the worker fetch + persist once, so the next
-    // identical query is a fast R2 hit instead of another mirror
-    // flood.
+    // Tier 2 — the public Overpass mirrors, held back behind a longer
+    // stagger. They only kick in when the worker AND the polygon fast-
+    // path have failed or been slow, so a healthy cache hit never
+    // touches them and the per-IP rate limit isn't tripped.
     const tier2: Racer[] = [fallbackUrl, tertiaryUrl, quaternaryUrl].map(
         (url) => ({ name: hostOf(url), run: () => tryFetch(url) }),
     );
 
-    const winner = await raceWithStaggeredFallback(
-        tier1,
-        tier2,
-        PUBLIC_MIRROR_STAGGER_MS,
-    );
+    const winner = await raceWithStaggeredFallback([
+        { racers: tier1, afterMs: 0 },
+        ...(midTier.length > 0
+            ? [{ racers: midTier, afterMs: POLYGON_FAST_PATH_STAGGER_MS }]
+            : []),
+        { racers: tier2, afterMs: PUBLIC_MIRROR_STAGGER_MS },
+    ]);
 
     if (winner) {
         // Best-effort: warm the cache key for the primary URL so
@@ -241,6 +261,14 @@ export const getOverpassData = async (
  *  failed. */
 const PUBLIC_MIRROR_STAGGER_MS = 7000;
 
+/** v349: how long the R2-backed worker gets before the
+ *  polygons.openstreetmap.fr boundary fast-path joins the race. Long
+ *  enough that a prewarmed / cached boundary (R2 hit, typically
+ *  100-500 ms) wins first and the external call never fires; short
+ *  enough that a genuinely cold boundary still gets the fast pre-
+ *  computed polygon promptly. */
+const POLYGON_FAST_PATH_STAGGER_MS = 1500;
+
 /**
  * Two-tier first-success-wins race with a staggered second tier.
  *
@@ -256,24 +284,48 @@ const PUBLIC_MIRROR_STAGGER_MS = 7000;
  * R2-backed cache worker.
  */
 async function raceWithStaggeredFallback(
-    tier1: Array<{ name: string; run: () => Promise<Response | null> }>,
-    tier2: Array<{ name: string; run: () => Promise<Response | null> }>,
-    staggerMs: number,
+    tiers: Array<{
+        racers: Array<{ name: string; run: () => Promise<Response | null> }>;
+        /** ms after start at which this tier kicks in (0 = immediate).
+         *  A tier also starts early if every racer started so far has
+         *  already failed. */
+        afterMs: number;
+    }>,
 ): Promise<Response | null> {
     return new Promise((resolve) => {
         let resolved = false;
-        let tier2Started = false;
-        let pending = tier1.length;
-        let timer: ReturnType<typeof setTimeout> | null = null;
+        let pending = 0;
+        const startedTiers = new Set<number>();
+        const timers: Array<ReturnType<typeof setTimeout>> = [];
 
         const finish = (r: Response | null) => {
             if (resolved) return;
             resolved = true;
-            if (timer !== null) clearTimeout(timer);
+            for (const t of timers) clearTimeout(t);
             resolve(r);
         };
 
-        const onSettled = (r: Response | null) => {
+        const startTier = (i: number) => {
+            if (resolved || startedTiers.has(i) || i >= tiers.length) return;
+            startedTiers.add(i);
+            const tier = tiers[i];
+            pending += tier.racers.length;
+            tier.racers.forEach(({ run }) => {
+                run().then(onSettled, () => onSettled(null));
+            });
+        };
+
+        const startNextUnstarted = () => {
+            for (let i = 0; i < tiers.length; i++) {
+                if (!startedTiers.has(i)) {
+                    startTier(i);
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        function onSettled(r: Response | null) {
             if (resolved) return;
             if (r) {
                 finish(r);
@@ -281,36 +333,22 @@ async function raceWithStaggeredFallback(
             }
             pending--;
             if (pending === 0) {
-                // Everything started so far has failed.
-                if (!tier2Started && tier2.length > 0) {
-                    startTier2();
-                } else {
-                    finish(null);
-                }
+                // Everything started so far failed — bring the next
+                // unstarted tier in immediately rather than waiting on
+                // its timer.
+                if (!startNextUnstarted()) finish(null);
             }
-        };
-
-        const startRacers = (
-            racers: Array<{ run: () => Promise<Response | null> }>,
-        ) => {
-            racers.forEach(({ run }) => {
-                run().then(onSettled, () => onSettled(null));
-            });
-        };
-
-        function startTier2() {
-            if (tier2Started || resolved) return;
-            tier2Started = true;
-            pending += tier2.length;
-            startRacers(tier2);
         }
 
-        startRacers(tier1);
-
-        if (tier2.length > 0) {
-            timer = setTimeout(() => {
-                if (!resolved) startTier2();
-            }, staggerMs);
+        // Tier 0 immediate; each later tier on its own timer.
+        startTier(0);
+        for (let i = 1; i < tiers.length; i++) {
+            const afterMs = tiers[i].afterMs;
+            timers.push(
+                setTimeout(() => {
+                    if (!resolved) startTier(i);
+                }, afterMs),
+            );
         }
     });
 }

@@ -94,6 +94,11 @@ export const TILE_PACK_BASE = `${JLHS_WORKER_BASE}/tiles/tile-packs/v1`;
  *  Used by the sea-level measuring question to build an altitude
  *  contour. */
 export const ELEVATION_TILE_BASE = `${JLHS_WORKER_BASE}/api/elevation`;
+/** Base URL for self-hosted map glyphs + sprites (v349), proxied +
+ *  R2-cached by the worker from protomaps.github.io/basemaps-assets.
+ *  The MapLibre style's `glyphs` and `sprite` URLs point here so the
+ *  basemap has no external dependency at game time. */
+export const MAP_ASSET_BASE = `${JLHS_WORKER_BASE}/api/mapasset`;
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",
     DEFAULT_OVERPASS_API_TERTIARY,

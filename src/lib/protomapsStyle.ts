@@ -37,7 +37,11 @@ import maplibregl from "maplibre-gl";
 import { atom } from "nanostores";
 import { Protocol } from "pmtiles";
 
-import { PMTILES_URL, PMTILES_URL_FALLBACK } from "@/maps/api/constants";
+import {
+    MAP_ASSET_BASE,
+    PMTILES_URL,
+    PMTILES_URL_FALLBACK,
+} from "@/maps/api/constants";
 import {
     activeTilePackId,
     MERGE_SCHEME,
@@ -143,21 +147,19 @@ export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
             : `pmtiles://${url}`;
     return {
         version: 8,
-        // Glyphs (font sprites). Protomaps' canonical glyph URL — we
-        // could self-host these too later, but they're small (a few
-        // MB total) and not in the per-tile critical path.
-        glyphs:
-            "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
-        // v327: image sprites — provides the `generic_shield-{N}char`
-        // PNG icons the basemaps layer set references for highway
-        // shields. Without this MapLibre logs a 'styleimagemissing'
-        // warning on every missing icon (4 per panned region, every
-        // time the style rebuilds) and renders road numbers as plain
-        // text. Loaded from the same protomaps.github.io basemaps-
-        // assets bucket as glyphs, so a CORS-blocked environment
-        // would already have failed at glyphs first. Theme-keyed:
-        // the dark variant ships dark shields with light text.
-        sprite: `https://protomaps.github.io/basemaps-assets/sprites/v4/${theme === "dark" ? "dark" : "light"}`,
+        // Glyphs (label fonts). v349: proxied through our worker
+        // (MAP_ASSET_BASE → /api/mapasset/...) which R2-caches them
+        // from protomaps.github.io. Self-hosted like the basemap tiles;
+        // no external dependency at game time. The fonts are global, so
+        // R2 fills once and serves every player.
+        glyphs: `${MAP_ASSET_BASE}/fonts/{fontstack}/{range}.pbf`,
+        // v327: image sprites — `generic_shield-{N}char` PNG icons the
+        // basemaps layer set references for highway shields. Without
+        // them MapLibre logs 'styleimagemissing' and renders road
+        // numbers as plain text. v349: also proxied through the worker
+        // (was a direct protomaps.github.io hit). Theme-keyed: the dark
+        // variant ships dark shields with light text.
+        sprite: `${MAP_ASSET_BASE}/sprites/v4/${theme === "dark" ? "dark" : "light"}`,
         sources: {
             [PROTOMAPS_SOURCE_ID]: {
                 type: "vector",

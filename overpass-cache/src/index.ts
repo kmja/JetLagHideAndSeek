@@ -788,6 +788,9 @@ async function handleRequest(
         if (url.pathname.startsWith("/api/elevation/")) {
             return handleElevationTile(request, env, ctx, cors);
         }
+        if (url.pathname.startsWith("/api/mapasset/")) {
+            return handleMapAsset(request, env, ctx, cors);
+        }
 
         if (url.pathname !== "/api/interpreter") {
             return new Response("Not found", { status: 404, headers: cors });
@@ -3846,6 +3849,117 @@ async function handleAdminStoreTilePack(
         200,
         cors,
     );
+}
+
+/* ───────────────── Map glyph + sprite proxy (v349) ──────────────────── *
+ *
+ * The MapLibre basemap style loads label fonts (glyph PBFs) and
+ * highway-shield sprites (PNG + JSON) from protomaps.github.io. Those
+ * were the last external map dependency at game time — every fresh map
+ * view hit github.io directly. This proxies them through the worker,
+ * R2-cached + immutable, so they're self-hosted like the basemap tiles
+ * and elevation tiles. They're GLOBAL (same fonts/icons everywhere),
+ * so the R2 cache fills once and serves every player thereafter.
+ *
+ *   GET /api/mapasset/fonts/<fontstack>/<range>.pbf
+ *   GET /api/mapasset/sprites/v4/<dark|light>[@2x].<json|png>
+ *       → upstream https://protomaps.github.io/basemaps-assets/<path>
+ *
+ * The client points the style's `glyphs` + `sprite` URLs here (see
+ * src/lib/protomapsStyle.ts). Stored under env.TILES key
+ * `mapasset/v1/<path>`. Upstream Content-Type is forwarded so MapLibre
+ * gets image/png / application/json / the glyph PBF type unchanged.
+ */
+const MAPASSET_UPSTREAM = "https://protomaps.github.io/basemaps-assets";
+
+async function handleMapAsset(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "GET, HEAD" },
+        });
+    }
+    const url = new URL(request.url);
+    // Everything after /api/mapasset/ is the upstream path.
+    const path = url.pathname.slice("/api/mapasset/".length);
+    // Reject path traversal; allow the slashes + @ + . the asset paths
+    // legitimately contain.
+    if (!path || path.includes("..")) {
+        return new Response("Bad asset path", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    const r2Key = `mapasset/v1/${path}`;
+
+    let obj: R2ObjectBody | null = null;
+    try {
+        obj = await env.TILES.get(r2Key);
+    } catch (e) {
+        console.warn(`[mapasset] R2 get failed for ${r2Key}:`, e);
+    }
+    if (obj) {
+        const ct =
+            obj.httpMetadata?.contentType ?? "application/octet-stream";
+        return new Response(request.method === "HEAD" ? null : obj.body, {
+            status: 200,
+            headers: {
+                ...corsHeadersAsObject(cors),
+                "Content-Type": ct,
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "X-Cache": "R2_HIT",
+            },
+        });
+    }
+
+    // Upstream protomaps basemaps-assets bucket.
+    const upstreamUrl = `${MAPASSET_UPSTREAM}/${path}`;
+    let upstream: Response;
+    try {
+        upstream = await fetch(upstreamUrl);
+    } catch (e) {
+        console.warn(`[mapasset] upstream fetch failed ${upstreamUrl}:`, e);
+        return new Response("Upstream map asset unreachable", {
+            status: 502,
+            headers: cors,
+        });
+    }
+    if (!upstream.ok) {
+        // 404 is normal for font ranges with no glyphs — forward it;
+        // MapLibre treats a missing range as "no glyphs here".
+        return new Response(null, { status: upstream.status, headers: cors });
+    }
+    const contentType =
+        upstream.headers.get("Content-Type") ?? "application/octet-stream";
+    const bytes = await upstream.arrayBuffer();
+    ctx.waitUntil(
+        env.TILES.put(r2Key, bytes, {
+            httpMetadata: {
+                contentType,
+                cacheControl: "public, max-age=31536000, immutable",
+            },
+            customMetadata: {
+                storedAt: String(Date.now()),
+                kind: "mapasset",
+            },
+        }).catch((e) =>
+            console.warn(`[mapasset] R2 put failed for ${r2Key}:`, e),
+        ),
+    );
+    return new Response(request.method === "HEAD" ? null : bytes, {
+        status: 200,
+        headers: {
+            ...corsHeadersAsObject(cors),
+            "Content-Type": contentType,
+            "Cache-Control": "public, max-age=31536000, immutable",
+            "X-Cache": "MISS",
+        },
+    });
 }
 
 /* ──────────────────── Elevation tile proxy (v342) ──────────────────── *
