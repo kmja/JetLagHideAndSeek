@@ -2617,28 +2617,53 @@ async function referenceTemplateFingerprint(): Promise<string> {
 // prefetching, not a bigger cap.
 const MAX_SLICE_PARSE_BYTES = 12 * 1024 * 1024;
 
+// v358: hard ceiling on the COMPRESSED R2 object size, checked first and
+// always (the compressed size is the one field that's never missing).
+// The Frankfurt-v357 1101: the Germany country-refs shard is ~2 MB
+// gzipped; the old `compressed × 5` estimate put it at ~10 MB (under the
+// 12 MB cap), so it parsed — but OSM JSON gzips ~8-12×, so the real
+// uncompressed text was ~20 MB, JSON.parse amplified that to ~70 MB of
+// object heap (plus the ~40 MB UTF-16 string), and the 128 MB isolate
+// was killed mid-parse. A memory kill is UNCATCHABLE, so the slice's
+// try/catch can't save it — it surfaces as a CORS-less 1101 that stalls
+// the client into hammering public mirrors. Capping the compressed size
+// directly is the only guard that can't be fooled by a bad ratio
+// estimate: 1.5 MB gzipped ≈ 12-18 MB uncompressed ≈ the safe parse
+// ceiling. Bigger shards (DE, US-west) skip the slice and fall through —
+// the per-city exact-key warm covers the cities players actually use.
+const MAX_SLICE_COMPRESSED_BYTES = 1.5 * 1024 * 1024;
+
 interface SlicedResult {
     body: OverpassResponse;
     shardIso: string;
 }
 
 /**
- * v351: decide whether a stored shard is too big to JSON.parse + slice
- * safely in-Worker. Uses the uncompressed `sizeBytes` metadata when
- * present; when it's missing or zero (older entries / a different write
- * path), estimates the uncompressed size from the COMPRESSED R2 object
- * size at a conservative ~5× gzip ratio. Either way, anything over
- * MAX_SLICE_PARSE_BYTES skips the slice and falls through to upstream
- * rather than risking a CPU/memory kill (the bug behind the CORS-less
- * 1101s). Better to lose the fast path than crash the request.
+ * v351/v358: decide whether a stored shard is too big to JSON.parse +
+ * slice safely in-Worker. Guards, in order:
+ *   1. COMPRESSED R2 size (`obj.size`) over MAX_SLICE_COMPRESSED_BYTES —
+ *      the always-present, can't-be-fooled primary guard (v358).
+ *   2. Uncompressed `sizeBytes` metadata when present.
+ *   3. Else estimate uncompressed from compressed at a CONSERVATIVE 12×
+ *      gzip ratio (was 5×, which under-counted and let the DE shard
+ *      through — the v357 1101).
+ * Anything over a cap skips the slice and falls through to upstream
+ * rather than risking the uncatchable memory kill. Better to lose the
+ * fast path than crash the request.
  */
 function sliceTooBigToParse(obj: R2ObjectBody): boolean {
+    // v358: primary guard — compressed size is always known and is the
+    // safest proxy for peak parse memory. Catches shards whose
+    // uncompressed `sizeBytes` metadata is missing/understated.
+    if ((obj.size || 0) > MAX_SLICE_COMPRESSED_BYTES) return true;
     const rawSize = parseInt(obj.customMetadata?.sizeBytes ?? "0", 10);
     if (Number.isFinite(rawSize) && rawSize > 0) {
         return rawSize > MAX_SLICE_PARSE_BYTES;
     }
-    // Unknown uncompressed size — estimate from compressed bytes.
-    const estimated = (obj.size || 0) * 5;
+    // Unknown uncompressed size — estimate from compressed bytes at a
+    // conservative gzip ratio (OSM JSON compresses ~8-12×; the old 5×
+    // under-counted and let the Germany shard through → 1101).
+    const estimated = (obj.size || 0) * 12;
     return estimated > MAX_SLICE_PARSE_BYTES;
 }
 

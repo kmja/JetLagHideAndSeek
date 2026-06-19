@@ -1,4 +1,5 @@
 import { recordBytes, startMeter, stopMeter } from "@/lib/bandwidthMeter";
+import { polyGeoJSON, polyGeoJSONHydrated } from "@/lib/context";
 import { gameStartPosition } from "@/lib/gameSetup";
 import {
     gameSize,
@@ -174,7 +175,30 @@ function runMapPreload(): void {
     })();
 }
 
+let referencesPreloadAwaitingBoundary = false;
+
 function runReferencesPreload(): void {
+    // v358: the reference query keys off the CANONICAL boundary-geometry
+    // extent (referenceExtent → turf.bbox(polyGeoJSON)). The boundary
+    // hydrates ASYNC from the Cache API; if we fire before it lands,
+    // referenceExtent silently falls back to Photon's extent — a bbox
+    // that differs in the 3rd decimal from what the laptop/cron warmed,
+    // so every key misses and the request goes live to Overpass (the
+    // Frankfurt-v357 symptom: a Photon-keyed bbox identical to the broken
+    // pre-fix run). Wait for hydration before warming. If hydration lands
+    // with no boundary (a Photon-only play area), proceed anyway — the
+    // Photon fallback is then the only and correct source.
+    if (!polyGeoJSON.get() && !polyGeoJSONHydrated.get()) {
+        if (referencesPreloadAwaitingBoundary) return; // already queued
+        referencesPreloadAwaitingBoundary = true;
+        const unsub = polyGeoJSONHydrated.subscribe((hydrated) => {
+            if (!hydrated) return;
+            unsub();
+            referencesPreloadAwaitingBoundary = false;
+            runReferencesPreload();
+        });
+        return;
+    }
     // Question references — one combined query for the canonical
     // family set, which BOTH this preload and the worker cron use.
     // They produce the same query string → same R2 key → if the cron
