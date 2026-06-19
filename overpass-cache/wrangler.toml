@@ -57,6 +57,18 @@ main = "src/index.ts"
 compatibility_date = "2025-01-15"
 compatibility_flags = ["nodejs_compat"]
 
+# v352: on the Workers PAID plan now. The binding constraint on Free
+# was the ~10 ms CPU-per-request cap, which killed the references slice
+# (JSON.parse + per-feature bbox filter is 50-200 ms of CPU) with a
+# CORS-less 1101. Explicitly claim the Standard model's 30 s CPU budget
+# so the slice + parse paths have ample headroom. (The 128 MB memory
+# ceiling is unchanged across all plans — that's why the slice cap in
+# src/index.ts stays conservative, and why the very largest whole-area
+# reference sets still need seeker-centric prefetching rather than a
+# bigger worker.)
+[limits]
+cpu_ms = 30000
+
 # R2 bucket binding. The binding name (`CACHE`) is what worker code
 # references via `env.CACHE.get(...)`. Bucket name is the actual
 # storage namespace on the account.

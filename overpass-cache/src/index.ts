@@ -992,10 +992,12 @@ async function handleRequest(
  *  upstream resources finishing their downloads. Falls back to
  *  null if every mirror errors or times out.
  *
- *  Why race instead of serial? The Workers Free plan caps each
- *  request at ~30 s wall clock. Serial (3 × 20 s = 60 s worst
- *  case) blows past that. Parallel resolves in max(per-mirror
- *  RTT) — typically 2–10 s when at least one mirror is healthy. */
+ *  Why race instead of serial? Serial (3 × 20 s = 60 s worst case)
+ *  would keep a user waiting far too long AND, when this was on the
+ *  Free plan, blow past its ~30 s wall-clock cap. Parallel resolves in
+ *  max(per-mirror RTT) — typically 2–10 s when at least one mirror is
+ *  healthy. Still the right call on Paid: it's about user-facing
+ *  latency, not just the old plan limit. */
 /**
  * Pull the relation id out of the canonical
  * `[out:json][timeout:NNN];relation(ID);out geom;` boundary
@@ -2504,16 +2506,20 @@ async function referenceTemplateFingerprint(): Promise<string> {
  * are comfortably under it. Raise once we've measured real headroom
  * or move to per-family shard files (see global-prewarm.md).
  */
-// v351: lowered from 20 MB. A 20 MB shard's JSON.parse + per-feature
-// bbox slice is heavy CPU/heap, and the client fires the combined
-// references query plus up-to-15 per-family fallbacks in parallel —
-// 16 concurrent 20 MB slices blew the isolate's CPU/memory budget and
-// Cloudflare killed the request with a CORS-less 1101 ("Worker threw
-// exception"), which the browser then can't even read. 8 MB keeps a
-// single slice cheap and many-concurrent safe. Shards over this fall
-// through to upstream (dense regions like US-west are huge anyway and
-// time out upstream too — but now with a clean CORS'd 502, not a 1101).
-const MAX_SLICE_PARSE_BYTES = 8 * 1024 * 1024;
+// v352: raised 8 → 12 MB now that we're on the Paid plan. The 8 MB cap
+// was a Free-plan workaround: the ~10 ms CPU limit there killed any
+// non-trivial JSON.parse + slice. Paid's 30 s CPU budget removes that
+// constraint entirely, so CPU is no longer the limiter — MEMORY is
+// (still 128 MB per isolate on every plan). A 12 MB shard parses to
+// ~48-60 MB heap; v351's amplification fix means the client now fires
+// ONE combined slice (not 16), so concurrent memory pressure is far
+// lower than the cascade that forced the 8 MB floor. 12 MB re-enables
+// the fast slice path for medium-country shards while keeping headroom.
+// Shards bigger than this (dense regions like US-west) still fall
+// through to upstream — a whole-region reference set is too large to
+// parse safely regardless of plan; that case wants seeker-centric
+// prefetching, not a bigger cap.
+const MAX_SLICE_PARSE_BYTES = 12 * 1024 * 1024;
 
 interface SlicedResult {
     body: OverpassResponse;
