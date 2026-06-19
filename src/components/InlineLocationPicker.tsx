@@ -30,6 +30,7 @@ import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 import { MapTilesVeil } from "./MapTilesVeil";
+import { SelfPositionMarker } from "./SelfPositionMarker";
 
 /**
  * Always-visible inline location picker for the question configure flow.
@@ -560,7 +561,21 @@ export function InlineLocationPicker({
                         <Marker
                             longitude={safeLng}
                             latitude={safeLat}
-                            anchor="bottom"
+                            // v347: when the pin represents the user's
+                            // own LIVE GPS position (lock-to-GPS mode +
+                            // a real fix), render it as the canonical
+                            // SelfPositionMarker — anchored center —
+                            // for visual consistency with every other
+                            // "my position" rendering. When the pin is
+                            // a freely-pickable location (free mode, or
+                            // locked-mode fallback before GPS arrives),
+                            // keep the teardrop — that's "the point
+                            // you're placing", not "you are here".
+                            anchor={
+                                lockToGps && !interactionsAllowed
+                                    ? "center"
+                                    : "bottom"
+                            }
                             draggable={interactionsAllowed}
                             onDragEnd={
                                 interactionsAllowed
@@ -572,17 +587,23 @@ export function InlineLocationPicker({
                                     : undefined
                             }
                         >
-                            <div
-                                className="jl-picker-pin"
-                                style={{
-                                    width: 28,
-                                    height: 38,
-                                    cursor: interactionsAllowed
-                                        ? "grab"
-                                        : "default",
-                                }}
-                                dangerouslySetInnerHTML={{ __html: PIN_SVG }}
-                            />
+                            {lockToGps && !interactionsAllowed ? (
+                                <SelfPositionMarker />
+                            ) : (
+                                <div
+                                    className="jl-picker-pin"
+                                    style={{
+                                        width: 28,
+                                        height: 38,
+                                        cursor: interactionsAllowed
+                                            ? "grab"
+                                            : "default",
+                                    }}
+                                    dangerouslySetInnerHTML={{
+                                        __html: PIN_SVG,
+                                    }}
+                                />
+                            )}
                         </Marker>
                     )}
                     {/* Reference marker + permanent popup label. */}

@@ -268,6 +268,23 @@ export function seekerUpdateQuestion(key: number, data: Record<string, unknown>)
 }
 
 /**
+ * Re-push an EXISTING question to the multiplayer server (v347). The
+ * server is idempotent by key (per seekerAddQuestion's comment) so
+ * re-sending the same question is safe — a hider who didn't receive
+ * the first `addQ` (offline at send time, app backgrounded mid-fetch,
+ * etc.) gets a fresh copy on the next message. Returns true when the
+ * resend was actually sent over the wire; false when multiplayer
+ * isn't enabled or the question wasn't found locally.
+ */
+export function seekerResendQuestion(key: number): boolean {
+    if (!multiplayerEnabled.get()) return false;
+    const q = questions.get().find((x) => x.key === key);
+    if (!q) return false;
+    getTransport().send({ t: "addQ", question: q });
+    return true;
+}
+
+/**
  * Hider's answer. Locally, the existing `markRepliedInInbox` flow
  * stamps `repliedAt` on the inbox entry. This wrapper additionally
  * sends the answer to the server so the seeker's `questions` store

@@ -22,6 +22,8 @@ import {
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
+import { SelfPositionMarker } from "./SelfPositionMarker";
+
 /**
  * Persistent backdrop map for the hider shell. Renders the hider's
  * spatial state — committed hiding zone circle, locked hiding spot,
@@ -216,14 +218,11 @@ export function HiderBackgroundMap() {
                 {$gps && (
                     <Marker latitude={$gps.lat} longitude={$gps.lng}>
                         <div className="relative flex flex-col items-center">
-                            <span
-                                aria-hidden
-                                className="absolute -inset-2 rounded-full bg-blue-500/30 animate-ping"
-                            />
-                            <span
-                                title="Your GPS position"
-                                className="relative w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-md"
-                            />
+                            {/* v347: shared SelfPositionMarker — was
+                                a Tailwind blue-500 dot with custom
+                                pulse, now the canonical look used by
+                                every "my own position" rendering. */}
+                            <SelfPositionMarker pulse />
                             <MarkerLabel tone="blue">You</MarkerLabel>
                         </div>
                     </Marker>

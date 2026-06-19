@@ -81,6 +81,7 @@ import {
 import { CacheType } from "@/maps/api/types";
 
 import { MapTilesVeil } from "./MapTilesVeil";
+import { SelfPositionMarker } from "./SelfPositionMarker";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -1729,18 +1730,7 @@ export function Map({ className }: MapProps) {
                         latitude={selfPosition.lat}
                         anchor="center"
                     >
-                        <div
-                            aria-label="Your position"
-                            style={{
-                                width: 20,
-                                height: 20,
-                                borderRadius: "50%",
-                                background: "#2A81CB",
-                                border: "3px solid white",
-                                boxShadow:
-                                    "0 0 0 1px #2A81CB, 0 1px 4px rgba(0,0,0,0.5)",
-                            }}
-                        />
+                        <SelfPositionMarker />
                     </Marker>
                 )}
 

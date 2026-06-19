@@ -25,6 +25,11 @@ import {
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { isLoading, questionModified, questions } from "@/lib/context";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import {
+    isHiderConnected,
+    seekerResendQuestion,
+} from "@/lib/multiplayer/store";
 import {
     encodeQuestionForHider,
     shareOrCopy,
@@ -390,6 +395,7 @@ export const QuestionCard = ({
  */
 function ShareQuestionRow({ question }: { question: Question }) {
     const $isLoading = useStore(isLoading);
+    const $mpEnabled = useStore(multiplayerEnabled);
     const meta = CATEGORIES[question.id as CategoryId];
 
     const stampSent = () => {
@@ -427,19 +433,49 @@ function ShareQuestionRow({ question }: { question: Question }) {
         }
     };
 
+    // v347: in multiplayer mode the in-app pipeline already pushed
+    // this question to the server (seekerAddQuestion at create time);
+    // the OS share sheet is redundant. The primary button becomes
+    // "Resend via app" — re-pushes via the wire (idempotent by key)
+    // for the recovery case where the first push didn't land. The
+    // "Copy link" backup stays as an out-of-band escape hatch.
+    const handleResend = () => {
+        const ok = seekerResendQuestion(question.key);
+        if (!ok) {
+            toast.error("Couldn't resend over the app");
+            return;
+        }
+        stampSent();
+        if (isHiderConnected()) {
+            toast.success("Resent to hider", { autoClose: 1500 });
+        } else {
+            toast.info("Resent — hider's offline, they'll get it on reconnect.", {
+                autoClose: 2500,
+            });
+        }
+    };
+
     const alreadySent = Boolean(
         (question.data as { createdAt?: number }).createdAt,
     );
 
+    const primaryLabel = $mpEnabled
+        ? alreadySent
+            ? "Resend via app"
+            : "Send via app"
+        : alreadySent
+          ? "Re-share with hider"
+          : "Send to hider";
+
     return (
         <div className="px-2 pt-2 pb-1">
             <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-semibold text-muted-foreground mb-1.5">
-                {alreadySent ? "Re-share with hider" : "Send to hider"}
+                {primaryLabel}
             </div>
             <div className="flex gap-2">
                 <button
                     type="button"
-                    onClick={handleShare}
+                    onClick={$mpEnabled ? handleResend : handleShare}
                     disabled={$isLoading}
                     className={cn(
                         "flex-1 flex items-center justify-center gap-1.5",
@@ -451,12 +487,17 @@ function ShareQuestionRow({ question }: { question: Question }) {
                     )}
                 >
                     <Share2 className="w-3.5 h-3.5" />
-                    Share
+                    {$mpEnabled ? "Resend" : "Share"}
                 </button>
                 <button
                     type="button"
                     onClick={handleCopy}
                     disabled={$isLoading}
+                    title={
+                        $mpEnabled
+                            ? "Manual backup — copies a share link in case the in-app channel isn't working"
+                            : undefined
+                    }
                     className={cn(
                         "flex-1 flex items-center justify-center gap-1.5",
                         "px-2 py-2 rounded-md text-xs font-poppins font-semibold",

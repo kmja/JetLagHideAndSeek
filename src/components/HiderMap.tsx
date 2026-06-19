@@ -19,6 +19,8 @@ import {
 import { resolvedTheme } from "@/lib/theme";
 import type { Question } from "@/maps/schema";
 
+import { SelfPositionMarker } from "./SelfPositionMarker";
+
 /**
  * Hider-facing map. Single-purpose, intentionally separate from the
  * main app's Map.tsx/MapV2.tsx (which assume the seeker context,
@@ -322,18 +324,16 @@ export function HiderMap({
                     </Marker>
                 )}
 
-                {/* Hider's "you are here" pin */}
+                {/* Hider's "you are here" pin — v347: shared
+                    SelfPositionMarker so every "my position" view
+                    looks identical. */}
                 {hiderPos && (
                     <Marker
                         longitude={hiderPos.lng}
                         latitude={hiderPos.lat}
                         anchor="center"
                     >
-                        <div
-                            className="jl-hider-marker"
-                            style={{ width: 22, height: 22 }}
-                            dangerouslySetInnerHTML={{ __html: hiderPinSvg }}
-                        />
+                        <SelfPositionMarker />
                     </Marker>
                 )}
             </Map>
