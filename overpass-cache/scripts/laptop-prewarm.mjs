@@ -718,36 +718,28 @@ async function isFresh(query, label) {
 }
 
 /**
- * v364: HEAD probe → GET fallback warmer for the photon endpoints.
- * Photon entries live in their own edge-cache/R2 namespace (no
- * canonical Overpass-style "is fresh" route), so `isFresh` doesn't
- * cover them. Without this, every city's photon pass paid a full
- * GET round trip + the 2 s DELAY_MS pacing sleep regardless of cache
- * state — ~4 s of dead time per fully-warmed city. Now we HEAD first
- * (free on a cache hit, returns in ~1 ms via the same edge/R2 path),
- * skip the GET + sleep when the worker reports a HIT, and only pay
- * the politeness sleep when an actual upstream-bound GET fires.
+ * v365: GET-with-skip-sleep warmer for the photon endpoints. Photon
+ * entries live in their own edge-cache/R2 namespace (no canonical
+ * Overpass-style "is fresh" route), so `isFresh` doesn't cover them.
+ *
+ * v364 tried a HEAD probe, but `handlePhoton` rejects non-GET (returns
+ * 405), so the probe never reported a hit and we fell through to GET +
+ * the 2 s DELAY_MS sleep anyway — the loop still "stopped" on every
+ * fully-warmed city. The actual waste was the politeness SLEEP, not the
+ * GET (a cache hit returns in ~1 ms, KB-sized). So: always GET, read the
+ * X-Cache header, and SKIP the sleep when it's a hit — nothing went
+ * upstream, so there's nothing to be polite about. A real MISS (upstream
+ * Photon fetch) still pays the sleep.
  */
 async function warmPhoton(url, label) {
-    try {
-        const head = await fetchRetry(
-            url,
-            { method: "HEAD" },
-            `${label} HEAD`,
-            2,
-        );
-        const xc = head.headers.get("X-Cache") ?? "";
-        if (head.ok && /HIT/i.test(xc)) {
-            console.log(`  ⤼ ${label} already cached (${xc}) — skipping`);
-            return;
-        }
-    } catch {
-        /* fall through to GET — warming is best-effort */
-    }
     try {
         const r = await fetchRetry(url, { method: "GET" }, label);
         if (r.ok) {
             const xc = r.headers.get("X-Cache") ?? "?";
+            if (/HIT/i.test(xc)) {
+                console.log(`  ⤼ ${label} already cached (${xc}) — skipping`);
+                return; // no upstream fetch → no politeness sleep
+            }
             console.log(`  ✓ ${label} (${xc})`);
         } else {
             console.warn(`  ✗ ${label} status ${r.status}`);
