@@ -407,47 +407,134 @@ export async function prefetchCategory(
  * polygon — which is unnecessary here and was the v190 budget-blowup
  * trigger.
  */
-/** The play area's OSM relation id, when it is a single relation (the
- *  common case: a city/region picked from search). Null for custom-drawn
- *  or non-relation play areas — those have no stable id to key on and use
- *  the bbox-query path. */
-function playAreaRelationId(): number | null {
+/** Every OSM relation id in the current play area: the primary, plus any
+ *  added adjacent areas (v359). Each is a stable key the worker can serve
+ *  references for. Non-relation / custom-drawn entries are skipped. */
+function playAreaRelationIds(): { primary: number | null; all: number[] } {
+    const all: number[] = [];
+    let primary: number | null = null;
     const p = mapGeoLocation.get()?.properties as
         | { osm_id?: number; osm_type?: string }
         | undefined;
     if (p?.osm_type === "R" && typeof p.osm_id === "number" && p.osm_id > 0) {
-        return p.osm_id;
+        primary = p.osm_id;
+        all.push(p.osm_id);
     }
-    return null;
+    for (const e of additionalMapGeoLocations.get()) {
+        if (!e.added) continue;
+        const ep = e.location?.properties as
+            | { osm_id?: number; osm_type?: string }
+            | undefined;
+        if (
+            ep?.osm_type === "R" &&
+            typeof ep.osm_id === "number" &&
+            ep.osm_id > 0 &&
+            !all.includes(ep.osm_id)
+        ) {
+            all.push(ep.osm_id);
+        }
+    }
+    return { primary, all };
+}
+
+/** Relation ids we've already asked the worker to warm this session, so
+ *  warm-on-add fires once per adjacent area, not on every prefetch pass. */
+const warmRequested = new Set<number>();
+
+/** Fire a background warm of a relation's references (boundary + refs)
+ *  on the worker. Fire-and-forget; deduped per session. */
+function requestWarm(relationId: number): void {
+    if (warmRequested.has(relationId)) return;
+    warmRequested.add(relationId);
+    void fetch(`${REFS_BY_RELATION_BASE}/${relationId}?warm=1`).catch(() => {
+        // Network blip — allow a retry on a later pass.
+        warmRequested.delete(relationId);
+    });
+}
+
+// v359: warm-on-add. Kick off a background warm the moment an adjacent
+// area is added, rather than waiting for the first question to probe it.
+// nanostores fires subscribe synchronously with the current value, so a
+// reload with areas already added warms them too. Deduped via requestWarm.
+if (typeof window !== "undefined") {
+    additionalMapGeoLocations.subscribe((extras) => {
+        for (const e of extras) {
+            if (!e.added) continue;
+            const ep = e.location?.properties as
+                | { osm_id?: number; osm_type?: string }
+                | undefined;
+            if (
+                ep?.osm_type === "R" &&
+                typeof ep.osm_id === "number" &&
+                ep.osm_id > 0
+            ) {
+                requestWarm(ep.osm_id);
+            }
+        }
+    });
 }
 
 async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
     if (filters.length === 0) return [];
 
-    // v359: try the STABLE relation-id-keyed endpoint first. The worker
-    // derives the reference bbox server-side from the boundary it already
-    // has in R2, so a prewarmed city is hit regardless of how (or whether)
-    // we derive a bbox locally — no Photon-vs-boundary drift, no hydration
-    // race. Only on a miss (no boundary cached, or no prewarmed entry) do
-    // we fall back to building + sending our own bbox query, which goes
-    // upstream for genuinely un-warmed areas anyway. The endpoint returns
-    // the FULL reference set (all families); the caller partitions by the
-    // families it asked for, so it's fine to ignore `filters` on this path.
-    const relId = playAreaRelationId();
-    if (relId) {
-        try {
-            const resp = await fetch(`${REFS_BY_RELATION_BASE}/${relId}`);
-            if (resp.ok) {
-                const data = (await resp.json()) as { elements?: any[] };
-                const els = data?.elements ?? [];
-                if (els.length > 0) return els;
-                // Empty body = miss / no-boundary marker → fall through.
-            }
-        } catch {
-            /* network issue → fall through to the bbox query */
+    // v359: fan out over EVERY play-area relation (primary + added
+    // adjacent areas) via the STABLE relation-id-keyed endpoint. The
+    // worker derives each one's reference bbox server-side from the
+    // boundary it already has, so a prewarmed area is hit regardless of
+    // how (or whether) we derive a bbox locally — no Photon-vs-boundary
+    // drift, no hydration race. We UNION the hits so a question near an
+    // added adjacent area resolves its nearest reference from cache too,
+    // not just the primary's. Each endpoint returns the FULL family set;
+    // the caller partitions by the families it asked for.
+    const { primary, all } = playAreaRelationIds();
+    if (all.length > 0) {
+        const unioned: any[] = [];
+        let primaryHit = false;
+        await Promise.all(
+            all.map(async (id) => {
+                try {
+                    const resp = await fetch(`${REFS_BY_RELATION_BASE}/${id}`);
+                    if (!resp.ok) {
+                        requestWarm(id);
+                        return;
+                    }
+                    const data = (await resp.json()) as { elements?: any[] };
+                    const els = data?.elements ?? [];
+                    if (els.length > 0) {
+                        unioned.push(...els);
+                        if (id === primary) primaryHit = true;
+                    } else {
+                        // miss / no-boundary → warm it for next time
+                        requestWarm(id);
+                    }
+                } catch {
+                    requestWarm(id);
+                }
+            }),
+        );
+        // If anything hit, use the union. The only case we still fall
+        // through to a live bbox query is a cold PRIMARY (so a brand-new
+        // play area the laptop hasn't warmed yet still works on first
+        // use); adjacent misses ride the background warm + on-tap path.
+        if (unioned.length > 0 && (primaryHit || primary === null)) {
+            return unioned;
+        }
+        if (unioned.length > 0 && !primaryHit) {
+            // Primary cold but an adjacent hit — keep the adjacent data
+            // and still warm the primary via the bbox query below, then
+            // merge.
+            const bboxData = await runPrimaryBboxFetch(filters);
+            return [...unioned, ...bboxData];
         }
     }
 
+    return runPrimaryBboxFetch(filters);
+}
+
+/** The legacy primary-only bbox reference query — the fallback when the
+ *  relation-keyed endpoint misses (cold/un-warmed primary or a
+ *  custom-drawn play area with no relation id). */
+async function runPrimaryBboxFetch(filters: string[]): Promise<any[]> {
     const bboxFilter = buildPaddedBboxFilter(50);
     if (!bboxFilter) return [];
     // Sort lexically so the body string is order-independent w.r.t.

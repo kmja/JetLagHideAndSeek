@@ -803,6 +803,22 @@ async function handleRequest(
                     headers: cors,
                 });
             }
+            // ?warm=1 → background warm of this relation's references
+            // (boundary + refs) under the canonical read key. Used by the
+            // client's warm-on-add and the laptop one-ring. Returns
+            // immediately; the warm runs in waitUntil.
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationReferences(env, relId).catch((e) =>
+                        console.warn(`warm r${relId} threw:`, e),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId },
+                    202,
+                    cors,
+                );
+            }
             return handleReferencesByRelation(request, env, ctx, cors, relId);
         }
         if (url.pathname.startsWith("/api/elevation/")) {
@@ -1799,6 +1815,127 @@ async function handleReferencesByRelation(
         return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
     }
     return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/**
+ * Stream an upstream response into R2 at a full key WITHOUT a client tee
+ * (v359). The user-facing path tees so it can serve + cache in one pass;
+ * a background warm has no client, so it skips the tee entirely — fetch →
+ * gzip → R2, holding only the compressor's KB-scale buffer. This avoids
+ * both suspected causes of the interpreter-path resource kill (the
+ * client-tee back-pressure and a full-body buffer).
+ */
+async function streamStoreNoTee(
+    env: Env,
+    fullKey: string,
+    upstream: Response,
+    metadata: R2WriteMetadata,
+): Promise<boolean> {
+    if (!upstream.body) return false;
+    try {
+        const compressed = upstream.body.pipeThrough(
+            new CompressionStream(STORAGE_ENCODING),
+        );
+        await env.CACHE.put(fullKey, compressed, {
+            customMetadata: {
+                cachedAt: String(Date.now()),
+                encoding: STORAGE_ENCODING,
+                prewarmed: "true",
+                ...metadata,
+            },
+        });
+        return true;
+    } catch (e) {
+        console.warn(`warm store failed for ${fullKey}:`, e);
+        return false;
+    }
+}
+
+/**
+ * Background warm of a single relation's references, keyed canonically so
+ * a later GET /api/refs/<id> hits it (v359). Ensures the boundary is
+ * cached first (it's the bbox source), derives the same extent the read
+ * path derives, then warms the references under the identical key.
+ *
+ * Idempotent + polite: skips when the references entry is already fresh,
+ * and routes every upstream fetch through the slot gate + semaphore the
+ * cron uses, so a burst of warm-on-add calls can't hammer the mirrors.
+ * Fire-and-forget via ctx.waitUntil; all failures are swallowed (a warm
+ * miss just means the client falls back to its on-tap path, as before).
+ */
+async function warmRelationReferences(
+    env: Env,
+    relationId: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+
+    // 1. Ensure the boundary geometry is cached — it's the bbox source.
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary r${relationId}`))) {
+            return;
+        }
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+
+    // 2. Derive the canonical extent (identical walk to the read path).
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+
+    // 3. Warm the references under the canonical key, skip-if-fresh.
+    const refsQuery = buildReferenceBboxQuery(ext);
+    const refsKey = await r2KeyForQuery(refsQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${refsKey}`);
+        if (head) {
+            const cachedAt = parseInt(
+                head.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-refs r${relationId}`))) return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(refsQuery),
+    );
+    if (!up) return;
+    await streamStoreNoTee(env, `overpass/${refsKey}`, up, {
+        kind: "references",
+        warmedBy: "on-add",
+        sourceRelationId: String(relationId),
+    });
 }
 
 /**
@@ -5604,6 +5741,9 @@ interface R2WriteMetadata {
      *  Stringified so it can ride in R2 custom metadata (which is
      *  string-only). Cheap diagnostic; not load-bearing. */
     wayCount?: string;
+    /** Provenance for entries warmed by the on-demand relation warmer
+     *  (v359: warm-on-add / laptop one-ring). Diagnostic only. */
+    warmedBy?: string;
 }
 
 /**
