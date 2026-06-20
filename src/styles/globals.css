@@ -294,6 +294,55 @@ div.leaflet-control-attribution.leaflet-control {
     animation: jl-tile-pulse-travel 5.5s linear infinite;
 }
 
+/* v379: theme-aware loader colors. Originally every stroke was
+ * `hsl(var(--foreground) / X%)`, which worked perfectly in dark mode
+ * (bright photon-like comet on a dark sky) but inverted to dark smudges
+ * on white in light mode. Now the loader picks bright brand-coral comets
+ * on a soft light-grey backdrop in light mode, keeps the original
+ * "calm ambient shimmer on dark sky" in dark mode. Two custom properties
+ * — comet stroke hue and the backdrop — switched per-theme so the SVG
+ * stroke/opacity tuning carries over unchanged.
+ *
+ * Dark mode opacities (0.10/0.22/0.7 wisp/body/head) work because near-
+ * white at low alpha already reads as "glow"; for the brand-coral in
+ * light mode we lift the opacities slightly so the hue is still legible
+ * against the soft grey. The grid stays neutral (a tinted darker grey)
+ * so the tile shape reads as map-structure rather than as part of the
+ * comet trail. */
+.jl-loader {
+    --jl-loader-bg: var(--background);
+    --jl-loader-comet: var(--foreground);
+    --jl-loader-grid: var(--foreground);
+    --jl-loader-wisp-opacity: 0.1;
+    --jl-loader-body-opacity: 0.22;
+    --jl-loader-head-opacity: 0.7;
+    --jl-loader-grid-opacity: 0.12;
+}
+/* Light mode (the default scope :root, .light). The .dark override
+ * below restores the original night-sky look when the user is in dark
+ * mode. */
+:root .jl-loader,
+.light .jl-loader {
+    --jl-loader-bg: 210 16% 88%; /* soft slate grey */
+    --jl-loader-comet: var(--primary); /* brand coral — bright on grey */
+    --jl-loader-grid: 215 16% 60%; /* neutral grid lines so the tile
+                                       grid reads as structure, not as
+                                       part of the comet trail */
+    --jl-loader-wisp-opacity: 0.18;
+    --jl-loader-body-opacity: 0.38;
+    --jl-loader-head-opacity: 0.95;
+    --jl-loader-grid-opacity: 0.5;
+}
+.dark .jl-loader {
+    --jl-loader-bg: var(--background);
+    --jl-loader-comet: var(--foreground);
+    --jl-loader-grid: var(--foreground);
+    --jl-loader-wisp-opacity: 0.1;
+    --jl-loader-body-opacity: 0.22;
+    --jl-loader-head-opacity: 0.7;
+    --jl-loader-grid-opacity: 0.12;
+}
+
 .leaflet-tooltip.jl-ref-tooltip {
     background: hsl(var(--background) / 0.95);
     color: hsl(var(--foreground));

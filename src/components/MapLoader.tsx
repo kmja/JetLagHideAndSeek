@@ -86,22 +86,16 @@ export function MapLoader({
 
     return (
         <div
-            // v378: scope this subtree as "dark" regardless of the page
-            // theme. The comet's blurred bright strokes are designed
-            // light-on-dark — they read as photons against a night sky.
-            // Inverted to dark-on-light (the literal fallback when
-            // `--foreground` resolves to near-black in light mode) the
-            // same blur reads as dirty smears rather than glow. Forcing
-            // dark CSS variables here keeps the aesthetic in both themes.
-            // shadcn `darkMode: "class"` resolves `--background` /
-            // `--foreground` from `.dark` selectors, so adding the class
-            // is enough — no theme detection or atom subscribe needed.
-            // The fill bg uses the (now-dark) background token so the
-            // loader sits on its own dark sky no matter what the page is.
+            // v379: per-theme loader palette via `jl-loader`'s CSS
+            // variables (see globals.css). Dark mode keeps the original
+            // night-sky / glowing-comet look; light mode renders bright
+            // brand-coral comets on a soft light-grey backdrop. Stroke
+            // hues and opacities both vary per theme so the design
+            // doesn't read as a flat inversion in either direction.
             className={cn(
-                "dark relative overflow-hidden",
+                "jl-loader relative overflow-hidden",
                 fillCls,
-                fill && "bg-[hsl(var(--background))]",
+                fill && "bg-[hsl(var(--jl-loader-bg))]",
                 className,
             )}
             role="img"
@@ -158,7 +152,7 @@ export function MapLoader({
                         width={w}
                         height={h}
                         fill="none"
-                        stroke="hsl(var(--foreground) / 0.12)"
+                        stroke="hsl(var(--jl-loader-grid) / var(--jl-loader-grid-opacity))"
                         strokeWidth="1"
                         vectorEffect="non-scaling-stroke"
                     />
@@ -185,7 +179,7 @@ export function MapLoader({
                                 width={w}
                                 height={h}
                                 fill="none"
-                                stroke="hsl(var(--foreground) / 0.10)"
+                                stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-wisp-opacity))"
                                 strokeWidth="1"
                                 strokeLinecap="round"
                                 strokeDasharray="30 170"
@@ -205,7 +199,7 @@ export function MapLoader({
                                 width={w}
                                 height={h}
                                 fill="none"
-                                stroke="hsl(var(--foreground) / 0.22)"
+                                stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-body-opacity))"
                                 strokeWidth="1"
                                 strokeLinecap="round"
                                 strokeDasharray="16 184"
@@ -228,7 +222,7 @@ export function MapLoader({
                                 width={w}
                                 height={h}
                                 fill="none"
-                                stroke="hsl(var(--foreground) / 0.7)"
+                                stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-head-opacity))"
                                 strokeWidth="1"
                                 strokeLinecap="round"
                                 strokeDasharray="4 196"

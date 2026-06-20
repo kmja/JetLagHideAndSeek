@@ -48,23 +48,14 @@ export function MapTilesVeil({
     return (
         <div
             className={cn(
-                // v378: the whole veil is force-dark-scoped (MapLoader
-                // contributes the `dark` class itself, see below) so a
-                // light-mode caller still sees the night-sky aesthetic
-                // the loader was designed around. Echoed here so the
-                // veil's own bg + label pill resolve to the dark
-                // palette too instead of fighting the loader.
-                "dark",
                 "absolute inset-0 z-[5] overflow-hidden",
-                // v308: opaque scrim is now load-bearing. The v294
-                // MapLoader switched to bare grid lines on a
-                // transparent background, so without this the map
-                // underneath bled through the loader — boundary
-                // polygons + tiles showed up while the veil was
-                // still claiming the map was loading. Fading the
-                // veil out (visible=false) takes the scrim with
-                // it via the opacity transition.
-                "bg-[hsl(var(--background))]",
+                // v379: bg matches the loader's own backdrop so the scrim
+                // and the loader form one continuous surface. MapLoader
+                // sets `--jl-loader-bg` per-theme (light grey in light,
+                // near-black in dark); we read the same custom property
+                // here so the veil's scrim doesn't fight the loader.
+                "jl-loader",
+                "bg-[hsl(var(--jl-loader-bg))]",
                 "select-none transition-opacity duration-300 ease-out",
                 visible ? "opacity-100" : "opacity-0 pointer-events-none",
                 visible && "pointer-events-auto",
