@@ -94,6 +94,12 @@ export const TILE_PACK_BASE = `${JLHS_WORKER_BASE}/tiles/tile-packs/v1`;
  *  Used by the sea-level measuring question to build an altitude
  *  contour. */
 export const ELEVATION_TILE_BASE = `${JLHS_WORKER_BASE}/api/elevation`;
+/** Base URL for relation-id-keyed per-city references (v359). The client
+ *  fetches `${REFS_BY_RELATION_BASE}/<relationId>` and the worker derives
+ *  the bbox server-side from the boundary it already has, so the client
+ *  never has to reproduce a byte-identical bbox to hit the prewarmed
+ *  entry. See handleReferencesByRelation in overpass-cache/src/index.ts. */
+export const REFS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/refs`;
 /** Base URL for self-hosted map glyphs + sprites (v349), proxied +
  *  R2-cached by the worker from protomaps.github.io/basemaps-assets.
  *  The MapLibre style's `glyphs` and `sprite` URLs point here so the

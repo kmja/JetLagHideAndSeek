@@ -6,7 +6,7 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
-import { LOCATION_FIRST_TAG } from "@/maps/api/constants";
+import { LOCATION_FIRST_TAG, REFS_BY_RELATION_BASE } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
 import { CacheType } from "@/maps/api/types";
 import type { APILocations } from "@/maps/schema";
@@ -407,8 +407,47 @@ export async function prefetchCategory(
  * polygon — which is unnecessary here and was the v190 budget-blowup
  * trigger.
  */
+/** The play area's OSM relation id, when it is a single relation (the
+ *  common case: a city/region picked from search). Null for custom-drawn
+ *  or non-relation play areas — those have no stable id to key on and use
+ *  the bbox-query path. */
+function playAreaRelationId(): number | null {
+    const p = mapGeoLocation.get()?.properties as
+        | { osm_id?: number; osm_type?: string }
+        | undefined;
+    if (p?.osm_type === "R" && typeof p.osm_id === "number" && p.osm_id > 0) {
+        return p.osm_id;
+    }
+    return null;
+}
+
 async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
     if (filters.length === 0) return [];
+
+    // v359: try the STABLE relation-id-keyed endpoint first. The worker
+    // derives the reference bbox server-side from the boundary it already
+    // has in R2, so a prewarmed city is hit regardless of how (or whether)
+    // we derive a bbox locally — no Photon-vs-boundary drift, no hydration
+    // race. Only on a miss (no boundary cached, or no prewarmed entry) do
+    // we fall back to building + sending our own bbox query, which goes
+    // upstream for genuinely un-warmed areas anyway. The endpoint returns
+    // the FULL reference set (all families); the caller partitions by the
+    // families it asked for, so it's fine to ignore `filters` on this path.
+    const relId = playAreaRelationId();
+    if (relId) {
+        try {
+            const resp = await fetch(`${REFS_BY_RELATION_BASE}/${relId}`);
+            if (resp.ok) {
+                const data = (await resp.json()) as { elements?: any[] };
+                const els = data?.elements ?? [];
+                if (els.length > 0) return els;
+                // Empty body = miss / no-boundary marker → fall through.
+            }
+        } catch {
+            /* network issue → fall through to the bbox query */
+        }
+    }
+
     const bboxFilter = buildPaddedBboxFilter(50);
     if (!bboxFilter) return [];
     // Sort lexically so the body string is order-independent w.r.t.

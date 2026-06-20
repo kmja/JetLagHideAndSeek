@@ -792,6 +792,19 @@ async function handleRequest(
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
         }
+        if (url.pathname.startsWith("/api/refs/")) {
+            const relId = parseInt(
+                url.pathname.slice("/api/refs/".length),
+                10,
+            );
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            return handleReferencesByRelation(request, env, ctx, cors, relId);
+        }
         if (url.pathname.startsWith("/api/elevation/")) {
             return handleElevationTile(request, env, ctx, cors);
         }
@@ -1709,6 +1722,83 @@ async function canonicalReferenceExtent(
         /* fall through to stored extent */
     }
     return city.extent ?? null;
+}
+
+/**
+ * GET /api/refs/<relationId> — fetch prewarmed per-city references by
+ * STABLE relation-id key instead of the byte-fragile SHA-256(query) key.
+ *
+ * v359. The per-city references live under
+ * `overpass/<sha256(buildReferenceBboxQuery(extent))>`, where `extent`
+ * is the boundary-geometry bbox. For the client to hit that entry it had
+ * to reproduce the exact bbox to 3 decimals — which broke every time the
+ * client's bbox source (Photon extent, land-clipped polygon, un-hydrated
+ * boundary) drifted from the laptop's raw-boundary min/max. That single
+ * fragile contract caused the v356/357/358 churn.
+ *
+ * This endpoint moves the bbox derivation SERVER-SIDE: given only the
+ * relation id, the worker reads the boundary it already has in R2,
+ * derives the identical bbox the prewarm used (same canonicalReferenceExtent
+ * → extentFromBoundaryJson walk over the same bytes), rebuilds the same
+ * query, and serves the existing entry. The client never computes a bbox,
+ * so it cannot drift.
+ *
+ * Read-only by design: on any miss (no boundary cached yet, or no
+ * reference entry) it returns `{ elements: [] }` with a cache marker so
+ * the client falls back to its own bbox query — which, for a genuinely
+ * un-warmed area, goes upstream anyway (there's no warmed entry to miss).
+ * Warming stays the laptop/cron's job; this never fetches upstream, so it
+ * can't hit the resource limits that the user-facing interpreter path can.
+ */
+async function handleReferencesByRelation(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        // Boundary not cached yet → can't derive the key. Client falls back.
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = buildReferenceBboxQuery(ext);
+    const cacheKey = await r2KeyForQuery(query);
+
+    // Edge cache first (keyed on the derived interpreter URL, so a hit
+    // here is shared with the /api/interpreter path for the same bbox).
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("refs-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        // References change slowly; serve whatever's present regardless of
+        // TTL freshness (the cron/laptop refresh handles staleness). A
+        // present-but-stale entry still beats a live Overpass round trip.
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
 }
 
 /**
