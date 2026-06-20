@@ -811,7 +811,26 @@ export async function findCachedPlaces(
     family: FamilyKey,
 ): Promise<{ elements: Array<Record<string, unknown>> }> {
     const features = await prefetchCategory(family);
-    const elements = features.map((f) => ({
+    // v369: filter to features inside the play-area polygon. This fast
+    // path bypasses the regular poly: query in `findPlacesInZone` (the
+    // call site at overpass.ts:722), so without an explicit filter it
+    // returns the full 50 km-padded bbox — meaning question elimination
+    // would treat references outside the play area as in-scope, same
+    // bug as in nearestFromCache. Polygon test is microseconds per
+    // feature on a typical play area; for an N-family preload of 50-200
+    // features it's trivial. When the polygon isn't loaded yet we keep
+    // every feature (preserves the no-boundary-yet behaviour).
+    const poly = polyGeoJSON.get();
+    const kept = poly
+        ? features.filter((f) => {
+              const pt = turf.point([f.lng, f.lat]);
+              for (const feat of poly.features) {
+                  if (turf.booleanPointInPolygon(pt, feat as never)) return true;
+              }
+              return false;
+          })
+        : features;
+    const elements = kept.map((f) => ({
         type: "node",
         lat: f.lat,
         lon: f.lng,
@@ -831,6 +850,23 @@ export function nearestFromCache(
     const features = getCachedCategory(family);
     if (!features || features.length === 0) return null;
     const target = turf.point([lng, lat]);
+    // v369: rulebook p17 — "If locations are not within a map's
+    // boundaries, players must operate as if they do not exist." The
+    // cache is keyed on a 50 km PADDED bbox so features just outside the
+    // play area are still warmable (and a seeker near the edge can
+    // resolve a manual reference there), but the NEAREST-of-X lookup
+    // must restrict to features that actually sit inside the play-area
+    // polygon — including any adjacent areas, which are already unioned
+    // into polyGeoJSON by determineMapBoundaries. Before this filter, a
+    // Frankfurt seeker's nearest aquarium resolved to one in
+    // Mainz-Wiesbaden (in the pad, outside the polygon) — visibly wrong.
+    //
+    // polyGeoJSON.get() is null until the boundary load resolves; while
+    // null we keep the old "nearest of all cached" behaviour rather than
+    // returning null, so the configure-dialog map stays useful during the
+    // brief boundary-load window. Once the polygon is in, every later
+    // call uses the strict filter.
+    const poly = polyGeoJSON.get();
     let best: {
         name: string;
         lat: number;
@@ -838,6 +874,17 @@ export function nearestFromCache(
         distanceMeters: number;
     } | null = null;
     for (const f of features) {
+        if (poly) {
+            const pt = turf.point([f.lng, f.lat]);
+            let inside = false;
+            for (const feat of poly.features) {
+                if (turf.booleanPointInPolygon(pt, feat as never)) {
+                    inside = true;
+                    break;
+                }
+            }
+            if (!inside) continue;
+        }
         const d = turf.distance(target, turf.point([f.lng, f.lat]), {
             units: "meters",
         });
