@@ -717,6 +717,47 @@ async function isFresh(query, label) {
     return Boolean(data?.fresh);
 }
 
+/**
+ * v364: HEAD probe → GET fallback warmer for the photon endpoints.
+ * Photon entries live in their own edge-cache/R2 namespace (no
+ * canonical Overpass-style "is fresh" route), so `isFresh` doesn't
+ * cover them. Without this, every city's photon pass paid a full
+ * GET round trip + the 2 s DELAY_MS pacing sleep regardless of cache
+ * state — ~4 s of dead time per fully-warmed city. Now we HEAD first
+ * (free on a cache hit, returns in ~1 ms via the same edge/R2 path),
+ * skip the GET + sleep when the worker reports a HIT, and only pay
+ * the politeness sleep when an actual upstream-bound GET fires.
+ */
+async function warmPhoton(url, label) {
+    try {
+        const head = await fetchRetry(
+            url,
+            { method: "HEAD" },
+            `${label} HEAD`,
+            2,
+        );
+        const xc = head.headers.get("X-Cache") ?? "";
+        if (head.ok && /HIT/i.test(xc)) {
+            console.log(`  ⤼ ${label} already cached (${xc}) — skipping`);
+            return;
+        }
+    } catch {
+        /* fall through to GET — warming is best-effort */
+    }
+    try {
+        const r = await fetchRetry(url, { method: "GET" }, label);
+        if (r.ok) {
+            const xc = r.headers.get("X-Cache") ?? "?";
+            console.log(`  ✓ ${label} (${xc})`);
+        } else {
+            console.warn(`  ✗ ${label} status ${r.status}`);
+        }
+    } catch (e) {
+        console.warn(`  ✗ ${label}: ${e.message}`);
+    }
+    await sleep(DELAY_MS);
+}
+
 /** fetch() with retry on transient network failures (ETIMEDOUT, DNS,
  *  connection resets). The worker control-plane calls (list-cities,
  *  discover) used to throw straight to a "fatal:" and kill the whole
@@ -977,51 +1018,23 @@ async function processCity(city) {
         const lng = effectiveExtent
             ? (effectiveExtent[1] + effectiveExtent[3]) / 2
             : null;
-        // Forward: warm the search-box "type the city name" path.
-        try {
-            const url = `${WORKER}/api/photon/forward?lang=en&q=${encodeURIComponent(city.name)}`;
-            const r = await fetchRetry(url, { method: "GET" }, "photon-fwd");
-            if (r.ok) {
-                const xc = r.headers.get("X-Cache") ?? "?";
-                console.log(`  ✓ photon-forward "${city.name}" (${xc})`);
-            } else {
-                console.warn(
-                    `  ✗ photon-forward "${city.name}" status ${r.status}`,
-                );
-            }
-        } catch (e) {
-            console.warn(`  ✗ photon-forward "${city.name}": ${e.message}`);
-        }
-        await sleep(DELAY_MS);
-        // Reverse: warm the "click a point on the map" path at the
-        // city centroid. Same 4-decimal rounding the client uses, so
-        // a click within ~10 m of centre lands on this cached entry.
+        // v364: do a HEAD first and short-circuit on a cache hit. Without
+        // this, every fully-warmed city still paid GET round trip + the
+        // DELAY_MS pacing sleep (≈ 4 s/city wasted on the photon pass).
+        // The HEAD itself is cheap and goes through the same edge/R2 path,
+        // so a HIT here returns in ~1 ms; only an upstream-bound GET pays
+        // the politeness sleep.
+        await warmPhoton(
+            `${WORKER}/api/photon/forward?lang=en&q=${encodeURIComponent(city.name)}`,
+            `photon-forward "${city.name}"`,
+        );
         if (lat !== null && lng !== null) {
-            try {
-                const lat4 = lat.toFixed(4);
-                const lng4 = lng.toFixed(4);
-                const url = `${WORKER}/api/photon/reverse?lat=${lat4}&lon=${lng4}&lang=en`;
-                const r = await fetchRetry(
-                    url,
-                    { method: "GET" },
-                    "photon-rev",
-                );
-                if (r.ok) {
-                    const xc = r.headers.get("X-Cache") ?? "?";
-                    console.log(
-                        `  ✓ photon-reverse ${lat4},${lng4} (${xc})`,
-                    );
-                } else {
-                    console.warn(
-                        `  ✗ photon-reverse ${lat4},${lng4} status ${r.status}`,
-                    );
-                }
-            } catch (e) {
-                console.warn(
-                    `  ✗ photon-reverse ${city.name}: ${e.message}`,
-                );
-            }
-            await sleep(DELAY_MS);
+            const lat4 = lat.toFixed(4);
+            const lng4 = lng.toFixed(4);
+            await warmPhoton(
+                `${WORKER}/api/photon/reverse?lat=${lat4}&lon=${lng4}&lang=en`,
+                `photon-reverse ${lat4},${lng4}`,
+            );
         }
     }
 
@@ -1078,6 +1091,44 @@ async function processElevation(extent) {
     const y1 = latToTileY(minLat, z);
     const count = (x1 - x0 + 1) * (y1 - y0 + 1);
     if (count <= 0 || count > ELEVATION_MAX_TILES) return;
+
+    // v364: cheap "all-corners cached?" probe to short-circuit a fully-
+    // warmed city. Elevation tiles have no isFresh route, so without
+    // this every fully-warmed metro paid count × ~20 ms (50-200 GETs)
+    // even though every tile was already in R2. We HEAD the four bbox
+    // corners (or the single tile when count == 1) — if ALL are HITs,
+    // assume the interior is warm too and skip the body. A miss on any
+    // corner falls through to the full warming pass.
+    const corners = [
+        [x0, y0],
+        [x1, y0],
+        [x0, y1],
+        [x1, y1],
+    ].filter(
+        ([tx, ty], i, arr) =>
+            arr.findIndex(([a, b]) => a === tx && b === ty) === i,
+    );
+    let cornerHits = 0;
+    for (const [tx, ty] of corners) {
+        try {
+            const r = await fetch(
+                `${WORKER}/api/elevation/${z}/${tx}/${ty}.png`,
+                { method: "HEAD" },
+            );
+            if (r.ok && /HIT/i.test(r.headers.get("X-Cache") ?? "")) {
+                cornerHits++;
+            }
+        } catch {
+            /* probe failed — fall through */
+        }
+    }
+    if (cornerHits === corners.length) {
+        console.log(
+            `  ⤼ elevation already cached (${count} tiles z${z}) — skipping`,
+        );
+        return;
+    }
+
     let warmed = 0;
     for (let tx = x0; tx <= x1; tx++) {
         for (let ty = y0; ty <= y1; ty++) {
