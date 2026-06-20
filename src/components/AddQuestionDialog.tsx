@@ -51,6 +51,7 @@ import {
     TentacleQuestionComponent,
     ThermometerQuestionComponent,
 } from "./QuestionCards";
+import { ConfigureDialogContext } from "./configureDialogContext";
 import { ThermometerConfigureDialog } from "./ThermometerConfigureDialog";
 import { Button } from "./ui/button";
 
@@ -271,6 +272,26 @@ export const AddQuestionDialog = ({
         pendingKey !== null
             ? $questions.find((q) => q.key === pendingKey)
             : null;
+
+    // v371: track the configure-dialog picker's readiness so the Send
+    // button stays disabled until reference lookup / impact / tile paint
+    // all settle. Reset to `false` on every new pending question, then
+    // the picker (via ConfigureDialogContext) flips it true once ready.
+    // Question types that don't mount a picker (thermometer / photo with
+    // no LL config) bypass the gate via `pendingUsesPicker`.
+    const [pickerReady, setPickerReady] = React.useState(false);
+    React.useEffect(() => {
+        setPickerReady(false);
+    }, [pendingKey]);
+    const pendingUsesPicker =
+        pendingQuestion?.id === "matching" ||
+        pendingQuestion?.id === "measuring" ||
+        pendingQuestion?.id === "radius" ||
+        pendingQuestion?.id === "tentacles";
+    const configureCtxValue = React.useMemo(
+        () => ({ onPickerReady: setPickerReady }),
+        [],
+    );
 
     // Helper: get the most recently added question's key, then promote it
     // to the "pending confirm" state and close the category picker.
@@ -847,6 +868,7 @@ export const AddQuestionDialog = ({
                 </DialogContent>
             </Dialog>
 
+            <ConfigureDialogContext.Provider value={configureCtxValue}>
             <Dialog
                 open={pendingKey !== null}
                 onOpenChange={(o) => {
@@ -934,13 +956,17 @@ export const AddQuestionDialog = ({
                         </Button>
                         <Button
                             onClick={handleConfirm}
-                            disabled={!isPendingQuestionReady(pendingQuestion)}
+                            disabled={
+                                !isPendingQuestionReady(pendingQuestion) ||
+                                (pendingUsesPicker && !pickerReady)
+                            }
                         >
                             Send question
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            </ConfigureDialogContext.Provider>
             <ThermometerConfigureDialog
                 open={thermConfigureOpen}
                 onOpenChange={setThermConfigureOpen}

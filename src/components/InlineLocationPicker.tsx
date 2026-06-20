@@ -4,7 +4,7 @@ import { useStore } from "@nanostores/react";
 import { circle as turfCircle } from "@turf/turf";
 import type maplibregl from "maplibre-gl";
 import { Circle as CircleIcon, LocateOff } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import Map, {
     Layer,
     type MapLayerMouseEvent,
@@ -30,6 +30,7 @@ import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { holedMask } from "@/maps";
 
+import { ConfigureDialogContext } from "./configureDialogContext";
 import { MapTilesVeil } from "./MapTilesVeil";
 import { SelfPositionMarker } from "./SelfPositionMarker";
 
@@ -328,6 +329,25 @@ export function InlineLocationPicker({
         dataReady: referenceReady && impactReady,
         resetKey: `${referencePoint?.lat ?? ""},${referencePoint?.lng ?? ""},${impactMode ?? ""}`,
     });
+
+    // v371: emit combined readiness to AddQuestionDialog via Context so
+    // its Send button can wait on the same gate the loading veil watches.
+    // `showVeil` flips false once the data is ready AND tiles have
+    // painted (or `timedOut` ran out — let the user proceed rather than
+    // strand them). `pinReady` ensures we don't claim "ready" before a
+    // finite coordinate exists; without it a configure dialog opened with
+    // the 0,0 sentinel would enable Send before GPS / place-search had
+    // landed. Pickers mounted OUTSIDE the configure dialog (in-list
+    // display cards, hider preview) see no context and emit nothing.
+    const pinReady =
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        !(latitude === 0 && longitude === 0);
+    const ready = pinReady && (!showVeil || timedOut);
+    const cfgCtx = useContext(ConfigureDialogContext);
+    useEffect(() => {
+        cfgCtx?.onPickerReady(ready);
+    }, [ready, cfgCtx]);
 
     // Memoise the MapLibre style so an inline `mapStyle={{...}}`
     // doesn't get rebuilt on every parent re-render. Without this,
