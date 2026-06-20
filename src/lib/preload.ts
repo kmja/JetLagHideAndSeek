@@ -1,5 +1,5 @@
 import { recordBytes, startMeter, stopMeter } from "@/lib/bandwidthMeter";
-import { polyGeoJSON, polyGeoJSONHydrated } from "@/lib/context";
+import { mapGeoLocation, polyGeoJSON, polyGeoJSONHydrated } from "@/lib/context";
 import { gameStartPosition } from "@/lib/gameSetup";
 import {
     gameSize,
@@ -25,12 +25,62 @@ import { getOverpassData } from "@/maps/api/overpass";
 import {
     buildHsrQuery,
     getCachedCategory,
+    hasAnyReferenceCached,
     prefetchCategory,
     prefetchFamiliesInOneQuery,
     STANDARD_REFERENCE_FAMILIES,
 } from "@/maps/api/playAreaPrefetch";
 import { fetchTransitRoutesFeatures } from "@/maps/api/transitRoutes";
 import { CacheType } from "@/maps/api/types";
+
+/**
+ * v367: clear the preload "Downloaded" badges when the play area changes.
+ *
+ * `preloadBucketTimestamps` is a PERSISTENT atom (so "Downloaded" survives
+ * a reload of the SAME area), but it was only ever reset by the full
+ * new-game flow (roundActions.ts) — never when switching play areas. So a
+ * new city inherited the previous city's green badges even though none of
+ * its data had been fetched (the Bordeaux report: "settings say
+ * downloaded when they clearly haven't").
+ *
+ * We track the play-area identity and wipe the badges on a real change.
+ * The first observation (on load/reload) only RECORDS the identity — it
+ * doesn't wipe — so a reload of the same area keeps its honest badges.
+ * Deferred via queueMicrotask to stay clear of the maps/api import cycle
+ * (see the v362 TDZ fix).
+ */
+function playAreaIdentity(): string | null {
+    const id = mapGeoLocation.get()?.properties?.osm_id;
+    if (id) return `r${id}`;
+    const pa = playArea.get();
+    return pa ? `${pa.lat.toFixed(4)},${pa.lng.toFixed(4)}` : null;
+}
+if (typeof window !== "undefined") {
+    queueMicrotask(() => {
+        let lastIdentity: string | null = playAreaIdentity();
+        const sync = () => {
+            const id = playAreaIdentity();
+            if (id === lastIdentity) return;
+            // Only wipe when moving BETWEEN two real areas — not on the
+            // first resolve, and not when the area momentarily clears.
+            if (lastIdentity !== null && id !== null) {
+                preloadBucketTimestamps.set({
+                    map: null,
+                    references: null,
+                    transit: null,
+                });
+                preloadBucketBytes.set({
+                    map: null,
+                    references: null,
+                    transit: null,
+                });
+            }
+            if (id !== null) lastIdentity = id;
+        };
+        mapGeoLocation.subscribe(sync);
+        playArea.subscribe(sync);
+    });
+}
 
 /**
  * Single hiding-period preload orchestrator.
@@ -220,10 +270,17 @@ function runReferencesPreload(): void {
                 ...preloadBucketBytes.get(),
                 references: stopMeter("references"),
             });
-            preloadBucketTimestamps.set({
-                ...preloadBucketTimestamps.get(),
-                references: Date.now(),
-            });
+            // v367: only mark "Downloaded" if the prefetch actually landed
+            // data. prefetchFamiliesInOneQuery resolves even on total
+            // failure (it swallows its own errors), so the unconditional
+            // timestamp showed "Downloaded" for a city whose references
+            // all failed (Bordeaux, Overpass down).
+            if (hasAnyReferenceCached(STANDARD_REFERENCE_FAMILIES)) {
+                preloadBucketTimestamps.set({
+                    ...preloadBucketTimestamps.get(),
+                    references: Date.now(),
+                });
+            }
         })
         .finally(() => {
             preloadBucketInFlight.set({
@@ -267,6 +324,11 @@ function runTransitPreload(): void {
     };
 
     const transitPromises: Promise<unknown>[] = [];
+    // v367: track whether ANY transit query actually returned data, so a
+    // total failure (Overpass down) doesn't mark the bucket "Downloaded".
+    // Like references, the modes swallow their own errors, so the old
+    // unconditional timestamp lied on a failed preload.
+    let anyTransitData = false;
 
     if (hsrQuery) {
         transitPromises.push(
@@ -279,6 +341,15 @@ function runTransitPreload(): void {
                 undefined,
                 true,
             )
+                .then((d) => {
+                    if (
+                        d &&
+                        Array.isArray((d as { elements?: unknown[] }).elements) &&
+                        (d as { elements: unknown[] }).elements.length > 0
+                    ) {
+                        anyTransitData = true;
+                    }
+                })
                 .catch(() => {})
                 .finally(() => markDone("hsr")),
         );
@@ -287,6 +358,11 @@ function runTransitPreload(): void {
     for (const mode of modes) {
         transitPromises.push(
             fetchTransitRoutesFeatures(mode)
+                .then((fc) => {
+                    if (fc?.features && fc.features.length > 0) {
+                        anyTransitData = true;
+                    }
+                })
                 .catch(() => {})
                 .finally(() => markDone(mode)),
         );
@@ -297,10 +373,16 @@ function runTransitPreload(): void {
             ...preloadBucketBytes.get(),
             transit: stopMeter("transit"),
         });
-        preloadBucketTimestamps.set({
-            ...preloadBucketTimestamps.get(),
-            transit: Date.now(),
-        });
+        // Only mark "Downloaded" if at least one mode returned data. A
+        // genuinely transit-less area (no rail/bus/tram/ferry at all)
+        // honestly stays un-badged, which beats a green badge over a
+        // failed fetch.
+        if (anyTransitData) {
+            preloadBucketTimestamps.set({
+                ...preloadBucketTimestamps.get(),
+                transit: Date.now(),
+            });
+        }
         preloadBucketInFlight.set({
             ...preloadBucketInFlight.get(),
             transit: false,

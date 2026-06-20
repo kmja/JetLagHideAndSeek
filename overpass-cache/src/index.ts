@@ -147,13 +147,35 @@ const OVERPASS_STATUS_URL = "https://overpass-api.de/api/status";
  *  burning the entire cron wall budget on a single sleep. */
 const SLOT_WAIT_MAX_MS = 30_000;
 
+/** Slot-wait budget for LIVE (user-facing) requests. We STILL pace
+ *  through the slot gate — skipping it would hammer overpass-api.de's
+ *  429s and worsen the throttling — but a live request can't sit for the
+ *  cron's full 30 s. This budget lets it do ~1-2 quick status checks and
+ *  land on a free slot when one's near, then proceed to race the mirror
+ *  (itself abort-bounded) if the slot is far off. v367: chosen so the
+ *  request always resolves well inside Cloudflare's hang threshold. */
+const USER_SLOT_WAIT_MS = 8_000;
+
 async function fetchOverpassStatus(): Promise<string | null> {
+    // v367: hard timeout. Without a signal, this fetch hangs forever
+    // when overpass-api.de's /api/status wedges (accepts the connection
+    // but never responds — its current 521 state), and since the live
+    // request path awaits this, the WHOLE worker request hangs until
+    // Cloudflare kills it with a CORS-less 500 ("Worker hung and would
+    // never generate a response" — the Bordeaux crash).
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
     try {
-        const resp = await ufetch(OVERPASS_STATUS_URL, { method: "GET" });
+        const resp = await ufetch(OVERPASS_STATUS_URL, {
+            method: "GET",
+            signal: ctrl.signal,
+        });
         if (!resp.ok) return null;
         return await resp.text();
     } catch {
         return null;
+    } finally {
+        clearTimeout(t);
     }
 }
 
@@ -161,8 +183,19 @@ async function fetchOverpassStatus(): Promise<string | null> {
  *  slot, or give up (return false) if the wait would be too long.
  *  Returns true when a slot is available and we should proceed with
  *  the upstream call. */
-async function waitForOverpassSlot(label: string): Promise<boolean> {
+async function waitForOverpassSlot(
+    label: string,
+    maxTotalMs: number = SLOT_WAIT_MAX_MS,
+): Promise<boolean> {
+    // v367: bound the TOTAL time spent here. The cron can afford the full
+    // 30 s; a LIVE request (fetchUpstreamStreaming) passes a small budget
+    // so it does at most a quick status check and then proceeds to race
+    // the mirror + fail fast — the old unbounded loop could sleep up to
+    // ~150 s (6 × 26 s) which Cloudflare kills as a hang.
+    const start = Date.now();
+    const remaining = () => maxTotalMs - (Date.now() - start);
     for (let attempt = 0; attempt < 6; attempt++) {
+        if (remaining() <= 0) return true; // budget gone — proceed, race, fail fast
         const status = await fetchOverpassStatus();
         if (!status) {
             // /api/status itself unreachable. Could be a transient
@@ -175,6 +208,7 @@ async function waitForOverpassSlot(label: string): Promise<boolean> {
                 );
                 return true;
             }
+            if (remaining() < 3000) return true;
             await new Promise((r) => setTimeout(r, 3000));
             continue;
         }
@@ -191,9 +225,9 @@ async function waitForOverpassSlot(label: string): Promise<boolean> {
         );
         const nextFreeSec = waits.length > 0 ? Math.min(...waits) : 15;
         const waitMs = (nextFreeSec + 1) * 1000;
-        if (waitMs > SLOT_WAIT_MAX_MS) {
+        if (waitMs > SLOT_WAIT_MAX_MS || waitMs > remaining()) {
             console.warn(
-                `[slot] ${label}: next slot ${nextFreeSec}s away (> ${SLOT_WAIT_MAX_MS / 1000}s cap), skipping`,
+                `[slot] ${label}: next slot ${nextFreeSec}s away (> budget), skipping`,
             );
             return false;
         }
@@ -1398,17 +1432,17 @@ async function fetchUpstreamStreaming(
     cors: HeadersInit,
     status: string,
 ): Promise<Response | null> {
-    // Wait for an open Overpass execution slot before racing the
-    // mirror chain. Without this, user-facing cold fetches hit
-    // overpass-api.de while the mirror is throttled, get an instant
-    // 429, and the seeker app surfaces an error banner. The cron has
-    // always paced through this gate; user requests now use the same
-    // discipline. SLOT_WAIT_MAX_MS (30 s) caps the wait so a
-    // genuinely overloaded mirror can't hang the request — past that
-    // we still try (returning false here would just degrade to the
-    // same "skip upstream" outcome the caller already handles when
-    // fetchFromMirrorChainWithRetry returns null).
-    await waitForOverpassSlot(`user-fetch ${status}`);
+    // Wait for an open Overpass execution slot before racing the mirror
+    // chain. This is LOAD-BEARING: without it, user-facing cold fetches
+    // hit overpass-api.de while it's throttled, get an instant 429, and
+    // bursting through the 429 keeps the slots pinned — making the
+    // throttling WORSE. We keep pacing through the slot gate; v367 only
+    // bounds how LONG the live path is willing to wait (USER_SLOT_WAIT_MS)
+    // so a wedged /api/status can't hang the request into a CORS-less 500.
+    // When the budget runs out we proceed and race the mirror anyway —
+    // the mirror race is itself abort-bounded (UPSTREAM_TIMEOUT_MS), so
+    // the whole call still resolves. The cron keeps the full 30 s budget.
+    await waitForOverpassSlot(`user-fetch ${status}`, USER_SLOT_WAIT_MS);
     const upstream = await upstreamSemaphore.run(() =>
         fetchFromMirrorChainWithRetry(query),
     );

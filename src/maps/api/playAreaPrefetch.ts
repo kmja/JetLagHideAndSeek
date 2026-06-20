@@ -110,6 +110,21 @@ function cacheKey(family: FamilyKey): string {
     return `${playAreaSignature()}|${family}`;
 }
 
+/**
+ * v367: did the reference prefetch actually land anything for the
+ * current play area? Used by the preload to avoid marking the "Question
+ * references" bucket "Downloaded" when the prefetch FAILED (e.g.
+ * Overpass down — the Bordeaux report, where every family errored and
+ * nothing was cached). A successful prefetch caches at least one family
+ * (any real city has *some* park / station / etc.); a total failure
+ * caches none. An empty-but-cached family (a town with no aquariums)
+ * isn't stored, so this is "did at least one query succeed", not "does
+ * this area have references".
+ */
+export function hasAnyReferenceCached(families: FamilyKey[]): boolean {
+    return families.some((f) => cache.get(cacheKey(f)) !== undefined);
+}
+
 /** The Overpass `nwr[…]` filter string for each family. The same
  *  format `findPlacesInZone` expects — it appends `(poly:…)` /
  *  `(area.regionN)` itself. */
