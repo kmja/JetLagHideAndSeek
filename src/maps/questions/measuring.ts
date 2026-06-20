@@ -33,6 +33,7 @@ import {
     holedMask,
     modifyMapData,
 } from "@/maps/geo-utils";
+import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
 import type {
     APILocations,
     HomeGameMeasuringQuestions,
@@ -478,13 +479,15 @@ const bufferedDeterminer = memoize(
         );
     },
     (question) =>
+        // v376: lightweight playAreaSignature instead of stringifying the
+        // whole polygon — see matching.ts memo key for the rationale.
         JSON.stringify({
             type: question.type,
             lat: question.lat,
             lng: question.lng,
             entirety: polyGeoJSON.get()
-                ? polyGeoJSON.get()
-                : mapGeoLocation.get(),
+                ? playAreaSignature(polyGeoJSON.get())
+                : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as string | number),
             geo: (question as any).geo,
             // v346: manual reference invalidates the memo so toggling it
             // recomputes the buffer from the picked point.
@@ -514,8 +517,8 @@ const seaLevelDeterminer = memoize(
             lat: question.lat,
             lng: question.lng,
             entirety: polyGeoJSON.get()
-                ? polyGeoJSON.get()
-                : mapGeoLocation.get(),
+                ? playAreaSignature(polyGeoJSON.get())
+                : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as string | number),
         }),
 );
 

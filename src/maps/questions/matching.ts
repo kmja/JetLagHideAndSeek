@@ -29,6 +29,7 @@ import {
 import { majorCityPoints } from "@/maps/data/majorCities";
 import { holedMask, modifyMapData, safeUnion } from "@/maps/geo-utils";
 import { geoSpatialVoronoi } from "@/maps/geo-utils";
+import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
 import type {
     APILocations,
     HomeGameMatchingQuestions,
@@ -424,6 +425,11 @@ out geom;
         return boundary;
     },
     (question: MatchingQuestion & { geo?: unknown; cat?: unknown }) =>
+        // v376: was serialising the whole polyGeoJSON FeatureCollection
+        // (hundreds of KB) into the memo key on every lookup. The key only
+        // needs to change when the play area changes — playAreaSignature
+        // produces a stable few-byte string per FeatureCollection identity
+        // (cached on a WeakMap). ~10-50ms per memo lookup → ~5us.
         JSON.stringify({
             type: question.type,
             lat: question.lat,
@@ -431,8 +437,8 @@ out geom;
             cat: question.cat,
             geo: question.geo,
             entirety: polyGeoJSON.get()
-                ? polyGeoJSON.get()
-                : mapGeoLocation.get(),
+                ? playAreaSignature(polyGeoJSON.get())
+                : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as string | number),
         }),
 );
 

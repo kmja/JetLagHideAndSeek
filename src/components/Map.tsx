@@ -770,6 +770,33 @@ export function Map({ className }: MapProps) {
         pendingByCategory: Record<string, GeoJSON.Feature[]>;
     }>({ mask: null, pendingByCategory: {} });
     const eliminationGenRef = useRef(0);
+    // v376: signature of ONLY the fields that affect elimination, so a
+    // color/collapsed/drag-only edit doesn't re-run the buffer/Voronoi
+    // pipeline. Draft questions (drag:true) are skipped downstream in
+    // applyQuestionsToMapGeoData; we still include them in the signature
+    // so promoting a draft (drag:true → false) re-triggers the pipeline.
+    const $questionsSig = useMemo(() => {
+        return $questions
+            .map((q) => {
+                const d = q.data as Record<string, unknown>;
+                return [
+                    q.id,
+                    q.key,
+                    d.lat,
+                    d.lng,
+                    d.drag,
+                    d.radius,
+                    d.within,
+                    d.hiderCloser,
+                    d.type,
+                    d.distance,
+                    d.locationType,
+                    JSON.stringify(d.cat ?? ""),
+                ].join("|");
+            })
+            .join("¦");
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [$questions]);
     useEffect(() => {
         const inner = $mapGeoJSON || $polyGeoJSON;
         if (!inner) {
@@ -840,7 +867,12 @@ export function Map({ className }: MapProps) {
         // MapLibre's style is ready — needed because a cold PWA
         // start hydrates polyGeoJSON before maplibre-gl is, and any
         // source data set during init is silently dropped.
-    }, [$mapGeoJSON, $polyGeoJSON, $questions, mapLoaded]);
+        // v376: depend on $questionsSig (elimination-relevant fields only)
+        // not the raw $questions array, so display-only edits (color,
+        // collapsed) don't re-run the pipeline. $questions is still read
+        // inside the effect — the sig is just the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [$mapGeoJSON, $polyGeoJSON, $questionsSig, mapLoaded]);
 
     // Transit-route overlays per mode. Each toggle (subway /
     // bus / ferry) gates an Overpass fetch via

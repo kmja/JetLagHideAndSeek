@@ -9,6 +9,7 @@ import {
 import { LOCATION_FIRST_TAG, REFS_BY_RELATION_BASE } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
 import { CacheType } from "@/maps/api/types";
+import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import type { APILocations } from "@/maps/schema";
 
 /**
@@ -822,13 +823,7 @@ export async function findCachedPlaces(
     // every feature (preserves the no-boundary-yet behaviour).
     const poly = polyGeoJSON.get();
     const kept = poly
-        ? features.filter((f) => {
-              const pt = turf.point([f.lng, f.lat]);
-              for (const feat of poly.features) {
-                  if (turf.booleanPointInPolygon(pt, feat as never)) return true;
-              }
-              return false;
-          })
+        ? features.filter((f) => pointInPlayArea(poly, f.lng, f.lat))
         : features;
     const elements = kept.map((f) => ({
         type: "node",
@@ -874,17 +869,7 @@ export function nearestFromCache(
         distanceMeters: number;
     } | null = null;
     for (const f of features) {
-        if (poly) {
-            const pt = turf.point([f.lng, f.lat]);
-            let inside = false;
-            for (const feat of poly.features) {
-                if (turf.booleanPointInPolygon(pt, feat as never)) {
-                    inside = true;
-                    break;
-                }
-            }
-            if (!inside) continue;
-        }
+        if (poly && !pointInPlayArea(poly, f.lng, f.lat)) continue;
         const d = turf.distance(target, turf.point([f.lng, f.lat]), {
             units: "meters",
         });

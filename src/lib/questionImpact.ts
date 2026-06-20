@@ -28,6 +28,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
+import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
     type FamilyKey,
     getCachedCategory,
@@ -230,10 +231,7 @@ export function useQuestionImpact(
         const candidates =
             playArea && family.kind !== "city"
                 ? rawCandidates.filter((c) =>
-                      turf.booleanPointInPolygon(
-                          turf.point([c.lng, c.lat]),
-                          playArea as never,
-                      ),
+                      pointInPlayArea(playArea, c.lng, c.lat),
                   )
                 : rawCandidates;
         const loading =
