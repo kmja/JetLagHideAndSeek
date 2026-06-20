@@ -48,6 +48,13 @@ export function MapTilesVeil({
     return (
         <div
             className={cn(
+                // v378: the whole veil is force-dark-scoped (MapLoader
+                // contributes the `dark` class itself, see below) so a
+                // light-mode caller still sees the night-sky aesthetic
+                // the loader was designed around. Echoed here so the
+                // veil's own bg + label pill resolve to the dark
+                // palette too instead of fighting the loader.
+                "dark",
                 "absolute inset-0 z-[5] overflow-hidden",
                 // v308: opaque scrim is now load-bearing. The v294
                 // MapLoader switched to bare grid lines on a

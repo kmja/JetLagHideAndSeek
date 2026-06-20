@@ -86,7 +86,24 @@ export function MapLoader({
 
     return (
         <div
-            className={cn("relative overflow-hidden", fillCls, className)}
+            // v378: scope this subtree as "dark" regardless of the page
+            // theme. The comet's blurred bright strokes are designed
+            // light-on-dark — they read as photons against a night sky.
+            // Inverted to dark-on-light (the literal fallback when
+            // `--foreground` resolves to near-black in light mode) the
+            // same blur reads as dirty smears rather than glow. Forcing
+            // dark CSS variables here keeps the aesthetic in both themes.
+            // shadcn `darkMode: "class"` resolves `--background` /
+            // `--foreground` from `.dark` selectors, so adding the class
+            // is enough — no theme detection or atom subscribe needed.
+            // The fill bg uses the (now-dark) background token so the
+            // loader sits on its own dark sky no matter what the page is.
+            className={cn(
+                "dark relative overflow-hidden",
+                fillCls,
+                fill && "bg-[hsl(var(--background))]",
+                className,
+            )}
             role="img"
             aria-label="Loading map"
         >
