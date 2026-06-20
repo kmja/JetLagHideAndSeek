@@ -50,44 +50,6 @@
             rel="stylesheet"
         />
 
-        <!-- Analytics. Both run only on the deployed site (not on
-             localhost). Inline because they're one-shot and small;
-             the previous Astro setup used Partytown to defer them
-             off the main thread, but in practice the wins were
-             marginal and Partytown added a build-time wrinkle for
-             the SPA. Keep an eye on Lighthouse — if these start to
-             hurt, restore Partytown as a Vite plugin. -->
-        <script type="text/javascript">
-            (function () {
-                if (window.location.host.includes("localhost")) return;
-                var s = document.createElement("script");
-                s.async = true;
-                s.src =
-                    "https://www.googletagmanager.com/gtag/js?id=G-RKJ9G6CNC2";
-                document.head.appendChild(s);
-                window.dataLayer = window.dataLayer || [];
-                function gtag() {
-                    dataLayer.push(arguments);
-                }
-                window.gtag = gtag;
-                gtag("js", new Date());
-                gtag("config", "G-RKJ9G6CNC2");
-
-                (function (c, l, a, r, i, t, y) {
-                    c[a] =
-                        c[a] ||
-                        function () {
-                            (c[a].q = c[a].q || []).push(arguments);
-                        };
-                    t = l.createElement(r);
-                    t.async = 1;
-                    t.src = "https://www.clarity.ms/tag/" + i;
-                    y = l.getElementsByTagName(r)[0];
-                    y.parentNode.insertBefore(t, y);
-                })(window, document, "clarity", "script", "sus45mfdvm");
-            })();
-        </script>
-
         <title>Map Generator for Jet Lag The Game: Hide and Seek</title>
         <meta
             name="description"
