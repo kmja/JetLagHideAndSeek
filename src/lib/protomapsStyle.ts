@@ -58,33 +58,82 @@ export const pmtilesUrl = atom<string>(PMTILES_URL);
 
 let probeFired = false;
 
+/**
+ * v363: the HEAD probe used to flip the whole session to the demo
+ * bucket on a single failure — which then tripped on every transient
+ * network blip, tab-backgrounded throttling, or cold-start race. Retries
+ * once after 1.5 s on a non-success; only records an error after both
+ * attempts fail, and only via the soft burst-gated path so a single bad
+ * probe still doesn't flip.
+ */
 function probePmtilesAvailability(): void {
     if (probeFired) return;
     probeFired = true;
-    fetch(PMTILES_URL, { method: "HEAD" })
-        .then((r) => {
-            if (!r.ok) {
-                recordPmtilesError(`HEAD probe returned ${r.status}`);
-            } else {
-                console.info(
-                    `[protomaps] using self-hosted basemap at ${PMTILES_URL}`,
-                );
-            }
-        })
-        .catch((e) => {
-            recordPmtilesError(`HEAD probe threw: ${e}`);
-        });
+    const tryHead = (attempt: number) =>
+        fetch(PMTILES_URL, { method: "HEAD" })
+            .then((r) => {
+                if (r.ok) {
+                    console.info(
+                        `[protomaps] using self-hosted basemap at ${PMTILES_URL}`,
+                    );
+                    return;
+                }
+                if (attempt < 2) {
+                    window.setTimeout(() => tryHead(attempt + 1), 1500);
+                } else {
+                    recordPmtilesError(
+                        `HEAD probe returned ${r.status} on both attempts`,
+                    );
+                }
+            })
+            .catch((e) => {
+                if (attempt < 2) {
+                    window.setTimeout(() => tryHead(attempt + 1), 1500);
+                } else {
+                    recordPmtilesError(`HEAD probe threw twice: ${e}`);
+                }
+            });
+    tryHead(1);
 }
 
+// v363: error-burst gate. A SINGLE error used to flip the session to
+// the demo bucket, but the soft triggers (HEAD probe failure, MapLibre
+// error events) all fire on real-but-recoverable conditions —
+// backgrounded tabs, slow first range read, service-worker activation
+// after a deploy. With the healthy R2 file we actually have, one flake
+// stranded the rest of the session on the (occasionally-broken) demo
+// bucket. We now require N errors within WINDOW to flip; a healthy load
+// drains the buffer naturally. HARD signals (the v260 tilesTimedOut and
+// the v321 watchdog's "no tiles within 10 s" verdict) still flip
+// immediately — those are settled diagnoses, not transient.
+const ERROR_BURST_THRESHOLD = 3;
+const ERROR_BURST_WINDOW_MS = 30_000;
+let recentErrors: number[] = [];
+
 /**
- * Flip to the Protomaps public demo bucket and warn loudly. Idempotent —
- * after the first fallback further errors are silently absorbed (the
- * demo bucket is the last resort; if it's also broken there's no
- * remaining URL to switch to, and re-logging on every failed tile
- * would just spam the console).
+ * Flip to the Protomaps public demo bucket and warn loudly. v363:
+ * requires ERROR_BURST_THRESHOLD errors within ERROR_BURST_WINDOW_MS
+ * before flipping, unless `hard: true` is passed (used for verdicts
+ * like the watchdog timeout that we trust outright). Idempotent —
+ * after the first fallback further errors are silently absorbed.
  */
-export function recordPmtilesError(reason: string): void {
+export function recordPmtilesError(
+    reason: string,
+    opts: { hard?: boolean } = {},
+): void {
     if (pmtilesUrl.get() === PMTILES_URL_FALLBACK) return;
+    const now = Date.now();
+    recentErrors = recentErrors.filter(
+        (t) => now - t < ERROR_BURST_WINDOW_MS,
+    );
+    recentErrors.push(now);
+    if (!opts.hard && recentErrors.length < ERROR_BURST_THRESHOLD) {
+        console.info(
+            `[protomaps] transient tile load issue (${reason}); ` +
+                `${recentErrors.length}/${ERROR_BURST_THRESHOLD} errors in the last 30 s — not flipping yet.`,
+        );
+        return;
+    }
     console.warn(
         `[protomaps] tile load failure (${reason}); falling back to proxied demo bucket. ` +
             "Re-upload basemap.pmtiles to R2 (see overpass-cache/scripts/upload-pmtiles.md) to restore self-hosting.",

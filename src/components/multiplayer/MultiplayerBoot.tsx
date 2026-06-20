@@ -24,8 +24,23 @@ import {
 export function MultiplayerBoot() {
     useEffect(() => {
         installMultiplayerBridge();
-        tryResumeFromPersistent();
-        maybeAutoJoinFromUrl();
+        // v363: defer the WS connect until after window.onload so
+        // browsers don't surface "WebSocket interrupted while the page
+        // was loading" — Firefox/Edge log that whenever a WS is opened
+        // during the initial load and the browser races the handshake
+        // against the load completion. Transport already auto-reconnects
+        // on that race, so it was just console noise; deferring kills
+        // the noise at the source. If we're already past `load`, fire
+        // synchronously to keep the resume snappy.
+        const fire = () => {
+            tryResumeFromPersistent();
+            maybeAutoJoinFromUrl();
+        };
+        if (document.readyState === "complete") {
+            fire();
+        } else {
+            window.addEventListener("load", fire, { once: true });
+        }
     }, []);
     return null;
 }

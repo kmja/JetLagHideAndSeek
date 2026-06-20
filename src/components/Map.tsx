@@ -419,8 +419,12 @@ export function Map({ className }: MapProps) {
     // `recordPmtilesError` no-ops once already on the fallback.
     useEffect(() => {
         if (tilesTimedOut) {
+            // v363: hard=true — `tilesTimedOut` is the v260 settled
+            // verdict (reveal gate's timeout fired without tiles).
+            // Bypass the burst gate.
             recordPmtilesError(
                 "basemap tiles never settled (likely aborted, not errored)",
+                { hard: true },
             );
         }
     }, [tilesTimedOut]);
@@ -467,8 +471,12 @@ export function Map({ className }: MapProps) {
         map.on("sourcedata", onSourceData);
         const t = window.setTimeout(() => {
             if (!healthy) {
+                // v363: hard=true — the 10 s watchdog is a settled
+                // verdict (a real tile would have arrived by now), not
+                // a transient blip. Bypass the burst gate.
                 recordPmtilesError(
                     "protomaps basemap produced no tiles within grace window (likely aborted archive fetch)",
+                    { hard: true },
                 );
             }
         }, 10_000);

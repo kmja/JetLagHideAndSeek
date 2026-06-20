@@ -82,12 +82,34 @@ export async function handleJourneyArrivals(
         return jsonResponse({ error: "POST required" }, 405, cors);
     }
     if (!env.TRAFIKLAB_API_KEY) {
-        // Operator hasn't configured the secret — fail loud so it
-        // gets noticed. The client gracefully degrades (empty
-        // overlay labels).
+        // Operator hasn't configured the secret. v363: return 200 with
+        // the SAME empty-results shape the client uses as its fallback —
+        // a 503 here surfaced in browser devtools as a noisy network
+        // error every time the Travel Times overlay was enabled, even
+        // though the client already silenced it (resrobot.ts:91-102).
+        // The body's `available: false` flag lets a future client
+        // gate-check before firing at all. Parse the input so we can
+        // mirror its stops array; on any parse failure, send a single
+        // empty result rather than 400 (same "graceful" intent).
+        let stops: JourneyStop[] = [];
+        try {
+            const parsed = (await request.json()) as {
+                stops?: JourneyStop[];
+            };
+            if (Array.isArray(parsed?.stops)) stops = parsed.stops;
+        } catch {
+            /* empty fallback below */
+        }
         return jsonResponse(
-            { error: "TRAFIKLAB_API_KEY not configured on the worker." },
-            503,
+            {
+                available: false,
+                reason: "TRAFIKLAB_API_KEY not configured on the worker.",
+                results: stops.map((s) => ({
+                    stopId: s.id,
+                    arrivalAt: null,
+                })),
+            },
+            200,
             cors,
         );
     }
