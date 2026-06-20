@@ -273,7 +273,20 @@ export async function fetchTransitRoutesFeatures(
         return { type: "FeatureCollection", features };
     }
     const clipped: Array<GeoJSON.Feature<GeoJSON.LineString>> = [];
+    // v384: yield to the event loop every YIELD_EVERY iterations so big
+    // datasets (Toronto bus ≈ thousands of features) don't block the
+    // main thread for the duration of the clip. Without this, the
+    // "loading" spinner in MapDisplayControls never gets a frame to
+    // render: the loading flag flips true, the await for the cached
+    // Overpass response resolves nearly-instantly, then the synchronous
+    // clip loop holds the thread until features are ready and the flag
+    // flips back to false — all in one task, never painted.
+    const YIELD_EVERY = 250;
+    let iter = 0;
     for (const line of features) {
+        if (++iter % YIELD_EVERY === 0) {
+            await new Promise((r) => setTimeout(r, 0));
+        }
         const c = line.geometry.coordinates;
         const n = c.length;
         if (n < 2) continue;

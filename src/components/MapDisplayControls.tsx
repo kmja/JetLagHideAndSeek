@@ -12,6 +12,7 @@ import {
     Target,
     Train,
     TrainFront,
+    TrainFrontTunnel,
     TrainTrack,
 } from "lucide-react";
 
@@ -315,7 +316,7 @@ export function MapDisplayControls() {
                                         buttons.push(
                                             <TransitIconToggle
                                                 key="subway"
-                                                icon={TrainTrack}
+                                                icon={TrainFrontTunnel}
                                                 label="Subway"
                                                 on={$subway}
                                                 loading={
