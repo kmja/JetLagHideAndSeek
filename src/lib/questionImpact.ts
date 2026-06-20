@@ -205,7 +205,7 @@ export function useQuestionImpact(
         // built yet, so bail and let the text preview carry it.
         if (family.kind === "coastline") return null;
 
-        const candidates: Array<{ lat: number; lng: number; name: string }> =
+        const rawCandidates: Array<{ lat: number; lng: number; name: string }> =
             family.kind === "city"
                 ? MAJOR_CITIES.map(([name, la, ln]) => ({
                       name,
@@ -217,6 +217,25 @@ export function useQuestionImpact(
                       lng: f.lng,
                       name: f.name,
                   }));
+        // v371: rulebook p17 — restrict candidates to features inside
+        // the play-area polygon. The reference cache is keyed on a
+        // 50 km PADDED bbox so feature warming is reusable across edits;
+        // the picker's candidate dots were inheriting that pad and
+        // showing dozens of out-of-bounds museums/parks/etc. polyGeoJSON
+        // is the union of primary + every adjacent area (assembled by
+        // determineMapBoundaries), so this single filter handles both
+        // single-area and multi-area play areas. Falls through to the
+        // unfiltered list while the polygon is still loading (matches
+        // the v369 graceful-degrade in nearestFromCache).
+        const candidates =
+            playArea && family.kind !== "city"
+                ? rawCandidates.filter((c) =>
+                      turf.booleanPointInPolygon(
+                          turf.point([c.lng, c.lat]),
+                          playArea as never,
+                      ),
+                  )
+                : rawCandidates;
         const loading =
             family.kind !== "city" &&
             getCachedCategory(family.family) === null;

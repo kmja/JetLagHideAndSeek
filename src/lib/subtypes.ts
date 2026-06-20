@@ -198,6 +198,21 @@ export function getSubtypes(
 }
 
 /**
+ * Find a subtype meta by its `value` across every category. v371: used
+ * by the configure-dialog impact preview to render each candidate
+ * point with the subtype's Lucide icon (museum→Landmark, park→Trees,
+ * …) instead of a generic dot. Categories are mutually-exclusive on
+ * subtype values, so the first match is the right one.
+ */
+export function findSubtypeMeta(value: string): SubtypeMeta | null {
+    for (const list of Object.values(SUBTYPES)) {
+        const hit = list.find((s) => s.value === value);
+        if (hit) return hit;
+    }
+    return null;
+}
+
+/**
  * Whether a given subtype value is allowed in the given game size.
  *
  * - If the subtype is in our catalog: returns true iff its `validSizes`

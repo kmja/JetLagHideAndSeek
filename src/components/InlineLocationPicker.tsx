@@ -26,6 +26,7 @@ import {
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
 import { type ImpactMode, useQuestionImpact } from "@/lib/questionImpact";
+import { findSubtypeMeta } from "@/lib/subtypes";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { holedMask } from "@/maps";
@@ -114,21 +115,15 @@ export function InlineLocationPicker({
         impactMode ?? "matching",
         tentacleRadiusKm,
     );
-    const impactCandidatesFC = useMemo<GeoJSON.FeatureCollection | null>(() => {
-        if (!impactMode || !impact || impact.candidates.length === 0)
-            return null;
-        return {
-            type: "FeatureCollection",
-            features: impact.candidates.map((c) => ({
-                type: "Feature" as const,
-                geometry: {
-                    type: "Point" as const,
-                    coordinates: [c.lng, c.lat],
-                },
-                properties: { name: c.name },
-            })),
-        };
-    }, [impactMode, impact]);
+    // v371: the candidate icon for this question's subtype (e.g.
+    // museum → Landmark). Falls back to the matching-category neutral
+    // Equal icon if the subtype isn't tabled — same default the
+    // SubtypeTile uses when a meta is missing.
+    const candidateIcon = useMemo(() => {
+        const meta = impactType ? findSubtypeMeta(impactType) : null;
+        return meta?.icon ?? null;
+    }, [impactType]);
+    const candidatePoints = impact?.candidates ?? null;
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",
@@ -526,25 +521,42 @@ export function InlineLocationPicker({
                             />
                         </Source>
                     )}
-                    {impactCandidatesFC && (
-                        <Source
-                            id="impact-candidates"
-                            type="geojson"
-                            data={impactCandidatesFC}
-                        >
-                            <Layer
-                                id="impact-candidates-circle"
-                                type="circle"
-                                paint={{
-                                    "circle-radius": 3.5,
-                                    "circle-color": "hsl(40, 95%, 55%)",
-                                    "circle-stroke-color": "hsl(40, 95%, 22%)",
-                                    "circle-stroke-width": 1,
-                                    "circle-opacity": 0.95,
-                                }}
-                            />
-                        </Source>
-                    )}
+                    {/* v371: candidate dots are now subtype-icon markers
+                        (museum→Landmark, etc.) drawn as HTML overlays,
+                        clipped to the play area by the v371 filter in
+                        useQuestionImpact. Smaller candidate count after
+                        the polygon clip + simple icons keep this cheap.
+                        Falls through to nothing when we have no icon for
+                        the subtype (radius/tentacles don't render points
+                        anyway). */}
+                    {impactMode && candidateIcon && candidatePoints &&
+                        candidatePoints.map((c, i) => {
+                            const Icon = candidateIcon;
+                            return (
+                                <Marker
+                                    key={`cand-${i}-${c.lat.toFixed(5)}-${c.lng.toFixed(5)}`}
+                                    longitude={c.lng}
+                                    latitude={c.lat}
+                                    anchor="center"
+                                >
+                                    <div
+                                        title={c.name}
+                                        className={cn(
+                                            "flex items-center justify-center",
+                                            "w-5 h-5 rounded-full",
+                                            "bg-background/85 border border-foreground/40",
+                                            "shadow-sm",
+                                        )}
+                                    >
+                                        <Icon
+                                            size={12}
+                                            strokeWidth={2.4}
+                                            className="text-foreground/85"
+                                        />
+                                    </div>
+                                </Marker>
+                            );
+                        })}
                     {/* Radius preview — primary brand color, 12 %
                         opacity fill so the mask underneath stays
                         readable. */}
