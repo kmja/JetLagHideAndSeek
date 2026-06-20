@@ -323,14 +323,15 @@ div.leaflet-control-attribution.leaflet-control {
  * mode. */
 :root .jl-loader,
 .light .jl-loader {
-    --jl-loader-bg: 210 16% 88%; /* soft slate grey */
-    --jl-loader-comet: var(--primary); /* brand coral — bright on grey */
-    --jl-loader-grid: 215 16% 60%; /* neutral grid lines so the tile
+    --jl-loader-bg: 210 16% 80%; /* slate grey — slightly darker than
+                                      v379 so bright-white comets read */
+    --jl-loader-comet: 0 0% 100%; /* bright white */
+    --jl-loader-grid: 215 16% 55%; /* neutral grid lines so the tile
                                        grid reads as structure, not as
                                        part of the comet trail */
-    --jl-loader-wisp-opacity: 0.18;
-    --jl-loader-body-opacity: 0.38;
-    --jl-loader-head-opacity: 0.95;
+    --jl-loader-wisp-opacity: 0.55;
+    --jl-loader-body-opacity: 0.8;
+    --jl-loader-head-opacity: 1;
     --jl-loader-grid-opacity: 0.5;
 }
 .dark .jl-loader {
