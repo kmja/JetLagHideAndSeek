@@ -117,6 +117,23 @@ const DO_HSR = !args["skip-hsr"];
 const DO_DISCOVER = !args["skip-discover"];
 const DO_TRANSIT = !args["skip-transit"];
 const DO_PHOTON = !args["skip-photon"];
+// v360: one-ring neighbor warming. After the main city loop, discover the
+// adjacent admin areas of the top N cities and warm each one's references
+// (boundary + refs) via the worker's GET /api/refs/<id>?warm=1 endpoint,
+// so a seeker who extends a major city with an adjacent area gets an
+// instant cache hit instead of a cold on-tap fetch. OPT-IN (it adds a lot
+// of work). `--one-ring-top=N` bounds it (default 100). The city list
+// leads with HAND_CURATED majors, so "first N" is a reasonable
+// most-played proxy (there's no population field to rank by).
+const DO_ONE_RING = !!args["one-ring"];
+const ONE_RING_TOP = args["one-ring-top"]
+    ? parseInt(args["one-ring-top"], 10)
+    : 100;
+// Cap on neighbors warmed per city, so one pathological metro with dozens
+// of tiny adjacent municipalities can't dominate the pass.
+const ONE_RING_MAX_PER_CITY = args["one-ring-max-per-city"]
+    ? parseInt(args["one-ring-max-per-city"], 10)
+    : 12;
 // Tile packs are OPT-IN (--tile-packs): they require the external
 // `pmtiles` Go binary (github.com/protomaps/go-pmtiles), which most
 // hosts won't have. The other phases need only Node.
@@ -1580,6 +1597,106 @@ async function drainDiscovery() {
     }
 }
 
+/**
+ * Discover the one-ring of adjacent admin areas around a city: the
+ * same-admin_level boundary relations whose centre sits within ~25 km of
+ * the city centre. Mirrors the client's `buildAdjacentAdminQuery`
+ * (src/maps/api/playAreaExtensions.ts) so we warm exactly what the seeker
+ * can add. Returns unique relation ids (excluding the city itself).
+ */
+async function findNeighborIds(city) {
+    // Get the city's admin_level + centroid from its boundary. The main
+    // loop already warmed it, so this hits R2 (served in a few ms).
+    const bq = boundaryQuery(city.relationId);
+    let parsed = null;
+    const cached = await fetchCached(bq);
+    if (cached) {
+        parsed = cached;
+    } else {
+        const res = await fetchOverpass(bq, `one-ring boundary ${city.name}`);
+        if (res) parsed = safeJSON(res.text);
+    }
+    if (!parsed || !Array.isArray(parsed.elements)) return [];
+
+    const ext = extentFromBoundaryResponse(parsed);
+    if (!ext) return [];
+    const [maxLat, minLng, minLat, maxLng] = ext;
+    const lat = (maxLat + minLat) / 2;
+    const lng = (minLng + maxLng) / 2;
+
+    const rel =
+        parsed.elements.find(
+            (e) => e.type === "relation" && e.id === city.relationId,
+        ) ?? parsed.elements.find((e) => e.type === "relation");
+    const adminLevel = rel?.tags?.admin_level;
+    if (!adminLevel) return [];
+
+    // ADJACENT_SEARCH_DEFAULT_RADIUS_KM = 25 on the client.
+    const q = `[out:json][timeout:60];relation["admin_level"="${adminLevel}"]["type"="boundary"](around:25000,${lat},${lng});out ids;`;
+    const res = await fetchOverpass(q, `one-ring neighbors ${city.name}`);
+    if (!res) return [];
+    const data = safeJSON(res.text);
+    const ids = (data?.elements ?? [])
+        .map((e) => e.id)
+        .filter((id) => typeof id === "number" && id !== city.relationId);
+    return ids.slice(0, ONE_RING_MAX_PER_CITY);
+}
+
+/**
+ * One-ring pass: warm the adjacent areas of the top N cities. Warming is
+ * delegated to the worker's relation-keyed warm endpoint (boundary +
+ * refs, background, skip-if-fresh, slot-paced), so this pass only
+ * discovers neighbors and pings — it doesn't fetch the heavy reference
+ * bodies itself. Deduped against the main city list and across cities.
+ */
+async function processOneRing(cities) {
+    const top = cities.slice(0, ONE_RING_TOP);
+    const cityIds = new Set(cities.map((c) => c.relationId));
+    const seen = new Set();
+    let discovered = 0;
+    let requested = 0;
+    console.log(
+        `=== one-ring: neighbors of top ${top.length} cities (max ${ONE_RING_MAX_PER_CITY}/city) ===`,
+    );
+    for (const city of top) {
+        let ids = [];
+        try {
+            ids = await findNeighborIds(city);
+        } catch (e) {
+            console.warn(
+                `  ! one-ring discover ${city.name} failed:`,
+                e?.message ?? e,
+            );
+            continue;
+        }
+        for (const id of ids) {
+            if (seen.has(id) || cityIds.has(id)) continue;
+            seen.add(id);
+            discovered++;
+            try {
+                const resp = await fetchRetry(
+                    `${WORKER}/api/refs/${id}?warm=1`,
+                    { method: "GET" },
+                    "one-ring warm",
+                );
+                if (resp.ok) requested++;
+            } catch (e) {
+                console.warn(
+                    `  ! one-ring warm r${id} failed:`,
+                    e?.message ?? e,
+                );
+            }
+            // Pace the warm pings so the worker's background warms (2
+            // concurrent upstream) aren't handed a giant burst at once.
+            await sleep(DELAY_MS);
+        }
+        await sleep(DELAY_MS);
+    }
+    console.log(
+        `=== one-ring: ${discovered} unique neighbors discovered, ${requested} warm requests accepted ===`,
+    );
+}
+
 async function main() {
     console.log(`=== laptop-prewarm against ${WORKER} ===`);
 
@@ -1612,6 +1729,17 @@ async function main() {
         }
         if ((i + 1) % 10 === 0) {
             console.log(`--- progress: ${i + 1}/${todo.length} ---`);
+        }
+    }
+
+    // v360: one-ring neighbor warming (opt-in). Runs after the main loop
+    // so the top cities' boundaries are already cached for the
+    // centroid/admin_level lookups in findNeighborIds.
+    if (DO_ONE_RING) {
+        try {
+            await processOneRing(cities);
+        } catch (e) {
+            console.warn(`! one-ring pass failed:`, e?.message ?? e);
         }
     }
 
