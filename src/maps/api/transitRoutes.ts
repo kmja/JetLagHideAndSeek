@@ -311,7 +311,8 @@ export async function fetchTransitRoutesFeatures(
                     continue;
                 }
                 for (const seg of segments) {
-                    const sc = seg.geometry.coordinates;
+                    const sc = (seg as GeoJSON.Feature<GeoJSON.LineString>)
+                        .geometry.coordinates;
                     if (sc.length < 2) continue;
                     const mid = sc[Math.floor(sc.length / 2)];
                     if (pointInPlayArea(polyForClip, mid[0], mid[1])) {
