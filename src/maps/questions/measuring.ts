@@ -39,6 +39,17 @@ import type {
     MeasuringQuestion,
 } from "@/maps/schema";
 
+/**
+ * v374: ceiling on candidate count before we skip a measuring `*-full`
+ * elimination. The eliminated region is a single batched ArcGIS
+ * geodesic buffer+union (one synchronous WASM call), which scales well
+ * past the old 1000 cap — but it does run on the main thread, so we keep
+ * a generous ceiling to stop a pathological play area (tens of thousands
+ * of features) from freezing the tab. Real dense cities sit well under
+ * this (Ottawa ≈ 1103 parks).
+ */
+const MEASURING_ELIMINATION_CAP = 5000;
+
 const highSpeedBase = memoize(
     (features: Feature[]) => {
         const grouped = groupObjects(features);
@@ -282,26 +293,28 @@ export const determineMeasuringBoundary = async (
                     `Error finding ${prettifyLocation(
                         location,
                         true,
-                    ).toLowerCase()} — Overpass returned a runtime error. The question will still send, but auto-elimination is off; the hider can still answer manually.`,
+                    ).toLowerCase()} — Overpass returned a runtime error. Try again, or pick a less common place type.`,
                 );
                 return [turf.multiPolygon([])];
             }
 
-            // v373: measuring elimination genuinely needs every candidate
-            // — the eliminated region is the union of distance-buffered
-            // disks around each one, so dropping any distorts the shape.
-            // Above ~1000 the union is slow enough to risk freezing the
-            // tab, so we skip auto-elimination, BUT the question is still
-            // sendable and the hider answers manually — same outcome as
-            // pre-v340 manual-answer questions, just with no auto-mask.
-            // Demoted from error → warn (it's not broken, just degraded)
-            // and rewritten to actually explain what's happening.
-            if (data.elements.length >= 1000) {
+            // v374: the main-map elimination is a SINGLE batched ArcGIS
+            // geodesic buffer+union (arcBufferToPoint → innateArcBuffer's
+            // executeMany with union:true), not the pairwise turf.union
+            // this cap was originally sized for — so it scales to far more
+            // than 1000. It also only runs once, on answer (draft
+            // questions are skipped by drag:true), and is memoised, so a
+            // brief one-time compute is fine. Cap raised 1000 → 5000 to
+            // cover dense real cities (Ottawa's 1103 parks now eliminate
+            // normally); the ceiling stays only to guard against a
+            // pathological play area with tens of thousands of features
+            // freezing the main thread on that one synchronous WASM call.
+            if (data.elements.length >= MEASURING_ELIMINATION_CAP) {
                 toast.warn(
                     `${data.elements.length} ${prettifyLocation(
                         location,
                         true,
-                    ).toLowerCase()} in this area — too many to auto-eliminate. The question will send normally; the hider answers manually.`,
+                    ).toLowerCase()} in this area — too many to compute an elimination for. This question won't narrow your map; try a less common place type or a smaller play area.`,
                 );
                 return [turf.multiPolygon([])];
             }
