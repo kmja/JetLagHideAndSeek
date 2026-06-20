@@ -390,13 +390,25 @@ export function Map({ className }: MapProps) {
     // (a slow/failed tile fetch reveals the map after the timeout rather
     // than hiding it forever). Question/pan changes don't re-veil.
     const boundaryLoaded = Boolean($mapGeoJSON || $polyGeoJSON);
-    // v381: dataReady covers EVERY async piece this map paints on first
-    // reveal — boundary AND the mask/per-category markers the
-    // elimination effect computes from it — so the veil drops once
-    // instead of dropping early and letting the mask paint a moment
-    // later. (Transit overlays + GPS position fade in independently:
-    // they're user-toggled or permission-gated, not part of "essential
-    // first paint".)
+    // v381: track whether the elimination effect has settled for the
+    // CURRENT boundary, so the reveal gate can wait until the mask
+    // + per-category markers are computed before dropping the veil. Was
+    // a noticeable two-step on a question-heavy reload: boundary
+    // appears, veil drops, then a moment later the mask paints over it.
+    // Reset on boundary change so a new play area re-arms the gate. The
+    // state lives here (hoisted) so it can feed dataReady directly; the
+    // setMaskComputed(true) signal is fired inside the async elimination
+    // effect further down where setEliminationResult lands.
+    const [maskComputed, setMaskComputed] = useState(false);
+    useEffect(() => {
+        setMaskComputed(false);
+    }, [$mapGeoJSON, $polyGeoJSON]);
+    // dataReady covers EVERY async piece this map paints on first
+    // reveal — boundary AND the mask/per-category markers — so the veil
+    // drops once instead of dropping early and letting the mask paint a
+    // moment later. (Transit overlays + GPS position fade in
+    // independently: they're user-toggled or permission-gated, not part
+    // of "essential first paint".)
     const dataReady =
         $playArea === null || (boundaryLoaded && maskComputed);
     const {
@@ -791,16 +803,9 @@ export function Map({ className }: MapProps) {
         pendingByCategory: Record<string, GeoJSON.Feature[]>;
     }>({ mask: null, pendingByCategory: {} });
     const eliminationGenRef = useRef(0);
-    // v381: track whether the elimination effect has settled for the
-    // CURRENT boundary, so the reveal gate can wait until the mask
-    // + per-category markers are computed before dropping the veil. Was
-    // a noticeable two-step on a question-heavy reload: boundary appears,
-    // veil drops, then a moment later the mask paints over it. Reset on
-    // boundary change so a new play area re-arms the gate.
-    const [maskComputed, setMaskComputed] = useState(false);
-    useEffect(() => {
-        setMaskComputed(false);
-    }, [$mapGeoJSON, $polyGeoJSON]);
+    // v381: maskComputed is declared+reset higher up (next to the reveal
+    // gate). The setMaskComputed(true) signal fires inside the async
+    // elimination effect below, when setEliminationResult lands.
     // v376: signature of ONLY the fields that affect elimination, so a
     // color/collapsed/drag-only edit doesn't re-run the buffer/Voronoi
     // pipeline. Draft questions (drag:true) are skipped downstream in
