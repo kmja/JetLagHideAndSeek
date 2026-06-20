@@ -452,25 +452,35 @@ function requestWarm(relationId: number): void {
     });
 }
 
-// v359: warm-on-add. Kick off a background warm the moment an adjacent
+// v360: warm-on-add. Kick off a background warm the moment an adjacent
 // area is added, rather than waiting for the first question to probe it.
-// nanostores fires subscribe synchronously with the current value, so a
+// nanostores `subscribe` fires synchronously with the current value, so a
 // reload with areas already added warms them too. Deduped via requestWarm.
+//
+// v361-fix: queueMicrotask defers the subscribe call out of the current
+// module-init turn. This module sits in an import cycle with overpass.ts;
+// running a `subscribe` (with its sync initial callback) at top level
+// during that cycle hits a TDZ on a bundled binding ("Cannot access '_e'
+// before initialization") and blocks the whole bundle. A microtask is
+// enough to escape the init phase — the callback still fires before any
+// user interaction, preserving "warm the moment it's added".
 if (typeof window !== "undefined") {
-    additionalMapGeoLocations.subscribe((extras) => {
-        for (const e of extras) {
-            if (!e.added) continue;
-            const ep = e.location?.properties as
-                | { osm_id?: number; osm_type?: string }
-                | undefined;
-            if (
-                ep?.osm_type === "R" &&
-                typeof ep.osm_id === "number" &&
-                ep.osm_id > 0
-            ) {
-                requestWarm(ep.osm_id);
+    queueMicrotask(() => {
+        additionalMapGeoLocations.subscribe((extras) => {
+            for (const e of extras) {
+                if (!e.added) continue;
+                const ep = e.location?.properties as
+                    | { osm_id?: number; osm_type?: string }
+                    | undefined;
+                if (
+                    ep?.osm_type === "R" &&
+                    typeof ep.osm_id === "number" &&
+                    ep.osm_id > 0
+                ) {
+                    requestWarm(ep.osm_id);
+                }
             }
-        }
+        });
     });
 }
 
