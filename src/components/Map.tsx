@@ -323,6 +323,8 @@ export function Map({ className }: MapProps) {
     const $playArea = useStore(playArea);
 
     const mapRef = useRef<MapRef | null>(null);
+    // v377: debounce handle for persisting the viewport to localStorage.
+    const viewportPersistTimer = useRef<number | null>(null);
 
     const $theme = useStore(resolvedTheme);
     // v241: rebuild style when the resolved PMTiles URL flips (e.g.
@@ -495,11 +497,21 @@ export function Map({ className }: MapProps) {
         };
     }, []);
 
-    // Persist viewport on move end. Debounced via MapLibre's
-    // own `moveend` (fires once per gesture, not per frame).
+    // Persist viewport on move end. v377: debounced. `moveend` fires
+    // once per gesture, but momentum/inertia scrolling and rapid
+    // pan-zoom can fire it several times in a second, and
+    // mapLibreViewport is a persistentAtom — each set is a synchronous
+    // localStorage.setItem, which janks the pan on slower devices.
+    // Coalesce to one write 400ms after the last move.
     const handleMoveEnd = (e: ViewStateChangeEvent) => {
         const { latitude, longitude, zoom } = e.viewState;
-        mapLibreViewport.set({ latitude, longitude, zoom });
+        if (viewportPersistTimer.current !== null) {
+            clearTimeout(viewportPersistTimer.current);
+        }
+        viewportPersistTimer.current = window.setTimeout(() => {
+            mapLibreViewport.set({ latitude, longitude, zoom });
+            viewportPersistTimer.current = null;
+        }, 400);
     };
 
     // When mapGeoLocation changes (user picked a new play

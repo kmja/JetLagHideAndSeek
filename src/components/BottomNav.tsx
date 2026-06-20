@@ -1,8 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { List, Plus, Settings, Users } from "lucide-react";
-import { useEffect, useState } from "react";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { questions, questionsDrawerOpen } from "@/lib/context";
 import {
     hidingPeriodEndsAt,
@@ -34,17 +33,15 @@ export const BottomNav = () => {
     // the tab is hidden — saves battery on locked phones since players
     // run the app for hours. On resume it re-syncs immediately so the
     // disabled state jumps to truth.
-    const [now, setNow] = useState(Date.now());
+    // v377: shared clock. Gate on "is there an end timestamp at all"
+    // rather than "is it still in the future" — the latter depended on
+    // `now`, creating a now⇄hidingRunning cycle the old code patched with
+    // a manual refresh effect. Gating on presence breaks the cycle, and
+    // useNow fires immediately on subscribe so the snap-to-now case stays
+    // correct without the extra effect.
+    const now = useNow($hidingEndsAt !== null);
     const hidingRunning =
         $hidingEndsAt !== null && $hidingEndsAt > now;
-    useVisibleInterval(() => setNow(Date.now()), 1000, hidingRunning);
-    // Refresh `now` immediately whenever the end-timestamp changes
-    // — otherwise after "End hiding period · Start seeking" snaps
-    // hidingPeriodEndsAt to Date.now(), the next render could
-    // briefly see a stale `now > endsAt` and keep `hiding === true`.
-    useEffect(() => {
-        if ($hidingEndsAt) setNow(Date.now());
-    }, [$hidingEndsAt]);
 
     // Derive `hiding` from the live timestamp where possible — falling
     // back to `now` only between interval ticks. This guarantees the

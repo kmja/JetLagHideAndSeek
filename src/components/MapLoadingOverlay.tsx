@@ -1,8 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Check, Loader2, X } from "lucide-react";
-import { useState } from "react";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import {
     mapGeoJSON,
     mapGeoLocation,
@@ -53,13 +52,14 @@ export function MapLoadingOverlay() {
     // the overlay. Gated on the overlay being meaningful + the tab
     // being visible — there's no point ticking when the page is
     // hidden or no progress is being tracked.
-    const [, setNow] = useState(() => Date.now());
     const shouldTick =
         $progress !== null ||
         (!($mapGeoJSON || $polyGeoJSON) &&
             ($mapGeoLocation?.properties?.osm_id ?? 0) > 0 &&
             $playArea !== null);
-    useVisibleInterval(() => setNow(Date.now()), 1000, shouldTick);
+    // v377: shared clock — value unused, the tick just re-renders the
+    // elapsed-time display.
+    useNow(shouldTick);
 
     const haveBoundary = Boolean($mapGeoJSON || $polyGeoJSON);
     const haveValidLocation =

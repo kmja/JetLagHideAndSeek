@@ -1,8 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Clock, EyeOff, Inbox, MapPin, Trophy, Users } from "lucide-react";
-import { useState } from "react";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { formatTimeRemaining, hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { hiderInbox, hidingZone, roundFoundAt } from "@/lib/hiderRole";
@@ -159,8 +158,7 @@ export function CompanionView() {
 /** Minimal read-only round timer (no controls, unlike HiderTimer). */
 function HideTeamTimer() {
     const $endsAt = useStore(hidingPeriodEndsAt);
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(() => setNow(Date.now()), 1000, Boolean($endsAt));
+    const now = useNow(Boolean($endsAt)); // v377: shared clock
 
     if (!$endsAt) {
         return (

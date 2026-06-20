@@ -22,6 +22,7 @@ import {
     SidebarGroupLabel,
     SidebarMenu,
 } from "@/components/ui/sidebar-l";
+import { useNow } from "@/hooks/useNow";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { isLoading, questionModified, questions } from "@/lib/context";
@@ -133,12 +134,10 @@ export const QuestionCard = ({
     const answerDeadlineMs =
         category === "photo" ? 10 * 60_000 : 5 * 60_000;
     const isPending = locked === false;
-    const [countdownTick, setCountdownTick] = useState(Date.now());
-    useVisibleInterval(
-        () => setCountdownTick(Date.now()),
-        1000,
-        isPending && createdAt !== undefined,
-    );
+    // v377: shared clock instead of a per-card setInterval. With N
+    // questions this was N independent 1 Hz timers each firing its own
+    // render pass; now they all read one batched clock.
+    const countdownTick = useNow(isPending && createdAt !== undefined);
     const remainingSec =
         isPending && createdAt
             ? Math.max(

@@ -29,7 +29,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions, triggerLocalRefresh } from "@/lib/context";
 import { participants } from "@/lib/multiplayer/session";
@@ -179,12 +179,8 @@ export function PendingAnswerOverlay() {
     // 1 Hz tick to keep the countdown fresh. Visibility-aware so
     // a hidden tab isn't waking the CPU every second just to drift
     // a countdown that nobody is looking at.
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(
-        () => setNow(Date.now()),
-        1000,
-        Boolean(displayed) && phase === "active",
-    );
+    // v377: shared clock (was a dedicated 1 Hz setInterval).
+    const now = useNow(Boolean(displayed) && phase === "active");
 
     // Nearest-reference lookup for matching/measuring headlines. Always
     // called so the hook order stays stable across renders.
