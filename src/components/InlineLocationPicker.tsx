@@ -28,6 +28,7 @@ import {
 import { type ImpactMode, useQuestionImpact } from "@/lib/questionImpact";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { holedMask } from "@/maps";
 
 import { MapTilesVeil } from "./MapTilesVeil";
 import { SelfPositionMarker } from "./SelfPositionMarker";
@@ -231,6 +232,24 @@ export function InlineLocationPicker({
         );
     }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
 
+    // v370: invert `$maskData` (the in-scope WORKING polygon — play area
+    // minus eliminations) into the dark cover the layer actually wants
+    // to draw. Without this, the fill paints ON the play area itself
+    // rather than around it — visibly inverted on a radar question,
+    // where there's no impact overlay on top to hide the mistake. Same
+    // pattern + same helper Map.tsx uses (line 829), just done here
+    // because the picker reads a different atom. Memo'd so a steady
+    // play area doesn't recompute every render.
+    const maskInverted = useMemo(() => {
+        if (!$maskData) return null;
+        try {
+            return holedMask($maskData as never) as GeoJSON.Feature | null;
+        } catch (e) {
+            console.warn("InlineLocationPicker holedMask failed:", e);
+            return null;
+        }
+    }, [$maskData]);
+
     // Pre-compute the radius circle as a turf polygon when the
     // radius prop is set; cheaper than re-running on every render.
     const radiusCircle = useMemo(() => {
@@ -367,12 +386,15 @@ export function InlineLocationPicker({
                         </Source>
                     )}
                     {/* Elimination mask. Same dark cover as the
-                        Leaflet version (#0f172a, ~55% opacity). */}
-                    {$maskData && (
+                        Leaflet version (#0f172a, ~55% opacity). v370:
+                        feeds the INVERTED (holed) polygon so we shade
+                        the WORLD around the play area, not the play
+                        area itself. */}
+                    {maskInverted && (
                         <Source
                             id="mask"
                             type="geojson"
-                            data={$maskData as GeoJSON.FeatureCollection}
+                            data={maskInverted as GeoJSON.Feature}
                         >
                             <Layer
                                 id="mask-fill"
