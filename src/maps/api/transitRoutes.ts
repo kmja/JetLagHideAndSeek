@@ -1,5 +1,7 @@
 import * as turf from "@turf/turf";
 
+import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
+
 import {
     additionalMapGeoLocations,
     mapGeoJSON,
@@ -252,5 +254,81 @@ export async function fetchTransitRoutesFeatures(
         }
     }
 
-    return { type: "FeatureCollection", features };
+    // v383: polygon clip. The bbox prefilter above drops lines entirely
+    // outside the play-area's bounding rectangle, but lines that cross
+    // the polygon boundary were kept whole — so for a play area whose
+    // polygon is much smaller than its bbox (a small city in a sparse
+    // province / region) transit lines extended kilometres past the
+    // boundary. Visible bug: GTA play area + every southern-Ontario
+    // train line painted across half the screen. Clip each line at the
+    // polygon edges (turf.lineSplit) and keep only segments whose
+    // midpoint lies inside.
+    //
+    // Fast paths avoid the expensive split where possible: a line whose
+    // every test point is inside passes through whole; one whose every
+    // test point is outside is dropped. Only boundary-crossing lines pay
+    // the split cost.
+    const polyForClip = polyArea ?? boundary;
+    if (!polyForClip || polyForClip.features.length === 0) {
+        return { type: "FeatureCollection", features };
+    }
+    const clipped: Array<GeoJSON.Feature<GeoJSON.LineString>> = [];
+    for (const line of features) {
+        const c = line.geometry.coordinates;
+        const n = c.length;
+        if (n < 2) continue;
+        const samples = [c[0], c[Math.floor(n / 2)], c[n - 1]];
+        let insideCount = 0;
+        for (const s of samples) {
+            if (pointInPlayArea(polyForClip, s[0], s[1])) insideCount++;
+        }
+        // All three samples inside → almost certainly fully inside.
+        if (insideCount === 3) {
+            clipped.push(line);
+            continue;
+        }
+        // All three outside → almost certainly fully outside.
+        if (insideCount === 0) continue;
+        // Crosses the boundary — split per polygon feature, keep
+        // segments whose midpoint is inside. lineSplit's polygon
+        // argument is a single Polygon/MultiPolygon, so we iterate.
+        try {
+            for (const polyFeat of polyForClip.features) {
+                let segments;
+                try {
+                    segments = turf.lineSplit(
+                        line as never,
+                        polyFeat as never,
+                    ).features;
+                } catch {
+                    // Degenerate input — fall through and keep the line
+                    // intact if any sample was inside (we know one is).
+                    clipped.push(line);
+                    break;
+                }
+                if (segments.length === 0) {
+                    // No intersection with this polygon → check the next.
+                    continue;
+                }
+                for (const seg of segments) {
+                    const sc = seg.geometry.coordinates;
+                    if (sc.length < 2) continue;
+                    const mid = sc[Math.floor(sc.length / 2)];
+                    if (pointInPlayArea(polyForClip, mid[0], mid[1])) {
+                        clipped.push(seg as GeoJSON.Feature<GeoJSON.LineString>);
+                    }
+                }
+                // First successful split wins — multi-feature polyGeoJSON
+                // is the union of primary + adjacents; we don't want to
+                // double-clip a line that touches multiple parts.
+                break;
+            }
+        } catch {
+            // Defensive fallback — keep the line if anything in the
+            // clip path threw unexpectedly. Better an over-drawn line
+            // than a missing one.
+            clipped.push(line);
+        }
+    }
+    return { type: "FeatureCollection", features: clipped };
 }
