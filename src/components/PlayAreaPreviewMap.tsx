@@ -49,9 +49,15 @@ const polygonCache = new Map<
 export function PlayAreaPreviewMap({
     value,
     height = "h-[160px]",
+    onReady,
 }: {
     value: OpenStreetMap;
     height?: string;
+    /** v382: fires once when the map's veil drops (tiles + polygon both
+     *  in, or the safety timeout elapsed). The wizard uses this to fade
+     *  in the play-area name and Change/Adjacent buttons in sync with
+     *  the map appearing, instead of letting them show ahead of it. */
+    onReady?: () => void;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     // v228: opt into the dark-tile CSS filter only when the resolved
@@ -263,6 +269,17 @@ export function PlayAreaPreviewMap({
         resetKey: polygon,
         initialRevealed: cacheHitAtMount.current,
     });
+
+    // v382: surface the reveal moment to the wizard so it can fade in
+    // the play-area name + Change/Adjacent buttons in sync with the map
+    // appearing. Latched-via-useMapTilesReady, so this fires exactly
+    // once per mount once the veil truly drops.
+    const onReadyFiredRef = useRef(false);
+    useEffect(() => {
+        if (showVeil || onReadyFiredRef.current) return;
+        onReadyFiredRef.current = true;
+        onReady?.();
+    }, [showVeil, onReady]);
 
     // v327: the wizard preview NO longer flips the global pmtilesUrl
     // on a reveal timeout. The reveal gate's 12 s timer is a "should

@@ -865,6 +865,17 @@ export function PlayAreaStep({
     // flow. When true, we let the user finish picking before bouncing.
     const userInitiatedSearch = useRef(false);
     const [adjacentOpen, setAdjacentOpen] = useState(false);
+    // v382: gate the preview's play-area card + Change/Adjacent buttons
+    // on the map having actually painted, so they fade in together
+    // instead of leading the map. PlayAreaPreviewMap calls back via
+    // onReady. Reset to false whenever the previewed value's identity
+    // changes (user picked a different area in search → preview switches
+    // and the new map has to re-load).
+    const [previewMapReady, setPreviewMapReady] = useState(false);
+    const previewValueOsmId = value?.properties?.osm_id ?? null;
+    useEffect(() => {
+        setPreviewMapReady(false);
+    }, [previewValueOsmId]);
     const [query, setQuery] = useState("");
     const [busy, setBusy] = useState(false);
     const [results, setResults] = useState<OpenStreetMap[]>([]);
@@ -1100,14 +1111,29 @@ export function PlayAreaStep({
         const typeLabel = placeTypeLabel(value);
         const areaLabel = formatAreaLabel(value);
         const sizeHint = recommendedGameSize(value);
+        // v382: fade in the play-area card + Change/Adjacent buttons in
+        // sync with the map's veil dropping, so the user sees one
+        // unified "this is the area" reveal instead of text + buttons
+        // appearing first while the map is still loading. State lives at
+        // the top of the function (see `previewMapReady`); we set it via
+        // onReady here. opacity-0 + pointer-events-none keep the dialog's
+        // dimensions stable so there's no layout shift on reveal.
         return (
             <div className="space-y-3">
-                <PlayAreaPreviewMap value={value} height="h-[220px]" />
+                <PlayAreaPreviewMap
+                    value={value}
+                    height="h-[220px]"
+                    onReady={() => setPreviewMapReady(true)}
+                />
 
                 <div
                     className={cn(
                         "rounded-md border-2 border-primary bg-primary/10",
                         "p-3 flex items-start gap-2",
+                        "transition-opacity duration-300 ease-out",
+                        previewMapReady
+                            ? "opacity-100"
+                            : "opacity-0 pointer-events-none",
                     )}
                 >
                     <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
@@ -1144,7 +1170,14 @@ export function PlayAreaStep({
                     <Check className="w-4 h-4 text-primary shrink-0" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div
+                    className={cn(
+                        "grid grid-cols-2 gap-2 transition-opacity duration-300 ease-out",
+                        previewMapReady
+                            ? "opacity-100"
+                            : "opacity-0 pointer-events-none",
+                    )}
+                >
                     <Button
                         variant="outline"
                         onClick={() => {
