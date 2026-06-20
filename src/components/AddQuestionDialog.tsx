@@ -31,10 +31,7 @@ import {
     isHiderConnected,
     seekerResendQuestion,
 } from "@/lib/multiplayer/store";
-import {
-    encodeQuestionForHider,
-    shareOrCopy,
-} from "@/lib/shareLinks";
+import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import {
@@ -371,32 +368,45 @@ export const AddQuestionDialog = ({
             return;
         }
 
-        // Auto-share the question with the hider. We deliberately wait for
-        // `shareOrCopy` to resolve before stamping `createdAt` so that the
-        // hider's 5-min answer window starts when the share sheet actually
-        // closes (i.e. the hider has the link), not while it was open or
-        // before the seeker even chose a recipient. This also keeps the
-        // countdown off the card during the configure dialog: createdAt is
-        // undefined until a share completes.
+        // Auto-share the question with the hider. v375: this fallback
+        // path is for the case where no multiplayer session is active —
+        // there's no in-app channel to push the question through, so we
+        // copy the link to the clipboard for the seeker to send manually
+        // (text/DM/whatever). Crucially we do NOT call `shareOrCopy` /
+        // `navigator.share` here: when this fires automatically on Send,
+        // opening the OS share sheet feels like a bug (the user just
+        // pressed an in-app button and got a system modal). The card's
+        // explicit "Share via" button still uses `shareOrCopy` — that's a
+        // user-initiated share intent and the OS sheet is the right UX
+        // there. createdAt is stamped on a successful copy so the hider's
+        // answer-window countdown starts then, matching the old behaviour
+        // when `shareOrCopy` returned method: "copy".
         const url = encodeQuestionForHider(q);
-        const result = await shareOrCopy({
-            title: `${meta?.label ?? "Question"} for the hider`,
-            text: `${meta?.label ?? "Question"}: tap to answer`,
-            url,
-        });
-        if (result.method === "share" || result.method === "copy") {
+        let copied = false;
+        try {
+            if (typeof navigator?.clipboard?.writeText === "function") {
+                await navigator.clipboard.writeText(url);
+                copied = true;
+            }
+        } catch {
+            /* fall through to the failed-copy toast */
+        }
+        if (copied) {
             (q.data as { createdAt?: number }).createdAt = Date.now();
             questionModified();
-        }
-        if (result.method === "copy") {
             toast.info(
-                "Question added. Link copied — sharing isn't supported in this browser.",
-                { autoClose: 2500 },
+                "Question added. Join an online game from the lobby to send through the app — for now, the link is on your clipboard.",
+                { autoClose: 3500 },
+            );
+        } else {
+            toast.error(
+                "Couldn't copy the question link. Open the question card and use Share to send it manually.",
+                { autoClose: 4000 },
             );
         }
-        // "cancelled" / "failed" → countdown stays off until the seeker
-        // shares manually from the questions panel. That re-share path also
-        // stamps `createdAt` on success.
+        // createdAt stays unset on a failed copy — the countdown won't
+        // start until the seeker manually shares from the questions
+        // panel, which also stamps createdAt on success.
     };
 
     // None of these helpers stamp `createdAt` upfront — the answer-window
