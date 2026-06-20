@@ -249,15 +249,42 @@ export const preloadBucketInFlight = atom<{
     transit: boolean;
 }>({ map: false, references: false, transit: false });
 
-/** Volatile: actual byte sizes measured from downloaded bucket data.
- *  Populated after each bucket completes in the current session; null
- *  if the bucket was downloaded in a previous session (timestamp shows
- *  "Downloaded" but the count isn't known). */
-export const preloadBucketBytes = atom<{
+/** Persisted byte sizes for each preload bucket. v368: was volatile, so
+ *  after a reload the badge fell back to "Downloaded (cached)" — accurate
+ *  but less informative. Now persisted alongside `preloadBucketTimestamps`
+ *  so a reload of the same play area keeps the "Downloaded — 12.3 MB"
+ *  detail. Wiped by the v367 play-area-change watcher in `preload.ts` in
+ *  lockstep with the timestamps, so the badges stay honest across
+ *  switches.
+ *
+ *  Tiny localStorage footprint (three numbers), so persisting them has
+ *  effectively zero cost. */
+type PreloadBucketBytes = {
     map: number | null;
     references: number | null;
     transit: number | null;
-}>({ map: null, references: null, transit: null });
+};
+export const preloadBucketBytes = persistentAtom<PreloadBucketBytes>(
+    "preloadBucketBytes",
+    { map: null, references: null, transit: null },
+    {
+        encode: JSON.stringify,
+        decode: (s) => {
+            try {
+                const p = JSON.parse(s);
+                return {
+                    map: typeof p?.map === "number" ? p.map : null,
+                    references:
+                        typeof p?.references === "number" ? p.references : null,
+                    transit:
+                        typeof p?.transit === "number" ? p.transit : null,
+                };
+            } catch {
+                return { map: null, references: null, transit: null };
+            }
+        },
+    },
+);
 
 /**
  * Live progress for the map bucket. The map preload walks z11→z15 and
