@@ -282,17 +282,26 @@ export const determineMeasuringBoundary = async (
                     `Error finding ${prettifyLocation(
                         location,
                         true,
-                    ).toLowerCase()}. Please enable hiding zone mode and switch to the Large Game variation of this question.`,
+                    ).toLowerCase()} — Overpass returned a runtime error. The question will still send, but auto-elimination is off; the hider can still answer manually.`,
                 );
                 return [turf.multiPolygon([])];
             }
 
+            // v373: measuring elimination genuinely needs every candidate
+            // — the eliminated region is the union of distance-buffered
+            // disks around each one, so dropping any distorts the shape.
+            // Above ~1000 the union is slow enough to risk freezing the
+            // tab, so we skip auto-elimination, BUT the question is still
+            // sendable and the hider answers manually — same outcome as
+            // pre-v340 manual-answer questions, just with no auto-mask.
+            // Demoted from error → warn (it's not broken, just degraded)
+            // and rewritten to actually explain what's happening.
             if (data.elements.length >= 1000) {
-                toast.error(
-                    `Too many ${prettifyLocation(
+                toast.warn(
+                    `${data.elements.length} ${prettifyLocation(
                         location,
                         true,
-                    ).toLowerCase()} found (${data.elements.length}). Please enable hiding zone mode and switch to the Large Game variation of this question.`,
+                    ).toLowerCase()} in this area — too many to auto-eliminate. The question will send normally; the hider answers manually.`,
                 );
                 return [turf.multiPolygon([])];
             }

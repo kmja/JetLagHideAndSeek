@@ -35,6 +35,19 @@ import type {
     MatchingQuestion,
 } from "@/maps/schema";
 
+/**
+ * v373: how many K-nearest candidates to keep when computing the
+ * matching Voronoi cell. The seeker's cell only depends on its Voronoi
+ * neighbors (~6-8 on average for random-ish point distributions, more
+ * for very dense regions). 30 is a safe upper bound that virtually
+ * guarantees correctness while keeping the Voronoi computation
+ * microseconds even in cities with 1000+ candidates. Truncating is
+ * mathematically conservative: missing far-away candidates can only let
+ * the cell extend further, never cut it shorter — over-inclusive
+ * elimination, never a false positive.
+ */
+const MATCHING_KNN = 30;
+
 export const findMatchingPlaces = async (question: MatchingQuestion) => {
     switch (question.type) {
         case "airport": {
@@ -93,27 +106,39 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
                     `Error finding ${prettifyLocation(
                         location,
                         true,
-                    ).toLowerCase()}. Please enable hiding zone mode and switch to the Large Game variation of this question.`,
+                    ).toLowerCase()} — Overpass returned a runtime error. Try again, or use a "Same admin division" matching question instead.`,
                 );
                 return [];
             }
 
-            if (data.elements.length >= 1000) {
-                toast.error(
-                    `Too many ${prettifyLocation(
-                        location,
-                        true,
-                    ).toLowerCase()} found (${data.elements.length}). Please enable hiding zone mode and switch to the Large Game variation of this question.`,
-                );
-                return [];
-            }
-
-            return data.elements.map((x: any) =>
+            // v373: K-nearest clip to the seeker. Matching elimination
+            // is the Voronoi cell containing the seeker — its boundary
+            // is made of perpendicular bisectors with the seeker's
+            // Voronoi neighbors (~6-8 in practice). The K-nearest subset
+            // produces the same cell shape near the seeker, with the
+            // far edges possibly EXTENDED (never cut shorter) when
+            // distant candidates are dropped — so elimination is safely
+            // over-inclusive. Replaces the old >=1000 toast that
+            // abandoned elimination entirely on dense areas like Ottawa
+            // (1103 parks).
+            const seeker = turf.point([question.lng, question.lat]);
+            const allPoints: Feature<Point>[] = data.elements.map((x: any) =>
                 turf.point([
                     x.center ? x.center.lon : x.lon,
                     x.center ? x.center.lat : x.lat,
                 ]),
             );
+            if (allPoints.length <= MATCHING_KNN) return allPoints;
+            return allPoints
+                .map((p: Feature<Point>) => ({
+                    p,
+                    d: turf.distance(seeker, p, { units: "kilometers" }),
+                }))
+                .sort(
+                    (a: { d: number }, b: { d: number }) => a.d - b.d,
+                )
+                .slice(0, MATCHING_KNN)
+                .map(({ p }: { p: Feature<Point> }) => p);
         }
     }
     // v339: rulebook-completion matching types (same-street-or-path,
