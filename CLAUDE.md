@@ -164,14 +164,14 @@ There is **no "More" slot** anymore, and the hiding-period countdown is **not** 
 
 ## AddQuestionDialog flow
 
-All three steps are **vaul Drawers** (bottom sheets, `shouldScaleBackground={false}`) — converted from centered Dialogs in v404 so "New question" matches the rest of the app's drawer UX. The shared `ui/drawer` components are used (`Drawer`/`DrawerContent`/`DrawerTitle`/…). The configure step's scroll body has `data-vaul-no-drag` so an embedded map (InlineLocationPicker) / popovers don't drag the drawer to dismiss.
+Steps 1–2 (the pickers) are **vaul Drawers** (bottom sheets, `shouldScaleBackground={false}`, from `ui/drawer`); step 3 (configure) is a centered **Dialog** (v405 — reverted from a drawer because the configure step often embeds a map/popovers that fight a drawer's drag-to-dismiss). Dialogs themselves were restyled `rounded-2xl` (all breakpoints) in v405 to match the drawers/toasts' soft corners.
 
-1. Pick category (CategoryTile grid) — drawer 1
-   - **Radar (radius)** → opens configure drawer (preset buttons + Other popover)
+1. Pick category (CategoryTile grid) — **drawer 1**
+   - **Radar (radius)** → opens configure **dialog** (preset buttons + Other popover)
    - **Thermometer** → opens `ThermometerConfigureDialog` (target-distance picker + Start confirm; v339)
    - **Matching/Measuring/Tentacles** → opens subtype picker (drawer 2)
-2. Subtype picker (drawer 2) — header + scrollable flex-col body, dark sidebar background, "back to categories" button
-3. Configure drawer (pending question from `promoteLastQuestion`) — header / scroll body / footer (Cancel + Send)
+2. Subtype picker (**drawer 2**) — header + scrollable flex-col body, dark sidebar background, "back to categories" button
+3. Configure **dialog** (pending question from `promoteLastQuestion`) — header / scroll body / footer (Cancel + Send), centered Dialog
 
 Thermometer is blocked if any other thermometer is already `status:"started"`.
 

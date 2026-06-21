@@ -64,7 +64,10 @@ const DialogContent = React.forwardRef<
                 "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
                 "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
                 "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]",
-                "sm:rounded-lg",
+                // Rounded on ALL breakpoints (was sm:rounded-lg → sharp on
+                // mobile) to match the app's drawers (rounded-t-[10px]) and
+                // toasts. rounded-2xl reads as the same soft, friendly card.
+                "rounded-2xl",
                 "max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem)]",
                 "sm:max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-4rem)]",
                 "overflow-hidden",

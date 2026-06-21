@@ -5,10 +5,15 @@ import React from "react";
 import { toast } from "react-toastify";
 
 import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
     Drawer,
     DrawerContent,
     DrawerDescription,
-    DrawerFooter,
     DrawerTitle,
     DrawerTrigger,
 } from "@/components/ui/drawer";
@@ -1013,30 +1018,23 @@ export const AddQuestionDialog = ({
             </Drawer>
 
             <ConfigureDialogContext.Provider value={configureCtxValue}>
-                <Drawer
+                <Dialog
                     open={pendingKey !== null}
                     onOpenChange={(o) => {
                         if (!o) handleCancel();
                     }}
-                    shouldScaleBackground={false}
                 >
-                    <DrawerContent
+                    <DialogContent
                         className={cn(
                             "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                            "flex flex-col p-0 gap-0 max-h-[90vh]",
+                            "flex flex-col p-0 gap-0",
                         )}
                     >
                         <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
-                            <DrawerTitle>Configure question</DrawerTitle>
+                            <DialogTitle>Configure question</DialogTitle>
                         </div>
 
-                        {/* data-vaul-no-drag: this body can contain a map
-                        (InlineLocationPicker) + popovers; without it, dragging
-                        the map would drag the drawer down to dismiss. */}
-                        <div
-                            data-vaul-no-drag
-                            className="flex-1 overflow-y-auto px-6 py-3 min-h-0"
-                        >
+                        <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0">
                             {pendingQuestion &&
                                 (() => {
                                     const q = pendingQuestion;
@@ -1101,7 +1099,7 @@ export const AddQuestionDialog = ({
                                 })()}
                         </div>
 
-                        <DrawerFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
+                        <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
                             <Button variant="outline" onClick={handleCancel}>
                                 Cancel
                             </Button>
@@ -1114,9 +1112,9 @@ export const AddQuestionDialog = ({
                             >
                                 Send question
                             </Button>
-                        </DrawerFooter>
-                    </DrawerContent>
-                </Drawer>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </ConfigureDialogContext.Provider>
             <ThermometerConfigureDialog
                 open={thermConfigureOpen}
