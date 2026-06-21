@@ -164,12 +164,14 @@ There is **no "More" slot** anymore, and the hiding-period countdown is **not** 
 
 ## AddQuestionDialog flow
 
-1. Pick category (CategoryTile grid)
-   - **Radar (radius)** → opens configure dialog (preset buttons + Other popover)
+All three steps are **vaul Drawers** (bottom sheets, `shouldScaleBackground={false}`) — converted from centered Dialogs in v404 so "New question" matches the rest of the app's drawer UX. The shared `ui/drawer` components are used (`Drawer`/`DrawerContent`/`DrawerTitle`/…). The configure step's scroll body has `data-vaul-no-drag` so an embedded map (InlineLocationPicker) / popovers don't drag the drawer to dismiss.
+
+1. Pick category (CategoryTile grid) — drawer 1
+   - **Radar (radius)** → opens configure drawer (preset buttons + Other popover)
    - **Thermometer** → opens `ThermometerConfigureDialog` (target-distance picker + Start confirm; v339)
-   - **Matching/Measuring/Tentacles** → opens subtype picker (step 2)
-2. Subtype picker (step 2) — scrollable flex-col dialog, dark sidebar background
-3. Configure dialog (pending question from `promoteLastQuestion`)
+   - **Matching/Measuring/Tentacles** → opens subtype picker (drawer 2)
+2. Subtype picker (drawer 2) — header + scrollable flex-col body, dark sidebar background, "back to categories" button
+3. Configure drawer (pending question from `promoteLastQuestion`) — header / scroll body / footer (Cancel + Send)
 
 Thermometer is blocked if any other thermometer is already `status:"started"`.
 

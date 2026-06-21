@@ -5,16 +5,17 @@ import React from "react";
 import { toast } from "react-toastify";
 
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog";
+    Drawer,
+    DrawerContent,
+    DrawerDescription,
+    DrawerFooter,
+    DrawerTitle,
+    DrawerTrigger,
+} from "@/components/ui/drawer";
 import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
+    addQuestion,
     defaultCustomQuestions,
     defaultUnit,
     lastKnownPosition,
@@ -22,7 +23,6 @@ import {
     mapGeoLocation,
     questionModified,
     questions,
-    addQuestion,
 } from "@/lib/context";
 import { type GameSize, gameSize, playArea } from "@/lib/gameSetup";
 import { fitMapToRadius } from "@/lib/mapFit";
@@ -40,6 +40,7 @@ import {
     prefetchCategory,
 } from "@/maps/api/playAreaPrefetch";
 
+import { ConfigureDialogContext } from "./configureDialogContext";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -48,7 +49,6 @@ import {
     TentacleQuestionComponent,
     ThermometerQuestionComponent,
 } from "./QuestionCards";
-import { ConfigureDialogContext } from "./configureDialogContext";
 import { ThermometerConfigureDialog } from "./ThermometerConfigureDialog";
 import { Button } from "./ui/button";
 
@@ -91,10 +91,7 @@ function preloadSubtypeData(
  * button stays disabled. All other question types are always ready.
  */
 function isPendingQuestionReady(
-    q:
-        | { id: string; data: Record<string, unknown> }
-        | null
-        | undefined,
+    q: { id: string; data: Record<string, unknown> } | null | undefined,
 ): boolean {
     if (!q) return false;
     if (q.id === "matching" || q.id === "measuring") {
@@ -332,9 +329,7 @@ export const AddQuestionDialog = ({
 
     const lastQuestionType = React.useMemo(
         () =>
-            $questions.length > 0
-                ? $questions[$questions.length - 1].id
-                : null,
+            $questions.length > 0 ? $questions[$questions.length - 1].id : null,
         [$questions],
     );
 
@@ -589,7 +584,10 @@ export const AddQuestionDialog = ({
                     lng: seed?.lng ?? 0,
                     type: "zone",
                     cat: {
-                        adminLevel: adminTierToOsmLevel(iso, ADMIN_TIER[subtype]),
+                        adminLevel: adminTierToOsmLevel(
+                            iso,
+                            ADMIN_TIER[subtype],
+                        ),
                     },
                 } as never,
             });
@@ -652,193 +650,211 @@ export const AddQuestionDialog = ({
 
     return (
         <>
-            <Dialog open={open} onOpenChange={setOpen}>
-                <DialogTrigger asChild>{children}</DialogTrigger>
-                <DialogContent>
-                <DialogTitle>Add Question</DialogTitle>
-                <DialogDescription>Pick a category.</DialogDescription>
+            <Drawer
+                open={open}
+                onOpenChange={setOpen}
+                shouldScaleBackground={false}
+            >
+                <DrawerTrigger asChild>{children}</DrawerTrigger>
+                <DrawerContent>
+                    <div className="overflow-y-auto px-6 pt-2 pb-6 max-h-[82vh]">
+                        <DrawerTitle>Add Question</DrawerTitle>
+                        <DrawerDescription>Pick a category.</DrawerDescription>
 
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {(() => {
-                        // Rulebook (p38): "Tentacle questions cannot be used
-                        // in SMALL games." This is the only category-level
-                        // size restriction in the book.
-                        const tentacleBlockedSize = $gameSize === "small";
-                        // Rulebook implicitly: only one thermometer can be in
-                        // progress at a time, since a thermometer is one
-                        // start point + one end point per question. If a
-                        // started thermometer exists, block adding another.
-                        const thermInProgress = $questions.some(
-                            (q) =>
-                                q.id === "thermometer" &&
-                                (q.data as { status?: string }).status ===
-                                    "started",
-                        );
-                        // Rule 2 phrasing — same wording for every
-                        // category, swap in the category label.
-                        const alternationReason = (label: string) =>
-                            `You just asked a ${label} question — alternate types before asking another.`;
-                        const matchingBlockedByLast =
-                            lastQuestionType === "matching";
-                        const measuringBlockedByLast =
-                            lastQuestionType === "measuring";
-                        const radiusBlockedByLast =
-                            lastQuestionType === "radius";
-                        const thermometerBlockedByLast =
-                            lastQuestionType === "thermometer";
-                        const photoBlockedByLast =
-                            lastQuestionType === "photo";
-                        const tentaclesBlockedByLast =
-                            lastQuestionType === "tentacles";
-                        return (
-                            <>
-                                <CategoryTile
-                                    category="matching"
-                                    description="Is your nearest ___ the same as mine?"
-                                    onClick={() => {
-                                        preloadSubtypeData(
-                                            "matching",
-                                            $gameSize,
-                                        );
-                                        setSubtypePickerFor("matching");
-                                    }}
-                                    disabled={matchingBlockedByLast}
-                                    blockedReason={
-                                        matchingBlockedByLast
-                                            ? alternationReason("matching")
-                                            : undefined
-                                    }
-                                />
-                                <CategoryTile
-                                    category="measuring"
-                                    description="Are you closer or further to ___ than me?"
-                                    onClick={() => {
-                                        preloadSubtypeData(
-                                            "measuring",
-                                            $gameSize,
-                                        );
-                                        setSubtypePickerFor("measuring");
-                                    }}
-                                    disabled={measuringBlockedByLast}
-                                    blockedReason={
-                                        measuringBlockedByLast
-                                            ? alternationReason("measuring")
-                                            : undefined
-                                    }
-                                />
-                                <CategoryTile
-                                    category="radius"
-                                    description="Are you within ___ of me?"
-                                    onClick={() => {
-                                        if (runAddRadius())
-                                            promoteLastQuestion();
-                                    }}
-                                    disabled={radiusBlockedByLast}
-                                    blockedReason={
-                                        radiusBlockedByLast
-                                            ? alternationReason("radar")
-                                            : undefined
-                                    }
-                                />
-                                <CategoryTile
-                                    category="thermometer"
-                                    description="After traveling ___, am I hotter or colder?"
-                                    onClick={() => {
-                                        // v339: open the configure
-                                        // dialog instead of starting
-                                        // immediately. The dialog asks
-                                        // for a target distance + grabs
-                                        // a fresh GPS fix before
-                                        // committing the question.
-                                        setOpen(false);
-                                        setThermConfigureOpen(true);
-                                    }}
-                                    disabled={
-                                        thermInProgress ||
-                                        thermometerBlockedByLast
-                                    }
-                                    blockedReason={
-                                        thermInProgress
-                                            ? "A thermometer is already in progress — finish it before starting another"
-                                            : thermometerBlockedByLast
-                                              ? alternationReason(
-                                                    "thermometer",
-                                                )
-                                              : undefined
-                                    }
-                                />
-                                <CategoryTile
-                                    category="photo"
-                                    description="Send me a photo of ___."
-                                    onClick={() => {
-                                        setSubtypePickerFor("photo");
-                                    }}
-                                    disabled={photoBlockedByLast}
-                                    blockedReason={
-                                        photoBlockedByLast
-                                            ? alternationReason("photo")
-                                            : undefined
-                                    }
-                                />
-                                <CategoryTile
-                                    category="tentacles"
-                                    description="Within ___ km of me, which ___ are you nearest to?"
-                                    onClick={() => {
-                                        preloadSubtypeData(
-                                            "tentacles",
-                                            $gameSize,
-                                        );
-                                        setSubtypePickerFor("tentacles");
-                                    }}
-                                    disabled={
-                                        tentacleBlockedSize ||
-                                        tentaclesBlockedByLast
-                                    }
-                                    blockedReason={
-                                        tentacleBlockedSize
-                                            ? "Tentacle questions aren't used in Small games (rulebook p38)."
-                                            : tentaclesBlockedByLast
-                                              ? alternationReason("tentacles")
-                                              : undefined
-                                    }
-                                />
-                            </>
-                        );
-                    })()}
-                </div>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            {(() => {
+                                // Rulebook (p38): "Tentacle questions cannot be used
+                                // in SMALL games." This is the only category-level
+                                // size restriction in the book.
+                                const tentacleBlockedSize =
+                                    $gameSize === "small";
+                                // Rulebook implicitly: only one thermometer can be in
+                                // progress at a time, since a thermometer is one
+                                // start point + one end point per question. If a
+                                // started thermometer exists, block adding another.
+                                const thermInProgress = $questions.some(
+                                    (q) =>
+                                        q.id === "thermometer" &&
+                                        (q.data as { status?: string })
+                                            .status === "started",
+                                );
+                                // Rule 2 phrasing — same wording for every
+                                // category, swap in the category label.
+                                const alternationReason = (label: string) =>
+                                    `You just asked a ${label} question — alternate types before asking another.`;
+                                const matchingBlockedByLast =
+                                    lastQuestionType === "matching";
+                                const measuringBlockedByLast =
+                                    lastQuestionType === "measuring";
+                                const radiusBlockedByLast =
+                                    lastQuestionType === "radius";
+                                const thermometerBlockedByLast =
+                                    lastQuestionType === "thermometer";
+                                const photoBlockedByLast =
+                                    lastQuestionType === "photo";
+                                const tentaclesBlockedByLast =
+                                    lastQuestionType === "tentacles";
+                                return (
+                                    <>
+                                        <CategoryTile
+                                            category="matching"
+                                            description="Is your nearest ___ the same as mine?"
+                                            onClick={() => {
+                                                preloadSubtypeData(
+                                                    "matching",
+                                                    $gameSize,
+                                                );
+                                                setSubtypePickerFor("matching");
+                                            }}
+                                            disabled={matchingBlockedByLast}
+                                            blockedReason={
+                                                matchingBlockedByLast
+                                                    ? alternationReason(
+                                                          "matching",
+                                                      )
+                                                    : undefined
+                                            }
+                                        />
+                                        <CategoryTile
+                                            category="measuring"
+                                            description="Are you closer or further to ___ than me?"
+                                            onClick={() => {
+                                                preloadSubtypeData(
+                                                    "measuring",
+                                                    $gameSize,
+                                                );
+                                                setSubtypePickerFor(
+                                                    "measuring",
+                                                );
+                                            }}
+                                            disabled={measuringBlockedByLast}
+                                            blockedReason={
+                                                measuringBlockedByLast
+                                                    ? alternationReason(
+                                                          "measuring",
+                                                      )
+                                                    : undefined
+                                            }
+                                        />
+                                        <CategoryTile
+                                            category="radius"
+                                            description="Are you within ___ of me?"
+                                            onClick={() => {
+                                                if (runAddRadius())
+                                                    promoteLastQuestion();
+                                            }}
+                                            disabled={radiusBlockedByLast}
+                                            blockedReason={
+                                                radiusBlockedByLast
+                                                    ? alternationReason("radar")
+                                                    : undefined
+                                            }
+                                        />
+                                        <CategoryTile
+                                            category="thermometer"
+                                            description="After traveling ___, am I hotter or colder?"
+                                            onClick={() => {
+                                                // v339: open the configure
+                                                // dialog instead of starting
+                                                // immediately. The dialog asks
+                                                // for a target distance + grabs
+                                                // a fresh GPS fix before
+                                                // committing the question.
+                                                setOpen(false);
+                                                setThermConfigureOpen(true);
+                                            }}
+                                            disabled={
+                                                thermInProgress ||
+                                                thermometerBlockedByLast
+                                            }
+                                            blockedReason={
+                                                thermInProgress
+                                                    ? "A thermometer is already in progress — finish it before starting another"
+                                                    : thermometerBlockedByLast
+                                                      ? alternationReason(
+                                                            "thermometer",
+                                                        )
+                                                      : undefined
+                                            }
+                                        />
+                                        <CategoryTile
+                                            category="photo"
+                                            description="Send me a photo of ___."
+                                            onClick={() => {
+                                                setSubtypePickerFor("photo");
+                                            }}
+                                            disabled={photoBlockedByLast}
+                                            blockedReason={
+                                                photoBlockedByLast
+                                                    ? alternationReason("photo")
+                                                    : undefined
+                                            }
+                                        />
+                                        <CategoryTile
+                                            category="tentacles"
+                                            description="Within ___ km of me, which ___ are you nearest to?"
+                                            onClick={() => {
+                                                preloadSubtypeData(
+                                                    "tentacles",
+                                                    $gameSize,
+                                                );
+                                                setSubtypePickerFor(
+                                                    "tentacles",
+                                                );
+                                            }}
+                                            disabled={
+                                                tentacleBlockedSize ||
+                                                tentaclesBlockedByLast
+                                            }
+                                            blockedReason={
+                                                tentacleBlockedSize
+                                                    ? "Tentacle questions aren't used in Small games (rulebook p38)."
+                                                    : tentaclesBlockedByLast
+                                                      ? alternationReason(
+                                                            "tentacles",
+                                                        )
+                                                      : undefined
+                                            }
+                                        />
+                                    </>
+                                );
+                            })()}
+                        </div>
 
-                {/* House rules reminders — rulebook p13. Google Street View
+                        {/* House rules reminders — rulebook p13. Google Street View
                     is banned (too powerful for photo matches and station
                     verification); questions must be asked one at a time. */}
-                <div className="mt-3 pt-3 border-t border-border text-[11px] leading-snug text-muted-foreground space-y-0.5">
-                    <div>
-                        <span className="font-semibold text-foreground">
-                            No Google Street View
-                        </span>{" "}
-                        — the only banned research tool.
+                        <div className="mt-3 pt-3 border-t border-border text-[11px] leading-snug text-muted-foreground space-y-0.5">
+                            <div>
+                                <span className="font-semibold text-foreground">
+                                    No Google Street View
+                                </span>{" "}
+                                — the only banned research tool.
+                            </div>
+                            <div>
+                                One question at a time — wait for the hider's
+                                answer before asking the next.
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                        One question at a time — wait for the hider's
-                        answer before asking the next.
-                    </div>
-                </div>
-            </DialogContent>
-            </Dialog>
+                </DrawerContent>
+            </Drawer>
 
             {/* Step 2: subtype picker for matching/measuring/tentacles. The
                 user lands here after tapping a category that has multiple
                 subtypes. Picking a tile adds the question with that subtype
                 preselected, then opens the configure dialog. */}
-            <Dialog
+            <Drawer
                 open={subtypePickerFor !== null}
                 onOpenChange={(o) => {
                     if (!o) setSubtypePickerFor(null);
                 }}
+                shouldScaleBackground={false}
             >
-                <DialogContent
+                <DrawerContent
                     className={cn(
                         "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                        "flex flex-col p-0 gap-0",
+                        "flex flex-col p-0 gap-0 max-h-[88vh]",
                     )}
                 >
                     {subtypePickerFor &&
@@ -865,7 +881,7 @@ export const AddQuestionDialog = ({
                             return (
                                 <>
                                     <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
-                                        <DialogTitle className="flex items-center gap-2">
+                                        <DrawerTitle className="flex items-center gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -889,8 +905,7 @@ export const AddQuestionDialog = ({
                                             <span
                                                 className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
                                                 style={{
-                                                    backgroundColor:
-                                                        meta.color,
+                                                    backgroundColor: meta.color,
                                                 }}
                                             >
                                                 <meta.icon
@@ -900,11 +915,11 @@ export const AddQuestionDialog = ({
                                                 />
                                             </span>
                                             {meta.label}
-                                        </DialogTitle>
-                                        <DialogDescription>
+                                        </DrawerTitle>
+                                        <DrawerDescription>
                                             {template ??
                                                 `Pick a ${meta.label.toLowerCase()} type.`}
-                                        </DialogDescription>
+                                        </DrawerDescription>
                                     </div>
                                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
                                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -919,72 +934,74 @@ export const AddQuestionDialog = ({
                                                     ]?.has(subtype.value) ??
                                                     false;
                                                 return (
-                                                <SubtypeTile
-                                                    key={subtype.value}
-                                                    category={
-                                                        subtypePickerFor
-                                                    }
-                                                    subtype={localizeAdminSubtype(
-                                                        subtype,
-                                                        $mapGeo?.properties
-                                                            ?.countrycode,
-                                                    )}
-                                                    disabled={subtypeUsed}
-                                                    blockedReason={
-                                                        subtypeUsed
-                                                            ? "Already asked — each question can only be asked once per game."
-                                                            : undefined
-                                                    }
-                                                    onClick={() => {
-                                                        const cat =
-                                                            subtypePickerFor;
-                                                        let ok = false;
-                                                        if (
-                                                            cat === "matching"
-                                                        )
-                                                            ok =
-                                                                runAddMatching(
-                                                                    subtype.value,
-                                                                );
-                                                        else if (
-                                                            cat ===
-                                                            "measuring"
-                                                        )
-                                                            ok =
-                                                                runAddMeasuring(
-                                                                    subtype.value,
-                                                                );
-                                                        else if (
-                                                            cat ===
-                                                            "tentacles"
-                                                        )
-                                                            ok =
-                                                                runAddTentacles(
-                                                                    subtype.value,
-                                                                );
-                                                        else if (
-                                                            cat === "photo"
-                                                        )
-                                                            ok = runAddPhoto(
-                                                                subtype.value,
-                                                            );
-                                                        if (ok) {
-                                                            setSubtypePickerFor(
-                                                                null,
-                                                            );
-                                                            promoteLastQuestion();
-                                                        } else {
-                                                            // Surfaces a previously-silent
-                                                            // failure path: if neither map
-                                                            // nor play area resolve a
-                                                            // center, tell the seeker
-                                                            // instead of doing nothing.
-                                                            toast.error(
-                                                                "Couldn't add the question — map not ready. Try again in a moment.",
-                                                            );
+                                                    <SubtypeTile
+                                                        key={subtype.value}
+                                                        category={
+                                                            subtypePickerFor
                                                         }
-                                                    }}
-                                                />
+                                                        subtype={localizeAdminSubtype(
+                                                            subtype,
+                                                            $mapGeo?.properties
+                                                                ?.countrycode,
+                                                        )}
+                                                        disabled={subtypeUsed}
+                                                        blockedReason={
+                                                            subtypeUsed
+                                                                ? "Already asked — each question can only be asked once per game."
+                                                                : undefined
+                                                        }
+                                                        onClick={() => {
+                                                            const cat =
+                                                                subtypePickerFor;
+                                                            let ok = false;
+                                                            if (
+                                                                cat ===
+                                                                "matching"
+                                                            )
+                                                                ok =
+                                                                    runAddMatching(
+                                                                        subtype.value,
+                                                                    );
+                                                            else if (
+                                                                cat ===
+                                                                "measuring"
+                                                            )
+                                                                ok =
+                                                                    runAddMeasuring(
+                                                                        subtype.value,
+                                                                    );
+                                                            else if (
+                                                                cat ===
+                                                                "tentacles"
+                                                            )
+                                                                ok =
+                                                                    runAddTentacles(
+                                                                        subtype.value,
+                                                                    );
+                                                            else if (
+                                                                cat === "photo"
+                                                            )
+                                                                ok =
+                                                                    runAddPhoto(
+                                                                        subtype.value,
+                                                                    );
+                                                            if (ok) {
+                                                                setSubtypePickerFor(
+                                                                    null,
+                                                                );
+                                                                promoteLastQuestion();
+                                                            } else {
+                                                                // Surfaces a previously-silent
+                                                                // failure path: if neither map
+                                                                // nor play area resolve a
+                                                                // center, tell the seeker
+                                                                // instead of doing nothing.
+                                                                toast.error(
+                                                                    "Couldn't add the question — map not ready. Try again in a moment.",
+                                                                );
+                                                            }
+                                                        }}
+                                                    />
                                                 );
                                             })}
                                         </div>
@@ -992,107 +1009,114 @@ export const AddQuestionDialog = ({
                                 </>
                             );
                         })()}
-                </DialogContent>
-            </Dialog>
+                </DrawerContent>
+            </Drawer>
 
             <ConfigureDialogContext.Provider value={configureCtxValue}>
-            <Dialog
-                open={pendingKey !== null}
-                onOpenChange={(o) => {
-                    if (!o) handleCancel();
-                }}
-            >
-                <DialogContent
-                    className={cn(
-                        "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                        "flex flex-col p-0 gap-0",
-                    )}
+                <Drawer
+                    open={pendingKey !== null}
+                    onOpenChange={(o) => {
+                        if (!o) handleCancel();
+                    }}
+                    shouldScaleBackground={false}
                 >
-                    <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
-                        <DialogTitle>Configure question</DialogTitle>
-                    </div>
+                    <DrawerContent
+                        className={cn(
+                            "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
+                            "flex flex-col p-0 gap-0 max-h-[90vh]",
+                        )}
+                    >
+                        <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
+                            <DrawerTitle>Configure question</DrawerTitle>
+                        </div>
 
-                    <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0">
-                        {pendingQuestion &&
-                            (() => {
-                                const q = pendingQuestion;
-                                switch (q.id) {
-                                    case "radius":
-                                        return (
-                                            <RadiusQuestionComponent
-                                                data={q.data}
-                                                questionKey={q.key}
-                                                forceExpanded
-                                                compactAnswer
-                                            />
-                                        );
-                                    case "thermometer":
-                                        return (
-                                            <ThermometerQuestionComponent
-                                                data={q.data}
-                                                questionKey={q.key}
-                                                forceExpanded
-                                                compactAnswer
-                                            />
-                                        );
-                                    case "tentacles":
-                                        return (
-                                            <TentacleQuestionComponent
-                                                data={q.data}
-                                                questionKey={q.key}
-                                                forceExpanded
-                                                compactAnswer
-                                            />
-                                        );
-                                    case "matching":
-                                        return (
-                                            <MatchingQuestionComponent
-                                                data={q.data}
-                                                questionKey={q.key}
-                                                forceExpanded
-                                                compactAnswer
-                                            />
-                                        );
-                                    case "measuring":
-                                        return (
-                                            <MeasuringQuestionComponent
-                                                data={q.data}
-                                                questionKey={q.key}
-                                                forceExpanded
-                                                compactAnswer
-                                            />
-                                        );
-                                    case "photo":
-                                        return (
-                                            <PhotoQuestionComponent
-                                                data={q.data}
-                                                questionKey={q.key}
-                                                forceExpanded
-                                                compactAnswer
-                                            />
-                                        );
-                                    default:
-                                        return null;
-                                }
-                            })()}
-                    </div>
-
-                    <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
-                        <Button variant="outline" onClick={handleCancel}>
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleConfirm}
-                            disabled={
-                                !isPendingQuestionReady(pendingQuestion) ||
-                                (pendingUsesPicker && !pickerReady)
-                            }
+                        {/* data-vaul-no-drag: this body can contain a map
+                        (InlineLocationPicker) + popovers; without it, dragging
+                        the map would drag the drawer down to dismiss. */}
+                        <div
+                            data-vaul-no-drag
+                            className="flex-1 overflow-y-auto px-6 py-3 min-h-0"
                         >
-                            Send question
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                            {pendingQuestion &&
+                                (() => {
+                                    const q = pendingQuestion;
+                                    switch (q.id) {
+                                        case "radius":
+                                            return (
+                                                <RadiusQuestionComponent
+                                                    data={q.data}
+                                                    questionKey={q.key}
+                                                    forceExpanded
+                                                    compactAnswer
+                                                />
+                                            );
+                                        case "thermometer":
+                                            return (
+                                                <ThermometerQuestionComponent
+                                                    data={q.data}
+                                                    questionKey={q.key}
+                                                    forceExpanded
+                                                    compactAnswer
+                                                />
+                                            );
+                                        case "tentacles":
+                                            return (
+                                                <TentacleQuestionComponent
+                                                    data={q.data}
+                                                    questionKey={q.key}
+                                                    forceExpanded
+                                                    compactAnswer
+                                                />
+                                            );
+                                        case "matching":
+                                            return (
+                                                <MatchingQuestionComponent
+                                                    data={q.data}
+                                                    questionKey={q.key}
+                                                    forceExpanded
+                                                    compactAnswer
+                                                />
+                                            );
+                                        case "measuring":
+                                            return (
+                                                <MeasuringQuestionComponent
+                                                    data={q.data}
+                                                    questionKey={q.key}
+                                                    forceExpanded
+                                                    compactAnswer
+                                                />
+                                            );
+                                        case "photo":
+                                            return (
+                                                <PhotoQuestionComponent
+                                                    data={q.data}
+                                                    questionKey={q.key}
+                                                    forceExpanded
+                                                    compactAnswer
+                                                />
+                                            );
+                                        default:
+                                            return null;
+                                    }
+                                })()}
+                        </div>
+
+                        <DrawerFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
+                            <Button variant="outline" onClick={handleCancel}>
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={handleConfirm}
+                                disabled={
+                                    !isPendingQuestionReady(pendingQuestion) ||
+                                    (pendingUsesPicker && !pickerReady)
+                                }
+                            >
+                                Send question
+                            </Button>
+                        </DrawerFooter>
+                    </DrawerContent>
+                </Drawer>
             </ConfigureDialogContext.Provider>
             <ThermometerConfigureDialog
                 open={thermConfigureOpen}
