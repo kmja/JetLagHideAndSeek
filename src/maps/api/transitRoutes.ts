@@ -5,8 +5,10 @@ import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
     additionalMapGeoLocations,
     mapGeoJSON,
+    mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import { TRANSIT_BY_RELATION_BASE } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
 import { referenceExtent } from "@/maps/api/playAreaPrefetch";
 import { CacheType } from "@/maps/api/types";
@@ -135,7 +137,75 @@ function buildTransitBboxTuple(): string | null {
     return `${s},${w},${n},${e}`;
 }
 
+/** v386: relation-id warm-on-miss dedupe — one ping per (id, mode) per
+ *  session, so the burst case (toggle mode → miss → on-tap warm) doesn't
+ *  fire N concurrent warm requests for the same key. */
+const transitWarmRequested = new Set<string>();
+function requestWarmTransit(relationId: number, mode: string): void {
+    const key = `${relationId}/${mode}`;
+    if (transitWarmRequested.has(key)) return;
+    transitWarmRequested.add(key);
+    void fetch(
+        `${TRANSIT_BY_RELATION_BASE}/${relationId}/${mode}?warm=1`,
+    ).catch(() => {
+        // Network blip — allow a retry on a later pass.
+        transitWarmRequested.delete(key);
+    });
+}
+
 async function fetchTransitRelations(routeType: string): Promise<unknown> {
+    // v386: try the STABLE relation-id-keyed endpoint first when the play
+    // area is a single OSM relation (the common case). The worker derives
+    // the bbox SERVER-SIDE from the boundary it already has in R2 and
+    // builds the same query the laptop stored under, so prewarmed cities
+    // hit without the byte-fragile client/laptop bbox-derivation contract.
+    // Pre-v386 the client built bbox from polyGeoJSON (which is
+    // land-clipped — coastal cities lose vertices and the bbox drifts in
+    // the 3rd decimal), so Toronto-bus and similar coastal cases missed.
+    //
+    // Falls through to the existing bbox-query path on:
+    //   - non-relation play area (custom-drawn polygon, no stable id)
+    //   - relation endpoint miss (cache: "miss" / "no-boundary" / empty)
+    //   - non-empty elements but small dataset (we accept whatever
+    //     came back as the answer — see the empty-check below)
+    //
+    // On a miss the client fires a background warm so the next toggle
+    // lands on a cache hit. Custom-drawn / multi-adjacent play areas
+    // still go down the bbox path; that's intentional: there's no single
+    // relation id to key on, and the cron only prewarms single-relation
+    // cities, so the relation path's value space matches the prewarm's.
+    const primary = mapGeoLocation.get();
+    const props = primary?.properties as
+        | { osm_id?: number; osm_type?: string }
+        | undefined;
+    const extrasAdded = additionalMapGeoLocations
+        .get()
+        .some((e) => e.added);
+    if (
+        !extrasAdded &&
+        props?.osm_type === "R" &&
+        typeof props.osm_id === "number" &&
+        props.osm_id > 0
+    ) {
+        const relId = props.osm_id;
+        try {
+            const resp = await fetch(
+                `${TRANSIT_BY_RELATION_BASE}/${relId}/${routeType}`,
+            );
+            if (resp.ok) {
+                const data = (await resp.json()) as { elements?: unknown[] };
+                const els = data?.elements;
+                if (Array.isArray(els) && els.length > 0) return data;
+                // Empty body = miss / no-boundary marker. Fire a
+                // background warm and fall through to the bbox path so
+                // the user still gets data this session.
+                requestWarmTransit(relId, routeType);
+            }
+        } catch {
+            /* network issue → fall through */
+        }
+    }
+
     const tuple = buildTransitBboxTuple();
     if (!tuple) return { elements: [] };
     // Byte-identical to overpass-cache transitRouteQuery (worker AND

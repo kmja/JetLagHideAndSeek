@@ -855,6 +855,49 @@ async function handleRequest(
             }
             return handleReferencesByRelation(request, env, ctx, cors, relId);
         }
+        if (url.pathname.startsWith("/api/transit/")) {
+            // /api/transit/<relationId>/<mode>[?warm=1] (v386)
+            const parts = url.pathname
+                .slice("/api/transit/".length)
+                .split("/")
+                .filter(Boolean);
+            if (parts.length !== 2) {
+                return new Response("bad path", { status: 400, headers: cors });
+            }
+            const [relStr, mode] = parts;
+            const relId = parseInt(relStr, 10);
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            // Whitelist modes so the path can't be coerced into building
+            // arbitrary Overpass queries.
+            if (!TRANSIT_MODES.has(mode)) {
+                return new Response("bad mode", { status: 400, headers: cors });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationTransit(env, relId, mode).catch((e) =>
+                        console.warn(`warm transit r${relId} ${mode} threw:`, e),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId, mode },
+                    202,
+                    cors,
+                );
+            }
+            return handleTransitByRelation(
+                request,
+                env,
+                ctx,
+                cors,
+                relId,
+                mode,
+            );
+        }
         if (url.pathname.startsWith("/api/elevation/")) {
             return handleElevationTile(request, env, ctx, cors);
         }
@@ -1973,6 +2016,169 @@ async function warmRelationReferences(
 }
 
 /**
+ * GET /api/transit/<relationId>/<mode> — fetch prewarmed per-city transit
+ * routes by STABLE relation-id key instead of the byte-fragile
+ * SHA-256(query) key.
+ *
+ * v386. Mirrors handleReferencesByRelation. The per-city transit entries
+ * live under `overpass/<sha256(transitRouteQuery(extent, mode))>`, where
+ * `extent` is the boundary-geometry bbox the laptop derives from the same
+ * raw OSM boundary response that this worker has in R2. The CLIENT was
+ * building that bbox from polyGeoJSON (which is LAND-CLIPPED — Toronto on
+ * Lake Ontario loses the water vertices), so client bbox bytes ≠ laptop
+ * bbox bytes ≠ R2 key, and a perfectly-prewarmed Toronto-bus entry sat
+ * unused while the client went live to Overpass for a many-second fetch
+ * (with no spinner visible if the parse-then-clip path blocks the main
+ * thread). This endpoint derives the bbox SERVER-SIDE from the boundary,
+ * builds the identical query the laptop stored under, computes the same
+ * SHA, and serves.
+ *
+ * Read-only: any miss (no boundary cached, or no prewarmed transit entry)
+ * returns `{ elements: [] }` so the client falls back to its existing
+ * bbox-query path — which is what it would have done anyway. Warming
+ * stays the laptop's job (see `warmRelationTransit` below for the
+ * `?warm=1` variant).
+ */
+async function handleTransitByRelation(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+    relationId: number,
+    mode: string,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = transitRouteQuery(ext, mode);
+    const cacheKey = await r2KeyForQuery(query);
+
+    // Edge cache first — shared with the /api/interpreter path via the
+    // canonical query URL so a hit warms both routes' read paths.
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("transit-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        // Transit data changes slowly; serve whatever's present regardless
+        // of TTL — mirror the references endpoint's read policy.
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/**
+ * Background warm of one (relation, mode) transit entry, keyed canonically
+ * so a later GET /api/transit/<id>/<mode> hits it. Mirrors
+ * warmRelationReferences (v360): ensures the boundary is cached, derives
+ * the same extent, builds the identical query, fetches once, stores under
+ * the canonical SHA. Skip-if-fresh + slot-gated + semaphore'd, same
+ * politeness contract as the references warmer.
+ */
+async function warmRelationTransit(
+    env: Env,
+    relationId: number,
+    mode: string,
+): Promise<void> {
+    if (!TRANSIT_MODES.has(mode)) return;
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+
+    // 1. Ensure the boundary geometry is cached.
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary r${relationId}`))) {
+            return;
+        }
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-transit",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+
+    // 2. Derive the canonical extent — identical walk to the read path.
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+
+    // 3. Warm the transit entry under the canonical key, skip-if-fresh.
+    const tQuery = transitRouteQuery(ext, mode);
+    const tKey = await r2KeyForQuery(tQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${tKey}`);
+        if (head) {
+            const cachedAt = parseInt(
+                head.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (
+        !(await waitForOverpassSlot(`warm-transit r${relationId} ${mode}`))
+    ) {
+        return;
+    }
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(tQuery),
+    );
+    if (!up) return;
+    await streamStoreNoTee(env, `overpass/${tKey}`, up, {
+        kind: `transit-${mode}`,
+        warmedBy: "on-add-transit",
+        sourceRelationId: String(relationId),
+    });
+}
+
+/**
  * Compute the [south, west, north, east] tuple for a city's bbox
  * with a given pad. Same arithmetic as `buildBboxFilter`, just
  * returning the numeric corners instead of an Overpass filter
@@ -2325,6 +2531,11 @@ out geom;
 const TRANSIT_SHARD_MODES = ["subway", "ferry", "train", "tram"] as const;
 /** Modes warmed per-city (exact-key match — no slicing). */
 const TRANSIT_CITY_MODES = ["bus"] as const;
+/** All transit modes valid on the public /api/transit/<id>/<mode> route. */
+const TRANSIT_MODES: ReadonlySet<string> = new Set([
+    ...TRANSIT_SHARD_MODES,
+    ...TRANSIT_CITY_MODES,
+]);
 const TRANSIT_BBOX_PAD_KM = 5;
 /** Decimation ceiling — must equal MAX_VERTICES in transitRoutes.ts and
  *  laptop-prewarm.mjs so prewarmed + on-demand renders are identical. */

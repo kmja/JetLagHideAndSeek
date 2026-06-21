@@ -100,6 +100,14 @@ export const ELEVATION_TILE_BASE = `${JLHS_WORKER_BASE}/api/elevation`;
  *  never has to reproduce a byte-identical bbox to hit the prewarmed
  *  entry. See handleReferencesByRelation in overpass-cache/src/index.ts. */
 export const REFS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/refs`;
+/** Base URL for relation-id-keyed per-city transit (v386). Mirrors
+ *  REFS_BY_RELATION_BASE: the client fetches
+ *  `${TRANSIT_BY_RELATION_BASE}/<relationId>/<mode>` and the worker
+ *  derives the bbox server-side from the boundary it already has, so
+ *  the client never has to reproduce the byte-identical bbox the
+ *  laptop prewarm stored under. See handleTransitByRelation in
+ *  overpass-cache/src/index.ts. */
+export const TRANSIT_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/transit`;
 /** Base URL for self-hosted map glyphs + sprites (v349), proxied +
  *  R2-cached by the worker from protomaps.github.io/basemaps-assets.
  *  The MapLibre style's `glyphs` and `sprite` URLs point here so the
