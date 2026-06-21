@@ -348,6 +348,24 @@ export async function fetchTransitRoutesFeatures(
     // main thread for the duration of the clip.
     const YIELD_EVERY = 250;
     let iter = 0;
+    // v388: drop turf.lineSplit and clip vertex-by-vertex. Repeated user
+    // reports of train lines extending past the boundary (GTA region rail
+    // running 30+ km past the play area boundary) traced to lineSplit
+    // returning 0 segments or throwing on Toronto's land-clipped polygon
+    // (which has many vertices around Lake Ontario's coast plus inland
+    // edges). The v387 fallback then kept the whole line if its midpoint
+    // was inside — so a GO Transit line with its midpoint in Toronto
+    // stayed whole, water-side excursion and all. Vertex-walk is
+    // bulletproof: no library black-box can fail, the output is
+    // STRICTLY a subset of the input's vertices, and every output
+    // segment's vertices are inside the polygon by construction.
+    //
+    // Trade-off vs precise geometric clip: the line "snaps" to the last
+    // inside vertex at a crossing rather than continuing to the polygon
+    // boundary, so there's a few-meters gap at each crossing point.
+    // Imperceptible at typical zoom levels; precise-intersection would
+    // require Sutherland-Hodgman line-vs-polygon which is overkill for a
+    // visual overlay.
     for (const line of features) {
         if (++iter % YIELD_EVERY === 0) {
             await new Promise((r) => setTimeout(r, 0));
@@ -355,73 +373,55 @@ export async function fetchTransitRoutesFeatures(
         const c = line.geometry.coordinates;
         const n = c.length;
         if (n < 2) continue;
-        // v387: test EVERY vertex against the polygon, not just start /
-        // middle / end. Lines that pass all three samples but exit the
-        // polygon between samples (a 50-km bus route through Toronto that
-        // briefly dips into Lake Ontario / leaves the city limits) were
-        // kept whole under the old 3-sample fast path. decimateCoords()
-        // caps coordinates at MAX_VERTICES=50, and v376's bbox-prefiltered
-        // pointInPlayArea is ~5 ns for clearly-outside points, so an
-        // every-vertex test on 50 verts × thousands of lines is sub-100 ms.
-        let allIn = true;
-        let allOut = true;
-        for (const pt of c) {
-            if (pointInPlayArea(polyForClip, pt[0], pt[1])) {
-                allOut = false;
-            } else {
-                allIn = false;
-            }
-            if (!allIn && !allOut) break;
+        // Precompute the inside mask once (one bbox-prefiltered test per
+        // vertex). At MAX_VERTICES=50 × thousands of lines this is
+        // sub-100ms in practice — v376's WeakMap-cached polygon bbox
+        // rejects clearly-outside points in ~5 ns.
+        const insideMask = new Array<boolean>(n);
+        let anyInside = false;
+        let allInside = true;
+        for (let i = 0; i < n; i++) {
+            const inside = pointInPlayArea(polyForClip, c[i][0], c[i][1]);
+            insideMask[i] = inside;
+            if (inside) anyInside = true;
+            else allInside = false;
         }
-        // All vertices inside → keep whole.
-        if (allIn) {
-            clipped.push(line);
+        if (!anyInside) continue; // entirely outside — drop
+        if (allInside) {
+            clipped.push(line); // entirely inside — keep whole
             continue;
         }
-        // All vertices outside → drop.
-        if (allOut) continue;
-        // Mixed — line crosses the boundary somewhere. Split per polygon
-        // feature and accumulate inside segments; v387 no longer breaks
-        // after the first successful split so a line that touches multiple
-        // adjacent areas keeps the segments inside each one.
-        let anyCrossingHandled = false;
-        for (const polyFeat of polyForClip.features) {
-            let segments;
-            try {
-                segments = turf.lineSplit(
-                    line as never,
-                    polyFeat as never,
-                ).features;
-            } catch {
-                // Degenerate split — skip THIS polygon and try the next.
-                // v387: do NOT push the whole line on failure — the user
-                // explicitly asked for strict clipping, so over-drawing is
-                // worse than slightly under-drawing on a malformed input.
-                continue;
-            }
-            if (segments.length === 0) continue;
-            anyCrossingHandled = true;
-            for (const seg of segments) {
-                const sc = (seg as GeoJSON.Feature<GeoJSON.LineString>)
-                    .geometry.coordinates;
-                if (sc.length < 2) continue;
-                const mid = sc[Math.floor(sc.length / 2)];
-                if (pointInPlayArea(polyForClip, mid[0], mid[1])) {
-                    clipped.push(
-                        seg as GeoJSON.Feature<GeoJSON.LineString>,
-                    );
+        // Mixed — emit each maximal run of consecutive-inside vertices
+        // as its own LineString.
+        let runStart = -1;
+        for (let i = 0; i < n; i++) {
+            if (insideMask[i]) {
+                if (runStart < 0) runStart = i;
+            } else if (runStart >= 0) {
+                // Flush the run ending at i-1 (inclusive).
+                if (i - runStart >= 2) {
+                    clipped.push({
+                        type: "Feature",
+                        geometry: {
+                            type: "LineString",
+                            coordinates: c.slice(runStart, i),
+                        },
+                        properties: line.properties ?? {},
+                    });
                 }
+                runStart = -1;
             }
         }
-        // If lineSplit found no crossings on ANY polygon (rare — the
-        // mixed-allIn-allOut state says vertices straddle the boundary,
-        // but lineSplit might not detect a near-boundary touch), fall
-        // back to keeping the line ONLY if its midpoint is inside.
-        if (!anyCrossingHandled) {
-            const mid = c[Math.floor(n / 2)];
-            if (pointInPlayArea(polyForClip, mid[0], mid[1])) {
-                clipped.push(line);
-            }
+        // Tail run.
+        if (runStart >= 0 && n - runStart >= 2) {
+            clipped.push({
+                type: "Feature",
+                geometry: {
+                    type: "LineString",
+                    coordinates: c.slice(runStart, n),
+                },
+                properties: line.properties ?? {},
+            });
         }
     }
     return { type: "FeatureCollection", features: clipped };
