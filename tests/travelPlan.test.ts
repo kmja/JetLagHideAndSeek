@@ -18,6 +18,8 @@ import { parseFptfJourneys } from "../overpass-cache/src/travel/adapters/germany
 import { parseNavitiaJourneys } from "../overpass-cache/src/travel/adapters/navitia";
 import { parseRejseplanenTrip } from "../overpass-cache/src/travel/adapters/denmark";
 import { parseEfaTrip } from "../overpass-cache/src/travel/adapters/nsw";
+import { parseGoogleDirections } from "../overpass-cache/src/travel/adapters/google";
+import { parseHereTransit } from "../overpass-cache/src/travel/adapters/here";
 import {
     dispatchPlan,
     selectAdapters,
@@ -77,55 +79,51 @@ describe("walkingJourney", () => {
 });
 
 describe("adapter dispatch selection", () => {
+    // The universal keyed fallbacks (HERE, Google) + walking are appended
+    // to EVERY origin — they cover essentially the whole world, ordered
+    // after the free regional/navitia tiers.
+    const U = ["here", "google", "walking"];
+
     test("Trafiklab serves Sweden, defers elsewhere", () => {
         expect(canServe(STOCKHOLM.lat, STOCKHOLM.lng)).toBe(true);
         expect(canServe(TOKYO.lat, TOKYO.lng)).toBe(false);
     });
 
-    // European cities try their country adapter first, then the broad
-    // navitia fallback, then walking. (navitia's bbox covers all of
-    // Europe but it's ordered after every country adapter.)
-    test("Stockholm: trafiklab → navitia → walking", () => {
+    // European cities: country adapter → navitia → universal tail.
+    test("Stockholm: trafiklab → navitia → universal", () => {
         expect(
             selectAdapters(STOCKHOLM.lat, STOCKHOLM.lng).map((a) => a.id),
-        ).toEqual(["trafiklab", "navitia", "walking"]);
+        ).toEqual(["trafiklab", "navitia", ...U]);
     });
 
-    test("Oslo: entur → navitia → walking", () => {
+    test("Oslo: entur → navitia → universal", () => {
         expect(selectAdapters(OSLO.lat, OSLO.lng).map((a) => a.id)).toEqual([
             "entur",
             "navitia",
-            "walking",
+            ...U,
         ]);
     });
 
-    test("Helsinki: digitransit → navitia → walking", () => {
+    test("Helsinki: digitransit → navitia → universal", () => {
         expect(
             selectAdapters(HELSINKI.lat, HELSINKI.lng).map((a) => a.id),
-        ).toEqual(["digitransit", "navitia", "walking"]);
+        ).toEqual(["digitransit", "navitia", ...U]);
     });
 
-    test("London: tfl → navitia → walking", () => {
+    test("London: tfl → navitia → universal", () => {
         expect(selectAdapters(LONDON.lat, LONDON.lng).map((a) => a.id)).toEqual(
-            ["tfl", "navitia", "walking"],
+            ["tfl", "navitia", ...U],
         );
     });
 
-    test("Zurich: swiss → navitia → walking", () => {
-        expect(selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id)).toEqual(
-            ["swiss", "navitia", "walking"],
-        );
-    });
-
-    test("Berlin: germany → navitia → walking", () => {
+    test("Berlin: germany → navitia → universal", () => {
         expect(selectAdapters(BERLIN.lat, BERLIN.lng).map((a) => a.id)).toEqual(
-            ["germany", "navitia", "walking"],
+            ["germany", "navitia", ...U],
         );
     });
 
     test("Swiss and Germany country adapters are disjoint at the border", () => {
-        // Country adapter that fires is the first entry; Zurich (47.38)
-        // → swiss, Munich (48.14) → germany (both then navitia, walking).
+        // The first entry is the country adapter that fires.
         expect(selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id)[0]).toBe(
             "swiss",
         );
@@ -134,36 +132,49 @@ describe("adapter dispatch selection", () => {
         );
     });
 
-    test("Paris: no country adapter, navitia fallback then walking", () => {
+    test("Paris: no country adapter, navitia then universal", () => {
         expect(selectAdapters(48.8566, 2.3522).map((a) => a.id)).toEqual([
             "navitia",
-            "walking",
+            ...U,
         ]);
     });
 
     test("Copenhagen: denmark first (ahead of trafiklab in the Øresund overlap)", () => {
-        // Copenhagen sits in both the DK and SE bboxes; denmark is
-        // ordered first so Rejseplanen serves it, trafiklab is the
-        // fallthrough.
         expect(selectAdapters(55.6761, 12.5683).map((a) => a.id)).toEqual([
             "denmark",
             "trafiklab",
             "navitia",
-            "walking",
+            ...U,
         ]);
     });
 
-    test("Sydney: nsw then walking (isolated, no navitia)", () => {
+    test("Sydney: nsw then universal (isolated, no navitia)", () => {
         expect(selectAdapters(-33.8688, 151.2093).map((a) => a.id)).toEqual([
             "nsw",
-            "walking",
+            ...U,
         ]);
     });
 
-    test("Tokyo (outside Europe) falls straight to walking", () => {
-        expect(selectAdapters(TOKYO.lat, TOKYO.lng).map((a) => a.id)).toEqual([
-            "walking",
-        ]);
+    test("Tokyo: no free regional adapter, universal providers then walking", () => {
+        // The win from the universal tier — Tokyo (and NYC, Calgary, …)
+        // now get real transit planning via HERE/Google before walking.
+        expect(selectAdapters(TOKYO.lat, TOKYO.lng).map((a) => a.id)).toEqual(
+            U,
+        );
+    });
+
+    test("walking is always last for any origin", () => {
+        for (const [lat, lng] of [
+            [STOCKHOLM.lat, STOCKHOLM.lng],
+            [TOKYO.lat, TOKYO.lng],
+            [-33.8688, 151.2093],
+            [40.7128, -74.006], // NYC
+            [1.3521, 103.8198], // Singapore
+        ] as const) {
+            const ids = selectAdapters(lat, lng).map((a) => a.id);
+            expect(ids[ids.length - 1]).toBe("walking");
+            expect(ids).toContain("google");
+        }
     });
 });
 
@@ -911,5 +922,164 @@ describe("parseEfaTrip (NSW / TfNSW rapidJSON)", () => {
     test("returns null on empty journeys", () => {
         expect(parseEfaTrip({ journeys: [] }, dest)).toBeNull();
         expect(parseEfaTrip({}, dest)).toBeNull();
+    });
+});
+
+describe("parseGoogleDirections (universal / Tokyo)", () => {
+    // Google: route.legs[0].steps[] are the segments. Transit steps carry
+    // absolute unix-second times; walking steps only a duration (we
+    // accumulate forward from the leg departure_time).
+    const DEP = 1_750_000_000; // leg departure (unix sec)
+    const FIXTURE = {
+        status: "OK",
+        routes: [
+            {
+                legs: [
+                    {
+                        departure_time: { value: DEP },
+                        steps: [
+                            {
+                                travel_mode: "WALKING",
+                                duration: { value: 180 },
+                                distance: { value: 220 },
+                                start_location: { lat: 35.6812, lng: 139.7671 },
+                                end_location: { lat: 35.6809, lng: 139.7649 },
+                            },
+                            {
+                                travel_mode: "TRANSIT",
+                                duration: { value: 600 },
+                                distance: { value: 4200 },
+                                transit_details: {
+                                    departure_time: { value: DEP + 300 },
+                                    arrival_time: { value: DEP + 900 },
+                                    headsign: "Ogikubo",
+                                    departure_stop: {
+                                        name: "Tokyo",
+                                        location: {
+                                            lat: 35.6809,
+                                            lng: 139.7649,
+                                        },
+                                    },
+                                    arrival_stop: {
+                                        name: "Shinjuku",
+                                        location: {
+                                            lat: 35.6896,
+                                            lng: 139.7006,
+                                        },
+                                    },
+                                    line: {
+                                        short_name: "JY",
+                                        name: "Yamanote Line",
+                                        vehicle: { type: "HEAVY_RAIL" },
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    };
+
+    const origin = { lat: 35.6812, lng: 139.7671 };
+    const dest: TravelPlace = { lat: 35.6896, lng: 139.7006, name: "Shinjuku" };
+
+    test("normalises walk + heavy-rail, accumulates walk time", () => {
+        const j = parseGoogleDirections(FIXTURE, origin, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[0].distanceMeters).toBe(220);
+        // walk starts at the leg departure, runs 180s.
+        expect(j!.legs[0].departAt).toBe(DEP * 1000);
+        expect(j!.legs[0].arriveAt).toBe((DEP + 180) * 1000);
+        expect(j!.legs[1].mode).toBe("train"); // HEAVY_RAIL → train
+        expect(j!.legs[1].line).toBe("JY");
+        expect(j!.legs[1].direction).toBe("Ogikubo");
+        // transit uses its absolute times.
+        expect(j!.legs[1].departAt).toBe((DEP + 300) * 1000);
+        expect(j!.arriveAt).toBe((DEP + 900) * 1000);
+        expect(j!.transfers).toBe(0);
+    });
+
+    test("returns null on ZERO_RESULTS / empty", () => {
+        expect(
+            parseGoogleDirections({ status: "ZERO_RESULTS" }, origin, dest),
+        ).toBeNull();
+        expect(parseGoogleDirections({ routes: [] }, origin, dest)).toBeNull();
+    });
+});
+
+describe("parseHereTransit (universal / NYC)", () => {
+    const FIXTURE = {
+        routes: [
+            {
+                sections: [
+                    {
+                        type: "pedestrian",
+                        departure: {
+                            time: "2026-06-21T12:00:00-04:00",
+                            place: {
+                                name: "Start",
+                                location: { lat: 40.7128, lng: -74.006 },
+                            },
+                        },
+                        arrival: {
+                            time: "2026-06-21T12:05:00-04:00",
+                            place: {
+                                name: "Fulton St",
+                                location: { lat: 40.7099, lng: -74.0083 },
+                            },
+                        },
+                    },
+                    {
+                        type: "transit",
+                        departure: {
+                            time: "2026-06-21T12:09:00-04:00",
+                            place: {
+                                name: "Fulton St",
+                                location: { lat: 40.7099, lng: -74.0083 },
+                            },
+                        },
+                        arrival: {
+                            time: "2026-06-21T12:24:00-04:00",
+                            place: {
+                                name: "Times Sq-42 St",
+                                location: { lat: 40.7559, lng: -73.9871 },
+                            },
+                        },
+                        transport: {
+                            mode: "subway",
+                            name: "A",
+                            headsign: "Inwood-207 St",
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+
+    const dest: TravelPlace = {
+        lat: 40.7559,
+        lng: -73.9871,
+        name: "Times Sq-42 St",
+    };
+
+    test("normalises pedestrian + subway", () => {
+        const j = parseHereTransit(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[1].mode).toBe("subway");
+        expect(j!.legs[1].line).toBe("A");
+        expect(j!.legs[1].direction).toBe("Inwood-207 St");
+        expect(j!.legs[1].to.name).toBe("Times Sq-42 St");
+        expect(j!.transfers).toBe(0);
+        expect(j!.durationMin).toBe(24);
+    });
+
+    test("returns null on empty routes", () => {
+        expect(parseHereTransit({ routes: [] }, dest)).toBeNull();
+        expect(parseHereTransit({}, dest)).toBeNull();
     });
 });

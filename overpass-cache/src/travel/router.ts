@@ -20,6 +20,8 @@ import * as denmark from "./adapters/denmark";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
 import * as germany from "./adapters/germany";
+import * as google from "./adapters/google";
+import * as here from "./adapters/here";
 import * as navitia from "./adapters/navitia";
 import * as nsw from "./adapters/nsw";
 import * as swiss from "./adapters/swiss";
@@ -153,6 +155,34 @@ const NAVITIA: TravelAdapter = {
     },
 };
 
+/** HERE Public Transit — near-universal, keyed. First of the two
+ *  universal providers (operator picks whichever key they have). */
+const HERE: TravelAdapter = {
+    id: "here",
+    canServe: here.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.HERE_API_KEY) return null;
+        return here.planJourney(req, env.HERE_API_KEY, departAt, signal);
+    },
+};
+
+/** Google Directions (transit) — near-universal, keyed. The broadest
+ *  coverage of all (hundreds of cities worldwide), so it's the last
+ *  resort before walking. */
+const GOOGLE: TravelAdapter = {
+    id: "google",
+    canServe: google.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.GOOGLE_MAPS_API_KEY) return null;
+        return google.planJourney(
+            req,
+            env.GOOGLE_MAPS_API_KEY,
+            departAt,
+            signal,
+        );
+    },
+};
+
 /** The unconditional backstop. `canServe` is always true, so it's
  *  always last and always answers. */
 const WALKING: TravelAdapter = {
@@ -163,15 +193,17 @@ const WALKING: TravelAdapter = {
     },
 };
 
-/** Specificity order: most specific first, walking last. The
- *  country-specific adapters (Trafiklab SE, Entur NO, Digitransit FI,
- *  TfL London, Swiss CH, Germany DE) have disjoint bboxes, so within
- *  their borders exactly one is tried. `navitia` is a deliberately
- *  BROAD European fallback whose bbox overlaps all of them — it sits
- *  after every country adapter so it only runs where they decline
- *  (e.g. France, Benelux, Iberia, Italy). Walking is the unconditional
- *  final backstop. Add a tighter city/country adapter AHEAD of the
- *  national ones (and ahead of navitia) when coverage improves. */
+/** Dispatch order. Three tiers:
+ *  1. Free country/region adapters (Denmark, Trafiklab SE, Entur NO,
+ *     Digitransit FI, TfL London, Swiss CH, Germany DE, NSW Sydney) —
+ *     mostly disjoint bboxes; where two overlap (DK/SE) the more
+ *     specific is first and `dispatchPlan` falls through on null.
+ *  2. Broad fallbacks: `navitia` (Europe, keyed), then the two
+ *     near-universal keyed providers `here` then `google` (which
+ *     between them cover essentially every city on Earth with transit
+ *     data — North America, Asia, etc.).
+ *  3. `walking` — the unconditional final backstop.
+ *  Each tier only runs where the tier above it declines/has no key. */
 export const ADAPTERS: TravelAdapter[] = [
     DENMARK,
     TRAFIKLAB,
@@ -182,6 +214,8 @@ export const ADAPTERS: TravelAdapter[] = [
     GERMANY,
     NSW,
     NAVITIA,
+    HERE,
+    GOOGLE,
     WALKING,
 ];
 

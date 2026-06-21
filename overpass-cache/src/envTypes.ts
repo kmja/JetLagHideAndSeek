@@ -73,4 +73,13 @@ export interface Env {
      *  Open Data Hub. Optional — without it NSW origins fall through
      *  to walking. (Norway/Switzerland/Germany/Denmark are keyless.) */
     TFNSW_API_KEY?: string;
+    /** HERE Public Transit (v8) API key — one of the two near-universal
+     *  fallback providers. Free HERE developer tier. Configure via
+     *  `wrangler secret put HERE_API_KEY`. Optional. */
+    HERE_API_KEY?: string;
+    /** Google Maps Platform key for the Directions (transit) adapter —
+     *  the broadest-coverage universal fallback. Configure via
+     *  `wrangler secret put GOOGLE_MAPS_API_KEY`. Optional — without it
+     *  cities with no free regional adapter fall through to walking. */
+    GOOGLE_MAPS_API_KEY?: string;
 }

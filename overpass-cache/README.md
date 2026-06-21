@@ -26,7 +26,11 @@ wrangler secret put DIGITRANSIT_API_KEY --config wrangler.toml # FI — Digitran
 wrangler secret put TFL_API_KEY         --config wrangler.toml # London — higher rate limit (works keyless too)
 wrangler secret put NAVITIA_API_KEY     --config wrangler.toml # navitia.io — France/Paris + broad-Europe fallback
 wrangler secret put TFNSW_API_KEY        --config wrangler.toml # Transport for NSW — Sydney/NSW (Australia)
+wrangler secret put HERE_API_KEY         --config wrangler.toml # HERE Transit — near-universal fallback
+wrangler secret put GOOGLE_MAPS_API_KEY  --config wrangler.toml # Google Directions transit — broadest universal fallback
 # (Denmark/Norway/Switzerland/Germany adapters are keyless — no secret needed.)
+# HERE + Google are universal: with either key set, cities lacking a free
+# regional adapter (Tokyo, NYC, Calgary, Singapore, …) get real journeys.
 
 # 4. First deploy
 pnpm run deploy
