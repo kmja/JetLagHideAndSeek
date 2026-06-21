@@ -151,11 +151,13 @@ const SubtypeTile = ({
     subtype,
     onClick,
     disabled,
+    blockedReason,
 }: {
     category: CategoryId;
     subtype: SubtypeMeta;
     onClick: () => void;
     disabled?: boolean;
+    blockedReason?: string;
 }) => {
     const catMeta = CATEGORIES[category];
     const Icon = subtype.icon;
@@ -173,7 +175,7 @@ const SubtypeTile = ({
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
             style={{ borderTopColor: catMeta.color }}
-            title={subtype.description}
+            title={blockedReason ?? subtype.description}
         >
             <span
                 className="inline-flex items-center justify-center w-10 h-10 rounded-sm shrink-0"
@@ -289,6 +291,59 @@ export const AddQuestionDialog = ({
         () => ({ onPickerReady: setPickerReady }),
         [],
     );
+
+    // Rulebook enforcement —
+    //
+    // Rule 1: each question can only be asked once. For matching /
+    //         measuring / tentacles / photo a "question" is identified by
+    //         its subtype (your nearest MUSEUM, your nearest AQUARIUM, …).
+    //         Radius + thermometer use per-preset uniqueness, which their
+    //         own cards already enforce (RADIUS_PRESETS + thermometer
+    //         distance sigs). Track used subtypes here so the subtype-
+    //         picker can grey out already-asked tiles, plus a count per
+    //         category for "all subtypes used → block the category tile".
+    //
+    // Rule 2: you can't ask two questions from the same alternation class
+    //         (matching / measuring / radar) back-to-back. Thermometer,
+    //         tentacles and photo sit outside the rotation (different
+    //         answer mechanics) — they don't block, and they don't reset.
+    //         So the last QUESTION in the alternation class determines
+    //         what's blocked next, regardless of what was asked in between.
+    const usedSubtypes = React.useMemo(() => {
+        const map: Record<string, Set<string>> = {
+            matching: new Set(),
+            measuring: new Set(),
+            tentacles: new Set(),
+            photo: new Set(),
+        };
+        for (const q of $questions) {
+            const d = q.data as {
+                type?: string;
+                locationType?: string;
+            };
+            if (q.id === "matching" || q.id === "measuring") {
+                if (d.type) map[q.id].add(d.type);
+            } else if (q.id === "tentacles") {
+                if (d.locationType) map.tentacles.add(d.locationType);
+            } else if (q.id === "photo") {
+                if (d.type) map.photo.add(d.type);
+            }
+        }
+        return map;
+    }, [$questions]);
+
+    const ALTERNATION_TYPES = React.useMemo(
+        () => new Set(["matching", "measuring", "radius"]),
+        [],
+    );
+    const lastAlternationType = React.useMemo(() => {
+        for (let i = $questions.length - 1; i >= 0; i--) {
+            if (ALTERNATION_TYPES.has($questions[i].id)) {
+                return $questions[i].id;
+            }
+        }
+        return null;
+    }, [$questions, ALTERNATION_TYPES]);
 
     // Helper: get the most recently added question's key, then promote it
     // to the "pending confirm" state and close the category picker.
@@ -626,6 +681,16 @@ export const AddQuestionDialog = ({
                                 (q.data as { status?: string }).status ===
                                     "started",
                         );
+                        // Rule 2 phrasing — same wording for all three
+                        // rotation-class tiles, swap in the category label.
+                        const alternationReason = (label: string) =>
+                            `You just asked a ${label} question — alternate types before asking another.`;
+                        const matchingBlockedByLast =
+                            lastAlternationType === "matching";
+                        const measuringBlockedByLast =
+                            lastAlternationType === "measuring";
+                        const radiusBlockedByLast =
+                            lastAlternationType === "radius";
                         return (
                             <>
                                 <CategoryTile
@@ -638,6 +703,12 @@ export const AddQuestionDialog = ({
                                         );
                                         setSubtypePickerFor("matching");
                                     }}
+                                    disabled={matchingBlockedByLast}
+                                    blockedReason={
+                                        matchingBlockedByLast
+                                            ? alternationReason("matching")
+                                            : undefined
+                                    }
                                 />
                                 <CategoryTile
                                     category="measuring"
@@ -649,6 +720,12 @@ export const AddQuestionDialog = ({
                                         );
                                         setSubtypePickerFor("measuring");
                                     }}
+                                    disabled={measuringBlockedByLast}
+                                    blockedReason={
+                                        measuringBlockedByLast
+                                            ? alternationReason("measuring")
+                                            : undefined
+                                    }
                                 />
                                 <CategoryTile
                                     category="radius"
@@ -657,6 +734,12 @@ export const AddQuestionDialog = ({
                                         if (runAddRadius())
                                             promoteLastQuestion();
                                     }}
+                                    disabled={radiusBlockedByLast}
+                                    blockedReason={
+                                        radiusBlockedByLast
+                                            ? alternationReason("radar")
+                                            : undefined
+                                    }
                                 />
                                 <CategoryTile
                                     category="thermometer"
@@ -808,7 +891,17 @@ export const AddQuestionDialog = ({
                                     </div>
                                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
                                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                            {subtypes?.map((subtype) => (
+                                            {subtypes?.map((subtype) => {
+                                                // Rule 1: each subtype can
+                                                // only be asked once per
+                                                // game (your nearest museum,
+                                                // your nearest aquarium, …).
+                                                const subtypeUsed =
+                                                    usedSubtypes[
+                                                        subtypePickerFor
+                                                    ]?.has(subtype.value) ??
+                                                    false;
+                                                return (
                                                 <SubtypeTile
                                                     key={subtype.value}
                                                     category={
@@ -819,6 +912,12 @@ export const AddQuestionDialog = ({
                                                         $mapGeo?.properties
                                                             ?.countrycode,
                                                     )}
+                                                    disabled={subtypeUsed}
+                                                    blockedReason={
+                                                        subtypeUsed
+                                                            ? "Already asked — each question can only be asked once per game."
+                                                            : undefined
+                                                    }
                                                     onClick={() => {
                                                         const cat =
                                                             subtypePickerFor;
@@ -869,7 +968,8 @@ export const AddQuestionDialog = ({
                                                         }
                                                     }}
                                                 />
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </>
