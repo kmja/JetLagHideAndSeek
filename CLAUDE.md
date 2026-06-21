@@ -229,11 +229,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v400` (trip-planning coverage now SE/NO/FI/
-London/CH/DE country adapters + navitia broad-Europe fallback;
-hider reach overlay + `HiderTripPlanCard`; `SeekerTripPlannerSheet`;
-shared `JourneyCard` + `src/lib/geo.ts` haversine; plus a full docs
-accuracy pass — Astro→Vite/Leaflet→MapLibre/Pages→Workers).
+build stamp. Current: `v414` (rulebook-audit mechanics pass — see
+`RULEBOOK_AUDIT.md`. Now enforced: Overflowing Chalice draw boost,
+Move powerup pause/freeze/re-anchor, thermometer preset size-gating,
+photo answer window by size, late-answer pause + no-card economy,
+discard casting costs. Scoring flows through one formula:
+`max(0, (foundAt − hidingEndsAt) + hiddenCreditMs − hiddenDebitMs)`.
+B2 repeat-question pay-double is deferred with a plan in the audit
+doc).
+
+### Hider economy quick-reference
+
+- `hiderRole.ts` — deck/hand/draw state. `presentDraw(n, k, cat, key)`
+  is the single question-reward chokepoint (Chalice +1 boost lives
+  here). `settleLateAnswer(key, cat)` banks overdue time + signals
+  "no card". `QUESTION_DRAW_BUDGET` is the base draw/keep table.
+- `gameSetup.ts` — `answerWindowMs(cat, size)`, `MOVE_PERIOD_MINUTES`,
+  `hiddenCreditMs` (Move bank), `hiddenDebitMs` (late-answer pause),
+  `seekersFrozenUntil` (Move freeze).
+- `roundActions.ts` — `playMovePowerup()`; resets all three economy
+  atoms in `startNewRound` / `startNewGame`.
+- `castingCost.ts` — parses/enforces discard casting costs.
 
 ## Dev workflow
 
