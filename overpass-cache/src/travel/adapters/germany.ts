@@ -169,7 +169,8 @@ function parseLeg(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
     };
     if (!isWalk && leg.line?.name) out.line = leg.line.name;
     if (leg.direction) out.direction = leg.direction;
-    if (typeof leg.distance === "number") out.distanceMeters = Math.round(leg.distance);
+    if (typeof leg.distance === "number")
+        out.distanceMeters = Math.round(leg.distance);
     return out;
 }
 
@@ -185,7 +186,10 @@ function place(p: FptfPlace, fallback?: TravelPlace): TravelPlace {
  *  coarse one. Prefer product. DB products: nationalExpress, national,
  *  regionalExpress, regional, suburban, subway, tram, bus, ferry,
  *  taxi. */
-function classifyMode(line?: { mode?: string; product?: string }): TravelMode | "transit" {
+function classifyMode(line?: {
+    mode?: string;
+    product?: string;
+}): TravelMode | "transit" {
     const product = (line?.product ?? "").toLowerCase();
     if (product === "subway" || product === "u-bahn") return "subway";
     if (product === "tram") return "tram";

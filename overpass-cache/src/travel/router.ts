@@ -19,6 +19,7 @@ import type { Env } from "../envTypes";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
 import * as germany from "./adapters/germany";
+import * as navitia from "./adapters/navitia";
 import * as swiss from "./adapters/swiss";
 import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
@@ -117,6 +118,18 @@ const GERMANY: TravelAdapter = {
     },
 };
 
+/** navitia (broad European fallback) — keyed; defers without the key.
+ *  Ordered last among the regional adapters so country-specific
+ *  planners win first; navitia only runs where they all decline. */
+const NAVITIA: TravelAdapter = {
+    id: "navitia",
+    canServe: navitia.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.NAVITIA_API_KEY) return null;
+        return navitia.planJourney(req, env.NAVITIA_API_KEY, departAt, signal);
+    },
+};
+
 /** The unconditional backstop. `canServe` is always true, so it's
  *  always last and always answers. */
 const WALKING: TravelAdapter = {
@@ -127,12 +140,15 @@ const WALKING: TravelAdapter = {
     },
 };
 
-/** Specificity order: most specific first, walking last. Regional
- *  adapters are listed by geographic disjointness; ordering among
- *  them only matters if two `canServe` bboxes overlap. (None do
- *  today — Trafiklab is SE, Entur NO, Digitransit FI, TfL London —
- *  and we'd add tighter city adapters AHEAD of national ones if
- *  that ever changes.) */
+/** Specificity order: most specific first, walking last. The
+ *  country-specific adapters (Trafiklab SE, Entur NO, Digitransit FI,
+ *  TfL London, Swiss CH, Germany DE) have disjoint bboxes, so within
+ *  their borders exactly one is tried. `navitia` is a deliberately
+ *  BROAD European fallback whose bbox overlaps all of them — it sits
+ *  after every country adapter so it only runs where they decline
+ *  (e.g. France, Benelux, Iberia, Italy). Walking is the unconditional
+ *  final backstop. Add a tighter city/country adapter AHEAD of the
+ *  national ones (and ahead of navitia) when coverage improves. */
 export const ADAPTERS: TravelAdapter[] = [
     TRAFIKLAB,
     ENTUR,
@@ -140,6 +156,7 @@ export const ADAPTERS: TravelAdapter[] = [
     TFL,
     SWISS,
     GERMANY,
+    NAVITIA,
     WALKING,
 ];
 

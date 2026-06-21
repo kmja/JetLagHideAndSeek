@@ -74,9 +74,9 @@ Photon (https://photon.komoot.io/) for both reverse and forward geocoding in `sr
 ### Trip planning (transit travel times + journeys)
 Two distinct server capabilities in the `overpass-cache` worker, both Trafiklab-secret-shielded with the R2 + edge-cache pattern:
 - **Reach** (`POST /api/journey/arrivals`, `overpass-cache/src/journey.ts`): anchor + many stops → earliest arrival at each (ResRobot `passlist=0`, keeps only the final timestamp). The seeker's `TravelTimesOverlay.tsx` renders stations reachable before `hidingPeriodEndsAt` as map labels, anchored at `gameStartPosition`. The hider's "which zones can I reach" overlay (M2) is the mirror image — same endpoint, anchored at live GPS.
-- **Plan** (`POST /api/travel/plan`, `overpass-cache/src/travel/`): single origin→destination journey **with legs** (lines, transfers, walking segments) for trip-detail cards. An **adapter dispatcher** (`router.ts`) tries region-specific adapters in specificity order. Shipped adapters: `trafiklab.ts` (SE — ResRobot `passlist=1`, keyed), `entur.ts` (NO — GraphQL, keyless), `digitransit.ts` (FI — GraphQL, keyed), `tfl.ts` (London — Unified API, optional key), `swiss.ts` (CH — transport.opendata.ch, keyless), `walking.ts` (unconditional haversine×circuity backstop, so a journey is *always* produced). Bboxes are disjoint so a single origin matches exactly one regional adapter before falling to walking. Adding a country = one adapter file + one entry in `ADAPTERS`; dispatcher, cache and client are untouched.
+- **Plan** (`POST /api/travel/plan`, `overpass-cache/src/travel/`): single origin→destination journey **with legs** (lines, transfers, walking segments) for trip-detail cards. An **adapter dispatcher** (`router.ts`) tries region-specific adapters in specificity order. Shipped adapters: `trafiklab.ts` (SE — ResRobot `passlist=1`, keyed), `entur.ts` (NO — GraphQL, keyless), `digitransit.ts` (FI — GraphQL, keyed), `tfl.ts` (London — Unified API, optional key), `swiss.ts` (CH — transport.opendata.ch, keyless), `germany.ts` (DE — `v6.db.transport.rest` FPTF, keyless), `navitia.ts` (broad-Europe fallback — France/Paris, Benelux, Iberia, Italy …, keyed), `walking.ts` (unconditional haversine×circuity backstop, so a journey is *always* produced). The six country adapters have disjoint bboxes (one origin → one of them); `navitia` is a deliberately broad European fallback ordered AFTER all of them and before walking, so it only runs where the country adapters decline. Adding a country = one adapter file + one entry in `ADAPTERS`; dispatcher, cache and client are untouched.
 
-Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib/journey/plan.ts`), NOT shared via `protocol/` — that mirrors how `journey.ts` already works and avoids cross-worker-root bundling. Pure logic (dispatch selection, walking ETA, ResRobot/Entur/Digitransit/TfL leg parsing) is unit-tested in `tests/travelPlan.test.ts` (20 cases). Next coverage tier: Swiss/Dutch/German HAFAS → navitia.io multi-region fallback; static-GTFS cities (Calgary, NYC, …) deferred to a self-hosted raptor-router (M5).
+Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib/journey/plan.ts`), NOT shared via `protocol/` — that mirrors how `journey.ts` already works and avoids cross-worker-root bundling. Pure logic (dispatch selection, walking ETA, and the ResRobot/Entur/Digitransit/TfL/Swiss/FPTF/navitia leg parsers) is unit-tested in `tests/travelPlan.test.ts` (30 cases). Coverage now spans SE/NO/FI/London/CH/DE + navitia's broad-Europe fallback. Next tiers: more national adapters (NL, AT, BE, …) ahead of navitia; static-GTFS cities (Calgary, NYC, …) deferred to a self-hosted raptor-router (M5).
 
 **Hider reach overlay** (`HiderReachOverlay.tsx` + `hiderReachFC` shadow atom): mirror of `TravelTimesOverlay`, anchored at live GPS. Uses `fetchAreaStations` (mode-aware Overpass scan capped at 180 stops) → existing `/api/journey/arrivals` → filters to reachable-before-`hidingPeriodEndsAt`. Painted by `HiderBackgroundMap` as circle dots + HH:MM labels. Toggle in `HiderMapDisplayControls` ("Reachable zones"). Auto-disables once a zone is committed.
 
@@ -220,11 +220,11 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v398` (M2 hider reach overlay +
-`HiderTripPlanCard`; M3 `SeekerTripPlannerSheet` + launcher;
-M4 Entur/Digitransit/TfL/Swiss adapters with disjoint bboxes; shared
-`JourneyCard` renderer for both sides; `fetchAreaStations` area-wide
-mode-aware scan capped at 180 stops).
+build stamp. Current: `v400` (trip-planning coverage now SE/NO/FI/
+London/CH/DE country adapters + navitia broad-Europe fallback;
+hider reach overlay + `HiderTripPlanCard`; `SeekerTripPlannerSheet`;
+shared `JourneyCard` + `src/lib/geo.ts` haversine; plus a full docs
+accuracy pass — Astro→Vite/Leaflet→MapLibre/Pages→Workers).
 
 ## Dev workflow
 

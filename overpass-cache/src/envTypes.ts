@@ -61,4 +61,10 @@ export interface Env {
      *  unauthenticated calls at a lower rate limit, so the
      *  adapter works without a key, and just runs faster with one. */
     TFL_API_KEY?: string;
+    /** navitia.io API key for the broad-European `/api/travel/plan`
+     *  fallback adapter (covers France/Paris, Benelux, Iberia, Italy,
+     *  …). Configure via `wrangler secret put NAVITIA_API_KEY`. Free
+     *  signup at https://navitia.io/. Optional — without it the
+     *  adapter defers and those regions fall through to walking. */
+    NAVITIA_API_KEY?: string;
 }

@@ -15,6 +15,7 @@ import { parseDigitransitPlan } from "../overpass-cache/src/travel/adapters/digi
 import { parseTflJourney } from "../overpass-cache/src/travel/adapters/tfl";
 import { parseSwissConnections } from "../overpass-cache/src/travel/adapters/swiss";
 import { parseFptfJourneys } from "../overpass-cache/src/travel/adapters/germany";
+import { parseNavitiaJourneys } from "../overpass-cache/src/travel/adapters/navitia";
 import {
     dispatchPlan,
     selectAdapters,
@@ -79,53 +80,69 @@ describe("adapter dispatch selection", () => {
         expect(canServe(TOKYO.lat, TOKYO.lng)).toBe(false);
     });
 
-    test("Stockholm tries Trafiklab first, then walking", () => {
-        const ids = selectAdapters(STOCKHOLM.lat, STOCKHOLM.lng).map(
-            (a) => a.id,
+    // European cities try their country adapter first, then the broad
+    // navitia fallback, then walking. (navitia's bbox covers all of
+    // Europe but it's ordered after every country adapter.)
+    test("Stockholm: trafiklab → navitia → walking", () => {
+        expect(
+            selectAdapters(STOCKHOLM.lat, STOCKHOLM.lng).map((a) => a.id),
+        ).toEqual(["trafiklab", "navitia", "walking"]);
+    });
+
+    test("Oslo: entur → navitia → walking", () => {
+        expect(selectAdapters(OSLO.lat, OSLO.lng).map((a) => a.id)).toEqual([
+            "entur",
+            "navitia",
+            "walking",
+        ]);
+    });
+
+    test("Helsinki: digitransit → navitia → walking", () => {
+        expect(
+            selectAdapters(HELSINKI.lat, HELSINKI.lng).map((a) => a.id),
+        ).toEqual(["digitransit", "navitia", "walking"]);
+    });
+
+    test("London: tfl → navitia → walking", () => {
+        expect(selectAdapters(LONDON.lat, LONDON.lng).map((a) => a.id)).toEqual(
+            ["tfl", "navitia", "walking"],
         );
-        expect(ids).toEqual(["trafiklab", "walking"]);
     });
 
-    test("Oslo tries Entur first, then walking", () => {
-        const ids = selectAdapters(OSLO.lat, OSLO.lng).map((a) => a.id);
-        expect(ids).toEqual(["entur", "walking"]);
+    test("Zurich: swiss → navitia → walking", () => {
+        expect(selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id)).toEqual(
+            ["swiss", "navitia", "walking"],
+        );
     });
 
-    test("Helsinki tries Digitransit first, then walking", () => {
-        const ids = selectAdapters(HELSINKI.lat, HELSINKI.lng).map((a) => a.id);
-        expect(ids).toEqual(["digitransit", "walking"]);
+    test("Berlin: germany → navitia → walking", () => {
+        expect(selectAdapters(BERLIN.lat, BERLIN.lng).map((a) => a.id)).toEqual(
+            ["germany", "navitia", "walking"],
+        );
     });
 
-    test("London tries TfL first, then walking", () => {
-        const ids = selectAdapters(LONDON.lat, LONDON.lng).map((a) => a.id);
-        expect(ids).toEqual(["tfl", "walking"]);
-    });
-
-    test("Zurich tries Swiss first, then walking", () => {
-        const ids = selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id);
-        expect(ids).toEqual(["swiss", "walking"]);
-    });
-
-    test("Berlin tries Germany first, then walking", () => {
-        const ids = selectAdapters(BERLIN.lat, BERLIN.lng).map((a) => a.id);
-        expect(ids).toEqual(["germany", "walking"]);
-    });
-
-    test("Swiss and Germany bboxes are disjoint at the border", () => {
-        // Zurich (47.38) → swiss only; Munich (48.14) → germany only.
-        expect(selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id)).toEqual([
+    test("Swiss and Germany country adapters are disjoint at the border", () => {
+        // Country adapter that fires is the first entry; Zurich (47.38)
+        // → swiss, Munich (48.14) → germany (both then navitia, walking).
+        expect(selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id)[0]).toBe(
             "swiss",
-            "walking",
-        ]);
-        expect(selectAdapters(48.1374, 11.5755).map((a) => a.id)).toEqual([
+        );
+        expect(selectAdapters(48.1374, 11.5755).map((a) => a.id)[0]).toBe(
             "germany",
+        );
+    });
+
+    test("Paris: no country adapter, navitia fallback then walking", () => {
+        expect(selectAdapters(48.8566, 2.3522).map((a) => a.id)).toEqual([
+            "navitia",
             "walking",
         ]);
     });
 
-    test("Tokyo falls straight to walking", () => {
-        const ids = selectAdapters(TOKYO.lat, TOKYO.lng).map((a) => a.id);
-        expect(ids).toEqual(["walking"]);
+    test("Tokyo (outside Europe) falls straight to walking", () => {
+        expect(selectAdapters(TOKYO.lat, TOKYO.lng).map((a) => a.id)).toEqual([
+            "walking",
+        ]);
     });
 });
 
@@ -560,7 +577,11 @@ describe("parseFptfJourneys (Germany / transport.rest)", () => {
                         departure: "2026-06-21T12:08:00+02:00",
                         arrival: "2026-06-21T12:22:00+02:00",
                         direction: "S Ostbahnhof",
-                        line: { name: "S5", mode: "train", product: "suburban" },
+                        line: {
+                            name: "S5",
+                            mode: "train",
+                            product: "suburban",
+                        },
                         origin: {
                             name: "S+U Berlin Hauptbahnhof",
                             location: { latitude: 52.525, longitude: 13.369 },
@@ -613,5 +634,89 @@ describe("parseFptfJourneys (Germany / transport.rest)", () => {
     test("returns null on empty journeys", () => {
         expect(parseFptfJourneys({ journeys: [] }, dest)).toBeNull();
         expect(parseFptfJourneys({}, dest)).toBeNull();
+    });
+});
+
+describe("parseNavitiaJourneys (navitia / Paris)", () => {
+    const FIXTURE = {
+        journeys: [
+            {
+                sections: [
+                    {
+                        type: "street_network",
+                        mode: "walking",
+                        departure_date_time: "20260621T120000",
+                        arrival_date_time: "20260621T120400",
+                        from: {
+                            name: "Start",
+                            address: {
+                                name: "Start",
+                                coord: { lat: "48.8566", lon: "2.3522" },
+                            },
+                        },
+                        to: {
+                            name: "Châtelet",
+                            stop_point: {
+                                name: "Châtelet",
+                                coord: { lat: "48.8585", lon: "2.3470" },
+                            },
+                        },
+                    },
+                    {
+                        type: "waiting",
+                        departure_date_time: "20260621T120400",
+                        arrival_date_time: "20260621T120600",
+                    },
+                    {
+                        type: "public_transport",
+                        departure_date_time: "20260621T120600",
+                        arrival_date_time: "20260621T121800",
+                        from: {
+                            stop_point: {
+                                name: "Châtelet",
+                                coord: { lat: "48.8585", lon: "2.3470" },
+                            },
+                        },
+                        to: {
+                            stop_point: {
+                                name: "Gare du Nord",
+                                coord: { lat: "48.8809", lon: "2.3553" },
+                            },
+                        },
+                        display_informations: {
+                            physical_mode: "Metro",
+                            commercial_mode: "métro",
+                            code: "4",
+                            direction: "Porte de Clignancourt",
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+
+    const dest: TravelPlace = {
+        lat: 48.8809,
+        lng: 2.3553,
+        name: "Gare du Nord",
+    };
+
+    test("normalises walk + metro, skips the waiting section", () => {
+        const j = parseNavitiaJourneys(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        // waiting section dropped → 2 legs, not 3.
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[1].mode).toBe("subway");
+        expect(j!.legs[1].line).toBe("4");
+        expect(j!.legs[1].direction).toBe("Porte de Clignancourt");
+        expect(j!.legs[1].to.name).toBe("Gare du Nord");
+        expect(j!.transfers).toBe(0);
+        expect(j!.durationMin).toBe(18);
+    });
+
+    test("returns null on empty journeys", () => {
+        expect(parseNavitiaJourneys({ journeys: [] }, dest)).toBeNull();
+        expect(parseNavitiaJourneys({}, dest)).toBeNull();
     });
 });

@@ -24,6 +24,8 @@ wrangler secret put ADMIN_SECRET --config wrangler.toml
 wrangler secret put TRAFIKLAB_API_KEY  --config wrangler.toml  # SE — ResRobot (journey arrivals + plan)
 wrangler secret put DIGITRANSIT_API_KEY --config wrangler.toml # FI — Digitransit plan
 wrangler secret put TFL_API_KEY         --config wrangler.toml # London — higher rate limit (works keyless too)
+wrangler secret put NAVITIA_API_KEY     --config wrangler.toml # navitia.io — France/Paris + broad-Europe fallback
+# (Norway/Switzerland/Germany adapters are keyless — no secret needed.)
 
 # 4. First deploy
 pnpm run deploy
