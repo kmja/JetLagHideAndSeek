@@ -631,6 +631,23 @@ export const hiddenCreditMs = persistentAtom<number>(
 );
 
 /**
+ * Accumulated time (ms) the hider's clock was *paused* because a
+ * question went unanswered past its window (rulebook p61: "the hider's
+ * time is paused until the question is answered"). Headline scoring
+ * subtracts this, so overdue answers don't reward the hider with the
+ * stall time. Zero in the common (always-on-time) case; reset each
+ * new round/game.
+ */
+export const hiddenDebitMs = persistentAtom<number>(
+    "hiddenDebitMs",
+    0,
+    {
+        encode: String,
+        decode: (v) => Number(v) || 0,
+    },
+);
+
+/**
  * How long the hider has to answer a question, in ms, per rulebook
  * (p5/p32): 5 minutes for everything EXCEPT photo questions, which get
  * 10 minutes in Small/Medium games and 20 minutes in Large games.

@@ -3,7 +3,12 @@ import { atom } from "nanostores";
 
 import type { Question } from "@/maps/schema";
 
-import type { GameSize } from "./gameSetup";
+import {
+    answerWindowMs,
+    type GameSize,
+    gameSize,
+    hiddenDebitMs,
+} from "./gameSetup";
 import { type Card,shuffledDeck } from "./hiderDeck";
 
 /**
@@ -639,6 +644,26 @@ export const QUESTION_DRAW_BUDGET: Record<
 };
 
 /**
+ * Rulebook p61: a question not answered within its window pauses the
+ * hider's time until they answer, and earns them NO cards. Call once,
+ * in the not-yet-replied answer path, BEFORE drawing. Returns true if
+ * the answer was late (caller should skip the card draw). Accrues the
+ * overtime into `hiddenDebitMs` so scoring excludes the paused span.
+ *
+ * `arrivedAt` is read from the inbox entry; if the question isn't in
+ * the inbox (e.g. a stale share-link), it's treated as on-time.
+ */
+export function settleLateAnswer(key: number, category: string): boolean {
+    const entry = hiderInbox.get().find((e) => e.key === key);
+    if (!entry) return false;
+    const windowMs = answerWindowMs(category, gameSize.get());
+    const overtime = Date.now() - entry.arrivedAt - windowMs;
+    if (overtime <= 0) return false;
+    hiddenDebitMs.set(hiddenDebitMs.get() + overtime);
+    return true;
+}
+
+/**
  * Resolve a photo question from the photo card (the hider's answer
  * surface for photos — the dedicated `/h?q=` answer view doesn't
  * handle photos). Stamps the inbox entry's `repliedAt` so
@@ -659,6 +684,9 @@ export function recordPhotoAnswerDraw(
     const inbox = hiderInbox.get();
     const existing = inbox.find((e) => e.key === key);
     if (existing?.repliedAt) return false; // already answered — no double draw
+    // Rulebook p61: an overdue answer pauses the hider's clock and
+    // earns no card. Settle the timing before stamping repliedAt.
+    const late = settleLateAnswer(key, "photo");
     hiderInbox.set(
         inbox.map((e) =>
             e.key === key
@@ -666,6 +694,7 @@ export function recordPhotoAnswerDraw(
                 : e,
         ),
     );
+    if (late) return false;
     const budget = QUESTION_DRAW_BUDGET.photo;
     presentDraw(budget.draw, budget.keep, "photo", key);
     return true;

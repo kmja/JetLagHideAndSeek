@@ -23,6 +23,7 @@ import {
     presentDraw,
     QUESTION_DRAW_BUDGET,
     roundFoundAt,
+    settleLateAnswer,
 } from "@/lib/hiderRole";
 import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import {
@@ -609,6 +610,13 @@ function ShareBackRow({
         const existing = inbox.find((e) => e.key === question.key);
         const alreadyReplied = Boolean(existing?.repliedAt);
 
+        // Rulebook p61: settle the answer's timing first. An overdue
+        // answer pauses the hider's clock (accrued in hiddenDebitMs)
+        // and earns no card. Only meaningful on the first reply.
+        const late = !alreadyReplied
+            ? settleLateAnswer(question.key, question.id)
+            : false;
+
         hiderInbox.set(
             inbox.map((e) =>
                 e.key === question.key
@@ -626,8 +634,9 @@ function ShareBackRow({
         // category — matching draws 3/keeps 1, radar 2/1, photo 1/1,
         // tentacle 4/2 etc.  When `keep === draw` (photo) the draw
         // auto-resolves into the hand; otherwise the DrawPickerDialog
-        // modal opens and the hider picks K of N.
-        if (!alreadyReplied) {
+        // modal opens and the hider picks K of N. Skipped when the
+        // answer was late — no reward for an overdue answer.
+        if (!alreadyReplied && !late) {
             const budget = QUESTION_DRAW_BUDGET[question.id];
             if (budget) {
                 // v315: dropped the "Drew N from deck" / "Pick K of N"
@@ -642,6 +651,11 @@ function ShareBackRow({
                     question.key,
                 );
             }
+        } else if (late) {
+            toast.info(
+                "Answered after the time limit — your clock was paused until now and no card is drawn (rulebook).",
+                { autoClose: 5000 },
+            );
         }
     };
 

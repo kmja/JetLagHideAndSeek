@@ -14,6 +14,7 @@ import {
     gameStartPosition,
     HIDING_PERIOD_MINUTES,
     hiddenCreditMs,
+    hiddenDebitMs,
     hidingPeriodEndsAt,
     MOVE_PERIOD_MINUTES,
     pendingHidingDurationMin,
@@ -64,10 +65,16 @@ export function startNewRound() {
     const prevFoundAt = roundFoundAt.get();
     const prevEndsAt = hidingPeriodEndsAt.get();
     if (prevFoundAt !== null && prevEndsAt !== null) {
-        // Add any time banked by a Move powerup earlier in the round so
-        // re-anchoring pauses rather than discards survived time.
-        const hidingMs =
-            Math.max(0, prevFoundAt - prevEndsAt) + hiddenCreditMs.get();
+        // Add any time banked by a Move powerup, and subtract any time
+        // the clock was paused for overdue answers (rulebook p61), so
+        // re-anchors pause rather than discard time and stalls don't
+        // pay out.
+        const hidingMs = Math.max(
+            0,
+            Math.max(0, prevFoundAt - prevEndsAt) +
+                hiddenCreditMs.get() -
+                hiddenDebitMs.get(),
+        );
         // Resolve the hider's name: multiplayer participant if we
         // have one, otherwise the local display-name (solo plays
         // through the seeker chrome, single device).
@@ -114,6 +121,7 @@ export function startNewRound() {
     closingInWarningLevel.set(0);
     seekersFrozenUntil.set(null);
     hiddenCreditMs.set(0);
+    hiddenDebitMs.set(0);
 }
 
 /**
@@ -206,6 +214,7 @@ export function startNewGame() {
     closingInWarningLevel.set(0);
     seekersFrozenUntil.set(null);
     hiddenCreditMs.set(0);
+    hiddenDebitMs.set(0);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);

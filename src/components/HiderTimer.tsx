@@ -10,6 +10,7 @@ import {
     endgameStartedAt,
     formatTimeRemaining,
     hiddenCreditMs,
+    hiddenDebitMs,
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
@@ -97,10 +98,13 @@ export function HiderTimer() {
     if (inHidingPeriod) {
         display = formatTimeRemaining($endsAt - now);
     } else {
-        // Elapsed since hiding period ended, plus any time banked by a
-        // Move powerup earlier in the round (so the live tally matches
-        // the final score after a re-anchor).
-        const elapsedMs = now - $endsAt + hiddenCreditMs.get();
+        // Elapsed since hiding period ended, plus time banked by a Move
+        // powerup, minus time paused for overdue answers (rulebook p61)
+        // — so the live tally matches the final score.
+        const elapsedMs = Math.max(
+            0,
+            now - $endsAt + hiddenCreditMs.get() - hiddenDebitMs.get(),
+        );
         const total = Math.floor(elapsedMs / 1000);
         const h = Math.floor(total / 3600);
         const m = Math.floor((total % 3600) / 60);

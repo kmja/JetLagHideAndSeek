@@ -6,6 +6,7 @@ import { appConfirm } from "@/lib/confirm";
 import { copyFoundLink, shareFoundLink } from "@/lib/foundShare";
 import {
     hiddenCreditMs,
+    hiddenDebitMs,
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
@@ -122,7 +123,11 @@ function FoundSummary({
     onNewGame: () => void;
 }) {
     const $credit = useStore(hiddenCreditMs);
-    const elapsedMs = Math.max(0, foundAt - hidingEndsAt) + $credit;
+    const $debit = useStore(hiddenDebitMs);
+    const elapsedMs = Math.max(
+        0,
+        Math.max(0, foundAt - hidingEndsAt) + $credit - $debit,
+    );
     const totalSec = Math.floor(elapsedMs / 1000);
     const hh = Math.floor(totalSec / 3600);
     const mm = Math.floor((totalSec % 3600) / 60);

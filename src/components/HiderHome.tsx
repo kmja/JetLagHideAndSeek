@@ -31,6 +31,7 @@ import {
     formatTimeRemaining,
     gameSize,
     hiddenCreditMs,
+    hiddenDebitMs,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
@@ -882,7 +883,11 @@ function FinalScoreBanner({
     timeBonusMinutes: number;
 }) {
     const $credit = useStore(hiddenCreditMs);
-    const seekMs = Math.max(0, foundAt - hidingEndsAt) + $credit;
+    const $debit = useStore(hiddenDebitMs);
+    const seekMs = Math.max(
+        0,
+        Math.max(0, foundAt - hidingEndsAt) + $credit - $debit,
+    );
     const finalMs = Math.max(0, seekMs - timeBonusMinutes * 60_000);
 
     // Multiplayer-aware new-round flow. In an online room with 2+
