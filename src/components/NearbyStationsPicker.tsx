@@ -1,11 +1,21 @@
 import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
-import { Bus, Check, Loader2, LocateFixed, Ship, Train, TrainTrack, TramFront } from "lucide-react";
+import {
+    Bus,
+    Check,
+    Loader2,
+    LocateFixed,
+    Ship,
+    Train,
+    TrainTrack,
+    TramFront,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import { allowedTransit, type TransitMode } from "@/lib/gameSetup";
+import { haversineMeters } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { getOverpassData } from "@/maps/api/overpass";
 
@@ -60,7 +70,12 @@ export function NearbyStationsPicker({
         | { status: "idle" }
         | { status: "locating" }
         | { status: "fetching"; lat: number; lng: number }
-        | { status: "results"; stations: FoundStation[]; lat: number; lng: number }
+        | {
+              status: "results";
+              stations: FoundStation[];
+              lat: number;
+              lng: number;
+          }
         | { status: "error"; message: string }
     >({ status: "idle" });
 
@@ -98,7 +113,8 @@ export function NearbyStationsPicker({
                         console.warn("Nearby-stations fetch failed", e);
                         setState({
                             status: "error",
-                            message: "Couldn't fetch nearby stations — try again or pick manually below.",
+                            message:
+                                "Couldn't fetch nearby stations — try again or pick manually below.",
                         });
                     });
             },
@@ -126,9 +142,7 @@ export function NearbyStationsPicker({
             <Pane>
                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 <span>
-                    {state.status === "idle"
-                        ? "Reading GPS…"
-                        : "Locating you…"}
+                    {state.status === "idle" ? "Reading GPS…" : "Locating you…"}
                 </span>
             </Pane>
         );
@@ -356,23 +370,6 @@ function inferMode(tags: Record<string, string>): TransitMode | null {
         return "ferry";
     if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
     return null;
-}
-
-function haversineMeters(
-    lat1: number,
-    lng1: number,
-    lat2: number,
-    lng2: number,
-): number {
-    const R = 6371000;
-    const phi1 = (lat1 * Math.PI) / 180;
-    const phi2 = (lat2 * Math.PI) / 180;
-    const dphi = ((lat2 - lat1) * Math.PI) / 180;
-    const dlambda = ((lng2 - lng1) * Math.PI) / 180;
-    const a =
-        Math.sin(dphi / 2) ** 2 +
-        Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlambda / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default NearbyStationsPicker;
