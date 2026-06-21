@@ -7,9 +7,17 @@ import { useEffect, useMemo, useRef } from "react";
 import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
-import { lastKnownPosition, mapGeoLocation } from "@/lib/context";
+import {
+    isLoading,
+    lastKnownPosition,
+    mapGeoJSON,
+    mapGeoLocation,
+    polyGeoJSON,
+    polyGeoJSONHydrated,
+} from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
+import { clipPolygonToLand } from "@/lib/landClip";
 import {
     participants,
     seekerLocations,
@@ -21,6 +29,7 @@ import {
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+import { determineMapBoundaries } from "@/maps/api";
 
 import { SelfPositionMarker } from "./SelfPositionMarker";
 
@@ -50,6 +59,7 @@ import { SelfPositionMarker } from "./SelfPositionMarker";
 export function HiderBackgroundMap() {
     const mapRef = useRef<MapRef | null>(null);
     const $playArea = useStore(mapGeoLocation);
+    const $polyGeoJSON = useStore(polyGeoJSON);
     const $pmtilesUrl = useStore(pmtilesUrl);
     const $theme = useStore(resolvedTheme);
     const $satellite = useStore(satelliteView);
@@ -59,6 +69,82 @@ export function HiderBackgroundMap() {
     const $gps = useStore(lastKnownPosition);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
+
+    // v394: fetch the play-area boundary on the hider side. The seeker's
+    // Map.tsx has its own boundary-fetch effect; the hider previously had
+    // none, so polyGeoJSON stayed null on a fresh join. Symptoms: no
+    // boundary line on the map, AND `spoofRandomInPlayArea` falling back
+    // to the Photon bbox (a country-sized rectangle for "Calgary"), so
+    // spoofed positions could land well outside the city.
+    //
+    // We mirror Map.tsx's gates exactly: wait for Cache hydration so we
+    // don't re-fetch a polygon we already have on disk; skip when a
+    // polygon is already loaded; skip when another fetch is in flight.
+    // Single attempt, best-effort — the seeker's path owns the
+    // user-facing "couldn't load" toast; the hider just shows no outline
+    // if it fails, and we'll retry on the next mapGeoLocation change.
+    useEffect(() => {
+        const props = $playArea?.properties as
+            | { osm_id?: number }
+            | undefined;
+        if (!($playArea && (props?.osm_id ?? 0) > 0)) return;
+        if (polyGeoJSON.get() || mapGeoJSON.get()) return;
+        let cancelled = false;
+        (async () => {
+            if (!polyGeoJSONHydrated.get()) {
+                await Promise.race([
+                    new Promise<void>((resolve) => {
+                        const unsub = polyGeoJSONHydrated.subscribe((v) => {
+                            if (v) {
+                                unsub();
+                                resolve();
+                            }
+                        });
+                    }),
+                    new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+                ]);
+                if (cancelled) return;
+                if (polyGeoJSON.get() || mapGeoJSON.get()) return;
+            }
+            if (isLoading.get()) return;
+            isLoading.set(true);
+            try {
+                let boundary = await determineMapBoundaries();
+                if (cancelled) return;
+                if (!boundary?.features?.length) return;
+                const f = (boundary.features?.[0] as any) ?? null;
+                if (f?.geometry) {
+                    try {
+                        const c = await clipPolygonToLand(f);
+                        if (c) {
+                            boundary = {
+                                type: "FeatureCollection",
+                                features: [c],
+                            } as any;
+                        }
+                    } catch (e) {
+                        console.warn(
+                            "[HiderBackgroundMap] clipPolygonToLand failed; using raw boundary",
+                            e,
+                        );
+                    }
+                }
+                if (cancelled) return;
+                mapGeoJSON.set(boundary);
+                polyGeoJSON.set(boundary);
+            } catch (e) {
+                console.warn(
+                    "[HiderBackgroundMap] determineMapBoundaries failed:",
+                    e,
+                );
+            } finally {
+                isLoading.set(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [$playArea]);
 
     const seekerPins = useMemo(
         () =>
@@ -149,6 +235,62 @@ export function HiderBackgroundMap() {
         );
     }, [$zone?.stationLat, $zone?.stationLng, $zone?.radiusMeters]);
 
+    // v394: one-shot fit-to-play-area when the polygon first arrives, so
+    // the hider sees the city outline framed instead of needing to pan.
+    // Skipped if the hider already has a committed zone (the zone-fit
+    // effect above wins) or a GPS fix (they'd prefer their own view).
+    const polyKey = useMemo(() => {
+        if (!$polyGeoJSON?.features?.length) return null;
+        const props = ($polyGeoJSON.features[0]?.properties ?? null) as
+            | { osm_id?: number }
+            | null;
+        return props?.osm_id ? String(props.osm_id) : "set";
+    }, [$polyGeoJSON]);
+    const lastPolyFitRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!polyKey || lastPolyFitRef.current === polyKey) return;
+        if ($zone || $gps) {
+            lastPolyFitRef.current = polyKey;
+            return;
+        }
+        const map = mapRef.current?.getMap();
+        if (!map || !$polyGeoJSON) return;
+        try {
+            const f = $polyGeoJSON.features?.[0];
+            if (!f) return;
+            const coords: number[][] = [];
+            const walk = (arr: any) => {
+                if (typeof arr?.[0] === "number" && typeof arr?.[1] === "number") {
+                    coords.push([arr[0], arr[1]]);
+                } else if (Array.isArray(arr)) {
+                    for (const sub of arr) walk(sub);
+                }
+            };
+            walk((f.geometry as any)?.coordinates);
+            if (coords.length < 2) return;
+            let minLng = Infinity,
+                minLat = Infinity,
+                maxLng = -Infinity,
+                maxLat = -Infinity;
+            for (const [lng, lat] of coords) {
+                if (lng < minLng) minLng = lng;
+                if (lat < minLat) minLat = lat;
+                if (lng > maxLng) maxLng = lng;
+                if (lat > maxLat) maxLat = lat;
+            }
+            map.fitBounds(
+                [
+                    [minLng, minLat],
+                    [maxLng, maxLat],
+                ],
+                { padding: 40, maxZoom: 13, duration: 600 },
+            );
+            lastPolyFitRef.current = polyKey;
+        } catch (e) {
+            console.warn("[HiderBackgroundMap] poly fit failed:", e);
+        }
+    }, [polyKey, $polyGeoJSON, $zone, $gps]);
+
     return (
         <div className="absolute inset-0 z-0">
             <Map
@@ -183,6 +325,29 @@ export function HiderBackgroundMap() {
                             id="satellite-layer"
                             type="raster"
                             paint={{ "raster-opacity": 1 }}
+                        />
+                    </Source>
+                )}
+
+                {/* Play-area boundary — outline only (no fill) so the
+                    basemap stays legible inside the city. Same brand red
+                    as the zone circle but thinner, dashed and lower
+                    opacity so the two are visually distinct. */}
+                {$polyGeoJSON && (
+                    <Source
+                        id="hider-playarea"
+                        type="geojson"
+                        data={$polyGeoJSON as GeoJSON.FeatureCollection}
+                    >
+                        <Layer
+                            id="hider-playarea-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(2, 70%, 54%)",
+                                "line-width": 2.5,
+                                "line-opacity": 0.85,
+                                "line-dasharray": [2, 2],
+                            }}
                         />
                     </Source>
                 )}
