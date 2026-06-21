@@ -4,7 +4,11 @@ import { useState } from "react";
 
 import { appConfirm } from "@/lib/confirm";
 import { copyFoundLink, shareFoundLink } from "@/lib/foundShare";
-import { hidingPeriodEndsAt, setupCompleted } from "@/lib/gameSetup";
+import {
+    hiddenCreditMs,
+    hidingPeriodEndsAt,
+    setupCompleted,
+} from "@/lib/gameSetup";
 import { roundFoundAt } from "@/lib/hiderRole";
 import {
     currentGameCode,
@@ -117,7 +121,8 @@ function FoundSummary({
     onNewRound: () => void;
     onNewGame: () => void;
 }) {
-    const elapsedMs = Math.max(0, foundAt - hidingEndsAt);
+    const $credit = useStore(hiddenCreditMs);
+    const elapsedMs = Math.max(0, foundAt - hidingEndsAt) + $credit;
     const totalSec = Math.floor(elapsedMs / 1000);
     const hh = Math.floor(totalSec / 3600);
     const mm = Math.floor((totalSec % 3600) / 60);

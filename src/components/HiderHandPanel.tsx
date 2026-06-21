@@ -34,6 +34,7 @@ import {
     hiderHand,
     hiderHandLimit,
 } from "@/lib/hiderRole";
+import { playMovePowerup } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
 import { CardTile } from "./CardTile";
@@ -168,10 +169,15 @@ export function HiderHandPanel() {
                 for (const c of [...hiderHand.get()]) {
                     discardCard(c.id);
                 }
-                toast.info(
-                    "Hand discarded. Send your current station to the seekers and pick a new hiding zone — seekers are frozen during this period.",
-                    { autoClose: 6000 },
-                );
+                {
+                    const moved = playMovePowerup();
+                    toast.info(
+                        moved
+                            ? "Move played. A fresh hiding period has started and the seekers are frozen — send them your current station and pick a new hiding zone."
+                            : "Hand discarded, but Move had no clock to re-anchor (no hiding period running, or the endgame has begun).",
+                        { autoClose: 6000 },
+                    );
+                }
                 return;
             }
         }

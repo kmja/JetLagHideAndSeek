@@ -25,6 +25,7 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
+import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
 import { SeekerTopBar } from "@/components/SeekerTopBar";
 import { SeekerTripPlannerLauncher } from "@/components/SeekerTripPlannerLauncher";
 import { SeekerTripPlannerSheet } from "@/components/SeekerTripPlannerSheet";
@@ -260,6 +261,7 @@ export function SeekerPage() {
                         in the top-right cluster. Self-renders null
                         when its open atom is false. */}
                     <SeekerTripPlannerSheet />
+                    <SeekerFrozenBanner />
                     <AppConfirmHost />
                     <AppPromptHost />
                     <GameStartWatcher />

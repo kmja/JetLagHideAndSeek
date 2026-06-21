@@ -587,6 +587,50 @@ export const HIDING_PERIOD_MINUTES: Record<GameSize, number> = {
 };
 
 /**
+ * Fresh-hiding-period granted by the Move powerup, per the printed
+ * card: 10 min (S) / 20 min (M) / 60 min (L). Shorter than the initial
+ * hiding period — Move re-anchors mid-round, it doesn't restart the
+ * whole game.
+ */
+export const MOVE_PERIOD_MINUTES: Record<GameSize, number> = {
+    small: 10,
+    medium: 20,
+    large: 60,
+};
+
+/**
+ * Unix ms until which the seekers are frozen by a Move powerup (the
+ * end of the fresh hiding period it grants). Null when no freeze is
+ * active. The seeker UI surfaces a "seekers frozen" banner while
+ * `now < seekersFrozenUntil`. Persisted so a reload mid-freeze keeps
+ * the banner up; cleared each new round/game.
+ */
+export const seekersFrozenUntil = persistentAtom<number | null>(
+    "seekersFrozenUntil",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
+ * Banked hidden-time (ms) the hider accrued in earlier seeking
+ * segments before re-anchoring with a Move powerup. Headline scoring
+ * is `(foundAt - hidingPeriodEndsAt) + hiddenCreditMs`, so a Move
+ * pauses rather than discards the time already survived. Zero in the
+ * common (no-Move) case; reset each new round/game.
+ */
+export const hiddenCreditMs = persistentAtom<number>(
+    "hiddenCreditMs",
+    0,
+    {
+        encode: String,
+        decode: (v) => Number(v) || 0,
+    },
+);
+
+/**
  * How long the hider has to answer a question, in ms, per rulebook
  * (p5/p32): 5 minutes for everything EXCEPT photo questions, which get
  * 10 minutes in Small/Medium games and 20 minutes in Large games.

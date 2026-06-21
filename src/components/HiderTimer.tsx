@@ -9,6 +9,7 @@ import { shareFoundLink } from "@/lib/foundShare";
 import {
     endgameStartedAt,
     formatTimeRemaining,
+    hiddenCreditMs,
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
@@ -96,8 +97,10 @@ export function HiderTimer() {
     if (inHidingPeriod) {
         display = formatTimeRemaining($endsAt - now);
     } else {
-        // Elapsed since hiding period ended.
-        const elapsedMs = now - $endsAt;
+        // Elapsed since hiding period ended, plus any time banked by a
+        // Move powerup earlier in the round (so the live tally matches
+        // the final score after a re-anchor).
+        const elapsedMs = now - $endsAt + hiddenCreditMs.get();
         const total = Math.floor(elapsedMs / 1000);
         const h = Math.floor(total / 3600);
         const m = Math.floor((total % 3600) / 60);

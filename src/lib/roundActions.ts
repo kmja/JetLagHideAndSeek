@@ -8,19 +8,25 @@ import {
 } from "@/lib/context";
 import {
     closingInWarningLevel,
+    endgameStartedAt,
     gameSize,
     gameStartFiredFor,
     gameStartPosition,
     HIDING_PERIOD_MINUTES,
+    hiddenCreditMs,
     hidingPeriodEndsAt,
+    MOVE_PERIOD_MINUTES,
     pendingHidingDurationMin,
     preloadBucketTimestamps,
     resetMapOverlays,
+    seekersFrozenUntil,
     seekingStartFiredFor,
     setupCompleted,
     welcomeSeen,
 } from "@/lib/gameSetup";
 import {
+    hidingSpot,
+    hidingZone,
     playerRole,
     resetHiderRoundState,
     roundFoundAt,
@@ -58,7 +64,10 @@ export function startNewRound() {
     const prevFoundAt = roundFoundAt.get();
     const prevEndsAt = hidingPeriodEndsAt.get();
     if (prevFoundAt !== null && prevEndsAt !== null) {
-        const hidingMs = Math.max(0, prevFoundAt - prevEndsAt);
+        // Add any time banked by a Move powerup earlier in the round so
+        // re-anchoring pauses rather than discards survived time.
+        const hidingMs =
+            Math.max(0, prevFoundAt - prevEndsAt) + hiddenCreditMs.get();
         // Resolve the hider's name: multiplayer participant if we
         // have one, otherwise the local display-name (solo plays
         // through the seeker chrome, single device).
@@ -103,6 +112,51 @@ export function startNewRound() {
     seekingStartFiredFor.set(null);
     gameStartFiredFor.set(null);
     closingInWarningLevel.set(0);
+    seekersFrozenUntil.set(null);
+    hiddenCreditMs.set(0);
+}
+
+/**
+ * Play the Move powerup (rulebook: hider deck). Discards the hand
+ * (done by the caller), banks the time survived so far, re-anchors the
+ * hider with a fresh, shorter hiding period (10/20/60 min by size),
+ * and freezes the seekers until it ends. Cannot be played in the
+ * endgame. Returns false (and no-ops) if there's no running clock or
+ * the endgame has already begun.
+ *
+ * The caller is responsible for discarding the hand and telling the
+ * seekers the current station — this handles only the timer/freeze/
+ * re-anchor state so both hand UIs (fan + panel) stay in sync.
+ */
+export function playMovePowerup(): boolean {
+    const endsAt = hidingPeriodEndsAt.get();
+    if (endsAt === null) return false;
+    if (endgameStartedAt.get() !== null) return false;
+
+    const now = Date.now();
+    // Bank time already survived (only counts once the initial hiding
+    // period has elapsed and seeking actually began).
+    if (now > endsAt) {
+        hiddenCreditMs.set(hiddenCreditMs.get() + (now - endsAt));
+    }
+
+    // Re-anchor: the old zone/spot no longer apply — the hider picks a
+    // new station during the fresh hiding period.
+    hidingZone.set(null);
+    hidingSpot.set(null);
+
+    const minutes = MOVE_PERIOD_MINUTES[gameSize.get()];
+    const freshEnd = now + minutes * 60_000;
+    hidingPeriodEndsAt.set(freshEnd);
+    seekersFrozenUntil.set(freshEnd);
+
+    // Let the start/seeking celebrations re-fire for the new period.
+    seekingStartFiredFor.set(null);
+    gameStartFiredFor.set(null);
+    closingInWarningLevel.set(0);
+
+    hostPushSetup();
+    return true;
 }
 
 /**
@@ -150,6 +204,8 @@ export function startNewGame() {
     seekingStartFiredFor.set(null);
     gameStartFiredFor.set(null);
     closingInWarningLevel.set(0);
+    seekersFrozenUntil.set(null);
+    hiddenCreditMs.set(0);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);
