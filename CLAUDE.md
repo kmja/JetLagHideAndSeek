@@ -2,52 +2,38 @@
 
 ## Project overview
 
-This is Kalle's fork of [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek), a seeker's map-elimination companion for the Jet Lag: The Game board game. The fork is deployed at **https://jetlaghideandseek.karl-mj-andersson.workers.dev** via Cloudflare Pages (auto-deploys on push to master, 2–3 min build).
+This is Kalle's fork of [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek), a seeker's map-elimination companion for the Jet Lag: The Game board game. The fork is deployed at **https://jetlaghideandseek.karl-mj-andersson.workers.dev** as a Cloudflare **Worker serving static assets** (Workers Builds auto-deploys on push to master, 2–3 min build — see the "Deploy mechanism" section below; NOT Cloudflare Pages, NOT GitHub Actions).
 
 GitHub: **github.com/kmja/JetLagHideAndSeek**
 
-Stack: **Astro + React + TypeScript + Tailwind + shadcn/ui + Lucide + nanostores**. Hardcoded dark mode. Fonts: Poppins + Oxygen.
+Stack: **Vite SPA + React + React Router + TypeScript + Tailwind + shadcn/ui + Lucide + nanostores**. Maps via **MapLibre GL** (`react-map-gl/maplibre`). Hardcoded dark mode. Fonts: Poppins + Oxygen.
 
-## Five question types
+> The app was **originally Astro + React islands** and migrated to a plain Vite SPA — see the migration note at the top of `vite.config.ts`. Any reference below to `.astro` pages, `client:load`/`client:only` directives, or Leaflet is **historical**; the current entry is `src/main.tsx` → `src/App.tsx` (React Router), the build is `vite build` → static `dist/` served as Cloudflare Worker Static Assets with SPA fallback to `index.html`.
 
-| Category | Color | Icon |
-|---|---|---|
-| Matching | `#7d8087` grey | `Equal` |
-| Measuring | `#9dc99e` green | `Ruler` |
-| Radius | `#f5a888` peach | `Radar` |
-| Thermometer | `#f5d268` yellow | `Thermometer` |
-| Tentacles | `#b09cd5` purple | `BrainCircuit` |
+## Six question types
 
-Defined in `src/lib/categories.ts`. One brand color: `bg-jetlag #1F2F3F`.
+| Category (id) | Color | Icon | Label |
+|---|---|---|---|
+| matching | `#7d8087` grey | `Equal` | Matching |
+| measuring | `#9dc99e` green | `Ruler` | Measuring |
+| radius | `#f5a888` peach | `Radar` | **Radar** |
+| thermometer | `#f5d268` yellow | `Thermometer` | Thermometer |
+| tentacles | `#b09cd5` purple | `BrainCircuit` | Tentacles |
+| photo | `#7fbcd6` blue | `Camera` | Photo |
 
-## Critical: SSR import constraints
+Defined in `src/lib/categories.ts` (keys match schema `id`s). Note the `radius` category's user-facing label is **"Radar"** (rulebook name) — the internal id stays `radius` for save-game compat. One brand color: `bg-jetlag #1F2F3F`.
 
-**This is the most important architectural constraint.** Astro statically generates pages; `client:load` components are SSR-rendered server-side. **Never import leaflet or react-leaflet as a static value import in any component reachable from a `client:load` component.** Doing so causes `window is not defined` during build.
+## ~~Critical: SSR import constraints~~ (obsolete — no SSR anymore)
 
-### SSR-rendered (client:load) components in index.astro
-- `SidebarProviderL`, `SidebarTriggerL` (from `ui/sidebar-l`)
-- `SidebarProviderR` (from `ui/sidebar-r`)
-- `OptionDrawers`
+**Historical.** This whole constraint belonged to the Astro era and **no longer applies.** The app is now a client-only Vite SPA: nothing renders server-side, so there is no `window is not defined` build trap and **no restriction on importing map libraries statically.** Components import `react-map-gl/maplibre` / `maplibre-gl` directly at the top of the file (see `Map.tsx`, `HiderBackgroundMap.tsx`) with no `React.lazy` ceremony required for SSR reasons. (Lazy-loading is still used where it pays off as a *bundle-size* optimization — e.g. `MapPickerDialog` — just not as an SSR workaround.)
 
-`OptionDrawers` imports `LatitudeLongitude` from `LatLngPicker`. So any transitive import from `LatLngPicker` is also SSR-reachable.
-
-### Safe leaflet importers (all within client:only trees)
-- `Map.tsx` — direct `import * as L from "leaflet"` — safe because `<Map client:only />`
-- `ZoneSidebar.tsx`, `DraggableMarkers.tsx`, `PolygonDraw.tsx` — all within client:only
-
-### How to add leaflet-dependent code safely
-If a component used by `LatLngPicker` or `OptionDrawers` needs leaflet:
-- Use `React.lazy(() => import("./Component"))` + `<Suspense fallback={null}>` to break the static import graph
-- Or use `import("leaflet")` inside a `useEffect` for the specific value you need
-- `import type { X } from "leaflet"` is always safe (erased at compile)
-
-**The sign of this bug:** build succeeds through client bundle, `h.astro` generates OK, then `index.astro` generation crashes with `window is not defined` at `leaflet-src.js:230`.
+The map renderer is **MapLibre GL** via `react-map-gl`, not Leaflet. The old Leaflet renderer and its sibling overlay components were deleted in the migration; overlays are now `Source`/`Layer` pairs inside the map component.
 
 ## Z-index ladder
 
 ```
-Leaflet map tiles          ~100
-Leaflet controls           ~400
+MapLibre map tiles         ~100
+MapLibre controls          ~400
 Left sidebar               1030–1040
 Bottom nav                 1040
 Sheet overlay              1050
@@ -57,14 +43,15 @@ AlertDialog overlay        1055
 AlertDialog content        1060
 ```
 
-All popups/dialogs/drawers portal to `<body>`, NOT to `#map-modal-dialog-container-leaflet` (which is inside Leaflet's stacking context). If content appears behind the dark overlay, it's a z-index mismatch — check that overlay and content are both set explicitly.
+All popups/dialogs/drawers portal to `<body>`. (The `#map-modal-dialog-container-leaflet` id still exists in `SeekerPage.tsx` as a legacy name, but it's just a positioned wrapper now, not a Leaflet stacking context.) If content appears behind the dark overlay, it's a z-index mismatch — check that overlay and content are both set explicitly.
 
 ## Portal patterns
 
-- **Dialog, AlertDialog**: portal to body (modified in v12)
-- **Select**: portal to body (modified in v10)
-- **Sheet**: overlay z-1050, content z-1051 (fixed in v16 — default shadcn `z-50` was hidden behind overlay)
-- **Drawer (vaul)**: uses `VaulDrawer.Portal` direct to body, z-1045
+All of these use the **default Radix/vaul portal** (→ `document.body`); none pass an explicit `container`. (The old Leaflet `#map-modal-dialog-container-leaflet` stacking-context problem that originally motivated explicit body-portaling is gone — the app isn't Leaflet anymore.)
+
+- **Dialog, AlertDialog, Select**: default Radix `Portal` → body.
+- **Sheet**: overlay `z-[1050]`, content `z-[1051]` (raised from shadcn default `z-50`, which was hidden behind the overlay).
+- **Drawer (vaul)**: `VaulDrawer.Portal` → body; overlay + content both `z-[1040]`.
 
 If a Sheet, Dialog, or Select isn't visible (dark overlay shows but no content), check z-index on both overlay and content layers.
 
@@ -112,66 +99,68 @@ Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib
 ### Map tile overlays (Map.tsx)
 Two conditional overlays on top of base tile layer:
 - **Satellite**: Esri World Imagery `server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}` — free, no API key
-- **Transit lines**: OpenRailwayMap `tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png` — semi-transparent, best in Europe
+- **Transit lines**: OpenRailwayMap, **proxied + R2-cached via the worker** (`RAIL_TILE_BASE = ${JLHS_WORKER_BASE}/api/railtile`, v351 — not the direct `tiles.openrailwaymap.org` host) — semi-transparent, best in Europe
 
 ### Thermometer question lifecycle
-The schema (`src/maps/schema.ts`) has three extra fields on thermometer:
+The schema (`src/maps/schema.ts`) has four extra fields on thermometer:
 - `status: "started"|"finished"` (optional, defaults `"finished"` for backward compat)
-- `distance: string` (preset signature like `"500m"`, set on finish)
+- `distance: string` (preset signature like `"500m"`, stamped on finish)
 - `startedAt: number` (Unix ms timestamp)
+- `targetSig: string` (v339 — the target-distance preset the seeker picks **up front**; drives a single-target progress UI; usually equals `distance` at finish)
 
-Flow: Tapping thermometer in AddQuestionDialog creates a question with `status:"started"`, `latA/lngA` = map center, `latB/lngB` mirror. No configure dialog — picker closes with a toast. Card shows live GPS distance + preset buttons when distance is reached. Uniqueness: each preset (`500m/1km/2km/5km/10km`) can only be finished once per game. `ThermometerOverlay` (mounted in index.astro) shows a floating pill on the map with live distance while a thermometer is started.
+Flow (v339+): Tapping thermometer in AddQuestionDialog opens **`ThermometerConfigureDialog`** — the seeker picks a target distance and confirms Start, which creates the question with `status:"started"`, `targetSig` set, `latA/lngA` = map center, `latB/lngB` mirror. The card shows live GPS distance vs. the target. Uniqueness: each preset (`500m/1km/2km/5km/10km`) can only be finished once per game. `ThermometerOverlay` (mounted in `SeekerPage`) shows a floating pill on the map with live distance while a thermometer is started.
 
-## Layout: index.astro
+## Layout: SeekerPage.tsx
 
-```astro
-<SidebarProviderL client:load>
-  <SidebarProviderR client:load defaultOpen={false}>
-    <QuestionSidebar client:only />
+The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hidingPeriodEndsAt` (pre-game = lobby only; in-game = full shell). No `client:*` directives — it's a plain SPA tree. Hider route is the sibling `src/pages/HiderPage.tsx`. Approx in-game tree:
+
+```tsx
+<SidebarProviderL>
+  <SidebarProviderR defaultOpen={false}>
+    <QuestionSidebar />
     <main>
       <div> {/* map container */}
-        <SidebarTriggerL client:load />     {/* top-left, desktop only */}
-        <MapDisplayControls client:only />   {/* top-right */}
-        <PlacePicker client:only />          {/* top-center */}
-        <OptionDrawers client:load />        {/* bottom-right, desktop only */}
-        <ThermometerOverlay client:only />   {/* overlay on map */}
-        <Map client:only />
+        <SidebarTriggerL />                  {/* top-left, desktop only */}
+        <MapDisplayControls />               {/* top-right */}
+        <SeekerTripPlannerLauncher />        {/* top-right, under controls */}
+        <ThermometerOverlay /> <TravelTimesOverlay />
+        <Map />                              {/* MapLibre via react-map-gl */}
       </div>
     </main>
-    <ZoneSidebar client:only />
-    <BottomNav client:only />
-    <GameSetupDialog client:only />
+    <ZoneSidebar />
+    <BottomNav />
+    <SeekerTripPlannerSheet /> <GameSetupDialog /> ...
   </SidebarProviderR>
 </SidebarProviderL>
 ```
 
 ## Bottom nav (mobile only)
 
-Four buttons: **Questions** | **New question** (primary CTA, disabled during hiding period) | **Settings** | **More**
+`BottomNav.tsx` — four slots: **Questions** (`List`) | **New question** (`Plus`, primary CTA) | **Lobby** (`Users`) | **Settings** (`Settings`).
 
-- Questions → opens QuestionSidebar (left drawer)
-- New question → opens AddQuestionDialog (question picker)
-- Settings → opens Sheet with game setup summary (play area / transit / size); "Edit settings" re-opens GameSetupDialog; "New game" resets completion + reopens wizard. During hiding period: shows live countdown timer (MM:SS), "End hiding period · Start seeking" button.
-- More → opens Sheet with OptionDrawers (tutorial link, options, share, etc.)
+- Questions → opens QuestionSidebar (left drawer); badge = questions added.
+- New question → opens AddQuestionDialog; disabled while `hiding` OR a previous question is still unanswered.
+- Lobby → opens `GameLobbyDialog` via `lobbyManualOpen`; badge = online participant count (added v242).
+- Settings → opens the `AppSettingsDrawer` via `moreSheetOpen` (tutorial, rulebook, units, theme, preload — the merged settings+more drawer).
 
-The Settings icon animates: shows `Timer` icon + countdown in primary color during hiding period, `Settings` icon otherwise.
+There is **no "More" slot** anymore, and the hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card (the standalone "Game"/countdown drawer was retired in v270).
 
 ## Map display controls (top-right)
 
-`MapDisplayControls.tsx` — vertical stack:
-1. **Zone button** — `Target` icon + "Zone" label, opens ZoneSidebar
-2. **Map/Satellite segmented switch** — both labels visible, active fills primary
-3. **Transit toggle** — `TrainFront` icon + "Transit" label, filled when on
+`MapDisplayControls.tsx` — a **single compact "Map options" chip** (`Layers` icon, `h-14/w-14`, with an active-count badge) that opens a **Popover** containing:
+- **Basemap** — Map / Satellite segmented switch.
+- **Overlays** — Hiding zones + Travel times toggles.
+- **Export** — Save image.
+- **Transit overlays** — per-mode toggles (rail / subway / bus / ferry / train / tram), gated on `allowedTransit`.
 
-All three: `h-9` height, `shadow-md`, consistent border styling.
+(The hider's sibling `HiderMapDisplayControls` is a trimmed version of the same popover + a "Reachable zones" toggle; see the Trip-planning section.)
 
 ## AddQuestionDialog flow
 
 1. Pick category (CategoryTile grid)
-   - **Radius** → opens configure dialog (preset buttons + Other popover)
-   - **Thermometer** → immediately creates started question, closes picker, toasts
+   - **Radar (radius)** → opens configure dialog (preset buttons + Other popover)
+   - **Thermometer** → opens `ThermometerConfigureDialog` (target-distance picker + Start confirm; v339)
    - **Matching/Measuring/Tentacles** → opens subtype picker (step 2)
-   - **Radius/Tentacles/etc.** follow configure pattern
 2. Subtype picker (step 2) — scrollable flex-col dialog, dark sidebar background
 3. Configure dialog (pending question from `promoteLastQuestion`)
 
@@ -191,69 +180,28 @@ const PRIMARY_PRESETS = [
 
 Always render in `grid grid-cols-5` (not flex-wrap) so all 5 fit one row. Used sigs (e.g. already-asked radius questions) are disabled. Currently-selected sig stays enabled for re-selection.
 
-## Map-based location picker (MapPickerDialog)
+## Map-based location picker (InlineLocationPicker)
 
-A lazily-loaded dialog (via `React.lazy` in `LatLngPicker`) with Leaflet map. Tap to place pin, "Use my GPS" button, "Set location" confirms. Uses same dark cartocdn tiles as main map. The lazy load means leaflet only downloads when the picker first opens, not on page load.
+A lazily-loaded (`React.lazy` in `LatLngPicker`) **MapLibre** inline map embedded in the configure dialog (the old standalone `MapPickerDialog.tsx` was deleted). Tap to place pin, "Use my GPS" button, "Set location" confirms. Uses the same base tiles as the main map (OSM raster / Protomaps vector — NOT cartocdn, which was dropped in v225 as adblocker-blocked). The lazy load is now purely a bundle-size optimization, not an SSR workaround.
 
 ## Card base (cards/base.tsx)
 
 Expand/collapse transition: `duration-200` (was 1000ms, was slow). Chevron rotation: `transition-transform duration-200`.
 
-## Current deployment state
+## Current state
 
-The user was last deployed at v15 at the time this document was written, with v16+v17+v18 batches ready to deploy. v18 is the SSR build fix (LatLngPicker lazy + MapPickerDialog default export). When deployed, the full feature set includes:
+The app is well past the early-batch features documented here historically — current version is in `src/lib/version.ts` (`vNN`). Per-file batch tracking was discontinued; use `git log` + `src/lib/version.ts` as the source of truth for "what changed when." The baseline now includes: game-setup wizard, multiplayer (see below), photo questions, hider role + reach/trip-planning, thermometer target-distance flow, tile packs, and more.
 
-- Game setup wizard (3-step: play area, transit, game size)
-- Hiding period countdown in bottom nav
-- Thermometer started/finished flow with GPS distance tracking
-- Map display controls (satellite, transit lines, zone trigger)
-- Map-based location picker (lazily loaded)
-- Game size filtering of question subtypes
-- Snappy card expand/collapse (200ms)
-- Tutorial removed
+## Multiplayer (shipped)
 
-## Files changed per batch (for reference)
+Built on **Cloudflare Workers + Durable Objects** (one DO per game, WebSocket fan-out, server-authoritative) — the decision resolved to **raw Workers+DO** (not PartyKit). Full design + operator docs in **`MULTIPLAYER.md`**. Real file layout:
 
-| File | Last meaningful batch |
-|---|---|
-| `src/lib/gameSetup.ts` | v15 |
-| `src/lib/subtypes.ts` | v18-fix |
-| `src/lib/categories.ts` | v7 |
-| `src/lib/context.ts` | upstream (type-only leaflet import) |
-| `src/maps/schema.ts` | v17 |
-| `src/pages/index.astro` | v17 |
-| `src/components/AddQuestionDialog.tsx` | v17 |
-| `src/components/BottomNav.tsx` | v16 |
-| `src/components/GameSetupDialog.tsx` | v15 |
-| `src/components/LatLngPicker.tsx` | v18-fix |
-| `src/components/Map.tsx` | v14 |
-| `src/components/MapDisplayControls.tsx` | v16 |
-| `src/components/MapPickerDialog.tsx` | v18-fix |
-| `src/components/QuestionSidebar.tsx` | v16 |
-| `src/components/ThermometerOverlay.tsx` | v17 |
-| `src/components/cards/base.tsx` | v17 |
-| `src/components/cards/radius.tsx` | v16 |
-| `src/components/cards/thermometer.tsx` | v17 |
-| `src/components/cards/matching.tsx` | v15 |
-| `src/components/cards/measuring.tsx` | v15 |
-| `src/components/cards/tentacles.tsx` | v15 |
-| `src/components/ui/sheet.tsx` | v16 |
-| `src/components/ui/dialog.tsx` | v12 |
-| `src/components/ui/alert-dialog.tsx` | v12 |
-| `src/components/ui/select.tsx` | v10 |
+- **Server** (`worker/`): `index.ts` (HTTP router — `POST /games`, `GET /games/:code/ws`, `GET /health`, `GET /vapid-public-key`), `GameRoom.ts` (the Durable Object), `webpush.ts` (RFC 8291/8188 Web Push), `wrangler.toml`, `scripts/deploy.mjs` (master-only deploy shim).
+- **Client lib** (`src/lib/multiplayer/`): `transport.ts`, `session.ts`, `store.ts` (the questions-store bridge), `types.ts`, `demoBroker.ts` (in-browser mock room for demo mode).
+- **Client components** (`src/components/multiplayer/`): `OnlinePlaySection.tsx` (host/join), `InviteSheet.tsx`, `MultiplayerBoot.tsx`, `PresenceIndicators.tsx`, `RotateHiderDialog.tsx` — plus `GameLobbyDialog`, `RolePicker`, `SeekerLivePositions`, `CurseInbox` elsewhere.
+- **Shared** (`protocol/`): `{index,messages,names,state,version}.ts` — wire types imported by both client and worker.
 
-## Planned: multiplayer (not started)
-
-Architecture decision: **Cloudflare Workers + Durable Objects** (one DO per game, WebSocket fan-out, server-authoritative). One game = one DO in memory with WebSocket connections from all participants.
-
-Planned files:
-- **Client**: `src/lib/multiplayer/{transport,session,gameStore,actions}.ts`, `src/components/{JoinGameDialog,InviteSheet,PresenceIndicators}.tsx`
-- **Server**: `worker/{index,GameRoom,schema}.ts`, `wrangler.toml` updates
-- **Shared**: `protocol/` (wire types, imported by both client and server)
-
-Open decisions before starting: PartyKit vs raw Workers+DO, persistence TTL, max participants, spectator mode, where rule-checks happen (client/server/both).
-
-Sequence: server skeleton → identity+transport → `questions` store bridge → host flow → join flow → live updates → presence.
+Shipped features include **live seeker→hider location sharing** (`loc` message), **curses over the wire** (`castCurse`/`curseReceived`, including Web Push to offline seekers), and presence. Limits live in `protocol/state.ts` (`MAX_PARTICIPANTS=5`, `IDLE_EVICTION_MS=30min`, `MAX_ROOM_LIFETIME_MS=18h`, `MAX_QUESTIONS_PER_ROOM=200`, `MAX_MESSAGE_BYTES=64KB`). Still absent: spectator mode, sophisticated reconnect.
 
 ## Coding conventions
 

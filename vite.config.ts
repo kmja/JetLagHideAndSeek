@@ -20,9 +20,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // React-dedup hygiene below all carried over with no behaviour
 // change.
 //
-// Production builds emit static HTML+JS+CSS into `dist/`, which
-// Cloudflare Pages (configured via `wrangler.jsonc`) serves as
-// Worker Static Assets with SPA fallback to `index.html`.
+// Production builds emit static HTML+JS+CSS into `dist/`, which a
+// Cloudflare Worker (configured via `wrangler.jsonc`, deployed by
+// Workers Builds) serves as Worker Static Assets with SPA fallback
+// to `index.html`.
 export default defineConfig({
     plugins: [
         react(),

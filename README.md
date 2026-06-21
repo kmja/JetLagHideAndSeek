@@ -1,6 +1,22 @@
 # Jet Lag The Game: Hide and Seek Map Generator
 
-A tool to trivially generate interactive maps for viewing hiding possibilities in Jet Lag The Game's Hide and Seek. So far, the following questions have been implemented (see https://github.com/taibeled/JetLagHideAndSeek/issues/9 for more):
+> **This is [kmja](https://github.com/kmja)'s fork** of
+> [taibeled/JetLagHideAndSeek](https://github.com/taibeled/JetLagHideAndSeek),
+> with substantial additions: real-time **multiplayer** (Cloudflare
+> Worker + Durable Object — see [`MULTIPLAYER.md`](./MULTIPLAYER.md)),
+> a hider-side companion, transit **trip planning**, photo questions,
+> and more.
+>
+> - **Live site:** https://jetlaghideandseek.karl-mj-andersson.workers.dev
+> - **Tech stack:** Vite SPA + React 19 + React Router + TypeScript +
+>   Tailwind + shadcn/ui + nanostores; maps via **MapLibre GL**
+>   (`react-map-gl/maplibre`). (It was originally Astro; it migrated to
+>   a plain Vite SPA — there is no Astro or Leaflet anymore.)
+> - **Deploy:** Cloudflare **Workers Builds** → Worker Static Assets
+>   (serves `dist/`); not Cloudflare Pages, not GitHub Actions.
+> - **Architecture/agent notes:** [`CLAUDE.md`](./CLAUDE.md).
+
+A tool to trivially generate interactive maps for viewing hiding possibilities in Jet Lag The Game's Hide and Seek. So far, the following questions have been implemented (see https://github.com/taibeled/JetLagHideAndSeek/issues/9 for more — note this fork also adds Photo questions and trip planning beyond the list below):
 
 - Radius
     - All
@@ -73,10 +89,11 @@ Even if you're not a programmer, you can still help by further documenting the u
 
 ## Developer Workflow
 
-To develop this website, you need to have [git](https://git-scm.com/downloads), [Node.js](https://nodejs.org/) (version 24 or earlier), and [pnpm](https://pnpm.io/installation) installed. You should then start by cloning this repository and entering the directory:
+To develop this website, you need to have [git](https://git-scm.com/downloads), [Node.js](https://nodejs.org/) (`< 25`, per `package.json` `engines`), and [pnpm](https://pnpm.io/installation) installed. You should then start by cloning this repository and entering the directory:
 
 ```bash
-git clone https://github.com/taibeled/JetLagHideAndSeek.git
+# this fork:
+git clone https://github.com/kmja/JetLagHideAndSeek.git
 cd JetLagHideAndSeek
 ```
 
@@ -86,13 +103,15 @@ Next, use `pnpm` to install the dependencies:
 pnpm install
 ```
 
-You can now host the website as you make modifications:
+You can now host the website as you make modifications (Vite dev server at `http://localhost:5173`):
 
 ```bash
 pnpm dev
 ```
 
-After making any modifications, please run `pnpm lint` to have your code automatically formatted and errors spotted.
+Other useful scripts: `pnpm build` (production `vite build` → `dist/`), `pnpm test` (vitest), `pnpm typecheck` (`tsc --noEmit`). After making any modifications, please run `pnpm lint` to have your code automatically formatted (eslint + prettier) and errors spotted.
+
+The multiplayer worker is a separate package under `worker/` with its own deploy flow — see [`MULTIPLAYER.md`](./MULTIPLAYER.md). The Overpass cache worker lives under `overpass-cache/` — see [`overpass-cache/README.md`](./overpass-cache/README.md).
 
 ## Contributors
 

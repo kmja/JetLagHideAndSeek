@@ -7,11 +7,11 @@ DO memory and evicts after 30 min of zero connections.
 
 ## One-time deployment
 
-You'll need a Cloudflare account (the same one the Pages site is
+You'll need a Cloudflare account (the same one the frontend Worker is
 deployed under is fine) and `pnpm`. Wrangler and `@cloudflare/workers-types`
 live in **`worker/package.json`** (a separate npm package from the
 root) so their heavy esbuild/workerd dependency tree doesn't disturb
-the main Astro app's bundling. Always run wrangler commands from
+the main Vite SPA's bundling. Always run wrangler commands from
 the `worker/` directory.
 
 1. **Install the worker package's deps** (only required once per
@@ -32,7 +32,7 @@ the `worker/` directory.
    ```
 
    Opens a browser tab; pick the Cloudflare account that owns this
-   project's Pages site.
+   project's frontend Worker.
 
 3. **Deploy the Worker**:
 
@@ -40,21 +40,25 @@ the `worker/` directory.
    cd worker && pnpm run deploy
    ```
 
-   That npm script wraps `wrangler deploy` (which finds
-   `worker/wrangler.toml` locally), bundling `worker/index.ts` +
-   `worker/GameRoom.ts` together with the shared `protocol/` types,
-   and ships them to
+   That npm script wraps `wrangler deploy --config wrangler.toml`
+   (the explicit `--config` is required so wrangler doesn't walk up
+   to the repo-root frontend config), bundling `worker/index.ts` +
+   `worker/GameRoom.ts` + `worker/webpush.ts` together with the
+   shared `protocol/` types, and ships them to
    `https://jlhs-multiplayer.<your-subdomain>.workers.dev`.
 
    The config lives inside `worker/` (not at the repo root) so the
    frontend's Cloudflare auto-build doesn't accidentally pick it up
-   and try to deploy the backend in its place.
+   and try to deploy the backend in its place. For the **Workers
+   Builds** auto-deploy, the project's configured deploy command is
+   `node scripts/deploy.mjs` — a thin shim that no-ops on non-master
+   branches so preview pushes stay green.
 
    The first deploy also runs the v1 migration that creates the
    `GameRoom` Durable Object class. Subsequent deploys just update
    the code.
 
-3. **Find your Worker's URL.** After a successful deploy Wrangler
+4. **Find your Worker's URL.** After a successful deploy Wrangler
    prints something like:
 
    ```
@@ -62,9 +66,9 @@ the `worker/` directory.
      https://jlhs-multiplayer.<your-subdomain>.workers.dev
    ```
 
-   Copy that URL — you'll need it in step 4.
+   Copy that URL — you'll need it in step 5.
 
-4. **Point the client at the Worker.** Set the
+5. **Point the client at the Worker.** Set the
    `PUBLIC_MULTIPLAYER_URL` env var:
 
    - **Local dev:** add to `.env` at the repo root:
@@ -75,18 +79,18 @@ the `worker/` directory.
 
      (`.env` is already gitignored.)
 
-   - **Production (Cloudflare Pages):** in the Pages project
-     settings → Environment Variables, add `PUBLIC_MULTIPLAYER_URL`
-     with the same value. Set it on both Production and Preview
-     environments.
+   - **Production (frontend Worker):** the frontend deploys via
+     Cloudflare Workers Builds; set `PUBLIC_MULTIPLAYER_URL` as a
+     build/environment variable on the `jetlaghideandseek` Worker
+     (or bake it into the build env) with the same value.
 
-5. **Update `ALLOWED_ORIGINS` if needed.** The Worker's
-   `worker/wrangler.toml` already includes the production Pages URL and
-   common localhost ports. If you serve the client from a different
-   origin, add it there and redeploy:
+6. **Update `ALLOWED_ORIGINS` if needed.** The Worker's
+   `worker/wrangler.toml` already includes the production frontend
+   URL and common localhost ports. If you serve the client from a
+   different origin, add it there and redeploy:
 
    ```bash
-   pnpm wrangler deploy
+   pnpm run deploy   # = wrangler deploy --config wrangler.toml
    ```
 
 ## Local development
@@ -97,8 +101,8 @@ The Worker can run locally via:
 cd worker && pnpm run dev
 ```
 
-Listens on `http://localhost:8787` by default. Then start the Astro
-dev server (`pnpm dev`, port 4321) with `PUBLIC_MULTIPLAYER_URL`
+Listens on `http://localhost:8787` by default. Then start the Vite
+dev server (`pnpm dev`, port 5173) with `PUBLIC_MULTIPLAYER_URL`
 pointing at the local Worker:
 
 ```bash
@@ -114,15 +118,15 @@ PUBLIC_MULTIPLAYER_URL=http://localhost:8787 pnpm dev
 
 ### If the dev preview goes blank after a deps change
 
-**Symptom:** the Astro dev server starts cleanly and serves HTML,
+**Symptom:** the Vite dev server starts cleanly and serves HTML,
 but the page is blank with "Invalid hook call" errors flooding the
 browser console.
 
-**Cause:** the PWA service worker (registered automatically thanks
-to `devOptions.enabled: true` in `astro.config.mjs`) has cached
-stale chunks from a previous broken state and is intercepting every
-request. Restarting the dev server doesn't help because the SW
-serves from cache regardless.
+**Cause:** the PWA service worker (registered automatically by
+`vite-plugin-pwa` in `vite.config.ts`) has cached stale chunks from
+a previous broken state and is intercepting every request.
+Restarting the dev server doesn't help because the SW serves from
+cache regardless.
 
 **Fix:** in the broken tab's DevTools console, run:
 
@@ -145,13 +149,19 @@ restart.
 
 - `index.ts` — HTTP router. `POST /games` creates a code (no DO
   materialized yet). `GET /games/:code/ws` upgrades to WebSocket and
-  routes to the DO instance keyed by code.
+  routes to the DO instance keyed by code. Also `GET /health`
+  (liveness) and `GET /vapid-public-key` (Web Push public key).
 - `GameRoom.ts` — the Durable Object. Holds in-memory state
   (`code`, `setup`, `questions`, `roundFoundAt`, `participants`),
   manages WebSocket lifecycle (host/join/resume/disconnect),
   enforces transport invariants (max 5 participants, one hider),
-  fans out broadcasts, and arms an alarm to wipe the room after 30
+  fans out broadcasts (including live `loc` position updates and
+  `curseReceived`), and arms an alarm to wipe the room after 30
   min idle.
+- `webpush.ts` — RFC 8291/8188 Web Push (encryption + VAPID) using
+  Web Crypto, so curses can reach **offline** seekers as push
+  notifications. Public key served at `/vapid-public-key`; clients
+  register a subscription over the WebSocket.
 
 ### Shared protocol (`protocol/`)
 
@@ -178,19 +188,23 @@ restart.
   into the existing local stores (`questions`, `hiderInbox`,
   `roundFoundAt`, etc.). Idempotent by key — re-broadcasts of
   locally-initiated changes don't double-apply.
+- `types.ts` — client-side multiplayer types.
+- `demoBroker.ts` — an in-browser mock GameRoom used by demo mode,
+  so the multiplayer UI can be exercised without a live worker.
 
 ### Client UI (`src/components/multiplayer/`)
 
-- `JoinGameDialog.tsx` — unified host/join modal. Display name
-  input shared between tabs.
+- `OnlinePlaySection.tsx` — the host/join UI (display name +
+  host/join actions). (There is no `JoinGameDialog.tsx`.)
 - `InviteSheet.tsx` — `InvitePanel` component that shows the
   active game code, copy/share row, participant roster, and "leave
-  game" button. Embedded in the BottomNav's More sheet.
+  game" button. Surfaced from the BottomNav Lobby/Settings flow.
 - `PresenceIndicators.tsx` — small chip showing online status and
-  participant count. Hovers above the BottomNav when in an online
-  game.
+  participant count.
 - `MultiplayerBoot.tsx` — mounts once per page to install the
   bridge and attempt resume from persistent session state.
+- `RotateHiderDialog.tsx` — mid-game hider rotation / promotion
+  (drives the protocol `rotateHider` message).
 
 ## Connection lifecycle
 
@@ -231,18 +245,22 @@ the same trust model the local-only build has always had — these
 games are casual play among friends and we'd rather keep the server
 simple.
 
-## What's not in this build
+## Shipped since the initial drop
 
-The following are deliberate follow-ups, not bugs:
+These were follow-ups in the original draft of this doc and are now
+**implemented**:
 
-- **Live position sharing.** The endgame still shows the "seeker
-  position not connected yet" placeholder. Adding this means
-  high-frequency throttled location pings; out of scope for the
-  initial multiplayer drop.
-- **Curse cast over the wire.** Curses still share via the
-  share-link flow — by design. The seeker actively acknowledging a
-  curse cast is the right UX, and putting curses on the WebSocket
-  doesn't add much.
+- **Live position sharing.** Seeker→hider GPS streams over the
+  WebSocket as `loc` messages (`GameRoom.ts` broadcasts them;
+  `SeekerLivePositions` renders them on the hider map).
+- **Curse cast over the wire.** Curses go over the socket
+  (`castCurse` → `curseReceived`), and `webpush.ts` even delivers
+  them to **offline** seekers as Web Push notifications.
+
+## What's still not in this build
+
+Genuine follow-ups, not bugs:
+
 - **Sophisticated reconnect-after-long-offline.** Basic reconnect
   works; "I was offline for 20 minutes and my partner answered 3
   questions in the meantime" relies on the welcome snapshot to
@@ -255,7 +273,7 @@ The following are deliberate follow-ups, not bugs:
 
 After deploying:
 
-1. Open `https://<your-pages-site>/` in two browsers (or a browser
+1. Open `https://<your-frontend-site>/` in two browsers (or a browser
    + a phone).
 2. In the first, BottomNav → More → "Play online" → "Host a game",
    pick a display name, hit Host.
@@ -327,7 +345,7 @@ If your free tier runs out before you've added a paid plan:
   the game" toast.
 - **WebSocket upgrades** may be throttled too.
 - **Existing connections** keep working until the rooms idle out.
-- **Pages site** is unaffected — it has its own free tier with
+- **Frontend Worker** is unaffected — it has its own free tier with
   much more generous quotas. Players can still play in
   local-only mode (sharing question links via SMS), which is the
   fallback the app preserves anyway.
@@ -341,10 +359,10 @@ breakage.
 
 Before sharing the app widely:
 
-- [ ] Deploy the Worker (`pnpm wrangler deploy`).
-- [ ] Set `PUBLIC_MULTIPLAYER_URL` on production Pages env.
+- [ ] Deploy the Worker (`cd worker && pnpm run deploy`).
+- [ ] Set `PUBLIC_MULTIPLAYER_URL` on the production frontend Worker env.
 - [ ] Verify `ALLOWED_ORIGINS` in `worker/wrangler.toml` matches your
-      production Pages URL exactly (including https vs http).
+      production frontend URL exactly (including https vs http).
 - [ ] Set up at least one Cloudflare billing/usage alert (Workers
       daily-requests at 80% is a good baseline).
 - [ ] Optionally: set a Workers Paid spending cap if you've

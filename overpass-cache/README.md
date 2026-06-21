@@ -18,6 +18,13 @@ wrangler r2 bucket create jlhs-overpass-cache
 wrangler secret put ADMIN_SECRET --config wrangler.toml
 # (paste a long random string)
 
+# 3b. (optional) Transit journey/plan secrets — see envTypes.ts.
+#     All optional; without them the affected regions fall back to
+#     a walking estimate rather than a live schedule.
+wrangler secret put TRAFIKLAB_API_KEY  --config wrangler.toml  # SE — ResRobot (journey arrivals + plan)
+wrangler secret put DIGITRANSIT_API_KEY --config wrangler.toml # FI — Digitransit plan
+wrangler secret put TFL_API_KEY         --config wrangler.toml # London — higher rate limit (works keyless too)
+
 # 4. First deploy
 pnpm run deploy
 
@@ -27,13 +34,26 @@ curl https://jlhs-overpass-cache.<your-subdomain>.workers.dev/health
 
 For ongoing deploys: the Cloudflare Workers Builds project
 rooted at `overpass-cache/` auto-deploys on every push to
-master, same pattern as the multiplayer worker.
+master, same pattern as the multiplayer worker. Its configured
+Workers Builds deploy command is `node scripts/deploy.mjs` (a
+thin shim that no-ops on non-master branches so preview pushes
+stay green) — NOT `pnpm run deploy`, which is the manual
+`wrangler deploy` path above.
 
 ## Endpoints
+
+Non-exhaustive — the worker also proxies references (`/api/refs/*`),
+transit overlays (`/api/transit/*`), elevation (`/api/elevation/*`),
+map assets (`/api/mapasset/*`), rail tiles (`/api/railtile/*`),
+Photon geocoding (`/api/photon/{forward,reverse}`), and PMTiles
+(`/tiles/*`); see the `url.pathname` dispatch in `src/index.ts` for
+the full list. The commonly-touched ones:
 
 | Path | Auth | Purpose |
 |---|---|---|
 | `GET /api/interpreter?data=…` | none | Cached Overpass query. Used by the seeker app. |
+| `POST /api/journey/arrivals` | none | Reach: anchor + many stops → earliest arrival at each (ResRobot). Needs `TRAFIKLAB_API_KEY`; without it returns the empty-results shape so the client degrades gracefully. (`src/journey.ts`) |
+| `POST /api/travel/plan` | none | Plan: single origin→destination journey **with legs** via the regional adapter dispatcher (Trafiklab/Entur/Digitransit/TfL/Swiss + walking backstop). Always returns a journey. (`src/travel/`) |
 | `POST /admin/prewarm` | Bearer | Bulk-fetch by explicit relation id list (caller supplies the ids). |
 | `POST /admin/trigger-prewarm` | Bearer | Manually run the cron's next batch right now (picks from `POPULAR_CITIES`). Optional body `{ "batch": 20, "delayBetweenMs": 1000 }`. |
 | `POST /admin/discover` | Bearer | Resolve unresolved candidate city names via Photon and append the new relation IDs to the R2-stored list. Optional body `{ "batch": 20 }` or `{ "names": ["Halifax, Canada", ...] }`. |
@@ -52,11 +72,12 @@ There are two backlogs:
    has to actually run so the result lands in R2. This is what
    `/admin/trigger-prewarm` and the daily cron do.
 
-The daily cron handles both: 5 names through Photon → discovered list,
-then 20 relations through the prewarm. Roughly: full ~600-name
-backlog drains in ~4 months without any manual nudge; the
-already-resolved ~170 cities fill in ~10 days. Speed it up by
-hitting the endpoints below.
+An **hourly** cron (`crons = ["0 * * * *"]`) drains both backlogs each
+tick — discovery (Photon name → relation id) plus prewarm (~25 cities
+via `PREWARM_BATCH_SIZE`), alongside HSR-country and global
+country-shard reference passes. A fresh bucket fills out in roughly a
+day of wall-clock; the curated ~170-city list warms much faster. Speed
+it up further by hitting the endpoints below.
 
 ### Fast-fill without your laptop
 
@@ -122,8 +143,8 @@ header naming the source shard.
 
 ## Overnight bulk prewarm
 
-A scheduled cron already keeps the curated list in
-`src/cities.ts` warm at ~5 cities/week. For larger pre-fills
+The hourly cron already keeps the curated list in
+`src/cities.ts` warm (~25 cities/run). For larger pre-fills
 (e.g. "load 1000 major cities tonight"), use the bulk script:
 
 ```bash

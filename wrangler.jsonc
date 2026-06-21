@@ -2,21 +2,20 @@
 //
 // This is the public site at
 // https://jetlaghideandseek.karl-mj-andersson.workers.dev — it serves
-// the Astro-built static bundle from `dist/` as Worker Static
+// the Vite-built static SPA bundle from `dist/` as Worker Static
 // Assets. No server-side code is involved here; the multiplayer
 // backend is a separate Worker (see `worker/wrangler.toml`).
 //
-// We need this file at the repo root so Cloudflare's auto-build
-// pipeline (which is connected to this GitHub repo) does not try to
-// add the `@astrojs/cloudflare` SSR adapter on every build. With a
-// `wrangler.jsonc` present, the pipeline trusts the explicit config
-// and skips the `astro add cloudflare` auto-setup that would
-// otherwise rewrite `astro.config.mjs` mid-build.
+// (Historical note: the app used to be Astro and this file guarded
+// against the Cloudflare pipeline auto-adding the `@astrojs/cloudflare`
+// SSR adapter. The app is now a plain Vite SPA — `vite build` emits a
+// static `dist/` — so that concern is moot, but the explicit config
+// is still what Workers Builds deploys.)
 //
 // `not_found_handling: "single-page-application"` makes Cloudflare
 // fall back to `index.html` for client-routed paths so deep links
-// keep working. Astro already emits `/h/index.html` for the hider
-// route, so that page is served directly.
+// (including the `/h` hider route, which React Router handles
+// client-side) keep working.
 {
     "$schema": "node_modules/wrangler/config-schema.json",
     "name": "jetlaghideandseek",
