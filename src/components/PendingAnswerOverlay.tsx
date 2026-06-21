@@ -347,6 +347,14 @@ export function PendingAnswerOverlay() {
                                     {mm}:{String(ss).padStart(2, "0")}
                                 </span>
                             )}
+                            {phase === "active" && overdue && (
+                                <span
+                                    className="text-[10px] font-poppins font-bold uppercase tracking-[0.1em] text-destructive"
+                                    title="Past the answer window — the hider's clock is paused until they answer, and they earn no card (rulebook p61)"
+                                >
+                                    Clock paused
+                                </span>
+                            )}
                         </span>
                     </div>
                     <div className="mt-1 text-sm font-inter-tight font-bold text-foreground leading-tight truncate">
