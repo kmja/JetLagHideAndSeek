@@ -7,8 +7,12 @@
  *   - Matching: Voronoi cell of the seeker's nearest X = the "yes,
  *     same nearest" region; the rest of the play area = "no". Plus
  *     every other instance of X so the seeker can read density.
- *   - Measuring: perpendicular bisector between the seeker and their
- *     nearest X. "closer" half vs "further" half.
+ *   - Measuring: the real elimination geometry — a geodesic union of
+ *     circles (radius = seeker's distance to nearest X) around every
+ *     candidate, i.e. "everywhere whose nearest X is no further than
+ *     mine" = the "closer" region; the rest of the play area = "further".
+ *     A perpendicular-bisector half-plane is used only as an instant
+ *     fallback while that async buffer resolves.
  *   - Tentacles: the reach circle + every candidate inside it.
  *
  * Pure geometry on the prefetched feature cache (playAreaPrefetch) —
@@ -28,6 +32,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
+import { arcBufferToPoint } from "@/maps/geo-utils";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
     type FamilyKey,
@@ -198,6 +203,77 @@ export function useQuestionImpact(
         void prefetchCategory(family.family).then(() => setTick((t) => t + 1));
     }, [family?.kind, (family as any)?.family]);
 
+    // Real measuring-elimination preview. The measuring cut is NOT a flat
+    // perpendicular-bisector half-plane — that was only ever correct for a
+    // single reference point. The actual elimination (adjustPerMeasuring →
+    // bufferedDeterminer → arcBufferToPoint) buffers EVERY candidate by the
+    // seeker's geodesic distance to the nearest one and unions the result:
+    // "every place whose nearest X is no further than mine". We run the
+    // exact same operator here so the green "closer" region the seeker sees
+    // while configuring matches what the answer will actually carve out.
+    //
+    // Async (lazy @arcgis/core) so it lands a beat after the instant
+    // half-plane fallback below. Point families only: `city` is a worldwide
+    // set (a live geodesic union on every pin move would jank) and
+    // `coastline` is a contour, not a point buffer — both keep the light
+    // path. Only ever active while configuring a draft (impactMode is unset
+    // on answered cards), so at most one of these runs at a time.
+    const [measuring, setMeasuring] = useState<{
+        family: string;
+        lat: number;
+        lng: number;
+        yes: Feature<Polygon | MultiPolygon> | null;
+        no: Feature<Polygon | MultiPolygon> | null;
+    } | null>(null);
+    useEffect(() => {
+        if (mode !== "measuring") return;
+        if (!family || family.kind === "city" || family.kind === "coastline") {
+            return;
+        }
+        if (!playArea) return;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const cached = getCachedCategory(family.family);
+        if (!cached || cached.length === 0) return;
+        let cancelled = false;
+        const pts = turf.featureCollection(
+            cached.map((f) => turf.point([f.lng, f.lat])),
+        );
+        arcBufferToPoint(pts, lat, lng)
+            .then((buffer) => {
+                if (cancelled || !buffer) return;
+                let yes: Feature<Polygon | MultiPolygon> | null = null;
+                let no: Feature<Polygon | MultiPolygon> | null = null;
+                try {
+                    yes = turf.intersect(
+                        turf.featureCollection([
+                            buffer as any,
+                            playArea as any,
+                        ]),
+                    ) as Feature<Polygon | MultiPolygon> | null;
+                } catch {
+                    /* keep null — caller falls back to half-plane */
+                }
+                try {
+                    no = turf.difference(
+                        turf.featureCollection([
+                            playArea as any,
+                            buffer as any,
+                        ]),
+                    ) as Feature<Polygon | MultiPolygon> | null;
+                } catch {
+                    /* keep null */
+                }
+                setMeasuring({ family: family.family, lat, lng, yes, no });
+            })
+            .catch(() => {
+                /* leave the half-plane fallback in place */
+            });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, family?.kind, (family as any)?.family, playArea, lat, lng, tick]);
+
     return useMemo(() => {
         if (!family || !playArea) return null;
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -271,20 +347,40 @@ export function useQuestionImpact(
                 }
             }
         } else if (mode === "measuring" && nearest) {
-            const closer = closerHalfPlane({ lat, lng }, nearest, playArea);
-            if (closer) {
-                out.yes = closer;
-                try {
-                    const further = turf.difference(
-                        turf.featureCollection([
-                            playArea as any,
-                            closer as any,
-                        ]),
-                    );
-                    if (further)
-                        out.no = further as Feature<Polygon | MultiPolygon>;
-                } catch {
-                    /* keep yes only */
+            // Prefer the real geodesic union-of-circles region computed by
+            // the effect above (matches the actual elimination). It's only
+            // valid for the current family + seeker position; while it's
+            // still resolving (or unavailable) we draw the cheap half-plane
+            // so the seeker always has immediate feedback.
+            const real =
+                measuring &&
+                family.kind !== "city" &&
+                measuring.family === (family as { family?: string }).family &&
+                measuring.lat === lat &&
+                measuring.lng === lng &&
+                (measuring.yes || measuring.no)
+                    ? measuring
+                    : null;
+            if (real) {
+                out.yes = real.yes ?? undefined;
+                out.no = real.no ?? undefined;
+            } else {
+                const closer = closerHalfPlane({ lat, lng }, nearest, playArea);
+                if (closer) {
+                    out.yes = closer;
+                    try {
+                        const further = turf.difference(
+                            turf.featureCollection([
+                                playArea as any,
+                                closer as any,
+                            ]),
+                        );
+                        if (further)
+                            out.no =
+                                further as Feature<Polygon | MultiPolygon>;
+                    } catch {
+                        /* keep yes only */
+                    }
                 }
             }
         } else if (mode === "tentacles" && tentacleRadiusKm) {
@@ -309,5 +405,6 @@ export function useQuestionImpact(
         mode,
         tentacleRadiusKm,
         tick,
+        measuring,
     ]);
 }
