@@ -16,10 +16,12 @@
  */
 
 import type { Env } from "../envTypes";
+import * as denmark from "./adapters/denmark";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
 import * as germany from "./adapters/germany";
 import * as navitia from "./adapters/navitia";
+import * as nsw from "./adapters/nsw";
 import * as swiss from "./adapters/swiss";
 import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
@@ -62,6 +64,16 @@ const TRAFIKLAB: TravelAdapter = {
     },
 };
 
+/** Denmark (Rejseplanen HAFAS) — keyless. Ordered ahead of Trafiklab
+ *  so the Øresund overlap routes Copenhagen to Rejseplanen. */
+const DENMARK: TravelAdapter = {
+    id: "denmark",
+    canServe: denmark.canServe,
+    async plan(req, departAt, _env, signal) {
+        return denmark.planJourney(req, departAt, signal);
+    },
+};
+
 /** Entur (Norway) — keyless GraphQL endpoint, always available so
  *  no env-key gate. */
 const ENTUR: TravelAdapter = {
@@ -69,6 +81,17 @@ const ENTUR: TravelAdapter = {
     canServe: entur.canServe,
     async plan(req, departAt, _env, signal) {
         return entur.planJourney(req, departAt, signal);
+    },
+};
+
+/** Transport for NSW (Sydney/Australia) — keyed EFA; defers without
+ *  the key. Geographically isolated, no bbox overlap. */
+const NSW: TravelAdapter = {
+    id: "nsw",
+    canServe: nsw.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.TFNSW_API_KEY) return null;
+        return nsw.planJourney(req, env.TFNSW_API_KEY, departAt, signal);
     },
 };
 
@@ -150,12 +173,14 @@ const WALKING: TravelAdapter = {
  *  final backstop. Add a tighter city/country adapter AHEAD of the
  *  national ones (and ahead of navitia) when coverage improves. */
 export const ADAPTERS: TravelAdapter[] = [
+    DENMARK,
     TRAFIKLAB,
     ENTUR,
     DIGITRANSIT,
     TFL,
     SWISS,
     GERMANY,
+    NSW,
     NAVITIA,
     WALKING,
 ];

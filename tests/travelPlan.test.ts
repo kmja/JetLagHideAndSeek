@@ -16,6 +16,8 @@ import { parseTflJourney } from "../overpass-cache/src/travel/adapters/tfl";
 import { parseSwissConnections } from "../overpass-cache/src/travel/adapters/swiss";
 import { parseFptfJourneys } from "../overpass-cache/src/travel/adapters/germany";
 import { parseNavitiaJourneys } from "../overpass-cache/src/travel/adapters/navitia";
+import { parseRejseplanenTrip } from "../overpass-cache/src/travel/adapters/denmark";
+import { parseEfaTrip } from "../overpass-cache/src/travel/adapters/nsw";
 import {
     dispatchPlan,
     selectAdapters,
@@ -135,6 +137,25 @@ describe("adapter dispatch selection", () => {
     test("Paris: no country adapter, navitia fallback then walking", () => {
         expect(selectAdapters(48.8566, 2.3522).map((a) => a.id)).toEqual([
             "navitia",
+            "walking",
+        ]);
+    });
+
+    test("Copenhagen: denmark first (ahead of trafiklab in the Øresund overlap)", () => {
+        // Copenhagen sits in both the DK and SE bboxes; denmark is
+        // ordered first so Rejseplanen serves it, trafiklab is the
+        // fallthrough.
+        expect(selectAdapters(55.6761, 12.5683).map((a) => a.id)).toEqual([
+            "denmark",
+            "trafiklab",
+            "navitia",
+            "walking",
+        ]);
+    });
+
+    test("Sydney: nsw then walking (isolated, no navitia)", () => {
+        expect(selectAdapters(-33.8688, 151.2093).map((a) => a.id)).toEqual([
+            "nsw",
             "walking",
         ]);
     });
@@ -718,5 +739,177 @@ describe("parseNavitiaJourneys (navitia / Paris)", () => {
     test("returns null on empty journeys", () => {
         expect(parseNavitiaJourneys({ journeys: [] }, dest)).toBeNull();
         expect(parseNavitiaJourneys({}, dest)).toBeNull();
+    });
+});
+
+describe("parseRejseplanenTrip (Denmark / HAFAS)", () => {
+    // Rejseplanen uses dd.MM.yy dates, HH:MM times, microdegree X/Y,
+    // and Leg can be a single object or an array.
+    const FIXTURE = {
+        TripList: {
+            Trip: [
+                {
+                    Leg: [
+                        {
+                            type: "WALK",
+                            name: "Walk",
+                            Origin: {
+                                name: "Start",
+                                x: "12568300",
+                                y: "55676100",
+                                date: "21.06.26",
+                                time: "12:00",
+                            },
+                            Destination: {
+                                name: "København H",
+                                x: "12565100",
+                                y: "55672600",
+                                date: "21.06.26",
+                                time: "12:04",
+                            },
+                        },
+                        {
+                            type: "S",
+                            name: "S-tog A",
+                            direction: "Hillerød",
+                            Origin: {
+                                name: "København H",
+                                x: "12565100",
+                                y: "55672600",
+                                date: "21.06.26",
+                                time: "12:10",
+                            },
+                            Destination: {
+                                name: "Nørreport",
+                                x: "12571400",
+                                y: "55683200",
+                                date: "21.06.26",
+                                time: "12:14",
+                            },
+                        },
+                    ],
+                },
+            ],
+        },
+    };
+
+    const dest: TravelPlace = { lat: 55.6832, lng: 12.5714, name: "Nørreport" };
+
+    test("normalises walk + S-tog, microdeg coords, dd.MM.yy dates", () => {
+        const j = parseRejseplanenTrip(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[1].mode).toBe("train");
+        expect(j!.legs[1].line).toBe("S-tog A");
+        expect(j!.legs[1].direction).toBe("Hillerød");
+        // microdegree → degree conversion on the endpoint coords.
+        expect(j!.legs[1].to.lat).toBeCloseTo(55.6832, 3);
+        expect(j!.legs[1].to.lng).toBeCloseTo(12.5714, 3);
+        expect(j!.transfers).toBe(0);
+        expect(j!.durationMin).toBe(14);
+    });
+
+    test("handles a single Leg object (not array)", () => {
+        const single = {
+            TripList: {
+                Trip: {
+                    Leg: {
+                        type: "M",
+                        name: "Metro M1",
+                        Origin: { name: "A", date: "21.06.26", time: "09:00" },
+                        Destination: {
+                            name: "B",
+                            date: "21.06.26",
+                            time: "09:12",
+                        },
+                    },
+                },
+            },
+        };
+        const j = parseRejseplanenTrip(single, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(1);
+        expect(j!.legs[0].mode).toBe("subway");
+        expect(j!.durationMin).toBe(12);
+    });
+
+    test("returns null when no trips", () => {
+        expect(
+            parseRejseplanenTrip({ TripList: { Trip: [] } }, dest),
+        ).toBeNull();
+        expect(parseRejseplanenTrip({}, dest)).toBeNull();
+    });
+});
+
+describe("parseEfaTrip (NSW / TfNSW rapidJSON)", () => {
+    const FIXTURE = {
+        journeys: [
+            {
+                legs: [
+                    {
+                        distance: 300,
+                        origin: {
+                            disassembledName: "Start",
+                            coord: [-33.8688, 151.2093],
+                            departureTimePlanned: "2026-06-21T02:00:00Z",
+                        },
+                        destination: {
+                            disassembledName: "Town Hall Station",
+                            coord: [-33.8731, 151.2069],
+                            arrivalTimePlanned: "2026-06-21T02:05:00Z",
+                        },
+                        transportation: {
+                            product: { class: 100, name: "footpath" },
+                        },
+                    },
+                    {
+                        origin: {
+                            disassembledName: "Town Hall Station",
+                            coord: [-33.8731, 151.2069],
+                            departureTimeEstimated: "2026-06-21T02:09:00Z",
+                        },
+                        destination: {
+                            disassembledName: "Chatswood Station",
+                            coord: [-33.7969, 151.1803],
+                            arrivalTimeEstimated: "2026-06-21T02:27:00Z",
+                        },
+                        transportation: {
+                            product: {
+                                class: 1,
+                                name: "Sydney Trains Network",
+                            },
+                            disassembledName: "T1",
+                            destination: { name: "Berowra" },
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+
+    const dest: TravelPlace = {
+        lat: -33.7969,
+        lng: 151.1803,
+        name: "Chatswood Station",
+    };
+
+    test("normalises footpath + train, class→mode, [lat,lng] coords", () => {
+        const j = parseEfaTrip(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[0].distanceMeters).toBe(300);
+        expect(j!.legs[1].mode).toBe("train");
+        expect(j!.legs[1].line).toBe("T1");
+        expect(j!.legs[1].direction).toBe("Berowra");
+        expect(j!.legs[1].to.lat).toBeCloseTo(-33.7969, 3);
+        expect(j!.transfers).toBe(0);
+        expect(j!.durationMin).toBe(27);
+    });
+
+    test("returns null on empty journeys", () => {
+        expect(parseEfaTrip({ journeys: [] }, dest)).toBeNull();
+        expect(parseEfaTrip({}, dest)).toBeNull();
     });
 });

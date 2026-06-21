@@ -67,4 +67,10 @@ export interface Env {
      *  signup at https://navitia.io/. Optional — without it the
      *  adapter defers and those regions fall through to walking. */
     NAVITIA_API_KEY?: string;
+    /** Transport for NSW (Sydney/Australia) Open Data Trip Planner
+     *  key, sent as `Authorization: apikey <KEY>`. Configure via
+     *  `wrangler secret put TFNSW_API_KEY`. Free signup at the TfNSW
+     *  Open Data Hub. Optional — without it NSW origins fall through
+     *  to walking. (Norway/Switzerland/Germany/Denmark are keyless.) */
+    TFNSW_API_KEY?: string;
 }
