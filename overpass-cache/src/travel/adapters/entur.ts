@@ -100,8 +100,18 @@ export async function planJourney(
     signal?: AbortSignal,
 ): Promise<Journey | null> {
     const variables = {
-        from: { coordinates: { latitude: req.origin.lat, longitude: req.origin.lng } },
-        to: { coordinates: { latitude: req.destination.lat, longitude: req.destination.lng } },
+        from: {
+            coordinates: {
+                latitude: req.origin.lat,
+                longitude: req.origin.lng,
+            },
+        },
+        to: {
+            coordinates: {
+                latitude: req.destination.lat,
+                longitude: req.destination.lng,
+            },
+        },
         dateTime: new Date(departAt).toISOString(),
     };
 
@@ -148,9 +158,11 @@ export function parseEnturTrip(
     json: unknown,
     destFallback: TravelPlace,
 ): Journey | null {
-    const trip = (json as {
-        data?: { trip?: { tripPatterns?: unknown[] } };
-    })?.data?.trip;
+    const trip = (
+        json as {
+            data?: { trip?: { tripPatterns?: unknown[] } };
+        }
+    )?.data?.trip;
     const patterns = trip?.tripPatterns;
     if (!Array.isArray(patterns) || patterns.length === 0) return null;
     const tp = patterns[0] as {

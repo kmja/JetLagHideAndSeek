@@ -80,13 +80,13 @@ import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
 import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
 import { HiderQuestionLog } from "./HiderQuestionLog";
+import { HiderTripPlanCard } from "./HiderTripPlanCard";
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
 import {
     type FoundStation,
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
-import { HiderTripPlanCard } from "./HiderTripPlanCard";
 import { ScoutedSpotsPanel } from "./ScoutedSpotsPanel";
 import { SeekerLivePositions } from "./SeekerLivePositions";
 
@@ -153,16 +153,10 @@ export function HiderHomeContent() {
     // Visibility-aware so the locked-phone case doesn't keep
     // waking the CPU once per second.
     const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(
-        () => setNow(Date.now()),
-        1000,
-        $hidingEndsAt !== null,
-    );
+    useVisibleInterval(() => setNow(Date.now()), 1000, $hidingEndsAt !== null);
 
     const inHidingPeriod = $hidingEndsAt !== null && now < $hidingEndsAt;
-    const remainingMs = $hidingEndsAt
-        ? Math.max(0, $hidingEndsAt - now)
-        : 0;
+    const remainingMs = $hidingEndsAt ? Math.max(0, $hidingEndsAt - now) : 0;
     const elapsedAnchor = $foundAt ?? now;
     const hiddenElapsedMs = $hidingEndsAt
         ? Math.max(0, elapsedAnchor - $hidingEndsAt)
@@ -183,9 +177,7 @@ export function HiderHomeContent() {
         $hidingZone === null &&
         graceEndsAt !== null &&
         now < graceEndsAt;
-    const graceRemainingMs = graceEndsAt
-        ? Math.max(0, graceEndsAt - now)
-        : 0;
+    const graceRemainingMs = graceEndsAt ? Math.max(0, graceEndsAt - now) : 0;
     // Forfeit fires once the grace window closes with still no zone.
     // Latch it into the persistent atom so peers / reloads agree, and
     // so the round can't be silently un-lost by a late zone commit.
@@ -316,9 +308,9 @@ export function HiderHomeContent() {
                             Endgame — lock down now
                         </div>
                         <p className="text-sm text-foreground leading-snug">
-                            The seeker just triggered the endgame. Stay put
-                            and commit to a single hiding spot — once you
-                            do, you can&apos;t move until the round ends.
+                            The seeker just triggered the endgame. Stay put and
+                            commit to a single hiding spot — once you do, you
+                            can&apos;t move until the round ends.
                         </p>
                     </div>
                 </section>
@@ -338,9 +330,9 @@ export function HiderHomeContent() {
                                 Waiting on the seeker
                             </div>
                             <p className="text-sm text-foreground leading-snug">
-                                The hiding period hasn&apos;t started on
-                                this device yet. Once the seeker finishes
-                                game setup, your timer will appear here.
+                                The hiding period hasn&apos;t started on this
+                                device yet. Once the seeker finishes game setup,
+                                your timer will appear here.
                             </p>
                         </div>
                     </div>
@@ -350,18 +342,17 @@ export function HiderHomeContent() {
                         </div>
                         <ol className="list-decimal pl-4 space-y-0.5">
                             <li>
-                                Seeker picks the play area, transit modes,
-                                and game size in their wizard.
+                                Seeker picks the play area, transit modes, and
+                                game size in their wizard.
                             </li>
                             <li>
-                                Tapping <em>Start</em> on their device
-                                begins the hiding period. You&apos;ll see
-                                a countdown here.
+                                Tapping <em>Start</em> on their device begins
+                                the hiding period. You&apos;ll see a countdown
+                                here.
                             </li>
                             <li>
                                 Pick a hiding zone before the timer ends —
-                                that&apos;s the area inside which you must
-                                stay.
+                                that&apos;s the area inside which you must stay.
                             </li>
                         </ol>
                     </div>
@@ -385,11 +376,7 @@ export function HiderHomeContent() {
                 />
             )}
 
-            {phase === "forfeit" && (
-                <ForfeitView
-                    onNewGame={startNewGame}
-                />
-            )}
+            {phase === "forfeit" && <ForfeitView onNewGame={startNewGame} />}
 
             {phase === "seeking" && (
                 <SeekingPhaseView
@@ -504,8 +491,7 @@ function HidingPhaseView({
             {/* Explainer */}
             <section className="rounded-md border border-border bg-secondary/30 px-4 py-3 mb-4 space-y-2 text-sm leading-snug">
                 <p>
-                    Pick a transit station of an allowed mode to hide
-                    near. The{" "}
+                    Pick a transit station of an allowed mode to hide near. The{" "}
                     <span className="font-bold">
                         {(radiusMeters / 1000).toFixed(
                             radiusMeters >= 1000 ? 1 : 1,
@@ -538,15 +524,15 @@ function HidingPhaseView({
                     )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    Once you arrive, tell the seekers — or let the
-                    countdown run out if you want more strategy time.
+                    Once you arrive, tell the seekers — or let the countdown run
+                    out if you want more strategy time.
                 </p>
                 {zone === null && (
                     <p className="text-[11px] leading-snug text-destructive border border-destructive/40 bg-destructive/5 rounded-md px-2.5 py-2">
                         Lock in a zone before the clock hits zero. If you
-                        don&apos;t, the game locks for a 5-minute grace
-                        period to pick a station from where you are — miss
-                        that too and you forfeit the round.
+                        don&apos;t, the game locks for a 5-minute grace period
+                        to pick a station from where you are — miss that too and
+                        you forfeit the round.
                     </p>
                 )}
             </section>
@@ -603,9 +589,9 @@ function GracePhaseView({
                     {formatTimeRemaining(graceRemainingMs)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 leading-snug">
-                    The hiding period ended before you locked in a zone.
-                    Pick a transit station from your current location
-                    before this timer runs out, or you forfeit the round.
+                    The hiding period ended before you locked in a zone. Pick a
+                    transit station from your current location before this timer
+                    runs out, or you forfeit the round.
                 </p>
             </section>
 
@@ -639,15 +625,19 @@ function ForfeitView({ onNewGame }: { onNewGame: () => void }) {
                         Round forfeited
                     </div>
                     <p className="text-sm text-foreground leading-snug">
-                        You didn&apos;t lock in a hiding zone before the
-                        grace period ran out, so this round is lost. The
-                        zone has to be centered on a transit station and
-                        chosen before time expires.
+                        You didn&apos;t lock in a hiding zone before the grace
+                        period ran out, so this round is lost. The zone has to
+                        be centered on a transit station and chosen before time
+                        expires.
                     </p>
                 </div>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-2">
-                <Button onClick={onNewGame} variant="outline" className="gap-1.5">
+                <Button
+                    onClick={onNewGame}
+                    variant="outline"
+                    className="gap-1.5"
+                >
                     <Sparkles className="w-4 h-4" />
                     New game
                 </Button>
@@ -685,10 +675,7 @@ function SeekingPhaseView({
 
             {/* Hiding zone — locked at this phase; tap "Change" only
                 in rule-bending emergencies. */}
-            <HidingZoneSection
-                zone={zone}
-                radiusMeters={radiusMeters}
-            />
+            <HidingZoneSection zone={zone} radiusMeters={radiusMeters} />
 
             {/* Lockdown affordance — when the hider commits to their
                 final spot the view transitions to endgame. */}
@@ -781,8 +768,8 @@ function EndgamePhaseView({
                         </span>
                     )}
                     Locked at {new Date(spot.lockedAt).toLocaleTimeString()}.
-                    You can&apos;t move from here until the seeker
-                    finds you or the round ends.
+                    You can&apos;t move from here until the seeker finds you or
+                    the round ends.
                 </div>
             </section>
 
@@ -868,11 +855,7 @@ function ElapsedHiddenBanner({
  * endgame-phase banners — they share the same yellow tint so the
  * bonus reads consistently across phases.
  */
-function TimeBonusInHand({
-    size,
-}: {
-    size: ReturnType<typeof gameSize.get>;
-}) {
+function TimeBonusInHand({ size }: { size: ReturnType<typeof gameSize.get> }) {
     const $hand = useStore(hiderHand);
     const bonusMinutes = useMemo(
         () => tallyTimeBonusMinutes($hand, size),
@@ -1361,9 +1344,9 @@ function HidingSpotSection({
             ) : (
                 <div className="space-y-3">
                     <p className="text-xs text-muted-foreground leading-snug px-1">
-                        Hiding period is over. Pin your spot and stay there
-                        — the seeker can&apos;t ask new questions if you
-                        keep moving (rulebook p43).
+                        Hiding period is over. Pin your spot and stay there —
+                        the seeker can&apos;t ask new questions if you keep
+                        moving (rulebook p43).
                     </p>
                     <div className="flex gap-2">
                         <Button
@@ -1380,8 +1363,7 @@ function HidingSpotSection({
                             Number.isFinite(draftLng) &&
                             (draftLat !== 0 || draftLng !== 0) && (
                                 <span className="self-center text-[11px] text-muted-foreground tabular-nums">
-                                    {draftLat.toFixed(5)},{" "}
-                                    {draftLng.toFixed(5)}
+                                    {draftLat.toFixed(5)}, {draftLng.toFixed(5)}
                                 </span>
                             )}
                     </div>

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { JourneyCard } from "@/components/JourneyCard";
 import { lastKnownPosition } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
-import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
 import { hidingZone } from "@/lib/hiderRole";
+import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
 
 /**
  * Hider's trip-plan card. Fetches a journey from the hider's live
@@ -35,9 +35,11 @@ export function HiderTripPlanCard() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [nonce, setNonce] = useState(0);
-    const lastAnchorRef = useRef<{ lat: number; lng: number; zoneKey: string } | null>(
-        null,
-    );
+    const lastAnchorRef = useRef<{
+        lat: number;
+        lng: number;
+        zoneKey: string;
+    } | null>(null);
 
     useEffect(() => {
         if (!$zone || !$gps) return;
@@ -94,7 +96,14 @@ export function HiderTripPlanCard() {
             controller.abort();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [$zone?.stationLat, $zone?.stationLng, $gps?.lat, $gps?.lng, $allowed, nonce]);
+    }, [
+        $zone?.stationLat,
+        $zone?.stationLng,
+        $gps?.lat,
+        $gps?.lng,
+        $allowed,
+        nonce,
+    ]);
 
     if (!$zone) return null;
 

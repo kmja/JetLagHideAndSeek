@@ -214,7 +214,10 @@ function endpointPlace(e: RawEndpoint, fallback?: TravelPlace): TravelPlace {
 
 /** ResRobot exposes the line under `Product` (object or array,
  *  version-dependent). Fall back to the leg's own `name`. */
-function legLineLabel(leg: { name?: string; Product?: unknown }): string | undefined {
+function legLineLabel(leg: {
+    name?: string;
+    Product?: unknown;
+}): string | undefined {
     const product = Array.isArray(leg.Product) ? leg.Product[0] : leg.Product;
     const p = product as { name?: string; line?: string } | undefined;
     return p?.name ?? p?.line ?? leg.name ?? undefined;
@@ -223,10 +226,16 @@ function legLineLabel(leg: { name?: string; Product?: unknown }): string | undef
 /** Best-effort mapping from ResRobot's category/product text to our
  *  mode enum. Swedish + English keywords; defaults to the generic
  *  `"transit"` when nothing matches so the leg still renders. */
-function classifyMode(leg: { name?: string; Product?: unknown }): TravelMode | "transit" {
+function classifyMode(leg: {
+    name?: string;
+    Product?: unknown;
+}): TravelMode | "transit" {
     const product = Array.isArray(leg.Product) ? leg.Product[0] : leg.Product;
-    const p = product as { catOut?: string; catOutL?: string; name?: string } | undefined;
-    const hay = `${p?.catOut ?? ""} ${p?.catOutL ?? ""} ${p?.name ?? ""} ${leg.name ?? ""}`.toLowerCase();
+    const p = product as
+        | { catOut?: string; catOutL?: string; name?: string }
+        | undefined;
+    const hay =
+        `${p?.catOut ?? ""} ${p?.catOutL ?? ""} ${p?.name ?? ""} ${leg.name ?? ""}`.toLowerCase();
     if (/tunnelbana|metro|subway|u-bahn/.test(hay)) return "subway";
     if (/spårväg|sparvag|tram|spårvagn|light rail/.test(hay)) return "tram";
     if (/buss|bus/.test(hay)) return "bus";

@@ -137,9 +137,17 @@ interface RawCheckpoint {
     arrivalTimestamp?: number;
 }
 
-function parseSection(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
+function parseSection(
+    raw: unknown,
+    destFallback: TravelPlace,
+): JourneyLeg | null {
     const sec = raw as {
-        journey?: { category?: string; number?: string; to?: string; name?: string };
+        journey?: {
+            category?: string;
+            number?: string;
+            to?: string;
+            name?: string;
+        };
         walk?: { duration?: number };
         departure?: RawCheckpoint;
         arrival?: RawCheckpoint;
@@ -173,7 +181,9 @@ function parseSection(raw: unknown, destFallback: TravelPlace): JourneyLeg | nul
     if (!isWalk && sec.journey) {
         const line =
             sec.journey.name ??
-            [sec.journey.category, sec.journey.number].filter(Boolean).join(" ");
+            [sec.journey.category, sec.journey.number]
+                .filter(Boolean)
+                .join(" ");
         if (line) out.line = line;
         if (sec.journey.to) out.direction = sec.journey.to;
     }

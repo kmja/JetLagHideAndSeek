@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { LocateFixed, MapPin, RefreshCw, Search } from "lucide-react";
+import { LocateFixed, MapPin, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
@@ -91,14 +91,23 @@ export function SeekerTripPlannerSheet() {
             }
             setJourney(resp.journey);
             setSource(resp.source);
-            if (!resp.journey) setPlanError("No route could be planned right now.");
+            if (!resp.journey)
+                setPlanError("No route could be planned right now.");
         })();
         return () => {
             cancelled = true;
             controller.abort();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, destination?.lat, destination?.lng, $gps?.lat, $gps?.lng, $allowed, nonce]);
+    }, [
+        open,
+        destination?.lat,
+        destination?.lng,
+        $gps?.lat,
+        $gps?.lng,
+        $allowed,
+        nonce,
+    ]);
 
     const search = async () => {
         const q = query.trim();
@@ -109,7 +118,10 @@ export function SeekerTripPlannerSheet() {
             // Allow explicit "lat, lng" pasted input.
             const coord = parseLatLng(q);
             if (coord) {
-                setDestination({ ...coord, name: `${coord.lat.toFixed(4)}, ${coord.lng.toFixed(4)}` });
+                setDestination({
+                    ...coord,
+                    name: `${coord.lat.toFixed(4)}, ${coord.lng.toFixed(4)}`,
+                });
                 return;
             }
             const hit = await forwardGeocodeOne(q);
@@ -119,7 +131,11 @@ export function SeekerTripPlannerSheet() {
                 );
                 return;
             }
-            setDestination({ lat: hit.lat, lng: hit.lng, name: hit.displayName });
+            setDestination({
+                lat: hit.lat,
+                lng: hit.lng,
+                name: hit.displayName,
+            });
         } catch {
             setSearchError("Search failed — try again.");
         } finally {
@@ -150,9 +166,9 @@ export function SeekerTripPlannerSheet() {
                                 Plan a trip
                             </VaulDrawer.Title>
                             <VaulDrawer.Description className="text-sm text-muted-foreground">
-                                Live route from your current GPS to a place
-                                you want to visit. Walking estimate when no
-                                live schedule exists for your area.
+                                Live route from your current GPS to a place you
+                                want to visit. Walking estimate when no live
+                                schedule exists for your area.
                             </VaulDrawer.Description>
                         </div>
 
@@ -166,7 +182,9 @@ export function SeekerTripPlannerSheet() {
                             <LocateFixed
                                 className={cn(
                                     "w-4 h-4",
-                                    $gps ? "text-primary" : "text-muted-foreground",
+                                    $gps
+                                        ? "text-primary"
+                                        : "text-muted-foreground",
                                 )}
                             />
                             <span className="text-muted-foreground">From</span>
@@ -187,7 +205,9 @@ export function SeekerTripPlannerSheet() {
                                     <input
                                         type="text"
                                         value={query}
-                                        onChange={(e) => setQuery(e.target.value)}
+                                        onChange={(e) =>
+                                            setQuery(e.target.value)
+                                        }
                                         onKeyDown={(e) => {
                                             if (e.key === "Enter") {
                                                 e.preventDefault();
@@ -204,7 +224,9 @@ export function SeekerTripPlannerSheet() {
                                     <Button
                                         size="sm"
                                         onClick={() => void search()}
-                                        disabled={searching || query.trim() === ""}
+                                        disabled={
+                                            searching || query.trim() === ""
+                                        }
                                         className="gap-1.5"
                                     >
                                         <Search className="w-3.5 h-3.5" />

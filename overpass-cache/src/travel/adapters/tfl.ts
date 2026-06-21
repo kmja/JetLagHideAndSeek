@@ -27,7 +27,12 @@ const UPSTREAM_TIMEOUT_MS = 8_000;
 
 /** London bbox, comfortably wider than the M25 so suburban
  *  origins still match. Latitude/Longitude in WGS84. */
-const LONDON_BBOX = { minLat: 51.25, maxLat: 51.72, minLng: -0.55, maxLng: 0.35 };
+const LONDON_BBOX = {
+    minLat: 51.25,
+    maxLat: 51.72,
+    minLng: -0.55,
+    maxLng: 0.35,
+};
 
 export function canServe(lat: number, lng: number): boolean {
     return (

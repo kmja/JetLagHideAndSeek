@@ -2,12 +2,17 @@ import { useStore } from "@nanostores/react";
 import { useEffect, useRef } from "react";
 
 import { lastKnownPosition } from "@/lib/context";
-import { allowedTransit, gameSize, hidingPeriodEndsAt, HIDING_PERIOD_MINUTES } from "@/lib/gameSetup";
+import {
+    allowedTransit,
+    gameSize,
+    HIDING_PERIOD_MINUTES,
+    hidingPeriodEndsAt,
+} from "@/lib/gameSetup";
+import { hidingZone } from "@/lib/hiderRole";
 import { activeJourneyProvider } from "@/lib/journey/registry";
 import { hiderReachFC, showHiderReach } from "@/lib/journey/state";
 import { type AreaStation, fetchAreaStations } from "@/lib/journey/stations";
 import type { JourneyStop } from "@/lib/journey/types";
-import { hidingZone } from "@/lib/hiderRole";
 
 /**
  * Hider's reach overlay — the *mirror image* of the seeker's

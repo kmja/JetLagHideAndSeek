@@ -25,9 +25,8 @@
  * nodes).
  */
 
-import { getOverpassData } from "@/maps/api/overpass";
-
 import type { TransitMode } from "@/lib/gameSetup";
+import { getOverpassData } from "@/maps/api/overpass";
 
 /** Total stops cap. The journey-arrival proxy enforces 200; we
  *  budget a little under so other request bookkeeping (e.g. the
@@ -132,7 +131,12 @@ out;
             lat: el.lat,
             lng: el.lon,
             mode,
-            distanceMeters: haversineMeters(centerLat, centerLng, el.lat, el.lon),
+            distanceMeters: haversineMeters(
+                centerLat,
+                centerLng,
+                el.lat,
+                el.lon,
+            ),
         });
     }
 

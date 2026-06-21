@@ -71,7 +71,8 @@ export async function handleTravelPlan(
     const modes = normaliseModes(body.modes);
     const req: PlanRequest = { origin, destination, departAt, modes };
 
-    const departBucket = Math.floor(departAt / DEPART_BUCKET_MS) * DEPART_BUCKET_MS;
+    const departBucket =
+        Math.floor(departAt / DEPART_BUCKET_MS) * DEPART_BUCKET_MS;
     const edgeCache = caches.default;
     const key = await cacheKeyFor(req, departBucket);
 
@@ -135,7 +136,10 @@ async function writeCached(
     const body = JSON.stringify(payload);
     try {
         await env.CACHE.put(`travel/${key}`, body, {
-            customMetadata: { cachedAt: String(Date.now()), kind: "travel-plan" },
+            customMetadata: {
+                cachedAt: String(Date.now()),
+                kind: "travel-plan",
+            },
         });
     } catch (e) {
         console.warn("Travel R2 put failed:", e);
@@ -153,7 +157,10 @@ async function writeCached(
     }
 }
 
-async function cacheKeyFor(req: PlanRequest, departBucket: number): Promise<string> {
+async function cacheKeyFor(
+    req: PlanRequest,
+    departBucket: number,
+): Promise<string> {
     const s = [
         req.origin.lat.toFixed(5),
         req.origin.lng.toFixed(5),

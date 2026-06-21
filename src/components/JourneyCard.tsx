@@ -213,9 +213,7 @@ function LegRow({ leg }: { leg: JourneyLeg }) {
             <span
                 className={cn(
                     "inline-flex items-center justify-center w-7 h-7 rounded shrink-0",
-                    leg.mode === "walk"
-                        ? "bg-secondary"
-                        : "bg-primary/20",
+                    leg.mode === "walk" ? "bg-secondary" : "bg-primary/20",
                 )}
             >
                 <Icon

@@ -129,9 +129,11 @@ export function parseDigitransitPlan(
     json: unknown,
     destFallback: TravelPlace,
 ): Journey | null {
-    const itineraries = (json as {
-        data?: { plan?: { itineraries?: unknown[] } };
-    })?.data?.plan?.itineraries;
+    const itineraries = (
+        json as {
+            data?: { plan?: { itineraries?: unknown[] } };
+        }
+    )?.data?.plan?.itineraries;
     if (!Array.isArray(itineraries) || itineraries.length === 0) return null;
     const it = itineraries[0] as { legs?: unknown[] };
     const rawLegs = it.legs;

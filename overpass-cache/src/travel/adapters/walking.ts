@@ -59,7 +59,9 @@ export function walkingJourney(
     destination: TravelPlace,
     departAt: number,
 ): Journey {
-    const distanceMeters = Math.round(haversineMeters(origin, destination) * WALK_CIRCUITY);
+    const distanceMeters = Math.round(
+        haversineMeters(origin, destination) * WALK_CIRCUITY,
+    );
     const durationSec = distanceMeters / WALK_SPEED_MPS;
     const arriveAt = departAt + Math.round(durationSec * 1000);
     return {

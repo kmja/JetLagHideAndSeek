@@ -6,13 +6,22 @@ import {
     WALK_CIRCUITY,
     walkingJourney,
 } from "../overpass-cache/src/travel/adapters/walking";
-import { canServe, parseResRobotTrip } from "../overpass-cache/src/travel/adapters/trafiklab";
+import {
+    canServe,
+    parseResRobotTrip,
+} from "../overpass-cache/src/travel/adapters/trafiklab";
 import { parseEnturTrip } from "../overpass-cache/src/travel/adapters/entur";
 import { parseDigitransitPlan } from "../overpass-cache/src/travel/adapters/digitransit";
 import { parseTflJourney } from "../overpass-cache/src/travel/adapters/tfl";
 import { parseSwissConnections } from "../overpass-cache/src/travel/adapters/swiss";
-import { dispatchPlan, selectAdapters } from "../overpass-cache/src/travel/router";
-import type { PlanRequest, TravelPlace } from "../overpass-cache/src/travel/types";
+import {
+    dispatchPlan,
+    selectAdapters,
+} from "../overpass-cache/src/travel/router";
+import type {
+    PlanRequest,
+    TravelPlace,
+} from "../overpass-cache/src/travel/types";
 
 const STOCKHOLM = { lat: 59.3293, lng: 18.0686 };
 const OSLO = { lat: 59.9139, lng: 10.7522 };
@@ -56,7 +65,9 @@ describe("walkingJourney", () => {
         const dest: TravelPlace = { lat: 59.34, lng: 18.08 };
         const j = walkingJourney(STOCKHOLM, dest, 0);
         const straight = haversineMeters(STOCKHOLM, dest);
-        expect(j.legs[0].distanceMeters).toBe(Math.round(straight * WALK_CIRCUITY));
+        expect(j.legs[0].distanceMeters).toBe(
+            Math.round(straight * WALK_CIRCUITY),
+        );
     });
 });
 
@@ -67,7 +78,9 @@ describe("adapter dispatch selection", () => {
     });
 
     test("Stockholm tries Trafiklab first, then walking", () => {
-        const ids = selectAdapters(STOCKHOLM.lat, STOCKHOLM.lng).map((a) => a.id);
+        const ids = selectAdapters(STOCKHOLM.lat, STOCKHOLM.lng).map(
+            (a) => a.id,
+        );
         expect(ids).toEqual(["trafiklab", "walking"]);
     });
 
@@ -103,7 +116,11 @@ describe("dispatchPlan falls back to walking without a key", () => {
             origin: STOCKHOLM,
             destination: { lat: 59.86, lng: 17.64, name: "Uppsala" },
         };
-        const { source, journey } = await dispatchPlan(req, Date.now(), NO_KEY_ENV);
+        const { source, journey } = await dispatchPlan(
+            req,
+            Date.now(),
+            NO_KEY_ENV,
+        );
         expect(source).toBe("walking");
         expect(journey).not.toBeNull();
         expect(journey!.legs[0].mode).toBe("walk");
@@ -114,7 +131,11 @@ describe("dispatchPlan falls back to walking without a key", () => {
             origin: TOKYO,
             destination: { lat: 35.69, lng: 139.7, name: "Shinjuku" },
         };
-        const { source, journey } = await dispatchPlan(req, Date.now(), NO_KEY_ENV);
+        const { source, journey } = await dispatchPlan(
+            req,
+            Date.now(),
+            NO_KEY_ENV,
+        );
         expect(source).toBe("walking");
         expect(journey).not.toBeNull();
     });
@@ -151,7 +172,11 @@ describe("parseResRobotTrip", () => {
                             name: "Tåg 43",
                             direction: "Uppsala",
                             Product: [
-                                { name: "Tåg 43", catOut: "Tåg", catOutL: "Regionaltåg" },
+                                {
+                                    name: "Tåg 43",
+                                    catOut: "Tåg",
+                                    catOutL: "Regionaltåg",
+                                },
                             ],
                             Origin: {
                                 name: "Stockholm Centralstation",
@@ -174,7 +199,11 @@ describe("parseResRobotTrip", () => {
         ],
     };
 
-    const destFallback: TravelPlace = { lat: 59.858, lng: 17.646, name: "Uppsala C" };
+    const destFallback: TravelPlace = {
+        lat: 59.858,
+        lng: 17.646,
+        name: "Uppsala C",
+    };
 
     test("normalises a two-leg trip", () => {
         const j = parseResRobotTrip(FIXTURE, destFallback);
@@ -215,17 +244,35 @@ describe("parseEnturTrip", () => {
                                 distance: 250,
                                 expectedStartTime: "2026-06-21T12:00:00+02:00",
                                 expectedEndTime: "2026-06-21T12:04:00+02:00",
-                                fromPlace: { name: "Start", latitude: 59.91, longitude: 10.75 },
-                                toPlace: { name: "Jernbanetorget", latitude: 59.911, longitude: 10.752 },
+                                fromPlace: {
+                                    name: "Start",
+                                    latitude: 59.91,
+                                    longitude: 10.75,
+                                },
+                                toPlace: {
+                                    name: "Jernbanetorget",
+                                    latitude: 59.911,
+                                    longitude: 10.752,
+                                },
                             },
                             {
                                 mode: "metro",
                                 expectedStartTime: "2026-06-21T12:05:00+02:00",
                                 expectedEndTime: "2026-06-21T12:25:00+02:00",
-                                fromPlace: { name: "Jernbanetorget", latitude: 59.911, longitude: 10.752 },
-                                toPlace: { name: "Majorstuen", latitude: 59.929, longitude: 10.715 },
+                                fromPlace: {
+                                    name: "Jernbanetorget",
+                                    latitude: 59.911,
+                                    longitude: 10.752,
+                                },
+                                toPlace: {
+                                    name: "Majorstuen",
+                                    latitude: 59.929,
+                                    longitude: 10.715,
+                                },
                                 line: { publicCode: "5", name: "T-banen 5" },
-                                fromEstimatedCall: { destinationDisplay: { frontText: "Vestli" } },
+                                fromEstimatedCall: {
+                                    destinationDisplay: { frontText: "Vestli" },
+                                },
                             },
                         ],
                     },
@@ -249,7 +296,9 @@ describe("parseEnturTrip", () => {
     });
 
     test("returns null when no patterns", () => {
-        expect(parseEnturTrip({ data: { trip: { tripPatterns: [] } } }, dest)).toBeNull();
+        expect(
+            parseEnturTrip({ data: { trip: { tripPatterns: [] } } }, dest),
+        ).toBeNull();
         expect(parseEnturTrip({}, dest)).toBeNull();
     });
 });
@@ -273,14 +322,26 @@ describe("parseDigitransitPlan", () => {
                                 startTime: T_START,
                                 endTime: T_START + 3 * 60,
                                 from: { name: "Start", lat: 60.17, lon: 24.94 },
-                                to: { name: "Rautatientori", lat: 60.171, lon: 24.942 },
+                                to: {
+                                    name: "Rautatientori",
+                                    lat: 60.171,
+                                    lon: 24.942,
+                                },
                             },
                             {
                                 mode: "SUBWAY",
                                 startTime: T_START + 4 * 60,
                                 endTime: T_END,
-                                from: { name: "Rautatientori", lat: 60.171, lon: 24.942 },
-                                to: { name: "Itäkeskus", lat: 60.211, lon: 25.082 },
+                                from: {
+                                    name: "Rautatientori",
+                                    lat: 60.171,
+                                    lon: 24.942,
+                                },
+                                to: {
+                                    name: "Itäkeskus",
+                                    lat: 60.211,
+                                    lon: 25.082,
+                                },
                                 route: { shortName: "M2", longName: "Metro" },
                                 headsign: "Mellunmäki",
                             },
@@ -307,7 +368,9 @@ describe("parseDigitransitPlan", () => {
     });
 
     test("returns null on empty itineraries", () => {
-        expect(parseDigitransitPlan({ data: { plan: { itineraries: [] } } }, dest)).toBeNull();
+        expect(
+            parseDigitransitPlan({ data: { plan: { itineraries: [] } } }, dest),
+        ).toBeNull();
     });
 });
 
@@ -322,24 +385,49 @@ describe("parseTflJourney", () => {
                         mode: { id: "walking", name: "walking" },
                         departureTime: "2026-06-21T12:00:00",
                         arrivalTime: "2026-06-21T12:08:00",
-                        departurePoint: { commonName: "Start", lat: 51.507, lon: -0.128 },
-                        arrivalPoint: { commonName: "Victoria Stn", lat: 51.495, lon: -0.143 },
+                        departurePoint: {
+                            commonName: "Start",
+                            lat: 51.507,
+                            lon: -0.128,
+                        },
+                        arrivalPoint: {
+                            commonName: "Victoria Stn",
+                            lat: 51.495,
+                            lon: -0.143,
+                        },
                         distance: 1200,
                     },
                     {
                         mode: { id: "tube", name: "tube" },
                         departureTime: "2026-06-21T12:12:00",
                         arrivalTime: "2026-06-21T12:35:00",
-                        departurePoint: { commonName: "Victoria Stn", lat: 51.495, lon: -0.143 },
-                        arrivalPoint: { commonName: "Walthamstow Central", lat: 51.583, lon: -0.019 },
-                        routeOptions: [{ name: "Victoria Line", directions: ["Walthamstow"] }],
+                        departurePoint: {
+                            commonName: "Victoria Stn",
+                            lat: 51.495,
+                            lon: -0.143,
+                        },
+                        arrivalPoint: {
+                            commonName: "Walthamstow Central",
+                            lat: 51.583,
+                            lon: -0.019,
+                        },
+                        routeOptions: [
+                            {
+                                name: "Victoria Line",
+                                directions: ["Walthamstow"],
+                            },
+                        ],
                     },
                 ],
             },
         ],
     };
 
-    const dest: TravelPlace = { lat: 51.583, lng: -0.019, name: "Walthamstow Central" };
+    const dest: TravelPlace = {
+        lat: 51.583,
+        lng: -0.019,
+        name: "Walthamstow Central",
+    };
 
     test("normalises walking + tube", () => {
         const j = parseTflJourney(FIXTURE, dest);

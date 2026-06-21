@@ -9,9 +9,8 @@
  * sharing a TS module.
  */
 
-import { JOURNEY_API } from "@/maps/api/constants";
-
 import type { TransitMode } from "@/lib/gameSetup";
+import { JOURNEY_API } from "@/maps/api/constants";
 
 /** Trip-plan endpoint URL, derived from the journey arrivals URL by
  *  swapping the route suffix — saves us another constant + override. */

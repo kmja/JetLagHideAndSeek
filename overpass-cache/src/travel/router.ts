@@ -51,7 +51,12 @@ const TRAFIKLAB: TravelAdapter = {
     canServe: trafiklab.canServe,
     async plan(req, departAt, env, signal) {
         if (!env.TRAFIKLAB_API_KEY) return null;
-        return trafiklab.planJourney(req, env.TRAFIKLAB_API_KEY, departAt, signal);
+        return trafiklab.planJourney(
+            req,
+            env.TRAFIKLAB_API_KEY,
+            departAt,
+            signal,
+        );
     },
 };
 

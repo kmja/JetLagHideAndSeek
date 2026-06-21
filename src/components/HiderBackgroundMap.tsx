@@ -16,13 +16,10 @@ import {
     polyGeoJSONHydrated,
 } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
-import { hiderReachFC } from "@/lib/journey/state";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
+import { hiderReachFC } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
-import {
-    participants,
-    seekerLocations,
-} from "@/lib/multiplayer/session";
+import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import {
     handleMapLibreError,
     pmtilesUrl,
@@ -86,9 +83,7 @@ export function HiderBackgroundMap() {
     // user-facing "couldn't load" toast; the hider just shows no outline
     // if it fails, and we'll retry on the next mapGeoLocation change.
     useEffect(() => {
-        const props = $playArea?.properties as
-            | { osm_id?: number }
-            | undefined;
+        const props = $playArea?.properties as { osm_id?: number } | undefined;
         if (!($playArea && (props?.osm_id ?? 0) > 0)) return;
         if (polyGeoJSON.get() || mapGeoJSON.get()) return;
         let cancelled = false;
@@ -243,9 +238,9 @@ export function HiderBackgroundMap() {
     // effect above wins) or a GPS fix (they'd prefer their own view).
     const polyKey = useMemo(() => {
         if (!$polyGeoJSON?.features?.length) return null;
-        const props = ($polyGeoJSON.features[0]?.properties ?? null) as
-            | { osm_id?: number }
-            | null;
+        const props = ($polyGeoJSON.features[0]?.properties ?? null) as {
+            osm_id?: number;
+        } | null;
         return props?.osm_id ? String(props.osm_id) : "set";
     }, [$polyGeoJSON]);
     const lastPolyFitRef = useRef<string | null>(null);
@@ -262,7 +257,10 @@ export function HiderBackgroundMap() {
             if (!f) return;
             const coords: number[][] = [];
             const walk = (arr: any) => {
-                if (typeof arr?.[0] === "number" && typeof arr?.[1] === "number") {
+                if (
+                    typeof arr?.[0] === "number" &&
+                    typeof arr?.[1] === "number"
+                ) {
                     coords.push([arr[0], arr[1]]);
                 } else if (Array.isArray(arr)) {
                     for (const sub of arr) walk(sub);
@@ -504,7 +502,6 @@ export function HiderBackgroundMap() {
             <div className="absolute top-[calc(8.5rem+env(safe-area-inset-top))] right-2 z-[1030]">
                 <HiderMapDisplayControls />
             </div>
-
         </div>
     );
 }
