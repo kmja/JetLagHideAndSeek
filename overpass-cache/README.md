@@ -26,11 +26,12 @@ wrangler secret put DIGITRANSIT_API_KEY --config wrangler.toml # FI — Digitran
 wrangler secret put TFL_API_KEY         --config wrangler.toml # London — higher rate limit (works keyless too)
 wrangler secret put NAVITIA_API_KEY     --config wrangler.toml # navitia.io — France/Paris + broad-Europe fallback
 wrangler secret put TFNSW_API_KEY        --config wrangler.toml # Transport for NSW — Sydney/NSW (Australia)
-wrangler secret put HERE_API_KEY         --config wrangler.toml # HERE Transit — near-universal fallback
-wrangler secret put GOOGLE_MAPS_API_KEY  --config wrangler.toml # Google Directions transit — broadest universal fallback
 # (Denmark/Norway/Switzerland/Germany adapters are keyless — no secret needed.)
-# HERE + Google are universal: with either key set, cities lacking a free
-# regional adapter (Tokyo, NYC, Calgary, Singapore, …) get real journeys.
+# The near-universal fallback `transitous` (MOTIS over the Mobility Database)
+# is FREE + KEYLESS, so cities lacking a free regional adapter (Tokyo, NYC,
+# Calgary, Singapore, …) get real journeys with no key and no billing.
+# NOTE: every configured provider is free (keyless or free-key-no-billing).
+# Do NOT add a paid/billing provider (e.g. Google Directions, HERE).
 
 # 4. First deploy
 pnpm run deploy
@@ -60,7 +61,7 @@ the full list. The commonly-touched ones:
 |---|---|---|
 | `GET /api/interpreter?data=…` | none | Cached Overpass query. Used by the seeker app. |
 | `POST /api/journey/arrivals` | none | Reach: anchor + many stops → earliest arrival at each (ResRobot). Needs `TRAFIKLAB_API_KEY`; without it returns the empty-results shape so the client degrades gracefully. (`src/journey.ts`) |
-| `POST /api/travel/plan` | none | Plan: single origin→destination journey **with legs** via the regional adapter dispatcher (Trafiklab/Entur/Digitransit/TfL/Swiss + walking backstop). Always returns a journey. (`src/travel/`) |
+| `POST /api/travel/plan` | none | Plan: single origin→destination journey **with legs** via the (all-free) adapter dispatcher — Denmark/Trafiklab/Entur/Digitransit/TfL/Swiss/Germany/NSW + navitia + Transitous (free MOTIS over the Mobility Database) + walking backstop. Always returns a journey. (`src/travel/`) |
 | `POST /admin/prewarm` | Bearer | Bulk-fetch by explicit relation id list (caller supplies the ids). |
 | `POST /admin/trigger-prewarm` | Bearer | Manually run the cron's next batch right now (picks from `POPULAR_CITIES`). Optional body `{ "batch": 20, "delayBetweenMs": 1000 }`. |
 | `POST /admin/discover` | Bearer | Resolve unresolved candidate city names via Photon and append the new relation IDs to the R2-stored list. Optional body `{ "batch": 20 }` or `{ "names": ["Halifax, Canada", ...] }`. |

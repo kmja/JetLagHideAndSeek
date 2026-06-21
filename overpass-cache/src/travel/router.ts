@@ -20,13 +20,12 @@ import * as denmark from "./adapters/denmark";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
 import * as germany from "./adapters/germany";
-import * as google from "./adapters/google";
-import * as here from "./adapters/here";
 import * as navitia from "./adapters/navitia";
 import * as nsw from "./adapters/nsw";
 import * as swiss from "./adapters/swiss";
 import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
+import * as transitous from "./adapters/transitous";
 import { walkingJourney } from "./adapters/walking";
 import type { Journey, PlanRequest } from "./types";
 
@@ -155,31 +154,15 @@ const NAVITIA: TravelAdapter = {
     },
 };
 
-/** HERE Public Transit — near-universal, keyed. First of the two
- *  universal providers (operator picks whichever key they have). */
-const HERE: TravelAdapter = {
-    id: "here",
-    canServe: here.canServe,
-    async plan(req, departAt, env, signal) {
-        if (!env.HERE_API_KEY) return null;
-        return here.planJourney(req, env.HERE_API_KEY, departAt, signal);
-    },
-};
-
-/** Google Directions (transit) — near-universal, keyed. The broadest
- *  coverage of all (hundreds of cities worldwide), so it's the last
- *  resort before walking. */
-const GOOGLE: TravelAdapter = {
-    id: "google",
-    canServe: google.canServe,
-    async plan(req, departAt, env, signal) {
-        if (!env.GOOGLE_MAPS_API_KEY) return null;
-        return google.planJourney(
-            req,
-            env.GOOGLE_MAPS_API_KEY,
-            departAt,
-            signal,
-        );
+/** Transitous (MOTIS over the Mobility Database) — the near-universal
+ *  fallback. FREE and KEYLESS (community-run), so it's always
+ *  available; outside its coverage it returns no itinerary and we fall
+ *  through to walking. */
+const TRANSITOUS: TravelAdapter = {
+    id: "transitous",
+    canServe: transitous.canServe,
+    async plan(req, departAt, _env, signal) {
+        return transitous.planJourney(req, departAt, signal);
     },
 };
 
@@ -193,17 +176,18 @@ const WALKING: TravelAdapter = {
     },
 };
 
-/** Dispatch order. Three tiers:
+/** Dispatch order. Three tiers, ALL FREE (no billing / no credit card):
  *  1. Free country/region adapters (Denmark, Trafiklab SE, Entur NO,
  *     Digitransit FI, TfL London, Swiss CH, Germany DE, NSW Sydney) —
  *     mostly disjoint bboxes; where two overlap (DK/SE) the more
  *     specific is first and `dispatchPlan` falls through on null.
- *  2. Broad fallbacks: `navitia` (Europe, keyed), then the two
- *     near-universal keyed providers `here` then `google` (which
- *     between them cover essentially every city on Earth with transit
- *     data — North America, Asia, etc.).
+ *  2. Broad fallbacks: `navitia` (Europe, free key), then `transitous`
+ *     (free + keyless, MOTIS over the Mobility Database — near-universal
+ *     and growing).
  *  3. `walking` — the unconditional final backstop.
- *  Each tier only runs where the tier above it declines/has no key. */
+ *  Each tier only runs where the tier above it declines/has no key.
+ *  (Paid providers like Google Directions / HERE were deliberately NOT
+ *  used — they require billing and bill per request.) */
 export const ADAPTERS: TravelAdapter[] = [
     DENMARK,
     TRAFIKLAB,
@@ -214,8 +198,7 @@ export const ADAPTERS: TravelAdapter[] = [
     GERMANY,
     NSW,
     NAVITIA,
-    HERE,
-    GOOGLE,
+    TRANSITOUS,
     WALKING,
 ];
 

@@ -18,8 +18,7 @@ import { parseFptfJourneys } from "../overpass-cache/src/travel/adapters/germany
 import { parseNavitiaJourneys } from "../overpass-cache/src/travel/adapters/navitia";
 import { parseRejseplanenTrip } from "../overpass-cache/src/travel/adapters/denmark";
 import { parseEfaTrip } from "../overpass-cache/src/travel/adapters/nsw";
-import { parseGoogleDirections } from "../overpass-cache/src/travel/adapters/google";
-import { parseHereTransit } from "../overpass-cache/src/travel/adapters/here";
+import { parseMotisPlan } from "../overpass-cache/src/travel/adapters/transitous";
 import {
     dispatchPlan,
     selectAdapters,
@@ -79,10 +78,10 @@ describe("walkingJourney", () => {
 });
 
 describe("adapter dispatch selection", () => {
-    // The universal keyed fallbacks (HERE, Google) + walking are appended
-    // to EVERY origin — they cover essentially the whole world, ordered
+    // The free universal fallback (Transitous) + walking are appended to
+    // EVERY origin — Transitous covers (and grows) globally, ordered
     // after the free regional/navitia tiers.
-    const U = ["here", "google", "walking"];
+    const U = ["transitous", "walking"];
 
     test("Trafiklab serves Sweden, defers elsewhere", () => {
         expect(canServe(STOCKHOLM.lat, STOCKHOLM.lng)).toBe(true);
@@ -155,15 +154,15 @@ describe("adapter dispatch selection", () => {
         ]);
     });
 
-    test("Tokyo: no free regional adapter, universal providers then walking", () => {
+    test("Tokyo: no free regional adapter, transitous then walking", () => {
         // The win from the universal tier — Tokyo (and NYC, Calgary, …)
-        // now get real transit planning via HERE/Google before walking.
+        // now get real transit planning via Transitous before walking.
         expect(selectAdapters(TOKYO.lat, TOKYO.lng).map((a) => a.id)).toEqual(
             U,
         );
     });
 
-    test("walking is always last for any origin", () => {
+    test("walking is always last; transitous is always present", () => {
         for (const [lat, lng] of [
             [STOCKHOLM.lat, STOCKHOLM.lng],
             [TOKYO.lat, TOKYO.lng],
@@ -173,7 +172,7 @@ describe("adapter dispatch selection", () => {
         ] as const) {
             const ids = selectAdapters(lat, lng).map((a) => a.id);
             expect(ids[ids.length - 1]).toBe("walking");
-            expect(ids).toContain("google");
+            expect(ids).toContain("transitous");
         }
     });
 });
@@ -925,134 +924,41 @@ describe("parseEfaTrip (NSW / TfNSW rapidJSON)", () => {
     });
 });
 
-describe("parseGoogleDirections (universal / Tokyo)", () => {
-    // Google: route.legs[0].steps[] are the segments. Transit steps carry
-    // absolute unix-second times; walking steps only a duration (we
-    // accumulate forward from the leg departure_time).
-    const DEP = 1_750_000_000; // leg departure (unix sec)
+describe("parseMotisPlan (Transitous / NYC)", () => {
+    // MOTIS v2 legs are OTP-shaped: ISO startTime/endTime, from/to
+    // {name,lat,lon}, mode, routeShortName, headsign.
     const FIXTURE = {
-        status: "OK",
-        routes: [
+        itineraries: [
             {
                 legs: [
                     {
-                        departure_time: { value: DEP },
-                        steps: [
-                            {
-                                travel_mode: "WALKING",
-                                duration: { value: 180 },
-                                distance: { value: 220 },
-                                start_location: { lat: 35.6812, lng: 139.7671 },
-                                end_location: { lat: 35.6809, lng: 139.7649 },
-                            },
-                            {
-                                travel_mode: "TRANSIT",
-                                duration: { value: 600 },
-                                distance: { value: 4200 },
-                                transit_details: {
-                                    departure_time: { value: DEP + 300 },
-                                    arrival_time: { value: DEP + 900 },
-                                    headsign: "Ogikubo",
-                                    departure_stop: {
-                                        name: "Tokyo",
-                                        location: {
-                                            lat: 35.6809,
-                                            lng: 139.7649,
-                                        },
-                                    },
-                                    arrival_stop: {
-                                        name: "Shinjuku",
-                                        location: {
-                                            lat: 35.6896,
-                                            lng: 139.7006,
-                                        },
-                                    },
-                                    line: {
-                                        short_name: "JY",
-                                        name: "Yamanote Line",
-                                        vehicle: { type: "HEAVY_RAIL" },
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-    };
-
-    const origin = { lat: 35.6812, lng: 139.7671 };
-    const dest: TravelPlace = { lat: 35.6896, lng: 139.7006, name: "Shinjuku" };
-
-    test("normalises walk + heavy-rail, accumulates walk time", () => {
-        const j = parseGoogleDirections(FIXTURE, origin, dest);
-        expect(j).not.toBeNull();
-        expect(j!.legs).toHaveLength(2);
-        expect(j!.legs[0].mode).toBe("walk");
-        expect(j!.legs[0].distanceMeters).toBe(220);
-        // walk starts at the leg departure, runs 180s.
-        expect(j!.legs[0].departAt).toBe(DEP * 1000);
-        expect(j!.legs[0].arriveAt).toBe((DEP + 180) * 1000);
-        expect(j!.legs[1].mode).toBe("train"); // HEAVY_RAIL → train
-        expect(j!.legs[1].line).toBe("JY");
-        expect(j!.legs[1].direction).toBe("Ogikubo");
-        // transit uses its absolute times.
-        expect(j!.legs[1].departAt).toBe((DEP + 300) * 1000);
-        expect(j!.arriveAt).toBe((DEP + 900) * 1000);
-        expect(j!.transfers).toBe(0);
-    });
-
-    test("returns null on ZERO_RESULTS / empty", () => {
-        expect(
-            parseGoogleDirections({ status: "ZERO_RESULTS" }, origin, dest),
-        ).toBeNull();
-        expect(parseGoogleDirections({ routes: [] }, origin, dest)).toBeNull();
-    });
-});
-
-describe("parseHereTransit (universal / NYC)", () => {
-    const FIXTURE = {
-        routes: [
-            {
-                sections: [
-                    {
-                        type: "pedestrian",
-                        departure: {
-                            time: "2026-06-21T12:00:00-04:00",
-                            place: {
-                                name: "Start",
-                                location: { lat: 40.7128, lng: -74.006 },
-                            },
-                        },
-                        arrival: {
-                            time: "2026-06-21T12:05:00-04:00",
-                            place: {
-                                name: "Fulton St",
-                                location: { lat: 40.7099, lng: -74.0083 },
-                            },
+                        mode: "WALK",
+                        distance: 210,
+                        startTime: "2026-06-21T12:00:00-04:00",
+                        endTime: "2026-06-21T12:04:00-04:00",
+                        from: { name: "Start", lat: 40.7128, lon: -74.006 },
+                        to: {
+                            name: "Fulton St",
+                            lat: 40.7099,
+                            lon: -74.0083,
                         },
                     },
                     {
-                        type: "transit",
-                        departure: {
-                            time: "2026-06-21T12:09:00-04:00",
-                            place: {
-                                name: "Fulton St",
-                                location: { lat: 40.7099, lng: -74.0083 },
-                            },
+                        mode: "SUBWAY",
+                        startTime: "2026-06-21T12:08:00-04:00",
+                        endTime: "2026-06-21T12:23:00-04:00",
+                        from: {
+                            name: "Fulton St",
+                            lat: 40.7099,
+                            lon: -74.0083,
                         },
-                        arrival: {
-                            time: "2026-06-21T12:24:00-04:00",
-                            place: {
-                                name: "Times Sq-42 St",
-                                location: { lat: 40.7559, lng: -73.9871 },
-                            },
+                        to: {
+                            name: "Times Sq-42 St",
+                            lat: 40.7559,
+                            lon: -73.9871,
                         },
-                        transport: {
-                            mode: "subway",
-                            name: "A",
-                            headsign: "Inwood-207 St",
-                        },
+                        routeShortName: "A",
+                        headsign: "Inwood-207 St",
                     },
                 ],
             },
@@ -1065,21 +971,47 @@ describe("parseHereTransit (universal / NYC)", () => {
         name: "Times Sq-42 St",
     };
 
-    test("normalises pedestrian + subway", () => {
-        const j = parseHereTransit(FIXTURE, dest);
+    test("normalises walk + subway", () => {
+        const j = parseMotisPlan(FIXTURE, dest);
         expect(j).not.toBeNull();
         expect(j!.legs).toHaveLength(2);
         expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[0].distanceMeters).toBe(210);
         expect(j!.legs[1].mode).toBe("subway");
         expect(j!.legs[1].line).toBe("A");
         expect(j!.legs[1].direction).toBe("Inwood-207 St");
         expect(j!.legs[1].to.name).toBe("Times Sq-42 St");
+        expect(j!.legs[1].to.lng).toBeCloseTo(-73.9871, 3);
         expect(j!.transfers).toBe(0);
-        expect(j!.durationMin).toBe(24);
+        expect(j!.durationMin).toBe(23);
     });
 
-    test("returns null on empty routes", () => {
-        expect(parseHereTransit({ routes: [] }, dest)).toBeNull();
-        expect(parseHereTransit({}, dest)).toBeNull();
+    test("RAIL/REGIONAL_RAIL map to train", () => {
+        const j = parseMotisPlan(
+            {
+                itineraries: [
+                    {
+                        legs: [
+                            {
+                                mode: "REGIONAL_RAIL",
+                                startTime: "2026-06-21T12:00:00Z",
+                                endTime: "2026-06-21T12:30:00Z",
+                                from: { name: "A", lat: 1, lon: 2 },
+                                to: { name: "B", lat: 3, lon: 4 },
+                                routeShortName: "RE1",
+                            },
+                        ],
+                    },
+                ],
+            },
+            dest,
+        );
+        expect(j!.legs[0].mode).toBe("train");
+        expect(j!.legs[0].line).toBe("RE1");
+    });
+
+    test("returns null on empty itineraries", () => {
+        expect(parseMotisPlan({ itineraries: [] }, dest)).toBeNull();
+        expect(parseMotisPlan({}, dest)).toBeNull();
     });
 });
