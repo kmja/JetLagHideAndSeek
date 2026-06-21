@@ -885,7 +885,31 @@ export function Map({ className }: MapProps) {
                     },
                 )) as typeof working;
             } catch (e) {
-                console.warn("Map applyQuestions failed:", e);
+                console.warn(
+                    "Map applyQuestions failed (will retry once):",
+                    e,
+                );
+                // v389: retry once after a 750 ms breather. Reload-after-
+                // deploy can leave the @arcgis/core lazy chunk stale just
+                // long enough for the first elimination pass to throw; by
+                // the next pass the new service worker is active and the
+                // chunk resolves cleanly. Stale-generation guard below
+                // still drops a retried result if the user has moved on.
+                if (myGen === eliminationGenRef.current) {
+                    await new Promise((r) => setTimeout(r, 750));
+                    try {
+                        working = (await applyQuestionsToMapGeoData(
+                            $questions,
+                            inner,
+                            planningModeEnabled.get(),
+                        )) as typeof working;
+                    } catch (e2) {
+                        console.warn(
+                            "Map applyQuestions retry also failed:",
+                            e2,
+                        );
+                    }
+                }
             }
             let mask: GeoJSON.Feature | null = null;
             try {

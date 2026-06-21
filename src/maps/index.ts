@@ -140,7 +140,34 @@ export async function applyQuestionsToMapGeoData(
             continue;
         }
 
-        mapGeoData = await adjustMapGeoDataForQuestion(question, mapGeoData);
+        // v389: one failing elimination must not zero the others. The
+        // visible bug was an app reload after a deploy: the @arcgis/core
+        // lazy chunk hadn't activated through the new service worker yet,
+        // adjustPerRadius's arcBuffer call threw, the outer try/catch in
+        // Map.tsx kept `working = inner`, and the user saw the full
+        // unmasked play area while the answered Radar question still sat
+        // in the questions log. Per-question try/catch preserves the
+        // already-accumulated mapGeoData and continues with the next
+        // question. Logged loudly with a key so console grep can find it.
+        try {
+            const next = await adjustMapGeoDataForQuestion(
+                question,
+                mapGeoData,
+            );
+            // Guard against adjusters that early-return undefined on null
+            // input — would crash the `.type` check below and propagate to
+            // every later question via mapGeoData=undefined.
+            if (next == null) continue;
+            mapGeoData = next;
+        } catch (e) {
+            console.warn(
+                `[applyQuestionsToMapGeoData] question key=${
+                    (question as { key?: number }).key ?? "?"
+                } id=${question.id} elimination threw:`,
+                e,
+            );
+            continue;
+        }
 
         if (mapGeoData.type !== "FeatureCollection") {
             mapGeoData = {
