@@ -10,6 +10,7 @@ import { canServe, parseResRobotTrip } from "../overpass-cache/src/travel/adapte
 import { parseEnturTrip } from "../overpass-cache/src/travel/adapters/entur";
 import { parseDigitransitPlan } from "../overpass-cache/src/travel/adapters/digitransit";
 import { parseTflJourney } from "../overpass-cache/src/travel/adapters/tfl";
+import { parseSwissConnections } from "../overpass-cache/src/travel/adapters/swiss";
 import { dispatchPlan, selectAdapters } from "../overpass-cache/src/travel/router";
 import type { PlanRequest, TravelPlace } from "../overpass-cache/src/travel/types";
 
@@ -17,6 +18,7 @@ const STOCKHOLM = { lat: 59.3293, lng: 18.0686 };
 const OSLO = { lat: 59.9139, lng: 10.7522 };
 const HELSINKI = { lat: 60.1699, lng: 24.9384 };
 const LONDON = { lat: 51.5072, lng: -0.1276 };
+const ZURICH = { lat: 47.3769, lng: 8.5417 };
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
 
 /** Empty env → no Trafiklab key, so the Trafiklab adapter defers and
@@ -82,6 +84,11 @@ describe("adapter dispatch selection", () => {
     test("London tries TfL first, then walking", () => {
         const ids = selectAdapters(LONDON.lat, LONDON.lng).map((a) => a.id);
         expect(ids).toEqual(["tfl", "walking"]);
+    });
+
+    test("Zurich tries Swiss first, then walking", () => {
+        const ids = selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id);
+        expect(ids).toEqual(["swiss", "walking"]);
     });
 
     test("Tokyo falls straight to walking", () => {
@@ -347,5 +354,78 @@ describe("parseTflJourney", () => {
 
     test("returns null on empty journeys", () => {
         expect(parseTflJourney({ journeys: [] }, dest)).toBeNull();
+    });
+});
+
+describe("parseSwissConnections", () => {
+    // Swiss API uses Unix-second timestamps + ISO strings.
+    const T_DEP = 1_750_000_000;
+    const T_ARR = T_DEP + 12 * 60;
+    const FIXTURE = {
+        connections: [
+            {
+                duration: "00d00:12:00",
+                sections: [
+                    {
+                        journey: {
+                            category: "S",
+                            number: "6",
+                            name: "S6",
+                            to: "Uetikon am See",
+                        },
+                        departure: {
+                            station: {
+                                name: "Zürich HB",
+                                coordinate: { x: 47.3779, y: 8.5403 },
+                            },
+                            departureTimestamp: T_DEP,
+                        },
+                        arrival: {
+                            station: {
+                                name: "Stadelhofen",
+                                coordinate: { x: 47.3667, y: 8.5478 },
+                            },
+                            arrivalTimestamp: T_DEP + 4 * 60,
+                        },
+                    },
+                    {
+                        walk: { duration: 480 },
+                        departure: {
+                            station: {
+                                name: "Stadelhofen",
+                                coordinate: { x: 47.3667, y: 8.5478 },
+                            },
+                            departureTimestamp: T_DEP + 4 * 60,
+                        },
+                        arrival: {
+                            station: {
+                                name: "Opernhaus",
+                                coordinate: { x: 47.3651, y: 8.5469 },
+                            },
+                            arrivalTimestamp: T_ARR,
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+
+    const dest: TravelPlace = { lat: 47.3651, lng: 8.5469, name: "Opernhaus" };
+
+    test("normalises S-Bahn + walk", () => {
+        const j = parseSwissConnections(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("train");
+        expect(j!.legs[0].line).toBe("S6");
+        expect(j!.legs[0].direction).toBe("Uetikon am See");
+        expect(j!.legs[1].mode).toBe("walk");
+        expect(j!.durationMin).toBe(12);
+        expect(j!.departAt).toBe(T_DEP * 1000);
+        expect(j!.arriveAt).toBe(T_ARR * 1000);
+    });
+
+    test("returns null when no connections", () => {
+        expect(parseSwissConnections({ connections: [] }, dest)).toBeNull();
     });
 });

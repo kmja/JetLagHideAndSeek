@@ -18,6 +18,7 @@
 import type { Env } from "../envTypes";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
+import * as swiss from "./adapters/swiss";
 import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
 import { walkingJourney } from "./adapters/walking";
@@ -90,6 +91,16 @@ const TFL: TravelAdapter = {
     },
 };
 
+/** Switzerland (SBB via transport.opendata.ch) — keyless, never
+ *  defers on env. */
+const SWISS: TravelAdapter = {
+    id: "swiss",
+    canServe: swiss.canServe,
+    async plan(req, departAt, _env, signal) {
+        return swiss.planJourney(req, departAt, signal);
+    },
+};
+
 /** The unconditional backstop. `canServe` is always true, so it's
  *  always last and always answers. */
 const WALKING: TravelAdapter = {
@@ -111,6 +122,7 @@ export const ADAPTERS: TravelAdapter[] = [
     ENTUR,
     DIGITRANSIT,
     TFL,
+    SWISS,
     WALKING,
 ];
 
