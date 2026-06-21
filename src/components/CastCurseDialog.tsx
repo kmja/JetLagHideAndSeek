@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Copy, Dice5, RotateCw, Share2, Trash2, Zap } from "lucide-react";
+import { Check, Copy, Dice5, RotateCw, Share2, Trash2, Zap } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -13,9 +13,18 @@ import {
     DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    canPayDiscardCost,
+    eligibleForDiscardCost,
+    parseDiscardCost,
+} from "@/lib/castingCost";
 import { gameSize } from "@/lib/gameSetup";
 import type { CurseCard } from "@/lib/hiderDeck";
-import { activateOverflowingChalice, discardCard } from "@/lib/hiderRole";
+import {
+    activateOverflowingChalice,
+    discardCard,
+    hiderHand,
+} from "@/lib/hiderRole";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { hiderCastCurse } from "@/lib/multiplayer/store";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
@@ -78,6 +87,11 @@ export function CastCurseDialog({
 }) {
     const $gameSize = useStore(gameSize);
     const $multiplayer = useStore(multiplayerEnabled);
+    const $hand = useStore(hiderHand);
+    /** Cards the hider has selected to pay a *discard* casting cost
+     *  (e.g. "Discard 2 cards"). Empty until they pick; the cast
+     *  button stays gated until the right count is chosen. */
+    const [costSelectedIds, setCostSelectedIds] = useState<string[]>([]);
     const fizzleRule = card ? DICE_FIZZLE[card.name] : undefined;
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
@@ -148,10 +162,46 @@ export function CastCurseDialog({
             setShowConfetti(false);
             setShowFizzleEffect(false);
             setLastShareResult(null);
+            setCostSelectedIds([]);
         }
     }, [open, card?.id]);
 
     if (!card) return null;
+
+    // Structured discard cost (if any) + the hand cards eligible to
+    // pay it. Non-discard costs (roll a die, photograph an animal, …)
+    // parse to null and aren't enforced — they're real-life actions.
+    const discardCost = parseDiscardCost(card.castingCost);
+    const costEligible = discardCost
+        ? eligibleForDiscardCost($hand, discardCost, card.id)
+        : [];
+    const costSatisfiable = discardCost
+        ? canPayDiscardCost($hand, discardCost, card.id)
+        : true;
+    const costPaid =
+        !discardCost ||
+        discardCost.whole ||
+        costSelectedIds.length === discardCost.count;
+
+    const toggleCostCard = (id: string) => {
+        if (!discardCost) return;
+        setCostSelectedIds((curr) => {
+            if (curr.includes(id)) return curr.filter((x) => x !== id);
+            if (curr.length >= discardCost.count) return [...curr.slice(1), id];
+            return [...curr, id];
+        });
+    };
+
+    // Discard the cards paying the cost — all eligible for a whole-hand
+    // cost, otherwise the cards the hider selected. Called from each
+    // successful-cast branch alongside discarding the curse itself.
+    const payCostDiscards = () => {
+        if (!discardCost) return;
+        const ids = discardCost.whole
+            ? costEligible.map((c) => c.id)
+            : costSelectedIds;
+        for (const id of ids) discardCard(id);
+    };
 
     // `rolled` is the *live* tumble display — it cycles through
     // random values every animation frame, so reading it directly
@@ -172,7 +222,11 @@ export function CastCurseDialog({
         !sharing &&
         // Cards with a fizzle rule need a SETTLED roll before the
         // action button enables; cards without can cast right away.
-        (fizzleRule === undefined || settled !== null);
+        (fizzleRule === undefined || settled !== null) &&
+        // Discard casting costs must be payable AND paid (the hider has
+        // designated the cards) before the curse can be cast.
+        costSatisfiable &&
+        costPaid;
 
     const roll = () => {
         if (rolling) return;
@@ -276,6 +330,7 @@ export function CastCurseDialog({
                 description: card.description,
                 castingCost: card.castingCost ?? null,
             });
+            payCostDiscards();
             discardCard(card.id);
             onCurseLanded();
             toast.success(`${card.name} cast on seekers.`, { autoClose: 2500 });
@@ -297,6 +352,7 @@ export function CastCurseDialog({
             });
             setLastShareResult(result.method);
             if (result.method === "share" || result.method === "copy") {
+                payCostDiscards();
                 discardCard(card.id);
                 onCurseLanded();
                 toast.success(
@@ -344,6 +400,7 @@ export function CastCurseDialog({
             try {
                 await navigator.clipboard.writeText(url);
                 setLastShareResult("copy");
+                payCostDiscards();
                 discardCard(card.id);
                 onCurseLanded();
                 toast.success(
@@ -532,6 +589,78 @@ export function CastCurseDialog({
                             <p className="text-xs text-foreground/90 leading-snug mt-1">
                                 {renderBodyText(card.castingCost, $gameSize)}
                             </p>
+
+                            {/* Discard-cost enforcement (B3). Curses
+                                whose cost is "Discard N cards / a
+                                powerup / a time bonus / your hand"
+                                require the hider to actually pay before
+                                the cast button unlocks. Non-discard
+                                costs (roll a die, photograph an animal)
+                                parse to null and skip this entirely. */}
+                            {discardCost && (
+                                <div className="mt-2.5">
+                                    {!costSatisfiable ? (
+                                        <p className="text-xs text-destructive font-semibold leading-snug">
+                                            You don&apos;t have enough eligible
+                                            cards to pay this cost — the curse
+                                            can&apos;t be cast.
+                                        </p>
+                                    ) : discardCost.whole ? (
+                                        <p className="text-xs text-muted-foreground leading-snug">
+                                            {costEligible.length === 0
+                                                ? "No other cards to discard — your hand is just this curse."
+                                                : `Casting this discards your ${costEligible.length} other card${
+                                                      costEligible.length === 1
+                                                          ? ""
+                                                          : "s"
+                                                  }.`}
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <div className="flex items-center justify-between mb-1.5">
+                                                <span className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
+                                                    Pick {discardCost.count} to
+                                                    discard
+                                                </span>
+                                                <span className="text-[11px] tabular-nums text-muted-foreground">
+                                                    {costSelectedIds.length} /{" "}
+                                                    {discardCost.count}
+                                                </span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {costEligible.map((c) => {
+                                                    const sel =
+                                                        costSelectedIds.includes(
+                                                            c.id,
+                                                        );
+                                                    return (
+                                                        <button
+                                                            key={c.id}
+                                                            type="button"
+                                                            onClick={() =>
+                                                                toggleCostCard(
+                                                                    c.id,
+                                                                )
+                                                            }
+                                                            className={cn(
+                                                                "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                                                                sel
+                                                                    ? "border-yellow-500 bg-yellow-500/20 text-yellow-100"
+                                                                    : "border-border bg-background/40 text-foreground/80 hover:border-yellow-500/50",
+                                                            )}
+                                                        >
+                                                            {sel && (
+                                                                <Check className="w-3 h-3" />
+                                                            )}
+                                                            {c.name}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
 
                             {fizzleRule && (
                                 <div className="flex flex-col items-center gap-3 pt-4">

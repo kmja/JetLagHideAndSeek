@@ -1,0 +1,98 @@
+import type { Card } from "./hiderDeck";
+
+/**
+ * Structured representation of a curse's *discard* casting cost, parsed
+ * from the printed casting-cost text (rulebook hider deck). Only
+ * discard-type costs are modelled here — the others ("Roll a die",
+ * "Film a bird", "You must be at the restaurant", …) are real-life
+ * actions the hider self-attests, so there's nothing for the app to
+ * enforce.
+ *
+ * `null` means the curse has no discard cost (no cost at all, or a
+ * non-discard cost).
+ */
+export interface DiscardCost {
+    /** How many cards must be discarded. Ignored when `whole` is true. */
+    count: number;
+    /** Which cards in hand can satisfy the cost. */
+    kind: "any" | "powerup" | "time-bonus";
+    /** True for "Discard your hand" — discard every eligible card, no pick. */
+    whole: boolean;
+    /** Short imperative label for the pay-cost UI. */
+    label: string;
+}
+
+/**
+ * Parse a curse's casting-cost string into a {@link DiscardCost}, or
+ * null if it isn't a discard cost. Case-insensitive and tolerant of
+ * the deck's "2"/"two" and "powerup"/"time bonus" phrasings.
+ */
+export function parseDiscardCost(castingCost: string | null): DiscardCost | null {
+    if (!castingCost) return null;
+    const c = castingCost.toLowerCase();
+    if (!c.includes("discard")) return null;
+
+    if (c.includes("your hand")) {
+        return { count: 0, kind: "any", whole: true, label: "Discard your hand" };
+    }
+    if (c.includes("powerup")) {
+        return {
+            count: 1,
+            kind: "powerup",
+            whole: false,
+            label: "Discard a powerup",
+        };
+    }
+    if (c.includes("time bonus")) {
+        return {
+            count: 1,
+            kind: "time-bonus",
+            whole: false,
+            label: "Discard a time bonus",
+        };
+    }
+    // Plain card discard: "Discard a card" / "Discard 2 cards" /
+    // "Discard two cards".
+    const two = /\b(2|two)\b/.test(c);
+    const count = two ? 2 : 1;
+    return {
+        count,
+        kind: "any",
+        whole: false,
+        label: count === 2 ? "Discard 2 cards" : "Discard a card",
+    };
+}
+
+/**
+ * The subset of `hand` that can satisfy `cost`, excluding the curse
+ * card paying the cost (the casting cost is paid *in addition* to the
+ * curse itself).
+ */
+export function eligibleForDiscardCost(
+    hand: Card[],
+    cost: DiscardCost,
+    castingCurseId: string,
+): Card[] {
+    return hand.filter((card) => {
+        if (card.id === castingCurseId) return false;
+        if (cost.kind === "any") return true;
+        return card.kind === cost.kind;
+    });
+}
+
+/**
+ * Whether the hand holds enough eligible cards to pay `cost`. A
+ * "whole hand" cost is always payable (discarding zero other cards is
+ * still a legal payment). A counted cost needs at least `count`
+ * eligible cards — otherwise the curse can't be cast.
+ */
+export function canPayDiscardCost(
+    hand: Card[],
+    cost: DiscardCost,
+    castingCurseId: string,
+): boolean {
+    if (cost.whole) return true;
+    return (
+        eligibleForDiscardCost(hand, cost, castingCurseId).length >= cost.count
+    );
+}
