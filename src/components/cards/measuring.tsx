@@ -332,6 +332,9 @@ export const MeasuringQuestionComponent = ({
                 dragLive={data.drag}
                 manualReference={data.manualReference}
                 onChange={(lat, lng) => {
+                    // Immutable once sent — drop writes (incl. the
+                    // picker's GPS auto-seed) for committed questions.
+                    if (!isQuestionEditable(data)) return;
                     if (lat !== null) data.lat = lat;
                     if (lng !== null) data.lng = lng;
                     questionModified();

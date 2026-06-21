@@ -231,6 +231,10 @@ export const TentacleQuestionComponent = ({
                 longitude={data.lng}
                 colorName={data.color}
                 onChange={(lat, lng) => {
+                    // Location is immutable once the question is sent —
+                    // drop writes (incl. the picker's GPS auto-seed) for
+                    // committed questions.
+                    if (!isQuestionEditable(data)) return;
                     if (lat !== null) {
                         data.lat = lat;
                     }

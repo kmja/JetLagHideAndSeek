@@ -197,6 +197,9 @@ export const ThermometerQuestionComponent = ({
                 label="Start"
                 colorName={data.colorA}
                 onChange={(lat, lng) => {
+                    // Immutable once sent — drop writes (incl. the
+                    // picker's GPS auto-seed) for committed questions.
+                    if (!isQuestionEditable(data)) return;
                     if (lat !== null) data.latA = lat;
                     if (lng !== null) data.lngA = lng;
                     questionModified();
@@ -210,6 +213,7 @@ export const ThermometerQuestionComponent = ({
                 label="End"
                 colorName={data.colorB}
                 onChange={(lat, lng) => {
+                    if (!isQuestionEditable(data)) return;
                     if (lat !== null) data.latB = lat;
                     if (lng !== null) data.lngB = lng;
                     questionModified();

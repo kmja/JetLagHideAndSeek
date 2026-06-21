@@ -529,6 +529,7 @@ export const LatitudeLongitude = ({
                                     radiusMeters={radiusMeters}
                                     referencePoint={referencePoint}
                                     lockToGps={lockToGps}
+                                    disabled={disabled}
                                     impactMode={impactMode}
                                     impactType={impactType}
                                     tentacleRadiusKm={tentacleRadiusKm}

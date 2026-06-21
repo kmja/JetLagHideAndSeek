@@ -60,6 +60,7 @@ export function InlineLocationPicker({
     referencePoint,
     height = "h-[40vh]",
     lockToGps = false,
+    disabled = false,
     impactMode,
     impactType,
     tentacleRadiusKm,
@@ -95,6 +96,18 @@ export function InlineLocationPicker({
      * active so a denied fix can be retried.
      */
     lockToGps?: boolean;
+    /**
+     * Read-only / immutable mode. When true the picker never moves the
+     * pin: the on-mount GPS auto-seed is skipped, map taps are ignored
+     * and the pin is non-draggable. Set by the question cards once a
+     * question is committed (`!isQuestionEditable(data)`) so a sent
+     * question's location can never be re-derived from live (possibly
+     * spoofed) GPS on a later re-mount. This was the v390 bug: an
+     * answered radar question's coordinates were being overwritten by
+     * the seeker's current position every time its card re-mounted,
+     * silently relocating the eliminated area after reload.
+     */
+    disabled?: boolean;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     const $maskData = useStore(questionFinishedMapData);
@@ -131,6 +144,11 @@ export function InlineLocationPicker({
 
     const didGpsRef = useRef(false);
     useEffect(() => {
+        // Immutable/committed question: never auto-move the pin. We
+        // return WITHOUT latching didGpsRef so that if `disabled` later
+        // flips false (an editable question that mounted while a global
+        // fetch was in flight), the seed can still run exactly once.
+        if (disabled) return;
         if (didGpsRef.current) return;
         didGpsRef.current = true;
         if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -164,7 +182,7 @@ export function InlineLocationPicker({
             { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
         );
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [disabled]);
 
     // Whether the caller has handed us real, usable coordinates.
     const coordsAreSet =
@@ -283,7 +301,8 @@ export function InlineLocationPicker({
     // location while the fix is being retried. The moment a GPS lock
     // arrives, the picker snaps back to display-only and the pin is
     // locked onto GPS coordinates.
-    const interactionsAllowed = !lockToGps || gpsState !== "granted";
+    const interactionsAllowed =
+        !disabled && (!lockToGps || gpsState !== "granted");
 
     const handleClick = (e: MapLayerMouseEvent) => {
         if (!interactionsAllowed) return;

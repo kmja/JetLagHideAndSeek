@@ -410,6 +410,11 @@ export const RadiusQuestionComponent = ({
                 longitude={data.lng}
                 colorName={data.color}
                 onChange={(lat, lng) => {
+                    // A question's location is immutable once it has been
+                    // sent (committed / answered). Drop any write — incl.
+                    // the inline picker's on-mount GPS auto-seed — so a
+                    // later re-mount can't relocate an answered question.
+                    if (!isQuestionEditable(data)) return;
                     if (lat !== null) {
                         data.lat = lat;
                     }
