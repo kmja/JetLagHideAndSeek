@@ -68,15 +68,9 @@ export async function findExtensionCandidates(
 
     // Photon stores [lng, lat]; we swapped to [lat, lng] in the
     // geocode normaliser. Use that.
-    const coords = primary.geometry.coordinates as unknown as [
-        number,
-        number,
-    ];
+    const coords = primary.geometry.coordinates as unknown as [number, number];
     const [primaryLat, primaryLng] = coords;
-    if (
-        typeof primaryLat !== "number" ||
-        typeof primaryLng !== "number"
-    ) {
+    if (typeof primaryLat !== "number" || typeof primaryLng !== "number") {
         return [];
     }
 
@@ -102,9 +96,8 @@ export async function findExtensionCandidates(
         CacheType.ZONE_CACHE,
         90_000,
     );
-    const adminElements = (
-        (adminData as { elements?: unknown[] }).elements ?? []
-    ) as OverpassRelationStub[];
+    const adminElements = ((adminData as { elements?: unknown[] }).elements ??
+        []) as OverpassRelationStub[];
 
     // Pull all stations once; we then bbox-test each candidate
     // against this set. v268: query is now stable per (lat, lng,
@@ -116,48 +109,104 @@ export async function findExtensionCandidates(
         allowedTransit.length > 0
             ? await fetchTransitStations(primaryLat, primaryLng, radiusKm)
             : [];
-    const stations = allStations.filter((s) =>
-        allowedTransit.includes(s.mode),
-    );
+    const stations = allStations.filter((s) => allowedTransit.includes(s.mode));
 
     const candidates: AdjacentAreaCandidate[] = [];
+    const seen = new Set<number>();
     for (const el of adminElements) {
-        if (el.id === primaryOsmId) continue;
-        if (!el.bounds) continue;
-        const name =
-            el.tags?.name ||
-            el.tags?.["name:en"] ||
-            el.tags?.official_name ||
-            `Relation ${el.id}`;
-
-        const midLat = (el.bounds.minlat + el.bounds.maxlat) / 2;
-        const midLng = (el.bounds.minlon + el.bounds.maxlon) / 2;
-        const distanceKm = haversineKm(
+        const c = relationStubToCandidate(
+            el,
+            primaryOsmId,
             primaryLat,
             primaryLng,
-            midLat,
-            midLng,
+            stations,
         );
+        if (c && !seen.has(el.id)) {
+            seen.add(el.id);
+            candidates.push(c);
+        }
+    }
 
-        const hasMatchingTransit = stations.some(
-            (s) =>
-                s.lat >= el.bounds!.minlat &&
-                s.lat <= el.bounds!.maxlat &&
-                s.lon >= el.bounds!.minlon &&
-                s.lon <= el.bounds!.maxlon,
+    // Fallback for consolidated cities. Some primaries sit at an
+    // admin_level with NO same-level siblings nearby — most notably
+    // New York City (admin_level 5; its neighbours Jersey City,
+    // Hoboken, Newark, Yonkers are the normal city level 8), and other
+    // consolidated city-counties. When the same-level search came up
+    // empty, look for nearby admin areas in the city/municipality band
+    // (levels 7–8) instead. (We exclude the coarser level 6 so a
+    // consolidated city's own county-boroughs — e.g. NYC's 5 boroughs,
+    // which are already inside the primary — aren't offered as
+    // additions.) This query is NOT cron-prewarmed, so it's a live
+    // Overpass call the first time, then cached.
+    if (candidates.length === 0 && adminLevel !== "7" && adminLevel !== "8") {
+        const bandQuery = buildMunicipalityBandQuery(
+            primaryLat,
+            primaryLng,
+            radiusKm,
         );
-
-        const feature = synthesiseOpenStreetMap(el, name);
-        candidates.push({
-            feature,
-            distanceKm,
-            hasMatchingTransit,
-            estimatedAreaKm2: bboxAreaKm2(el.bounds),
-        });
+        const bandData = await getOverpassData(
+            bandQuery,
+            undefined,
+            CacheType.ZONE_CACHE,
+            90_000,
+        );
+        const bandElements = ((bandData as { elements?: unknown[] }).elements ??
+            []) as OverpassRelationStub[];
+        for (const el of bandElements) {
+            const c = relationStubToCandidate(
+                el,
+                primaryOsmId,
+                primaryLat,
+                primaryLng,
+                stations,
+            );
+            if (c && !seen.has(el.id)) {
+                seen.add(el.id);
+                candidates.push(c);
+            }
+        }
     }
 
     candidates.sort((a, b) => a.distanceKm - b.distanceKm);
     return candidates.slice(0, limit);
+}
+
+/** Turn one Overpass admin-relation stub into a candidate (or null if
+ *  it's the primary itself or lacks a bbox). Shared by the same-level
+ *  and city-band passes. */
+function relationStubToCandidate(
+    el: OverpassRelationStub,
+    primaryOsmId: number,
+    primaryLat: number,
+    primaryLng: number,
+    stations: Array<{ lat: number; lon: number; mode: TransitMode }>,
+): AdjacentAreaCandidate | null {
+    if (el.id === primaryOsmId) return null;
+    if (!el.bounds) return null;
+    const name =
+        el.tags?.name ||
+        el.tags?.["name:en"] ||
+        el.tags?.official_name ||
+        `Relation ${el.id}`;
+
+    const midLat = (el.bounds.minlat + el.bounds.maxlat) / 2;
+    const midLng = (el.bounds.minlon + el.bounds.maxlon) / 2;
+    const distanceKm = haversineKm(primaryLat, primaryLng, midLat, midLng);
+
+    const hasMatchingTransit = stations.some(
+        (s) =>
+            s.lat >= el.bounds!.minlat &&
+            s.lat <= el.bounds!.maxlat &&
+            s.lon >= el.bounds!.minlon &&
+            s.lon <= el.bounds!.maxlon,
+    );
+
+    return {
+        feature: synthesiseOpenStreetMap(el, name),
+        distanceKm,
+        hasMatchingTransit,
+        estimatedAreaKm2: bboxAreaKm2(el.bounds),
+    };
 }
 
 /* ────────────────── Internals ────────────────── */
@@ -207,6 +256,26 @@ out tags bb;
 `;
 }
 
+/**
+ * Fallback query for consolidated cities whose primary admin_level has
+ * no same-level siblings nearby (e.g. New York City, admin_level 5).
+ * Pulls admin relations in the normal city/municipality band — levels
+ * 7–8 — within `radiusKm`. Deliberately excludes level 6 (counties /
+ * boroughs) so a consolidated city's own constituent counties aren't
+ * offered as additions. `out tags bb` for tags + bbox only.
+ */
+export function buildMunicipalityBandQuery(
+    lat: number,
+    lng: number,
+    radiusKm: number,
+): string {
+    return `
+[out:json][timeout:60];
+relation["admin_level"~"^[78]$"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
+out tags bb;
+`;
+}
+
 export const ADJACENT_SEARCH_DEFAULT_RADIUS_KM = 25;
 
 async function fetchAdminLevel(osmId: number): Promise<string | null> {
@@ -217,9 +286,8 @@ async function fetchAdminLevel(osmId: number): Promise<string | null> {
         CacheType.ZONE_CACHE,
         30_000,
     );
-    const elements = (
-        (data as { elements?: unknown[] }).elements ?? []
-    ) as Array<{ tags?: Record<string, string> }>;
+    const elements = ((data as { elements?: unknown[] }).elements ??
+        []) as Array<{ tags?: Record<string, string> }>;
     const level = elements[0]?.tags?.admin_level;
     return level ?? null;
 }
@@ -274,9 +342,12 @@ async function fetchTransitStations(
         CacheType.ZONE_CACHE,
         60_000,
     );
-    const elements = (
-        (data as { elements?: unknown[] }).elements ?? []
-    ) as Array<{ lat: number; lon: number; tags?: Record<string, string> }>;
+    const elements = ((data as { elements?: unknown[] }).elements ??
+        []) as Array<{
+        lat: number;
+        lon: number;
+        tags?: Record<string, string>;
+    }>;
     return elements
         .filter((e) => typeof e.lat === "number" && typeof e.lon === "number")
         .map((e) => ({
