@@ -14,6 +14,7 @@ import { parseEnturTrip } from "../overpass-cache/src/travel/adapters/entur";
 import { parseDigitransitPlan } from "../overpass-cache/src/travel/adapters/digitransit";
 import { parseTflJourney } from "../overpass-cache/src/travel/adapters/tfl";
 import { parseSwissConnections } from "../overpass-cache/src/travel/adapters/swiss";
+import { parseFptfJourneys } from "../overpass-cache/src/travel/adapters/germany";
 import {
     dispatchPlan,
     selectAdapters,
@@ -28,6 +29,7 @@ const OSLO = { lat: 59.9139, lng: 10.7522 };
 const HELSINKI = { lat: 60.1699, lng: 24.9384 };
 const LONDON = { lat: 51.5072, lng: -0.1276 };
 const ZURICH = { lat: 47.3769, lng: 8.5417 };
+const BERLIN = { lat: 52.52, lng: 13.405 };
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
 
 /** Empty env → no Trafiklab key, so the Trafiklab adapter defers and
@@ -102,6 +104,23 @@ describe("adapter dispatch selection", () => {
     test("Zurich tries Swiss first, then walking", () => {
         const ids = selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id);
         expect(ids).toEqual(["swiss", "walking"]);
+    });
+
+    test("Berlin tries Germany first, then walking", () => {
+        const ids = selectAdapters(BERLIN.lat, BERLIN.lng).map((a) => a.id);
+        expect(ids).toEqual(["germany", "walking"]);
+    });
+
+    test("Swiss and Germany bboxes are disjoint at the border", () => {
+        // Zurich (47.38) → swiss only; Munich (48.14) → germany only.
+        expect(selectAdapters(ZURICH.lat, ZURICH.lng).map((a) => a.id)).toEqual([
+            "swiss",
+            "walking",
+        ]);
+        expect(selectAdapters(48.1374, 11.5755).map((a) => a.id)).toEqual([
+            "germany",
+            "walking",
+        ]);
     });
 
     test("Tokyo falls straight to walking", () => {
@@ -515,5 +534,84 @@ describe("parseSwissConnections", () => {
 
     test("returns null when no connections", () => {
         expect(parseSwissConnections({ connections: [] }, dest)).toBeNull();
+    });
+});
+
+describe("parseFptfJourneys (Germany / transport.rest)", () => {
+    const FIXTURE = {
+        journeys: [
+            {
+                legs: [
+                    {
+                        walking: true,
+                        distance: 240,
+                        departure: "2026-06-21T12:00:00+02:00",
+                        arrival: "2026-06-21T12:03:00+02:00",
+                        origin: {
+                            name: "Start",
+                            location: { latitude: 52.52, longitude: 13.405 },
+                        },
+                        destination: {
+                            name: "S+U Berlin Hauptbahnhof",
+                            location: { latitude: 52.525, longitude: 13.369 },
+                        },
+                    },
+                    {
+                        departure: "2026-06-21T12:08:00+02:00",
+                        arrival: "2026-06-21T12:22:00+02:00",
+                        direction: "S Ostbahnhof",
+                        line: { name: "S5", mode: "train", product: "suburban" },
+                        origin: {
+                            name: "S+U Berlin Hauptbahnhof",
+                            location: { latitude: 52.525, longitude: 13.369 },
+                        },
+                        destination: {
+                            name: "S+U Alexanderplatz",
+                            location: { latitude: 52.521, longitude: 13.411 },
+                        },
+                    },
+                    {
+                        departure: "2026-06-21T12:24:00+02:00",
+                        arrival: "2026-06-21T12:30:00+02:00",
+                        direction: "Hönow",
+                        line: { name: "U5", mode: "train", product: "subway" },
+                        origin: {
+                            name: "S+U Alexanderplatz",
+                            location: { latitude: 52.521, longitude: 13.411 },
+                        },
+                        destination: {
+                            name: "U Frankfurter Tor",
+                            location: { latitude: 52.516, longitude: 13.454 },
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+
+    const dest: TravelPlace = {
+        lat: 52.516,
+        lng: 13.454,
+        name: "U Frankfurter Tor",
+    };
+
+    test("normalises walk + S-Bahn + U-Bahn, product-aware modes", () => {
+        const j = parseFptfJourneys(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(3);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[0].distanceMeters).toBe(240);
+        // suburban → train; subway → subway (product wins over coarse mode).
+        expect(j!.legs[1].mode).toBe("train");
+        expect(j!.legs[1].line).toBe("S5");
+        expect(j!.legs[2].mode).toBe("subway");
+        expect(j!.legs[2].line).toBe("U5");
+        expect(j!.transfers).toBe(1); // two transit legs
+        expect(j!.durationMin).toBe(30);
+    });
+
+    test("returns null on empty journeys", () => {
+        expect(parseFptfJourneys({ journeys: [] }, dest)).toBeNull();
+        expect(parseFptfJourneys({}, dest)).toBeNull();
     });
 });

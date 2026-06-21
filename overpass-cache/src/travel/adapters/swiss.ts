@@ -27,9 +27,11 @@ const SWISS_URL = "https://transport.opendata.ch/v1/connections";
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
 /** Switzerland bbox. Coarse rectangle from the Genève corner up to
- *  St. Moritz / Lake Constance — the country is small enough that
- *  one box covers it without overlap risk against neighbours. */
-const SWISS_BBOX = { minLat: 45.7, maxLat: 47.85, minLng: 5.9, maxLng: 10.5 };
+ *  St. Moritz / Schaffhausen. North edge capped at 47.7 so it stays
+ *  disjoint from the Germany adapter (whose box starts at 47.7) — the
+ *  DE/CH border runs through here, and Zurich (47.38) / Basel (47.56)
+ *  / St. Gallen (47.42) all stay comfortably inside. */
+const SWISS_BBOX = { minLat: 45.7, maxLat: 47.7, minLng: 5.9, maxLng: 10.5 };
 
 export function canServe(lat: number, lng: number): boolean {
     return (

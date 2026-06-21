@@ -18,6 +18,7 @@
 import type { Env } from "../envTypes";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
+import * as germany from "./adapters/germany";
 import * as swiss from "./adapters/swiss";
 import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
@@ -106,6 +107,16 @@ const SWISS: TravelAdapter = {
     },
 };
 
+/** Germany (DB HAFAS via v6.db.transport.rest) — keyless, never
+ *  defers on env. */
+const GERMANY: TravelAdapter = {
+    id: "germany",
+    canServe: germany.canServe,
+    async plan(req, departAt, _env, signal) {
+        return germany.planJourney(req, departAt, signal);
+    },
+};
+
 /** The unconditional backstop. `canServe` is always true, so it's
  *  always last and always answers. */
 const WALKING: TravelAdapter = {
@@ -128,6 +139,7 @@ export const ADAPTERS: TravelAdapter[] = [
     DIGITRANSIT,
     TFL,
     SWISS,
+    GERMANY,
     WALKING,
 ];
 
