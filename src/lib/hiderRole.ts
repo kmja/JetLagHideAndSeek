@@ -398,6 +398,39 @@ export const hiderHandLimit = __globalPersistent<number>(
     (v) => Number(v) || 6,
 );
 
+/* ────────────────── Curse of the Overflowing Chalice ────────────────── */
+
+/**
+ * Number of upcoming question-reward draws still boosted by an active
+ * Curse of the Overflowing Chalice (rulebook: "For the next three
+ * questions, you may draw — but not keep — an additional card").
+ *
+ * Set to 3 when the curse is cast; decremented by one each time a
+ * question reward is drawn (in `presentDraw`). While > 0 every reward
+ * draws one extra card (keep count unchanged), so the per-category
+ * budget effectively becomes Matching/Measuring 4-keep-1,
+ * Thermometer/Radar 3-keep-1, Photo 2-keep-1, Tentacle 5-keep-2.
+ *
+ * Persistent so a reload mid-effect doesn't drop the remaining boosts.
+ * Reset to 0 at the start of every round.
+ */
+export const chaliceDrawsRemaining = __globalPersistent<number>(
+    "__jlhs_chaliceDraws",
+    "chaliceDraws",
+    0,
+    String,
+    (v) => Number(v) || 0,
+);
+
+/**
+ * Arm the Overflowing Chalice: the next three question rewards each
+ * draw one extra card. Stacks additively if cast again before the
+ * previous one expires (rare, but the rulebook doesn't forbid it).
+ */
+export function activateOverflowingChalice(): void {
+    chaliceDrawsRemaining.set(chaliceDrawsRemaining.get() + 3);
+}
+
 /* ────────────────── Volatile: role-picker open flag ────────────────── */
 
 /** Non-persistent: shown when the user lands on the app with no role set. */
@@ -465,6 +498,7 @@ export function resetHiderRoundState() {
     pendingDraw.set(null);
     roundFoundAt.set(null);
     hiderForfeited.set(false);
+    chaliceDrawsRemaining.set(0);
 }
 
 /**
@@ -516,6 +550,14 @@ export function presentDraw(
     sourceCategory: string,
     sourceQuestionKey: number,
 ): boolean {
+    // Curse of the Overflowing Chalice: while armed, every question
+    // reward draws one extra card (keep count unchanged). Consume one
+    // charge here — this is the single chokepoint all question-reward
+    // draws pass through, so the boost can't double-apply.
+    if (chaliceDrawsRemaining.get() > 0) {
+        n += 1;
+        chaliceDrawsRemaining.set(chaliceDrawsRemaining.get() - 1);
+    }
     const drawn = liftFromDeck(n);
     if (drawn.length === 0) return true;
     const keep = Math.min(k, drawn.length);

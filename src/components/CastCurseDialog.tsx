@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { gameSize } from "@/lib/gameSetup";
 import type { CurseCard } from "@/lib/hiderDeck";
-import { discardCard } from "@/lib/hiderRole";
+import { activateOverflowingChalice, discardCard } from "@/lib/hiderRole";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { hiderCastCurse } from "@/lib/multiplayer/store";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
@@ -239,6 +239,22 @@ export function CastCurseDialog({
         tick();
     };
 
+    /**
+     * Side effects that fire the moment a curse actually lands (after
+     * the casting cost is paid and the curse is delivered). Currently
+     * only the Overflowing Chalice, which arms the hider's own draw
+     * boost. Called from each successful-cast branch below.
+     */
+    const onCurseLanded = () => {
+        if (card.name === "Curse of the Overflowing Chalice") {
+            activateOverflowingChalice();
+            toast.info(
+                "Overflowing Chalice armed: your next 3 question rewards each draw one extra card.",
+                { autoClose: 4000 },
+            );
+        }
+    };
+
     const cast = async () => {
         if (!canCast) return;
 
@@ -261,6 +277,7 @@ export function CastCurseDialog({
                 castingCost: card.castingCost ?? null,
             });
             discardCard(card.id);
+            onCurseLanded();
             toast.success(`${card.name} cast on seekers.`, { autoClose: 2500 });
             onOpenChange(false);
             return;
@@ -281,6 +298,7 @@ export function CastCurseDialog({
             setLastShareResult(result.method);
             if (result.method === "share" || result.method === "copy") {
                 discardCard(card.id);
+                onCurseLanded();
                 toast.success(
                     `${card.name} sent. Curse moved to discard.`,
                     { autoClose: 2500 },
@@ -327,6 +345,7 @@ export function CastCurseDialog({
                 await navigator.clipboard.writeText(url);
                 setLastShareResult("copy");
                 discardCard(card.id);
+                onCurseLanded();
                 toast.success(
                     `${card.name} link copied. Curse moved to discard.`,
                     { autoClose: 2500 },
