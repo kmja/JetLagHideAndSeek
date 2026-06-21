@@ -303,12 +303,10 @@ export const AddQuestionDialog = ({
     //         picker can grey out already-asked tiles, plus a count per
     //         category for "all subtypes used → block the category tile".
     //
-    // Rule 2: you can't ask two questions from the same alternation class
-    //         (matching / measuring / radar) back-to-back. Thermometer,
-    //         tentacles and photo sit outside the rotation (different
-    //         answer mechanics) — they don't block, and they don't reset.
-    //         So the last QUESTION in the alternation class determines
-    //         what's blocked next, regardless of what was asked in between.
+    // Rule 2: you can't ask two questions of the same type back-to-back.
+    //         "Type" = category (matching / measuring / radar / thermometer
+    //         / tentacles / photo); the seeker has to alternate. The most
+    //         recently added question determines what's blocked next.
     const usedSubtypes = React.useMemo(() => {
         const map: Record<string, Set<string>> = {
             matching: new Set(),
@@ -332,18 +330,13 @@ export const AddQuestionDialog = ({
         return map;
     }, [$questions]);
 
-    const ALTERNATION_TYPES = React.useMemo(
-        () => new Set(["matching", "measuring", "radius"]),
-        [],
+    const lastQuestionType = React.useMemo(
+        () =>
+            $questions.length > 0
+                ? $questions[$questions.length - 1].id
+                : null,
+        [$questions],
     );
-    const lastAlternationType = React.useMemo(() => {
-        for (let i = $questions.length - 1; i >= 0; i--) {
-            if (ALTERNATION_TYPES.has($questions[i].id)) {
-                return $questions[i].id;
-            }
-        }
-        return null;
-    }, [$questions, ALTERNATION_TYPES]);
 
     // Helper: get the most recently added question's key, then promote it
     // to the "pending confirm" state and close the category picker.
@@ -681,16 +674,22 @@ export const AddQuestionDialog = ({
                                 (q.data as { status?: string }).status ===
                                     "started",
                         );
-                        // Rule 2 phrasing — same wording for all three
-                        // rotation-class tiles, swap in the category label.
+                        // Rule 2 phrasing — same wording for every
+                        // category, swap in the category label.
                         const alternationReason = (label: string) =>
                             `You just asked a ${label} question — alternate types before asking another.`;
                         const matchingBlockedByLast =
-                            lastAlternationType === "matching";
+                            lastQuestionType === "matching";
                         const measuringBlockedByLast =
-                            lastAlternationType === "measuring";
+                            lastQuestionType === "measuring";
                         const radiusBlockedByLast =
-                            lastAlternationType === "radius";
+                            lastQuestionType === "radius";
+                        const thermometerBlockedByLast =
+                            lastQuestionType === "thermometer";
+                        const photoBlockedByLast =
+                            lastQuestionType === "photo";
+                        const tentaclesBlockedByLast =
+                            lastQuestionType === "tentacles";
                         return (
                             <>
                                 <CategoryTile
@@ -754,11 +753,18 @@ export const AddQuestionDialog = ({
                                         setOpen(false);
                                         setThermConfigureOpen(true);
                                     }}
-                                    disabled={thermInProgress}
+                                    disabled={
+                                        thermInProgress ||
+                                        thermometerBlockedByLast
+                                    }
                                     blockedReason={
                                         thermInProgress
                                             ? "A thermometer is already in progress — finish it before starting another"
-                                            : undefined
+                                            : thermometerBlockedByLast
+                                              ? alternationReason(
+                                                    "thermometer",
+                                                )
+                                              : undefined
                                     }
                                 />
                                 <CategoryTile
@@ -767,6 +773,12 @@ export const AddQuestionDialog = ({
                                     onClick={() => {
                                         setSubtypePickerFor("photo");
                                     }}
+                                    disabled={photoBlockedByLast}
+                                    blockedReason={
+                                        photoBlockedByLast
+                                            ? alternationReason("photo")
+                                            : undefined
+                                    }
                                 />
                                 <CategoryTile
                                     category="tentacles"
@@ -778,11 +790,16 @@ export const AddQuestionDialog = ({
                                         );
                                         setSubtypePickerFor("tentacles");
                                     }}
-                                    disabled={tentacleBlockedSize}
+                                    disabled={
+                                        tentacleBlockedSize ||
+                                        tentaclesBlockedByLast
+                                    }
                                     blockedReason={
                                         tentacleBlockedSize
                                             ? "Tentacle questions aren't used in Small games (rulebook p38)."
-                                            : undefined
+                                            : tentaclesBlockedByLast
+                                              ? alternationReason("tentacles")
+                                              : undefined
                                     }
                                 />
                             </>
