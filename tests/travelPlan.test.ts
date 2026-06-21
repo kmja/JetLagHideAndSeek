@@ -19,6 +19,7 @@ import { parseNavitiaJourneys } from "../overpass-cache/src/travel/adapters/navi
 import { parseRejseplanenTrip } from "../overpass-cache/src/travel/adapters/denmark";
 import { parseEfaTrip } from "../overpass-cache/src/travel/adapters/nsw";
 import { parseMotisPlan } from "../overpass-cache/src/travel/adapters/transitous";
+import { parseOtpPlan } from "../overpass-cache/src/travel/adapters/otp";
 import {
     dispatchPlan,
     selectAdapters,
@@ -78,10 +79,10 @@ describe("walkingJourney", () => {
 });
 
 describe("adapter dispatch selection", () => {
-    // The free universal fallback (Transitous) + walking are appended to
-    // EVERY origin — Transitous covers (and grows) globally, ordered
-    // after the free regional/navitia tiers.
-    const U = ["transitous", "walking"];
+    // The universal fallbacks are appended to EVERY origin, after the
+    // free regional/navitia tiers: self-hosted MOTIS (env-gated, but
+    // canServe is always true) → public Transitous → walking.
+    const U = ["motis-self-hosted", "transitous", "walking"];
 
     test("Trafiklab serves Sweden, defers elsewhere", () => {
         expect(canServe(STOCKHOLM.lat, STOCKHOLM.lng)).toBe(true);
@@ -154,15 +155,35 @@ describe("adapter dispatch selection", () => {
         ]);
     });
 
-    test("Tokyo: no free regional adapter, transitous then walking", () => {
-        // The win from the universal tier — Tokyo (and NYC, Calgary, …)
-        // now get real transit planning via Transitous before walking.
+    test("Tokyo: no free regional adapter, universal fallbacks then walking", () => {
         expect(selectAdapters(TOKYO.lat, TOKYO.lng).map((a) => a.id)).toEqual(
             U,
         );
     });
 
-    test("walking is always last; transitous is always present", () => {
+    // New free regional adapters fire first in their region.
+    test("Tallinn → estonia", () => {
+        expect(selectAdapters(59.437, 24.7536).map((a) => a.id)[0]).toBe(
+            "estonia",
+        );
+    });
+    test("Vienna → austria (after germany in the chain, but first in AT)", () => {
+        expect(selectAdapters(48.2082, 16.3738).map((a) => a.id)[0]).toBe(
+            "austria",
+        );
+    });
+    test("Dublin → ireland", () => {
+        expect(selectAdapters(53.3498, -6.2603).map((a) => a.id)[0]).toBe(
+            "ireland",
+        );
+    });
+    test("Barcelona → barcelona", () => {
+        expect(selectAdapters(41.3874, 2.1686).map((a) => a.id)[0]).toBe(
+            "barcelona",
+        );
+    });
+
+    test("walking is always last; universal MOTIS fallbacks always present", () => {
         for (const [lat, lng] of [
             [STOCKHOLM.lat, STOCKHOLM.lng],
             [TOKYO.lat, TOKYO.lng],
@@ -1013,5 +1034,93 @@ describe("parseMotisPlan (Transitous / NYC)", () => {
     test("returns null on empty itineraries", () => {
         expect(parseMotisPlan({ itineraries: [] }, dest)).toBeNull();
         expect(parseMotisPlan({}, dest)).toBeNull();
+    });
+});
+
+describe("parseOtpPlan (generic OpenTripPlanner REST)", () => {
+    // OTP REST `/plan` → plan.itineraries[].legs[]; epoch-ms times,
+    // from/to {name,lat,lon}, mode, routeShortName, headsign.
+    const T = 1_750_000_000_000; // epoch ms
+    const FIXTURE = {
+        plan: {
+            itineraries: [
+                {
+                    legs: [
+                        {
+                            mode: "WALK",
+                            distance: 190,
+                            startTime: T,
+                            endTime: T + 3 * 60_000,
+                            from: { name: "Start", lat: 45.07, lon: 7.69 },
+                            to: {
+                                name: "Porta Nuova",
+                                lat: 45.062,
+                                lon: 7.678,
+                            },
+                        },
+                        {
+                            mode: "SUBWAY",
+                            startTime: T + 5 * 60_000,
+                            endTime: T + 17 * 60_000,
+                            from: {
+                                name: "Porta Nuova",
+                                lat: 45.062,
+                                lon: 7.678,
+                            },
+                            to: { name: "Fermi", lat: 45.071, lon: 7.626 },
+                            routeShortName: "M1",
+                            headsign: "Fermi",
+                        },
+                    ],
+                },
+            ],
+        },
+    };
+
+    const dest: TravelPlace = { lat: 45.071, lng: 7.626, name: "Fermi" };
+
+    test("normalises walk + subway from epoch-ms times", () => {
+        const j = parseOtpPlan(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[0].distanceMeters).toBe(190);
+        expect(j!.legs[1].mode).toBe("subway");
+        expect(j!.legs[1].line).toBe("M1");
+        expect(j!.legs[1].direction).toBe("Fermi");
+        expect(j!.departAt).toBe(T);
+        expect(j!.arriveAt).toBe(T + 17 * 60_000);
+        expect(j!.durationMin).toBe(17);
+        expect(j!.transfers).toBe(0);
+    });
+
+    test("tolerates second-resolution times", () => {
+        const sec = {
+            plan: {
+                itineraries: [
+                    {
+                        legs: [
+                            {
+                                mode: "RAIL",
+                                startTime: 1_750_000_000,
+                                endTime: 1_750_000_000 + 600,
+                                from: { name: "A", lat: 1, lon: 2 },
+                                to: { name: "B", lat: 3, lon: 4 },
+                                route: "RE5",
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+        const j = parseOtpPlan(sec, dest);
+        expect(j!.legs[0].mode).toBe("train");
+        expect(j!.legs[0].line).toBe("RE5");
+        expect(j!.durationMin).toBe(10);
+    });
+
+    test("returns null on empty plan", () => {
+        expect(parseOtpPlan({ plan: { itineraries: [] } }, dest)).toBeNull();
+        expect(parseOtpPlan({}, dest)).toBeNull();
     });
 });

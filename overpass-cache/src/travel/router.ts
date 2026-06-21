@@ -16,10 +16,15 @@
  */
 
 import type { Env } from "../envTypes";
+import * as austria from "./adapters/austria";
+import * as barcelona from "./adapters/barcelona";
 import * as denmark from "./adapters/denmark";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
+import * as estonia from "./adapters/estonia";
 import * as germany from "./adapters/germany";
+import * as ireland from "./adapters/ireland";
+import * as motisSelfHosted from "./adapters/motisSelfHosted";
 import * as navitia from "./adapters/navitia";
 import * as nsw from "./adapters/nsw";
 import * as swiss from "./adapters/swiss";
@@ -142,6 +147,52 @@ const GERMANY: TravelAdapter = {
     },
 };
 
+/** Austria (ÖBB via v6.oebb.transport.rest) — keyless FPTF, reuses the
+ *  Germany transport.rest helper. Ordered after Germany so DACH-overlap
+ *  German cities still hit DB first (both HAFAS cover the region). */
+const AUSTRIA: TravelAdapter = {
+    id: "austria",
+    canServe: austria.canServe,
+    async plan(req, departAt, _env, signal) {
+        return austria.planJourney(req, departAt, signal);
+    },
+};
+
+/** Estonia (peatus.ee) — keyless OTP REST, reuses planViaOtp. */
+const ESTONIA: TravelAdapter = {
+    id: "estonia",
+    canServe: estonia.canServe,
+    async plan(req, departAt, _env, signal) {
+        return estonia.planJourney(req, departAt, signal);
+    },
+};
+
+/** Ireland (TFI/NTA EFA) — keyless, reuses the NSW EFA parser. */
+const IRELAND: TravelAdapter = {
+    id: "ireland",
+    canServe: ireland.canServe,
+    async plan(req, departAt, _env, signal) {
+        return ireland.planJourney(req, departAt, signal);
+    },
+};
+
+/** Barcelona (TMB OTP) — keyed (app_id + app_key), reuses planViaOtp.
+ *  Defers unless both TMB keys are set. */
+const BARCELONA: TravelAdapter = {
+    id: "barcelona",
+    canServe: barcelona.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.TMB_APP_ID || !env.TMB_APP_KEY) return null;
+        return barcelona.planJourney(
+            req,
+            env.TMB_APP_ID,
+            env.TMB_APP_KEY,
+            departAt,
+            signal,
+        );
+    },
+};
+
 /** navitia (broad European fallback) — keyed; defers without the key.
  *  Ordered last among the regional adapters so country-specific
  *  planners win first; navitia only runs where they all decline. */
@@ -154,10 +205,29 @@ const NAVITIA: TravelAdapter = {
     },
 };
 
-/** Transitous (MOTIS over the Mobility Database) — the near-universal
- *  fallback. FREE and KEYLESS (community-run), so it's always
- *  available; outside its coverage it returns no itinerary and we fall
- *  through to walking. */
+/** Self-hosted MOTIS — the LICENSE-CLEAN universal fallback. Same MOTIS
+ *  API as Transitous but pointed at the operator's own box (env URL),
+ *  so it has no non-commercial restriction. Ordered AHEAD of the public
+ *  Transitous instance: when `MOTIS_SELF_HOSTED_URL` is set, your box
+ *  wins; otherwise it defers. */
+const MOTIS_SELF_HOSTED: TravelAdapter = {
+    id: "motis-self-hosted",
+    canServe: motisSelfHosted.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.MOTIS_SELF_HOSTED_URL) return null;
+        return motisSelfHosted.planJourney(
+            env.MOTIS_SELF_HOSTED_URL,
+            req,
+            departAt,
+            signal,
+        );
+    },
+};
+
+/** Transitous (public MOTIS over the Mobility Database) — near-universal
+ *  fallback. FREE + KEYLESS, but ⚠️ flagged "non-commercial" (see
+ *  transitous.ts). Kept as a backstop after self-hosted MOTIS; revisit
+ *  if the app is ever monetised. */
 const TRANSITOUS: TravelAdapter = {
     id: "transitous",
     canServe: transitous.canServe,
@@ -176,28 +246,35 @@ const WALKING: TravelAdapter = {
     },
 };
 
-/** Dispatch order. Three tiers, ALL FREE (no billing / no credit card):
- *  1. Free country/region adapters (Denmark, Trafiklab SE, Entur NO,
- *     Digitransit FI, TfL London, Swiss CH, Germany DE, NSW Sydney) —
- *     mostly disjoint bboxes; where two overlap (DK/SE) the more
- *     specific is first and `dispatchPlan` falls through on null.
- *  2. Broad fallbacks: `navitia` (Europe, free key), then `transitous`
- *     (free + keyless, MOTIS over the Mobility Database — near-universal
- *     and growing).
+/** Dispatch order. Tiers, ALL FREE (no billing / no credit card):
+ *  1. Free country/region adapters — Denmark, Trafiklab SE, Entur NO,
+ *     Digitransit FI, Estonia, TfL London, Swiss CH, Germany DE,
+ *     Austria, Ireland, Barcelona, NSW Sydney. Mostly disjoint bboxes;
+ *     overlaps (DK/SE Øresund, DACH borders) are handled by order +
+ *     `dispatchPlan` null-fallthrough since the regional HAFAS/OTP
+ *     instances cover their neighbours too.
+ *  2. Broad fallbacks: `navitia` (Europe, free key) → `motis-self-hosted`
+ *     (operator's own MOTIS box, license-clean, env URL) → `transitous`
+ *     (public MOTIS, free+keyless but ⚠️ non-commercial — backstop only).
  *  3. `walking` — the unconditional final backstop.
- *  Each tier only runs where the tier above it declines/has no key.
- *  (Paid providers like Google Directions / HERE were deliberately NOT
- *  used — they require billing and bill per request.) */
+ *  Each tier only runs where the tier above declines/has no key.
+ *  (Paid providers — Google Directions, HERE — are deliberately NOT
+ *  used: they require billing. See CLAUDE.md.) */
 export const ADAPTERS: TravelAdapter[] = [
     DENMARK,
     TRAFIKLAB,
     ENTUR,
     DIGITRANSIT,
+    ESTONIA,
     TFL,
     SWISS,
     GERMANY,
+    AUSTRIA,
+    IRELAND,
+    BARCELONA,
     NSW,
     NAVITIA,
+    MOTIS_SELF_HOSTED,
     TRANSITOUS,
     WALKING,
 ];

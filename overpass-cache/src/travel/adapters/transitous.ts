@@ -14,6 +14,15 @@
  * it for free — so we just call it. As the universal free fallback it
  * sits after the free regional adapters + navitia, before walking.
  *
+ * ⚠️ TODO / LICENSE CHECK (flagged by Kalle): the Transitous site states
+ * it is "not intended for commercial or for-profit purposes; contact us
+ * if unsure — decided case-by-case." This app is currently a free hobby
+ * project, so it's plausibly fine, but BEFORE any commercial/monetised
+ * use we must confirm with the Transitous maintainers (contact via
+ * transitous.org). If they decline, drop this adapter — every other
+ * provider here is unambiguously free-for-any-use, and the regional
+ * adapters cover most populated areas anyway. Keeping it for now.
+ *
  * API: MOTIS v2 `GET /api/v1/plan` (OTP-shaped). Be a polite citizen
  * with the shared free instance — the worker's edge+R2 cache already
  * dedupes by (origin, dest, 5-min bucket), so repeated lookups don't
@@ -47,7 +56,22 @@ export async function planJourney(
     departAt: number,
     signal?: AbortSignal,
 ): Promise<Journey | null> {
-    const url = new URL(TRANSITOUS_URL);
+    return planViaMotis(TRANSITOUS_URL, req, departAt, signal);
+}
+
+/**
+ * Generic MOTIS v2 `/api/v1/plan` fetch against any MOTIS instance —
+ * the public Transitous one OR a self-hosted box (see
+ * `motisSelfHosted.ts`). `planUrl` is the full plan endpoint. Both use
+ * the identical request + `parseMotisPlan` response shape.
+ */
+export async function planViaMotis(
+    planUrl: string,
+    req: PlanRequest,
+    departAt: number,
+    signal?: AbortSignal,
+): Promise<Journey | null> {
+    const url = new URL(planUrl);
     // MOTIS takes `fromPlace` / `toPlace` as "lat,lon".
     url.searchParams.set("fromPlace", `${req.origin.lat},${req.origin.lng}`);
     url.searchParams.set(
@@ -69,14 +93,14 @@ export async function planJourney(
             headers: { Accept: "application/json" },
         });
     } catch (e) {
-        console.warn("Transitous fetch failed:", e);
+        console.warn("MOTIS fetch failed:", e);
         return null;
     } finally {
         clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
     }
     if (!resp.ok) {
-        console.warn("Transitous non-OK:", resp.status, resp.statusText);
+        console.warn("MOTIS non-OK:", resp.status, resp.statusText);
         return null;
     }
     let json: unknown;

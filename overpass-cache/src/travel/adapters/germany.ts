@@ -52,7 +52,24 @@ export async function planJourney(
     departAt: number,
     signal?: AbortSignal,
 ): Promise<Journey | null> {
-    const url = new URL(DBREST_URL);
+    return planViaFptf(DBREST_URL, "Germany", req, departAt, signal);
+}
+
+/**
+ * Generic `*.transport.rest` (FPTF / `hafas-rest-api`) journey fetch.
+ * The whole transport.rest family (DB, ÖBB, VBB, BVG, …) shares this
+ * exact request + FPTF response shape, so each instance is just a base
+ * `/journeys` URL away. Reused by `austria.ts` (ÖBB). Returns null on
+ * any failure so the dispatcher falls through.
+ */
+export async function planViaFptf(
+    journeysUrl: string,
+    label: string,
+    req: PlanRequest,
+    departAt: number,
+    signal?: AbortSignal,
+): Promise<Journey | null> {
+    const url = new URL(journeysUrl);
     url.searchParams.set("from.latitude", req.origin.lat.toFixed(6));
     url.searchParams.set("from.longitude", req.origin.lng.toFixed(6));
     url.searchParams.set("from.address", "origin");
@@ -75,14 +92,14 @@ export async function planJourney(
             headers: { Accept: "application/json" },
         });
     } catch (e) {
-        console.warn("Germany (db.transport.rest) fetch failed:", e);
+        console.warn(`${label} (transport.rest) fetch failed:`, e);
         return null;
     } finally {
         clearTimeout(timer);
         signal?.removeEventListener("abort", onAbort);
     }
     if (!resp.ok) {
-        console.warn("Germany non-OK:", resp.status, resp.statusText);
+        console.warn(`${label} non-OK:`, resp.status, resp.statusText);
         return null;
     }
     let json: unknown;

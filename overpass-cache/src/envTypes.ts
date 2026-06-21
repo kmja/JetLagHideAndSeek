@@ -73,8 +73,20 @@ export interface Env {
      *  Open Data Hub. Optional — without it NSW origins fall through
      *  to walking. (Norway/Switzerland/Germany/Denmark are keyless.) */
     TFNSW_API_KEY?: string;
-    // The near-universal fallback is `transitous` — free + KEYLESS
-    // (MOTIS over the Mobility Database), so it needs no secret here.
-    // (Paid universal providers like Google Directions / HERE were
-    // deliberately not used — they require billing.)
+    /** TMB (Barcelona) OpenTripPlanner keys — free, no billing, from
+     *  developer.tmb.cat. BOTH required (passed as `app_id`/`app_key`).
+     *  Optional — Barcelona origins defer to walking without them. */
+    TMB_APP_ID?: string;
+    TMB_APP_KEY?: string;
+    /** Full plan-endpoint URL of an operator-run, SELF-HOSTED MOTIS
+     *  instance, e.g. `https://motis.example.com/api/v1/plan`. When set,
+     *  it's the license-clean universal fallback (ordered ahead of the
+     *  public Transitous instance). MOTIS is FOSS — self-host it over
+     *  the Mobility Database GTFS to avoid Transitous's non-commercial
+     *  restriction. Optional. */
+    MOTIS_SELF_HOSTED_URL?: string;
+    // The public `transitous` fallback is free + KEYLESS (MOTIS over the
+    // Mobility Database) — no secret — but is flagged non-commercial
+    // (see adapters/transitous.ts). Paid providers (Google Directions /
+    // HERE) are deliberately NOT used — they require billing.
 }
