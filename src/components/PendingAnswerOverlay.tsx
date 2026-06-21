@@ -32,6 +32,7 @@ import { toast } from "react-toastify";
 import { useNow } from "@/hooks/useNow";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions, triggerLocalRefresh } from "@/lib/context";
+import { answerWindowMs, gameSize } from "@/lib/gameSetup";
 import { participants } from "@/lib/multiplayer/session";
 import { isHiderConnected } from "@/lib/multiplayer/store";
 import { encodeQuestionForHider, shareOrCopy } from "@/lib/shareLinks";
@@ -132,6 +133,7 @@ function subtypeLabel(type: string | undefined): string | null {
 export function PendingAnswerOverlay() {
     useStore(triggerLocalRefresh);
     const $questions = useStore(questions);
+    const $gameSize = useStore(gameSize);
     // Reactive subscription — the share button re-labels itself when
     // a hider joins/leaves the online room mid-question. `isHiderConnected`
     // reads the same store imperatively for the click handler.
@@ -197,11 +199,9 @@ export function PendingAnswerOverlay() {
     const meta = CATEGORIES[displayed.id as CategoryId];
     const Icon = meta?.icon ?? Hourglass;
     const createdAt = (displayed.data as { createdAt?: number }).createdAt;
-    const isPhoto = displayed.id === "photo";
-    // Rulebook p5/p32: 5 min for everything except photo (10 min S/M, up
-    // to 20 min L). The card lives without knowing game size; we use 10
-    // min for photo as the safer middle ground.
-    const windowMs = isPhoto ? 10 * 60_000 : 5 * 60_000;
+    // Rulebook p5/p32: 5 min for everything except photo (10 min S/M,
+    // 20 min L). `answerWindowMs` reads the live game size.
+    const windowMs = answerWindowMs(displayed.id, $gameSize);
     const remainingMs = createdAt
         ? Math.max(0, createdAt + windowMs - now)
         : null;

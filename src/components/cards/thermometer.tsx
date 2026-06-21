@@ -17,6 +17,7 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { type GameSize, gameSize } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import type { ThermometerQuestion } from "@/maps/schema";
 
@@ -34,14 +35,24 @@ import { ManualAnswerDisclosure, QuestionCard } from "./base";
  * Each preset is committed at most once per game; `sig` is the signature
  * stored on the question's `distance` field for uniqueness checks.
  */
-const THERMOMETER_PRESETS: { km: number; label: string; sig: string }[] = [
-    { km: 0.5, label: "500m", sig: "500m" },
-    { km: 1, label: "1km", sig: "1km" },
-    { km: 2, label: "2km", sig: "2km" },
-    { km: 5, label: "5km", sig: "5km" },
-    { km: 10, label: "10km", sig: "10km" },
-    { km: 15, label: "15km", sig: "15km" },
-    { km: 75, label: "75km", sig: "75km" },
+const ALL_SIZES: GameSize[] = ["small", "medium", "large"];
+const THERMOMETER_PRESETS: {
+    km: number;
+    label: string;
+    sig: string;
+    /** Game sizes this preset is legal in (rulebook p30). The official
+     *  big-distance presets are size-gated; the house presets
+     *  (500m/2km/10km) stay available everywhere. */
+    validSizes: GameSize[];
+}[] = [
+    { km: 0.5, label: "500m", sig: "500m", validSizes: ALL_SIZES },
+    { km: 1, label: "1km", sig: "1km", validSizes: ALL_SIZES },
+    { km: 2, label: "2km", sig: "2km", validSizes: ALL_SIZES },
+    { km: 5, label: "5km", sig: "5km", validSizes: ALL_SIZES },
+    { km: 10, label: "10km", sig: "10km", validSizes: ALL_SIZES },
+    // Official: 15km is Medium+Large only; 75km is Large only.
+    { km: 15, label: "15km", sig: "15km", validSizes: ["medium", "large"] },
+    { km: 75, label: "75km", sig: "75km", validSizes: ["large"] },
 ];
 
 export const ThermometerQuestionComponent = ({
@@ -333,6 +344,13 @@ function StartedBody({
         finishLng: number,
     ) => void;
 }) {
+    // Only presets legal for the current game size are offered
+    // (rulebook p30: 15km is Medium+Large, 75km is Large only).
+    const $gameSize = useStore(gameSize);
+    const sizePresets = THERMOMETER_PRESETS.filter((p) =>
+        p.validSizes.includes($gameSize),
+    );
+
     // Live seeker position. Falls back to map center if geolocation is
     // unavailable or denied — the seeker can still finish manually that
     // way (will use whatever the map is centered on).
@@ -376,15 +394,13 @@ function StartedBody({
     );
 
     // Presets the seeker has reached AND haven't been used elsewhere.
-    const reachedAvailable = THERMOMETER_PRESETS.filter(
+    const reachedAvailable = sizePresets.filter(
         (p) => travelKm >= p.km && !usedPresetSigs.has(p.sig),
     );
 
     // Shortest preset that's still not used — what we tell the user to
     // aim for if they haven't yet reached anything.
-    const nextTarget = THERMOMETER_PRESETS.find(
-        (p) => !usedPresetSigs.has(p.sig),
-    );
+    const nextTarget = sizePresets.find((p) => !usedPresetSigs.has(p.sig));
 
     const displayTravel =
         unit === "miles"
@@ -454,10 +470,8 @@ function StartedBody({
                             targetSig) keep the original
                             pick-any-reached-preset row. */}
                         {(targetSig
-                            ? THERMOMETER_PRESETS.filter(
-                                  (p) => p.sig === targetSig,
-                              )
-                            : THERMOMETER_PRESETS
+                            ? sizePresets.filter((p) => p.sig === targetSig)
+                            : sizePresets
                         ).map((preset) => {
                             const reached = travelKm >= preset.km;
                             const used = usedPresetSigs.has(preset.sig);

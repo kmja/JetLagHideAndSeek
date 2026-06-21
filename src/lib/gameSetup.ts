@@ -587,6 +587,22 @@ export const HIDING_PERIOD_MINUTES: Record<GameSize, number> = {
 };
 
 /**
+ * How long the hider has to answer a question, in ms, per rulebook
+ * (p5/p32): 5 minutes for everything EXCEPT photo questions, which get
+ * 10 minutes in Small/Medium games and 20 minutes in Large games.
+ * Single source of truth so the unanswered-countdown UIs agree.
+ */
+export function answerWindowMs(
+    category: string,
+    size: GameSize = gameSize.get(),
+): number {
+    if (category === "photo") {
+        return (size === "large" ? 20 : 10) * 60_000;
+    }
+    return 5 * 60_000;
+}
+
+/**
  * Rulebook copy for each size, used in step 3 of the setup wizard.
  * Verbatim from the printed rulebook so seekers/hiders recognise it.
  */

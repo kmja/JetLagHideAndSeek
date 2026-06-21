@@ -26,6 +26,7 @@ import { useNow } from "@/hooks/useNow";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { isLoading, questionModified, questions } from "@/lib/context";
+import { answerWindowMs, gameSize } from "@/lib/gameSetup";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import {
     isHiderConnected,
@@ -89,6 +90,7 @@ export const QuestionCard = ({
     );
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
+    const $gameSize = useStore(gameSize);
 
     const categoryMeta = category ? CATEGORIES[category] : undefined;
     const CategoryIcon = categoryMeta?.icon;
@@ -124,15 +126,10 @@ export const QuestionCard = ({
         : null;
 
     // Rulebook p5 / p32: the hider must answer most questions within 5 min;
-    // photo questions get 10 min (S/M) or 20 min (L). We display a short
-    // countdown on the unanswered card so the seeker has clear feedback
-    // about whether their answer window is still open.
-    //
-    // The 5/10/20 min split per game size isn't surfaced into the card
-    // (the card doesn't know the game size); we use 10 min for photo as
-    // a reasonable middle value. Refine when we model the hider role.
-    const answerDeadlineMs =
-        category === "photo" ? 10 * 60_000 : 5 * 60_000;
+    // photo questions get 10 min (S/M) or 20 min (L). The split is sourced
+    // from the live game size via answerWindowMs so the countdown on the
+    // unanswered card matches the rule the hider is actually playing under.
+    const answerDeadlineMs = answerWindowMs(category ?? "", $gameSize);
     const isPending = locked === false;
     // v377: shared clock instead of a per-card setInterval. With N
     // questions this was N independent 1 Hz timers each firing its own
