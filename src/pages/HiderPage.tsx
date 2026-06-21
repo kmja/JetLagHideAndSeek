@@ -6,6 +6,7 @@ import { AppPromptHost } from "@/components/AppPromptHost";
 import { ClosingInWatcher } from "@/components/ClosingInWatcher";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
+import { HiderReachOverlay } from "@/components/HiderReachOverlay";
 import { HiderView } from "@/components/HiderView";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
@@ -96,6 +97,13 @@ export function HiderPage() {
             <MultiplayerBoot />
             <GameStartWatcher />
             <ClosingInWatcher />
+            {/* Reach overlay watcher — populates hiderReachFC from
+                live GPS during the hiding/grace phases so
+                HiderBackgroundMap can paint every reachable
+                candidate zone with an arrival time. Self-gates by
+                phase + GPS + zone-committed; renders nothing
+                directly. */}
+            <HiderReachOverlay />
             <AppConfirmHost />
             <AppPromptHost />
             <Suspense fallback={null}>

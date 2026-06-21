@@ -86,6 +86,7 @@ import {
     type FoundStation,
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
+import { HiderTripPlanCard } from "./HiderTripPlanCard";
 import { ScoutedSpotsPanel } from "./ScoutedSpotsPanel";
 import { SeekerLivePositions } from "./SeekerLivePositions";
 
@@ -557,6 +558,14 @@ function HidingPhaseView({
                 showStationSuggest
             />
 
+            {/* Trip-plan card — appears once the hider commits a zone,
+                showing the live journey from current GPS to that
+                station with legs/line/transfers. Self-renders null
+                until hidingZone is set. */}
+            <div className="mt-3">
+                <HiderTripPlanCard />
+            </div>
+
             {/* Walk-around notebook: drop pins on potential hiding spots
                 so the hider doesn't lose track between scouting trips. */}
             <ScoutedSpotsPanel />
@@ -606,6 +615,14 @@ function GracePhaseView({
                 showStationSuggest
                 lockToStations
             />
+            {/* Trip-plan card — once the hider picks a zone in the
+                grace window, surface the live journey to it the same
+                way the hiding phase does. Mostly a no-op since they
+                probably won't move much before committing, but it
+                keeps the UX consistent across phases. */}
+            <div className="mt-3">
+                <HiderTripPlanCard />
+            </div>
         </>
     );
 }

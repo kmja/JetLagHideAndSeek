@@ -1,6 +1,7 @@
 /**
  * Journey-overlay state. Atoms only; the fetching + rendering glue
- * lives in `components/TravelTimesOverlay.tsx`.
+ * lives in `components/TravelTimesOverlay.tsx` (seeker side) and
+ * `components/HiderReachOverlay.tsx` (hider side).
  */
 
 import { persistentAtom } from "@nanostores/persistent";
@@ -40,3 +41,47 @@ export const travelTimesFC = atom<GeoJSON.FeatureCollection<
         arrivalLabel: string;
     }
 > | null>(null);
+
+/* ─────────────────────── Hider reach overlay ─────────────────────── */
+
+/**
+ * Whether the hider's reach overlay is currently rendered. Mirrors
+ * the seeker's `showTravelTimes` toggle but with a hider-side key so
+ * the two roles' UI states are independent (a player switching roles
+ * mid-game doesn't import the other side's overlay preference).
+ */
+export const showHiderReach = persistentAtom<boolean>(
+    "jlhs:showHiderReach",
+    false,
+    {
+        encode: (v) => (v ? "true" : "false"),
+        decode: (v) => v === "true",
+    },
+);
+
+/**
+ * Shadow FC for the hider's reach overlay — the same shape the
+ * seeker's `travelTimesFC` carries, but written by
+ * `HiderReachOverlay` from the hider's live GPS during the hiding
+ * period. Renders as map markers in `HiderBackgroundMap` so the hider
+ * can survey every candidate hiding zone they could feasibly reach
+ * before the whistle blows.
+ *
+ * Same feature shape as `travelTimesFC` so the rendering Source/Layer
+ * can be lifted into a reusable bit later if the seeker overlay's
+ * styling diverges. Null when off / pre-fetch / no candidates.
+ */
+export const hiderReachFC = atom<GeoJSON.FeatureCollection<
+    GeoJSON.Point,
+    {
+        stopId: string;
+        name?: string;
+        arrivalLabel: string;
+    }
+> | null>(null);
+
+/* ─────────────────────── Seeker trip planner ─────────────────────── */
+
+/** Volatile open/closed state for the seeker's trip-planner drawer.
+ *  Not persisted — closing the app resets it. */
+export const seekerTripPlannerOpen = atom<boolean>(false);

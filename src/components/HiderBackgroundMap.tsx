@@ -16,6 +16,7 @@ import {
     polyGeoJSONHydrated,
 } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
+import { hiderReachFC } from "@/lib/journey/state";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
 import { clipPolygonToLand } from "@/lib/landClip";
 import {
@@ -67,6 +68,7 @@ export function HiderBackgroundMap() {
     const $spot = useStore(hidingSpot);
     const $scouted = useStore(scoutedSpots);
     const $gps = useStore(lastKnownPosition);
+    const $reach = useStore(hiderReachFC);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
 
@@ -372,6 +374,47 @@ export function HiderBackgroundMap() {
                             paint={{
                                 "line-color": "hsl(2, 70%, 54%)",
                                 "line-width": 2,
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Reach overlay — every candidate hiding-zone
+                    station the hider could plausibly reach before the
+                    whistle, with arrival labels. Painted as a small
+                    accent-coloured dot + arrival label so the survey
+                    is map-wide; the trip-detail card below the picker
+                    handles the *single-zone* trip plan once one is
+                    chosen. */}
+                {$reach && $reach.features.length > 0 && (
+                    <Source id="hider-reach" type="geojson" data={$reach}>
+                        <Layer
+                            id="hider-reach-dots"
+                            type="circle"
+                            paint={{
+                                "circle-radius": 4,
+                                "circle-color": "hsl(180, 70%, 55%)",
+                                "circle-opacity": 0.85,
+                                "circle-stroke-color": "rgba(0,0,0,0.6)",
+                                "circle-stroke-width": 1,
+                            }}
+                        />
+                        <Layer
+                            id="hider-reach-labels"
+                            type="symbol"
+                            layout={{
+                                "text-field": ["get", "arrivalLabel"],
+                                "text-size": 11,
+                                "text-font": ["Open Sans Regular"],
+                                "text-anchor": "left",
+                                "text-offset": [0.8, 0],
+                                "text-allow-overlap": false,
+                                "text-ignore-placement": false,
+                            }}
+                            paint={{
+                                "text-color": "white",
+                                "text-halo-color": "rgba(0,0,0,0.85)",
+                                "text-halo-width": 1.5,
                             }}
                         />
                     </Source>

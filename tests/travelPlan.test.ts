@@ -7,10 +7,16 @@ import {
     walkingJourney,
 } from "../overpass-cache/src/travel/adapters/walking";
 import { canServe, parseResRobotTrip } from "../overpass-cache/src/travel/adapters/trafiklab";
+import { parseEnturTrip } from "../overpass-cache/src/travel/adapters/entur";
+import { parseDigitransitPlan } from "../overpass-cache/src/travel/adapters/digitransit";
+import { parseTflJourney } from "../overpass-cache/src/travel/adapters/tfl";
 import { dispatchPlan, selectAdapters } from "../overpass-cache/src/travel/router";
 import type { PlanRequest, TravelPlace } from "../overpass-cache/src/travel/types";
 
 const STOCKHOLM = { lat: 59.3293, lng: 18.0686 };
+const OSLO = { lat: 59.9139, lng: 10.7522 };
+const HELSINKI = { lat: 60.1699, lng: 24.9384 };
+const LONDON = { lat: 51.5072, lng: -0.1276 };
 const TOKYO = { lat: 35.6812, lng: 139.7671 };
 
 /** Empty env → no Trafiklab key, so the Trafiklab adapter defers and
@@ -61,6 +67,21 @@ describe("adapter dispatch selection", () => {
     test("Stockholm tries Trafiklab first, then walking", () => {
         const ids = selectAdapters(STOCKHOLM.lat, STOCKHOLM.lng).map((a) => a.id);
         expect(ids).toEqual(["trafiklab", "walking"]);
+    });
+
+    test("Oslo tries Entur first, then walking", () => {
+        const ids = selectAdapters(OSLO.lat, OSLO.lng).map((a) => a.id);
+        expect(ids).toEqual(["entur", "walking"]);
+    });
+
+    test("Helsinki tries Digitransit first, then walking", () => {
+        const ids = selectAdapters(HELSINKI.lat, HELSINKI.lng).map((a) => a.id);
+        expect(ids).toEqual(["digitransit", "walking"]);
+    });
+
+    test("London tries TfL first, then walking", () => {
+        const ids = selectAdapters(LONDON.lat, LONDON.lng).map((a) => a.id);
+        expect(ids).toEqual(["tfl", "walking"]);
     });
 
     test("Tokyo falls straight to walking", () => {
@@ -170,5 +191,161 @@ describe("parseResRobotTrip", () => {
         expect(parseResRobotTrip({ Trip: [] }, destFallback)).toBeNull();
         expect(parseResRobotTrip({}, destFallback)).toBeNull();
         expect(parseResRobotTrip(null, destFallback)).toBeNull();
+    });
+});
+
+describe("parseEnturTrip", () => {
+    const FIXTURE = {
+        data: {
+            trip: {
+                tripPatterns: [
+                    {
+                        expectedStartTime: "2026-06-21T12:00:00+02:00",
+                        expectedEndTime: "2026-06-21T12:25:00+02:00",
+                        legs: [
+                            {
+                                mode: "foot",
+                                distance: 250,
+                                expectedStartTime: "2026-06-21T12:00:00+02:00",
+                                expectedEndTime: "2026-06-21T12:04:00+02:00",
+                                fromPlace: { name: "Start", latitude: 59.91, longitude: 10.75 },
+                                toPlace: { name: "Jernbanetorget", latitude: 59.911, longitude: 10.752 },
+                            },
+                            {
+                                mode: "metro",
+                                expectedStartTime: "2026-06-21T12:05:00+02:00",
+                                expectedEndTime: "2026-06-21T12:25:00+02:00",
+                                fromPlace: { name: "Jernbanetorget", latitude: 59.911, longitude: 10.752 },
+                                toPlace: { name: "Majorstuen", latitude: 59.929, longitude: 10.715 },
+                                line: { publicCode: "5", name: "T-banen 5" },
+                                fromEstimatedCall: { destinationDisplay: { frontText: "Vestli" } },
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    };
+
+    const dest: TravelPlace = { lat: 59.929, lng: 10.715, name: "Majorstuen" };
+
+    test("normalises a foot+metro itinerary", () => {
+        const j = parseEnturTrip(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[1].mode).toBe("subway");
+        expect(j!.legs[1].line).toBe("5");
+        expect(j!.legs[1].direction).toBe("Vestli");
+        expect(j!.transfers).toBe(0);
+        expect(j!.durationMin).toBe(25);
+    });
+
+    test("returns null when no patterns", () => {
+        expect(parseEnturTrip({ data: { trip: { tripPatterns: [] } } }, dest)).toBeNull();
+        expect(parseEnturTrip({}, dest)).toBeNull();
+    });
+});
+
+describe("parseDigitransitPlan", () => {
+    // Digitransit returns epoch seconds in `startTime`/`endTime`.
+    const T_START = 1_750_000_000; // some 2025-ish second timestamp
+    const T_END = T_START + 22 * 60;
+
+    const FIXTURE = {
+        data: {
+            plan: {
+                itineraries: [
+                    {
+                        startTime: T_START,
+                        endTime: T_END,
+                        legs: [
+                            {
+                                mode: "WALK",
+                                distance: 180,
+                                startTime: T_START,
+                                endTime: T_START + 3 * 60,
+                                from: { name: "Start", lat: 60.17, lon: 24.94 },
+                                to: { name: "Rautatientori", lat: 60.171, lon: 24.942 },
+                            },
+                            {
+                                mode: "SUBWAY",
+                                startTime: T_START + 4 * 60,
+                                endTime: T_END,
+                                from: { name: "Rautatientori", lat: 60.171, lon: 24.942 },
+                                to: { name: "Itäkeskus", lat: 60.211, lon: 25.082 },
+                                route: { shortName: "M2", longName: "Metro" },
+                                headsign: "Mellunmäki",
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    };
+
+    const dest: TravelPlace = { lat: 60.211, lng: 25.082, name: "Itäkeskus" };
+
+    test("handles second-resolution timestamps + mode mapping", () => {
+        const j = parseDigitransitPlan(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[1].mode).toBe("subway");
+        expect(j!.legs[1].line).toBe("M2");
+        expect(j!.legs[1].direction).toBe("Mellunmäki");
+        // Round-trip times should be in ms (parser multiplies seconds × 1000).
+        expect(j!.departAt).toBe(T_START * 1000);
+        expect(j!.arriveAt).toBe(T_END * 1000);
+        expect(j!.durationMin).toBe(22);
+    });
+
+    test("returns null on empty itineraries", () => {
+        expect(parseDigitransitPlan({ data: { plan: { itineraries: [] } } }, dest)).toBeNull();
+    });
+});
+
+describe("parseTflJourney", () => {
+    const FIXTURE = {
+        journeys: [
+            {
+                startDateTime: "2026-06-21T12:00:00",
+                arrivalDateTime: "2026-06-21T12:35:00",
+                legs: [
+                    {
+                        mode: { id: "walking", name: "walking" },
+                        departureTime: "2026-06-21T12:00:00",
+                        arrivalTime: "2026-06-21T12:08:00",
+                        departurePoint: { commonName: "Start", lat: 51.507, lon: -0.128 },
+                        arrivalPoint: { commonName: "Victoria Stn", lat: 51.495, lon: -0.143 },
+                        distance: 1200,
+                    },
+                    {
+                        mode: { id: "tube", name: "tube" },
+                        departureTime: "2026-06-21T12:12:00",
+                        arrivalTime: "2026-06-21T12:35:00",
+                        departurePoint: { commonName: "Victoria Stn", lat: 51.495, lon: -0.143 },
+                        arrivalPoint: { commonName: "Walthamstow Central", lat: 51.583, lon: -0.019 },
+                        routeOptions: [{ name: "Victoria Line", directions: ["Walthamstow"] }],
+                    },
+                ],
+            },
+        ],
+    };
+
+    const dest: TravelPlace = { lat: 51.583, lng: -0.019, name: "Walthamstow Central" };
+
+    test("normalises walking + tube", () => {
+        const j = parseTflJourney(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[1].mode).toBe("subway");
+        expect(j!.legs[1].line).toBe("Victoria Line");
+        expect(j!.legs[1].direction).toBe("Walthamstow");
+        expect(j!.durationMin).toBe(35);
+    });
+
+    test("returns null on empty journeys", () => {
+        expect(parseTflJourney({ journeys: [] }, dest)).toBeNull();
     });
 });

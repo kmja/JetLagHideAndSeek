@@ -5,6 +5,7 @@ import {
     Layers,
     Loader2,
     Map as MapIcon,
+    Radar,
     Satellite,
     Ship,
     Train,
@@ -28,6 +29,7 @@ import {
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
+import { showHiderReach } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
@@ -55,6 +57,7 @@ export function HiderMapDisplayControls() {
     const $tram = useStore(showTramRoutes);
     const $allowedTransit = useStore(allowedTransit);
     const $transitLoading = useStore(transitRoutesLoading);
+    const $reach = useStore(showHiderReach);
 
     const showRailBtn =
         $allowedTransit.includes("train") || $allowedTransit.includes("tram");
@@ -73,6 +76,7 @@ export function HiderMapDisplayControls() {
 
     const activeCount =
         (Number($satellite) || 0) +
+        (Number($reach) || 0) +
         (Number($rail && showRailBtn) || 0) +
         (Number($subway && showSubwayBtn) || 0) +
         (Number($bus && showBusBtn) || 0) +
@@ -167,6 +171,36 @@ export function HiderMapDisplayControls() {
                             </span>
                         </button>
                     </div>
+                </div>
+
+                {/* Reach overlay — paints every candidate hiding
+                    zone the hider could reach before the whistle, with
+                    arrival times. Self-disables when GPS is missing,
+                    when the zone is committed, or post-hiding-period —
+                    safe to leave on. */}
+                <div className="space-y-1.5">
+                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        Reach
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => showHiderReach.set(!$reach)}
+                        aria-pressed={$reach}
+                        className={cn(
+                            "w-full rounded-md border-2 border-border bg-background overflow-hidden",
+                            "h-9 px-2 gap-2 flex items-center justify-center transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            $reach
+                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                : "hover:bg-accent",
+                        )}
+                        title="Show every candidate hiding zone you could reach in time"
+                    >
+                        <Radar className="w-3.5 h-3.5" />
+                        <span className="text-xs font-poppins font-semibold">
+                            Reachable zones
+                        </span>
+                    </button>
                 </div>
 
                 {hasAnyTransitBtn && (

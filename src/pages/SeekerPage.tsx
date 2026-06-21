@@ -26,6 +26,8 @@ import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { SeekerTopBar } from "@/components/SeekerTopBar";
+import { SeekerTripPlannerLauncher } from "@/components/SeekerTripPlannerLauncher";
+import { SeekerTripPlannerSheet } from "@/components/SeekerTripPlannerSheet";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import { TravelTimesOverlay } from "@/components/TravelTimesOverlay";
 import {
@@ -197,6 +199,13 @@ export function SeekerPage() {
                                     shift it below the SeekerTopBar. */}
                                 <div className="absolute top-[64px] md:top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
                                     <MapDisplayControls />
+                                    {/* Trip planner launcher — small
+                                        pill sitting under the map-
+                                        options chip. Opens the bottom-
+                                        drawer SeekerTripPlannerSheet
+                                        which fetches a journey from
+                                        live GPS to the typed place. */}
+                                    <SeekerTripPlannerLauncher />
                                 </div>
                                 <div className="bottom-5 right-2 mx-auto mb-2 w-fit absolute z-[1030] group-[.fullscreen]:hidden hidden md:block">
                                     <OptionDrawers />
@@ -247,6 +256,10 @@ export function SeekerPage() {
                         <SeekingStartOverlay />
                         <SeekingStartWatcher />
                     </Suspense>
+                    {/* Trip planner sheet — opened from the launcher
+                        in the top-right cluster. Self-renders null
+                        when its open atom is false. */}
+                    <SeekerTripPlannerSheet />
                     <AppConfirmHost />
                     <AppPromptHost />
                     <GameStartWatcher />

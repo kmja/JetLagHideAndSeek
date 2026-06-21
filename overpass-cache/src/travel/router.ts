@@ -16,6 +16,9 @@
  */
 
 import type { Env } from "../envTypes";
+import * as digitransit from "./adapters/digitransit";
+import * as entur from "./adapters/entur";
+import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
 import { walkingJourney } from "./adapters/walking";
 import type { Journey, PlanRequest } from "./types";
@@ -51,6 +54,42 @@ const TRAFIKLAB: TravelAdapter = {
     },
 };
 
+/** Entur (Norway) — keyless GraphQL endpoint, always available so
+ *  no env-key gate. */
+const ENTUR: TravelAdapter = {
+    id: "entur",
+    canServe: entur.canServe,
+    async plan(req, departAt, _env, signal) {
+        return entur.planJourney(req, departAt, signal);
+    },
+};
+
+/** Digitransit (Finland) — subscription-keyed; defers without the
+ *  key, same pattern as Trafiklab. */
+const DIGITRANSIT: TravelAdapter = {
+    id: "digitransit",
+    canServe: digitransit.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.DIGITRANSIT_API_KEY) return null;
+        return digitransit.planJourney(
+            req,
+            env.DIGITRANSIT_API_KEY,
+            departAt,
+            signal,
+        );
+    },
+};
+
+/** TfL (London) — works keyless at a lower rate limit, optional key
+ *  for higher quota. Never defers on key absence. */
+const TFL: TravelAdapter = {
+    id: "tfl",
+    canServe: tfl.canServe,
+    async plan(req, departAt, env, signal) {
+        return tfl.planJourney(req, env.TFL_API_KEY, departAt, signal);
+    },
+};
+
 /** The unconditional backstop. `canServe` is always true, so it's
  *  always last and always answers. */
 const WALKING: TravelAdapter = {
@@ -61,8 +100,19 @@ const WALKING: TravelAdapter = {
     },
 };
 
-/** Specificity order: most specific first, walking last. */
-export const ADAPTERS: TravelAdapter[] = [TRAFIKLAB, WALKING];
+/** Specificity order: most specific first, walking last. Regional
+ *  adapters are listed by geographic disjointness; ordering among
+ *  them only matters if two `canServe` bboxes overlap. (None do
+ *  today — Trafiklab is SE, Entur NO, Digitransit FI, TfL London —
+ *  and we'd add tighter city adapters AHEAD of national ones if
+ *  that ever changes.) */
+export const ADAPTERS: TravelAdapter[] = [
+    TRAFIKLAB,
+    ENTUR,
+    DIGITRANSIT,
+    TFL,
+    WALKING,
+];
 
 /**
  * The ordered subset of adapters that will be tried for an origin at

@@ -31,10 +31,14 @@ import type {
 const RESROBOT_TRIP_URL = "https://api.resrobot.se/v2.1/trip";
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
-/** Sweden-ish bounding box (with margins into the straits/Öresund).
- *  Coarse on purpose: ResRobot does plan some cross-border journeys,
- *  but the box keeps obviously-out-of-region requests off the wire. */
-const SWEDEN_BBOX = { minLat: 55.0, maxLat: 69.1, minLng: 10.5, maxLng: 24.2 };
+/** Sweden bbox, tightened to be disjoint from the Norway and Finland
+ *  adapters' boxes:
+ *    - West edge 11.0 excludes Oslo (10.75 E) so it lands on Entur.
+ *    - East edge 24.5 excludes Helsinki (24.94 E) so it lands on
+ *      Digitransit.
+ *  The Finnish/Swedish border around Haparanda (23 E) and Sweden's
+ *  whole interior are well inside the trimmed bbox. */
+const SWEDEN_BBOX = { minLat: 55.0, maxLat: 69.1, minLng: 11.0, maxLng: 24.5 };
 
 export function canServe(lat: number, lng: number): boolean {
     return (

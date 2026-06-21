@@ -50,4 +50,15 @@ export interface Env {
      *  unset, the journey endpoint returns 503 and the seeker
      *  app silently keeps the Travel Times overlay empty. */
     TRAFIKLAB_API_KEY?: string;
+    /** Digitransit (Finland) subscription key, used by the
+     *  `/api/travel/plan` Digitransit adapter. Configure via
+     *  `wrangler secret put DIGITRANSIT_API_KEY`. Optional — if
+     *  unset, the adapter defers and the dispatcher falls through
+     *  to the walking backstop. */
+    DIGITRANSIT_API_KEY?: string;
+    /** TfL (London) Unified API app key. Configure via
+     *  `wrangler secret put TFL_API_KEY`. Optional — TfL accepts
+     *  unauthenticated calls at a lower rate limit, so the
+     *  adapter works without a key, and just runs faster with one. */
+    TFL_API_KEY?: string;
 }
