@@ -315,6 +315,11 @@ export function InlineLocationPicker({
     // success/fail diff rather than "two equally valid regions
     // with different consequences". Neutral grey backgrounds
     // carry the equals / not-equals glyph in a contrasting tone.
+    //
+    // v392: same neutral treatment for measuring — < (closer) and >
+    // (further), comparing distance-to-nearest-X. Was red/green, which
+    // again read as success/fail. Lighter grey for the "yes" region
+    // (closer / same nearest), darker for "no" (further / different).
     const registerImpactPatterns = (map: maplibregl.Map) => {
         if (!map.hasImage("match-yes-pattern")) {
             map.addImage("match-yes-pattern", makePatternImage("="), {
@@ -323,6 +328,16 @@ export function InlineLocationPicker({
         }
         if (!map.hasImage("match-no-pattern")) {
             map.addImage("match-no-pattern", makePatternImage("≠"), {
+                pixelRatio: 2,
+            });
+        }
+        if (!map.hasImage("measure-yes-pattern")) {
+            map.addImage("measure-yes-pattern", makePatternImage("<"), {
+                pixelRatio: 2,
+            });
+        }
+        if (!map.hasImage("measure-no-pattern")) {
+            map.addImage("measure-no-pattern", makePatternImage(">"), {
                 pixelRatio: 2,
             });
         }
@@ -451,9 +466,13 @@ export function InlineLocationPicker({
                     )}
                     {/* Question-impact overlay (v239) — drawn on this
                         same map per the design request (no separate
-                        mini-map). Order: red "no" region first so the
-                        green "yes" sits on top; candidates + reach
-                        circle above both. */}
+                        mini-map). v392: matching uses =/≠ tile patterns,
+                        measuring uses </> tile patterns (closer/further),
+                        both on neutral grey. Tentacles still uses a
+                        red/green wash because its semantics are a hard
+                        reach/no-reach cut (no "two valid sides" framing
+                        to preserve). Order: "no" region first so the
+                        "yes" sits on top. */}
                     {impactMode && impact?.no && (
                         <Source
                             id="impact-no"
@@ -470,10 +489,17 @@ export function InlineLocationPicker({
                                                   "match-no-pattern",
                                               "fill-opacity": 0.7,
                                           }
-                                        : {
-                                              "fill-color": "hsl(0, 75%, 50%)",
-                                              "fill-opacity": 0.22,
-                                          }
+                                        : impactMode === "measuring"
+                                          ? {
+                                                "fill-pattern":
+                                                    "measure-no-pattern",
+                                                "fill-opacity": 0.7,
+                                            }
+                                          : {
+                                                "fill-color":
+                                                    "hsl(0, 75%, 50%)",
+                                                "fill-opacity": 0.22,
+                                            }
                                 }
                             />
                         </Source>
@@ -494,10 +520,17 @@ export function InlineLocationPicker({
                                                   "match-yes-pattern",
                                               "fill-opacity": 0.85,
                                           }
-                                        : {
-                                              "fill-color": "hsl(140, 65%, 48%)",
-                                              "fill-opacity": 0.3,
-                                          }
+                                        : impactMode === "measuring"
+                                          ? {
+                                                "fill-pattern":
+                                                    "measure-yes-pattern",
+                                                "fill-opacity": 0.85,
+                                            }
+                                          : {
+                                                "fill-color":
+                                                    "hsl(140, 65%, 48%)",
+                                                "fill-opacity": 0.3,
+                                            }
                                 }
                             />
                             <Layer
@@ -505,7 +538,8 @@ export function InlineLocationPicker({
                                 type="line"
                                 paint={{
                                     "line-color":
-                                        impactMode === "matching"
+                                        impactMode === "matching" ||
+                                        impactMode === "measuring"
                                             ? "hsl(220, 8%, 60%)"
                                             : "hsl(140, 65%, 32%)",
                                     "line-width": 1.5,
@@ -793,7 +827,9 @@ const REF_SVG = `
  * high-DPI screens. Two shades of grey distinguish the regions
  * without leaning on green/red success/fail semantics.
  */
-function makePatternImage(symbol: "=" | "≠"): maplibregl.StyleImageInterface {
+function makePatternImage(
+    symbol: "=" | "≠" | "<" | ">",
+): maplibregl.StyleImageInterface {
     const size = 28;
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -807,14 +843,17 @@ function makePatternImage(symbol: "=" | "≠"): maplibregl.StyleImageInterface {
         };
     }
     // Backdrop colour shades the two regions differently so the
-    // border between "same" and "different" reads at a glance even
-    // before the glyph is parsed. Same → lighter, different →
-    // darker, both neutral.
-    ctx.fillStyle =
-        symbol === "=" ? "rgba(148, 163, 184, 0.55)" : "rgba(71, 85, 105, 0.6)";
+    // border between the "yes" and "no" sides reads at a glance even
+    // before the glyph is parsed. Yes (= / <) → lighter, no (≠ / >) →
+    // darker, both neutral. Glyph colour flips to keep contrast.
+    const isYes = symbol === "=" || symbol === "<";
+    ctx.fillStyle = isYes
+        ? "rgba(148, 163, 184, 0.55)"
+        : "rgba(71, 85, 105, 0.6)";
     ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle =
-        symbol === "=" ? "rgba(15, 23, 42, 0.85)" : "rgba(241, 245, 249, 0.9)";
+    ctx.fillStyle = isYes
+        ? "rgba(15, 23, 42, 0.85)"
+        : "rgba(241, 245, 249, 0.9)";
     ctx.font = "bold 18px ui-sans-serif, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
