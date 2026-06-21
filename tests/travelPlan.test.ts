@@ -20,6 +20,8 @@ import { parseRejseplanenTrip } from "../overpass-cache/src/travel/adapters/denm
 import { parseEfaTrip } from "../overpass-cache/src/travel/adapters/nsw";
 import { parseMotisPlan } from "../overpass-cache/src/travel/adapters/transitous";
 import { parseOtpPlan } from "../overpass-cache/src/travel/adapters/otp";
+import { parseOdsayPath } from "../overpass-cache/src/travel/adapters/korea";
+import { parseNsTrip } from "../overpass-cache/src/travel/adapters/netherlands";
 import {
     dispatchPlan,
     selectAdapters,
@@ -181,6 +183,17 @@ describe("adapter dispatch selection", () => {
         expect(selectAdapters(41.3874, 2.1686).map((a) => a.id)[0]).toBe(
             "barcelona",
         );
+    });
+    test("Amsterdam → netherlands", () => {
+        expect(selectAdapters(52.3676, 4.9041).map((a) => a.id)[0]).toBe(
+            "netherlands",
+        );
+    });
+    test("Seoul → korea (isolated)", () => {
+        expect(selectAdapters(37.5665, 126.978).map((a) => a.id)).toEqual([
+            "korea",
+            ...U,
+        ]);
     });
 
     test("walking is always last; universal MOTIS fallbacks always present", () => {
@@ -1122,5 +1135,130 @@ describe("parseOtpPlan (generic OpenTripPlanner REST)", () => {
     test("returns null on empty plan", () => {
         expect(parseOtpPlan({ plan: { itineraries: [] } }, dest)).toBeNull();
         expect(parseOtpPlan({}, dest)).toBeNull();
+    });
+});
+
+describe("parseOdsayPath (South Korea / Seoul)", () => {
+    // ODsay gives per-subPath DURATIONS (sectionTime, minutes), no
+    // absolute clock — the parser accumulates from departAt.
+    const DEP = 1_750_000_000_000;
+    const FIXTURE = {
+        result: {
+            path: [
+                {
+                    subPath: [
+                        {
+                            trafficType: 3, // walk
+                            distance: 200,
+                            sectionTime: 3,
+                            startName: "Start",
+                            endName: "Seoul Stn",
+                            startX: 126.97,
+                            startY: 37.554,
+                            endX: 126.972,
+                            endY: 37.556,
+                        },
+                        {
+                            trafficType: 1, // subway
+                            distance: 8000,
+                            sectionTime: 16,
+                            startName: "Seoul Stn",
+                            endName: "Gangnam",
+                            startX: 126.972,
+                            startY: 37.556,
+                            endX: 127.0276,
+                            endY: 37.4979,
+                            lane: [{ name: "Line 2" }],
+                        },
+                    ],
+                },
+            ],
+        },
+    };
+    const dest: TravelPlace = { lat: 37.4979, lng: 127.0276, name: "Gangnam" };
+
+    test("normalises walk + subway, accumulates times", () => {
+        const j = parseOdsayPath(FIXTURE, DEP, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[0].departAt).toBe(DEP);
+        expect(j!.legs[0].arriveAt).toBe(DEP + 3 * 60_000);
+        expect(j!.legs[1].mode).toBe("subway");
+        expect(j!.legs[1].line).toBe("Line 2");
+        expect(j!.durationMin).toBe(19);
+        expect(j!.transfers).toBe(0);
+    });
+
+    test("returns null on empty path", () => {
+        expect(parseOdsayPath({ result: { path: [] } }, DEP, dest)).toBeNull();
+        expect(parseOdsayPath({}, DEP, dest)).toBeNull();
+    });
+});
+
+describe("parseNsTrip (Netherlands / NS)", () => {
+    const FIXTURE = {
+        trips: [
+            {
+                legs: [
+                    {
+                        travelType: "WALK",
+                        origin: {
+                            name: "Start",
+                            lat: 52.3676,
+                            lng: 4.9041,
+                            plannedDateTime: "2026-06-21T12:00:00+0200",
+                        },
+                        destination: {
+                            name: "Amsterdam Centraal",
+                            lat: 52.3789,
+                            lng: 4.9003,
+                            plannedDateTime: "2026-06-21T12:06:00+0200",
+                        },
+                    },
+                    {
+                        direction: "Rotterdam Centraal",
+                        product: {
+                            displayName: "Intercity",
+                            categoryCode: "IC",
+                            number: "1163",
+                        },
+                        origin: {
+                            name: "Amsterdam Centraal",
+                            lat: 52.3789,
+                            lng: 4.9003,
+                            plannedDateTime: "2026-06-21T12:15:00+0200",
+                        },
+                        destination: {
+                            name: "Rotterdam Centraal",
+                            lat: 51.9249,
+                            lng: 4.4699,
+                            plannedDateTime: "2026-06-21T13:00:00+0200",
+                        },
+                    },
+                ],
+            },
+        ],
+    };
+    const dest: TravelPlace = {
+        lat: 51.9249,
+        lng: 4.4699,
+        name: "Rotterdam Centraal",
+    };
+
+    test("normalises walk (no product) + IC train", () => {
+        const j = parseNsTrip(FIXTURE, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs).toHaveLength(2);
+        expect(j!.legs[0].mode).toBe("walk");
+        expect(j!.legs[1].mode).toBe("train");
+        expect(j!.legs[1].line).toBe("Intercity");
+        expect(j!.legs[1].direction).toBe("Rotterdam Centraal");
+        expect(j!.durationMin).toBe(60);
+    });
+
+    test("returns null on empty trips", () => {
+        expect(parseNsTrip({ trips: [] }, dest)).toBeNull();
+        expect(parseNsTrip({}, dest)).toBeNull();
     });
 });

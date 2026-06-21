@@ -28,6 +28,8 @@ wrangler secret put NAVITIA_API_KEY     --config wrangler.toml # navitia.io — 
 wrangler secret put TFNSW_API_KEY        --config wrangler.toml # Transport for NSW — Sydney/NSW (Australia)
 wrangler secret put TMB_APP_ID           --config wrangler.toml # Barcelona TMB — app_id (needs app_key too)
 wrangler secret put TMB_APP_KEY          --config wrangler.toml # Barcelona TMB — app_key
+wrangler secret put NS_API_KEY           --config wrangler.toml # Netherlands NS (rail-centric)
+wrangler secret put ODSAY_API_KEY         --config wrangler.toml # South Korea ODsay (Seoul/Busan…)
 wrangler secret put MOTIS_SELF_HOSTED_URL --config wrangler.toml # license-clean universal: your own MOTIS plan URL
 # (Denmark/Norway/Switzerland/Germany adapters are keyless — no secret needed.)
 # The near-universal fallback `transitous` (MOTIS over the Mobility Database)

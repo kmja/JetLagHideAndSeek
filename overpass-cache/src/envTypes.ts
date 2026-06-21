@@ -78,6 +78,12 @@ export interface Env {
      *  Optional — Barcelona origins defer to walking without them. */
     TMB_APP_ID?: string;
     TMB_APP_KEY?: string;
+    /** NS (Netherlands) Reisinformatie key — free, no billing, from
+     *  apiportal.ns.nl. Rail-centric. Optional. */
+    NS_API_KEY?: string;
+    /** ODsay (South Korea) key — free tier 1,000/day, no billing, from
+     *  lab.odsay.com. Optional. */
+    ODSAY_API_KEY?: string;
     /** Full plan-endpoint URL of an operator-run, SELF-HOSTED MOTIS
      *  instance, e.g. `https://motis.example.com/api/v1/plan`. When set,
      *  it's the license-clean universal fallback (ordered ahead of the

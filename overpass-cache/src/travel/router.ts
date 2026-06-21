@@ -24,8 +24,10 @@ import * as entur from "./adapters/entur";
 import * as estonia from "./adapters/estonia";
 import * as germany from "./adapters/germany";
 import * as ireland from "./adapters/ireland";
+import * as korea from "./adapters/korea";
 import * as motisSelfHosted from "./adapters/motisSelfHosted";
 import * as navitia from "./adapters/navitia";
+import * as netherlands from "./adapters/netherlands";
 import * as nsw from "./adapters/nsw";
 import * as swiss from "./adapters/swiss";
 import * as tfl from "./adapters/tfl";
@@ -193,6 +195,26 @@ const BARCELONA: TravelAdapter = {
     },
 };
 
+/** Netherlands (NS Trips) — keyed, rail-centric coordinate planner. */
+const NETHERLANDS: TravelAdapter = {
+    id: "netherlands",
+    canServe: netherlands.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.NS_API_KEY) return null;
+        return netherlands.planJourney(req, env.NS_API_KEY, departAt, signal);
+    },
+};
+
+/** South Korea (ODsay) — keyed; nationwide subway/bus routing. */
+const KOREA: TravelAdapter = {
+    id: "korea",
+    canServe: korea.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.ODSAY_API_KEY) return null;
+        return korea.planJourney(req, env.ODSAY_API_KEY, departAt, signal);
+    },
+};
+
 /** navitia (broad European fallback) — keyed; defers without the key.
  *  Ordered last among the regional adapters so country-specific
  *  planners win first; navitia only runs where they all decline. */
@@ -272,7 +294,9 @@ export const ADAPTERS: TravelAdapter[] = [
     AUSTRIA,
     IRELAND,
     BARCELONA,
+    NETHERLANDS,
     NSW,
+    KOREA,
     NAVITIA,
     MOTIS_SELF_HOSTED,
     TRANSITOUS,
