@@ -43,6 +43,7 @@ import {
 import { COUNTRY_SHARDS, type CountryShard } from "./countryShards";
 import type { Env } from "./envTypes";
 import { handleJourneyArrivals } from "./journey";
+import { handleTravelPlan } from "./travel/plan";
 import {
     countryRefsKey,
     extractBbox,
@@ -825,6 +826,9 @@ async function handleRequest(
         }
         if (url.pathname === "/api/journey/arrivals") {
             return handleJourneyArrivals(request, env, ctx, cors);
+        }
+        if (url.pathname === "/api/travel/plan") {
+            return handleTravelPlan(request, env, ctx, cors);
         }
         if (url.pathname.startsWith("/api/refs/")) {
             const relId = parseInt(

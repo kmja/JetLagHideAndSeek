@@ -84,6 +84,13 @@ Stateless URL encoding via `src/lib/shareLinks.ts`. Route `/h?q=<encoded>` for h
 ### Geocoding
 Photon (https://photon.komoot.io/) for both reverse and forward geocoding in `src/maps/api/geocode.ts`. Module-level cache by 4-decimal coords.
 
+### Trip planning (transit travel times + journeys)
+Two distinct server capabilities in the `overpass-cache` worker, both Trafiklab-secret-shielded with the R2 + edge-cache pattern:
+- **Reach** (`POST /api/journey/arrivals`, `overpass-cache/src/journey.ts`): anchor + many stops → earliest arrival at each (ResRobot `passlist=0`, keeps only the final timestamp). The seeker's `TravelTimesOverlay.tsx` renders stations reachable before `hidingPeriodEndsAt` as map labels, anchored at `gameStartPosition`. The hider's "which zones can I reach" overlay (M2) is the mirror image — same endpoint, anchored at live GPS.
+- **Plan** (`POST /api/travel/plan`, `overpass-cache/src/travel/`): single origin→destination journey **with legs** (lines, transfers, walking segments) for trip-detail cards. An **adapter dispatcher** (`router.ts`) tries region-specific adapters in specificity order — `adapters/trafiklab.ts` (`canServe` = Sweden bbox, ResRobot `passlist=1`) then `adapters/walking.ts` (unconditional haversine×circuity backstop, so a journey is *always* produced). Adding a country = one adapter file + one entry in `ADAPTERS`; dispatcher, cache and client are untouched.
+
+Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib/journey/`), NOT shared via `protocol/` — that mirrors how `journey.ts` already works and avoids cross-worker-root bundling. Pure logic (dispatch selection, walking ETA, ResRobot leg parsing) is unit-tested in `tests/travelPlan.test.ts`. Coverage roadmap: Entur (NO) → Digitransit (FI) → TfL (London) → Swiss/Dutch/German HAFAS → navitia fallback; static-GTFS cities (Calgary, NYC, …) deferred to a self-hosted raptor-router.
+
 ### Subtype picker (matching/measuring/tentacles)
 `src/lib/subtypes.ts` defines `SUBTYPES` with `validSizes: GameSize[]` per entry. `-full` suffixed types (e.g. `aquarium-full`) are Small+Medium only — not available in Large games. Use `isSubtypeAllowed(value, size)` to filter dropdowns, `getSubtypes(categoryId, size)` for the step-2 picker tiles. Use `cleanDescription(desc)` to strip `" Question"` and `" (Small+Medium Games)"` suffixes from schema descriptions.
 
@@ -259,9 +266,10 @@ Sequence: server skeleton → identity+transport → `questions` store bridge �
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v29` (HIDE+SEEK box-matching brand + welcome
-screen + GameLobbyDialog flow + GO GO GO celebration + GPS-stomp
-fix + boundary-load dedup/concurrency cap; mirrored lobby on /h).
+build stamp. Current: `v396` (M1 trip-planning backend: `/api/travel/plan`
+adapter dispatcher + Trafiklab plan adapter + walking fallback in
+`overpass-cache/src/travel/`, ships dark / no UI yet — reach reuses the
+existing `/api/journey/arrivals`).
 
 ## Dev workflow
 

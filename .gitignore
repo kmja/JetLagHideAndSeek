@@ -8,6 +8,9 @@ dev-dist/
 # generated types
 .astro/
 
+# wrangler local dev state (miniflare R2/cache sqlite, dev bundles)
+.wrangler/
+
 # dependencies
 node_modules/
 
