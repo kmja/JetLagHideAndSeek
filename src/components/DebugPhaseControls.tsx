@@ -11,14 +11,11 @@ import {
     questionModified,
     questions,
 } from "@/lib/context";
-import {
-    clearGpsSpoof,
-    spoofedPosition,
-    spoofRandomInPlayArea,
-} from "@/lib/debugGpsSpoof";
+import { clearGpsSpoof, spoofedPosition } from "@/lib/debugGpsSpoof";
+import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
 import { debugPanelOpen } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
-import { type Card,shuffledDeck } from "@/lib/hiderDeck";
+import { type Card, shuffledDeck } from "@/lib/hiderDeck";
 import {
     hiderHand,
     hiderInbox,
@@ -26,10 +23,7 @@ import {
     presentDraw,
     QUESTION_DRAW_BUDGET,
 } from "@/lib/hiderRole";
-import {
-    startDemoGame,
-    stopDemoGame,
-} from "@/lib/multiplayer/demoBroker";
+import { startDemoGame, stopDemoGame } from "@/lib/multiplayer/demoBroker";
 import { demoMode } from "@/lib/multiplayer/session";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
@@ -62,7 +56,12 @@ import { DICE_FIZZLE } from "./CastCurseDialog";
  * `h.astro`) before shipping a release.
  */
 
-type Phase = "not-sent" | "waiting" | "overdue" | "answered-yes" | "answered-no";
+type Phase =
+    | "not-sent"
+    | "waiting"
+    | "overdue"
+    | "answered-yes"
+    | "answered-no";
 
 export function DebugPhaseControls() {
     const open = useStore(debugPanelOpen);
@@ -549,8 +548,7 @@ export function DebugPhaseControls() {
                 "shadow-sm",
                 // v353: amber-tint the launcher while GPS is spoofed so a
                 // forgotten spoof can't masquerade as broken real GPS.
-                $spoof &&
-                    "text-amber-400 border-amber-400/60 bg-amber-950/40",
+                $spoof && "text-amber-400 border-amber-400/60 bg-amber-950/40",
             )}
         >
             <Bug className="w-3 h-3" />
@@ -637,9 +635,12 @@ export function DebugPhaseControls() {
                         <DebugButton
                             onClick={() => {
                                 clearGpsSpoof();
-                                toast.info("Spoof cleared — real GPS resumed.", {
-                                    autoClose: 1800,
-                                });
+                                toast.info(
+                                    "Spoof cleared — real GPS resumed.",
+                                    {
+                                        autoClose: 1800,
+                                    },
+                                );
                             }}
                             variant="danger"
                         >
@@ -652,10 +653,10 @@ export function DebugPhaseControls() {
                         </p>
                     )}
                     <p className="text-[10px] text-muted-foreground italic px-1">
-                        Overrides your device GPS everywhere (blue dot,
-                        question anchors, thermometer, multiplayer
-                        broadcast) so you can test play areas worldwide
-                        without travelling. Clears on reload.
+                        Overrides your device GPS everywhere (blue dot, question
+                        anchors, thermometer, multiplayer broadcast) so you can
+                        test play areas worldwide without travelling. Clears on
+                        reload.
                     </p>
                 </Section>
 
@@ -685,9 +686,9 @@ export function DebugPhaseControls() {
                         </div>
                     )}
                     <p className="text-[10px] text-muted-foreground italic px-1">
-                        Spawns fake bot peers in-browser — no second
-                        device needed. Bot hider auto-answers your
-                        questions; bot seekers ping locations.
+                        Spawns fake bot peers in-browser — no second device
+                        needed. Bot hider auto-answers your questions; bot
+                        seekers ping locations.
                     </p>
                 </Section>
 
@@ -695,24 +696,20 @@ export function DebugPhaseControls() {
                     <div className="grid grid-cols-2 gap-1.5">
                         <DebugButton
                             onClick={() => forceRole("seeker")}
-                            variant={
-                                $role === "seeker" ? "primary" : "default"
-                            }
+                            variant={$role === "seeker" ? "primary" : "default"}
                         >
                             → Seeker
                         </DebugButton>
                         <DebugButton
                             onClick={() => forceRole("hider")}
-                            variant={
-                                $role === "hider" ? "primary" : "default"
-                            }
+                            variant={$role === "hider" ? "primary" : "default"}
                         >
                             → Hider
                         </DebugButton>
                     </div>
                     <p className="text-[10px] text-muted-foreground italic px-1">
-                        Bypasses the production role lock. Resets the
-                        route to `/` or `/h` to match.
+                        Bypasses the production role lock. Resets the route to
+                        `/` or `/h` to match.
                     </p>
                 </Section>
 
@@ -721,10 +718,10 @@ export function DebugPhaseControls() {
                         End hiding period now
                     </DebugButton>
                     <p className="text-[10px] text-muted-foreground italic px-1">
-                        Snaps the timer to zero so the seeking phase
-                        starts immediately. The live UI version of this
-                        only lives on the hider's home; the debug copy
-                        is for testing from the seeker view.
+                        Snaps the timer to zero so the seeking phase starts
+                        immediately. The live UI version of this only lives on
+                        the hider's home; the debug copy is for testing from the
+                        seeker view.
                     </p>
                 </Section>
 
@@ -734,21 +731,17 @@ export function DebugPhaseControls() {
                     </DebugButton>
                     <div className="grid grid-cols-2 gap-1.5">
                         {EXAMPLE_QUESTION_ADDERS.map((adder) => (
-                            <DebugButton
-                                key={adder.label}
-                                onClick={adder.run}
-                            >
+                            <DebugButton key={adder.label} onClick={adder.run}>
                                 {adder.label}
                             </DebugButton>
                         ))}
                     </div>
                     <p className="text-[10px] text-muted-foreground italic px-1">
-                        Each injects an example question of that type
-                        at the current map centre. Use "Open latest as
-                        hider" below to ferry the most recent one into
-                        the hider's inbox for round-trip testing. The
-                        phase buttons further down operate on whichever
-                        question was added last.
+                        Each injects an example question of that type at the
+                        current map centre. Use "Open latest as hider" below to
+                        ferry the most recent one into the hider's inbox for
+                        round-trip testing. The phase buttons further down
+                        operate on whichever question was added last.
                     </p>
                 </Section>
 
@@ -822,14 +815,10 @@ export function DebugPhaseControls() {
                         >
                             + Time bonus
                         </DebugButton>
-                        <DebugButton
-                            onClick={() => drawRandomCard("powerup")}
-                        >
+                        <DebugButton onClick={() => drawRandomCard("powerup")}>
                             + Powerup
                         </DebugButton>
-                        <DebugButton
-                            onClick={() => drawRandomCard("curse")}
-                        >
+                        <DebugButton onClick={() => drawRandomCard("curse")}>
                             + Curse
                         </DebugButton>
                     </div>
@@ -883,14 +872,20 @@ export function DebugPhaseControls() {
                 </Section>
 
                 <p className="text-[10px] text-muted-foreground leading-snug italic pt-1 border-t border-border">
-                    Temporary widget for testing the question lifecycle.
-                    Remove via `DebugPhaseControls` before release.
+                    Temporary widget for testing the question lifecycle. Remove
+                    via `DebugPhaseControls` before release.
                 </p>
             </div>
         </div>
     );
 
-    return createPortal(<>{triggerButton}{content}</>, document.body);
+    return createPortal(
+        <>
+            {triggerButton}
+            {content}
+        </>,
+        document.body,
+    );
 }
 
 function phaseLabel(p: Phase): string {

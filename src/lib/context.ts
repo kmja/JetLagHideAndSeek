@@ -1,15 +1,20 @@
 import { persistentAtom } from "@nanostores/persistent";
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
-import type { MapShim } from "@/lib/mapShim";
 import { atom, computed, onSet } from "nanostores";
 
+import type { MapShim } from "@/lib/mapShim";
 import type {
     AdditionalMapGeoLocations,
     CustomStation,
     OpenStreetMap,
     StationCircle,
 } from "@/maps/api";
-import { extractStationLabel } from "@/maps/geo-utils";
+// Import from the specific (turf-free) module, NOT the `@/maps/geo-utils`
+// barrel — the barrel `export *`s operators + stationManipulations, which
+// pull in @turf/turf (+ d3). `context.ts` is in the EAGER bundle (App →
+// gameSetup → context), so going through the barrel dragged ~456KB of geo
+// math onto first paint. (v401-perf)
+import { extractStationLabel } from "@/maps/geo-utils/special";
 import {
     type DeepPartial,
     type Question,
@@ -114,9 +119,8 @@ if (typeof window !== "undefined") {
         }
         try {
             const { loadBoundary } = await import("./mapBoundaryCache");
-            const cached = await loadBoundary<
-                FeatureCollection<Polygon | MultiPolygon>
-            >();
+            const cached =
+                await loadBoundary<FeatureCollection<Polygon | MultiPolygon>>();
             if (cached && polyGeoJSON.get() === null) {
                 polyGeoJSON.set(cached);
             }
@@ -130,10 +134,12 @@ if (typeof window !== "undefined") {
     // dynamically-imported so the SSR build doesn't reach for
     // caches at module-evaluation time.
     polyGeoJSON.subscribe((value) => {
-        void import("./mapBoundaryCache").then(({ saveBoundary, clearBoundary }) => {
-            if (value === null) void clearBoundary();
-            else void saveBoundary(value);
-        });
+        void import("./mapBoundaryCache").then(
+            ({ saveBoundary, clearBoundary }) => {
+                if (value === null) void clearBoundary();
+                else void saveBoundary(value);
+            },
+        );
     });
 }
 
@@ -160,9 +166,10 @@ export const addQuestion = (question: DeepPartial<Question>) =>
  *
  * Card components plumb this into their `disabled` props.
  */
-export function isQuestionEditable(
-    data: { drag?: boolean; createdAt?: number },
-): boolean {
+export function isQuestionEditable(data: {
+    drag?: boolean;
+    createdAt?: number;
+}): boolean {
     return data.drag === true && !data.createdAt;
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

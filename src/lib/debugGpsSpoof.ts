@@ -1,7 +1,4 @@
-import * as turf from "@turf/turf";
 import { atom } from "nanostores";
-
-import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 
 /**
  * Debug GPS spoofing (v353).
@@ -127,54 +124,10 @@ export function installGpsSpoof(): void {
     installed = true;
 }
 
-/**
- * Set the spoof to a random point INSIDE the current play area. Prefers
- * the land-clipped `polyGeoJSON` polygon (so the point lands on land, not
- * out in the bay) via rejection sampling; falls back to the play area's
- * Photon bbox extent when no polygon is set. Returns false when there's
- * no play area to spoof into.
- */
-export function spoofRandomInPlayArea(): boolean {
-    const poly = polyGeoJSON.get();
-    if (poly && poly.features.length > 0) {
-        const merged =
-            poly.features.length === 1
-                ? poly.features[0]
-                : (turf.combine(poly).features[0] as GeoJSON.Feature);
-        const b = turf.bbox(poly);
-        const [w, s, e, n] = [b[0], b[1], b[2], b[3]];
-        for (let i = 0; i < 300; i++) {
-            const lng = w + Math.random() * (e - w);
-            const lat = s + Math.random() * (n - s);
-            if (
-                turf.booleanPointInPolygon(
-                    turf.point([lng, lat]),
-                    merged as any,
-                )
-            ) {
-                spoofedPosition.set({ lat, lng });
-                return true;
-            }
-        }
-        // Degenerate / very thin polygon — fall back to its centroid.
-        const c = turf.centroid(merged as any).geometry.coordinates;
-        spoofedPosition.set({ lat: c[1], lng: c[0] });
-        return true;
-    }
-
-    // No polygon yet — use the Photon extent bbox
-    // ([maxLat, minLng, minLat, maxLng]).
-    const extent = (mapGeoLocation.get()?.properties as { extent?: number[] })
-        ?.extent;
-    if (extent && extent.length === 4) {
-        const [maxLat, minLng, minLat, maxLng] = extent;
-        const lat = minLat + Math.random() * (maxLat - minLat);
-        const lng = minLng + Math.random() * (maxLng - minLng);
-        spoofedPosition.set({ lat, lng });
-        return true;
-    }
-    return false;
-}
+// `spoofRandomInPlayArea` (the only turf consumer) moved to
+// `debugSpoofArea.ts` so this eagerly-imported module (App.tsx calls
+// `installGpsSpoof` at load) no longer drags @turf/turf + d3 into the
+// first-paint bundle. See that file's header for the why.
 
 /** Stop spoofing — real GPS resumes. */
 export function clearGpsSpoof(): void {
