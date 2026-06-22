@@ -16,6 +16,7 @@
  */
 
 import type { Env } from "../envTypes";
+import * as australia from "./adapters/australia";
 import * as austria from "./adapters/austria";
 import * as barcelona from "./adapters/barcelona";
 import * as denmark from "./adapters/denmark";
@@ -23,6 +24,7 @@ import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
 import * as estonia from "./adapters/estonia";
 import * as germany from "./adapters/germany";
+import * as hungary from "./adapters/hungary";
 import * as ireland from "./adapters/ireland";
 import * as korea from "./adapters/korea";
 import * as motisSelfHosted from "./adapters/motisSelfHosted";
@@ -219,6 +221,32 @@ const KOREA: TravelAdapter = {
     },
 };
 
+/** BKK FUTÁR (Budapest) — keyed OTP. Free key from opendata.bkk.hu;
+ *  defers when unset. Slotted before navitia so Hungarian origins hit
+ *  the regional planner first when a key is available. */
+const HUNGARY: TravelAdapter = {
+    id: "hungary",
+    canServe: hungary.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.BKK_FUTAR_KEY) return null;
+        return hungary.planJourney(req, env.BKK_FUTAR_KEY, departAt, signal);
+    },
+};
+
+/** La Trobe University public OTP — KEYLESS, covers AU non-NSW (VIC /
+ *  QLD / SA / WA / TAS / NT / ACT). Academic-hosted, no SLA, so it's
+ *  ordered AFTER the official NSW EFA and BEFORE Transitous — a null
+ *  here cleanly falls through. Inside the adapter the per-state router
+ *  id is picked by bbox; coords outside the per-state hints simply
+ *  return null. */
+const AUSTRALIA: TravelAdapter = {
+    id: "australia",
+    canServe: australia.canServe,
+    async plan(req, departAt, _env, signal) {
+        return australia.planJourney(req, departAt, signal);
+    },
+};
+
 /** navitia (broad European fallback) — keyed; defers without the key.
  *  Ordered last among the regional adapters so country-specific
  *  planners win first; navitia only runs where they all decline. */
@@ -297,9 +325,11 @@ export const ADAPTERS: TravelAdapter[] = [
     GERMANY,
     AUSTRIA,
     IRELAND,
+    HUNGARY,
     BARCELONA,
     NETHERLANDS,
     NSW,
+    AUSTRALIA,
     KOREA,
     NAVITIA,
     MOTIS_SELF_HOSTED,

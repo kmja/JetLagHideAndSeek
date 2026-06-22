@@ -150,9 +150,14 @@ describe("adapter dispatch selection", () => {
         ]);
     });
 
-    test("Sydney: nsw then universal (isolated, no navitia)", () => {
+    test("Sydney: official nsw first, La Trobe AU as a fallback, then universal", () => {
+        // La Trobe AU OTP is keyless but academic-hosted, so it's
+        // ordered AFTER the official TfNSW EFA — Sydney still hits
+        // nsw.ts first when a key is configured; the AU OTP only
+        // serves if NSW defers or fails.
         expect(selectAdapters(-33.8688, 151.2093).map((a) => a.id)).toEqual([
             "nsw",
+            "australia",
             ...U,
         ]);
     });

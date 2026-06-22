@@ -94,6 +94,11 @@ export interface Env {
     /** ODsay (South Korea) key — free tier 1,000/day, no billing, from
      *  lab.odsay.com. Optional. */
     ODSAY_API_KEY?: string;
+    /** BKK FUTÁR (Budapest) OpenData API key — free, no billing, from
+     *  opendata.bkk.hu. Drives the Hungary trip-plan adapter (OTP-shaped
+     *  `plan-trip.json` endpoint). Optional — without it Hungarian
+     *  origins defer to navitia / Transitous. */
+    BKK_FUTAR_KEY?: string;
     /** Full plan-endpoint URL of an operator-run, SELF-HOSTED MOTIS
      *  instance, e.g. `https://motis.example.com/api/v1/plan`. When set,
      *  it's the license-clean universal fallback (ordered ahead of the
