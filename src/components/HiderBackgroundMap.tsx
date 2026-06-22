@@ -444,38 +444,9 @@ export function HiderBackgroundMap() {
                             id="hider-reach-dots"
                             type="circle"
                             paint={{
-                                "circle-radius": 5,
-                                // Strategic-safety colour ramp. safetyMinutes
-                                // is "minutes between when the seekers can
-                                // get to this station (from game-start,
-                                // departing at the whistle) and the whistle
-                                // itself". Higher = better hiding choice;
-                                // <=0 = seekers can be there before you.
-                                //   null  → no seeker arrival data yet
-                                //           (paint plain cyan = legacy look)
-                                //   ≥ 15  → comfortable margin: green
-                                //   5-14  → tight: amber
-                                //   0-4   → risky: orange
-                                //   < 0   → bad: red ("they beat you")
-                                "circle-color": [
-                                    "case",
-                                    // No seeker arrival data → legacy
-                                    // cyan. MapLibre expressions can't
-                                    // compare against a JSON null
-                                    // literal directly, so we test
-                                    // `has` instead (set to false in
-                                    // the FC for unknown safety).
-                                    ["!", ["has", "safetyMinutes"]],
-                                    "hsl(180, 70%, 55%)",
-                                    [">=", ["get", "safetyMinutes"], 15],
-                                    "hsl(142, 70%, 45%)",
-                                    [">=", ["get", "safetyMinutes"], 5],
-                                    "hsl(45, 90%, 55%)",
-                                    [">=", ["get", "safetyMinutes"], 0],
-                                    "hsl(28, 90%, 55%)",
-                                    "hsl(0, 75%, 55%)",
-                                ],
-                                "circle-opacity": 0.9,
+                                "circle-radius": 4,
+                                "circle-color": "hsl(180, 70%, 55%)",
+                                "circle-opacity": 0.85,
                                 "circle-stroke-color": "rgba(0,0,0,0.6)",
                                 "circle-stroke-width": 1,
                             }}

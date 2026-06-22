@@ -87,22 +87,6 @@ export const hiderReachFC = atom<GeoJSON.FeatureCollection<
         stopId: string;
         name?: string;
         arrivalLabel: string;
-        /** Minutes between the seeker's earliest possible arrival at
-         *  this station (from gameStartPosition, departing at the
-         *  whistle) and the whistle itself. Positive = the hider has
-         *  that many minutes of safety at this station before the
-         *  seekers can reach it; zero/negative = the seekers can be
-         *  there at or before the hider. Intentionally OMITTED (not
-         *  set) when the seeker arrivals haven't resolved or aren't
-         *  available — MapLibre expressions can't compare a `get`
-         *  result against a JSON null literal, so the layer falls back
-         *  to a `has` check and paints the dot plain "reachable" cyan
-         *  until the number lands. The hider map uses this to triage
-         *  candidate hiding zones: a station that's technically
-         *  reachable but trivially reachable for seekers too is a bad
-         *  strategic pick, and the colour reflects that without
-         *  forcing the hider to do the math themselves. */
-        safetyMinutes?: number;
     }
 > | null>(null);
 

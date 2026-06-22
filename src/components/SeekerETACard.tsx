@@ -1,51 +1,58 @@
 import { useStore } from "@nanostores/react";
-import { Footprints, Loader2, Radar, Train } from "lucide-react";
+import { Loader2, Radar } from "lucide-react";
 import { useEffect, useState } from "react";
 
-// Reservations on the loading/walked flow are tracked here so a future
-// pass can thread `source` ("walking" fallback) through the journey
-// provider; today the seekers' ETA is rendered with the same fidelity
-// as the hider's reach overlay's labels.
-
-import {
-    gameStartPosition,
-    hidingPeriodEndsAt,
-} from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
 import { activeJourneyProvider } from "@/lib/journey/registry";
+import { seekerLocations } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 
 /**
  * "How close are the seekers?" — the hider's awareness card for the
- * active phase. Computes the seekers' earliest possible arrival at the
- * hider's committed hiding-zone station, anchored at the shared
- * `gameStartPosition` and departing at the whistle (the worst-case
- * upper bound on seeker proximity — they could be slower in practice
- * if they took a detour, but never faster). Shown in the seeking
- * phase, hidden during pre-game / hiding / grace / forfeit / over.
+ * active phase.
  *
- * Uses the same `/api/journey/arrivals` proxy and the same anchor as
- * the hider's reach overlay, so the worker's R2 cache covers the
- * repeat hits as the card re-mounts. One station, one query — cheap.
+ * Anchored at the seekers' LIVE shared position, departing NOW. Per the
+ * game rules, the seeker team moves and travels as one, so any seeker
+ * broadcasting a recent location is a fine anchor (we pick the freshest
+ * broadcast). The card answers "how soon could the seekers reach my
+ * hiding-zone station from where they are right now?", which only
+ * makes sense once they're moving (the seeking phase) — game-start
+ * isn't a useful proxy: the seekers have been moving since the
+ * whistle.
  *
  * Renders nothing when:
- *   - no committed hiding zone (`hidingZone` is null)
- *   - no `gameStartPosition` captured
- *   - no `hidingPeriodEndsAt` set
- *   - no journey provider for this region (walks fallback would be
- *     misleading here — better to say nothing than to show a fake
- *     arrival)
+ *   - no committed hiding zone
+ *   - no seeker is currently sharing their location (the rule is they
+ *     MUST share; outside the grace window the game pauses — that
+ *     pause is wired separately, this card just stays quiet)
+ *   - no journey provider for this region
  */
+const STALE_THRESHOLD_MS = 60_000;
+
 export function SeekerETACard() {
     const $zone = useStore(hidingZone);
-    const $start = useStore(gameStartPosition);
-    const $endsAt = useStore(hidingPeriodEndsAt);
+    const $seekers = useStore(seekerLocations);
+
+    // Pick the freshest seeker broadcast; ignore anything older than
+    // STALE_THRESHOLD_MS to avoid showing an ETA from a position that
+    // hasn't been updated in a while.
+    const seeker = (() => {
+        const now = Date.now();
+        let best: { lat: number; lng: number; ts: number } | null = null;
+        for (const s of Object.values($seekers)) {
+            if (now - s.ts > STALE_THRESHOLD_MS) continue;
+            if (best === null || s.ts > best.ts) {
+                best = { lat: s.lat, lng: s.lng, ts: s.ts };
+            }
+        }
+        return best;
+    })();
 
     const [arrivalAt, setArrivalAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        if (!$zone || !$start || !$endsAt) {
+        if (!$zone || !seeker) {
             setArrivalAt(null);
             return;
         }
@@ -60,7 +67,11 @@ export function SeekerETACard() {
         (async () => {
             const results = await provider
                 .fetchArrivals(
-                    { lat: $start.lat, lng: $start.lng, departAt: $endsAt },
+                    {
+                        lat: seeker.lat,
+                        lng: seeker.lng,
+                        departAt: Date.now(),
+                    },
                     [
                         {
                             id: "hidingZone",
@@ -75,25 +86,34 @@ export function SeekerETACard() {
             if (cancelled) return;
             setLoading(false);
             const r = results[0];
-            // The arrivals provider doesn't distinguish a walking-
-            // fallback from a real transit answer here; a future pass
-            // can thread a `source` field through if the seekers'
-            // commute is borderline.
             setArrivalAt(r && r.arrivalAt != null ? r.arrivalAt : null);
         })();
         return () => {
             cancelled = true;
             controller.abort();
         };
-    }, [$zone, $start?.lat, $start?.lng, $endsAt]);
+        // Anchor changes infrequently — re-fetching on every GPS jitter
+        // would burn quota for no signal change. We round the seeker
+        // coords to 4 decimals (~11 m) so a 5-m wiggle doesn't refire,
+        // but a real move does.
+    }, [
+        $zone,
+        seeker == null,
+        seeker?.lat != null ? Number(seeker.lat.toFixed(4)) : null,
+        seeker?.lng != null ? Number(seeker.lng.toFixed(4)) : null,
+    ]);
 
-    if (!$zone || !$start || !$endsAt) return null;
+    if (!$zone) return null;
+    if (!seeker) {
+        // No live seeker location. The "must share" enforcement +
+        // pause-after-grace lives elsewhere; this card simply stays
+        // hidden until a broadcast lands.
+        return null;
+    }
 
     const now = Date.now();
     const minutesAway =
         arrivalAt != null ? Math.round((arrivalAt - now) / 60_000) : null;
-    const safetyMinutes =
-        arrivalAt != null ? Math.round((arrivalAt - $endsAt) / 60_000) : null;
 
     // Color the band by how close the seekers are RIGHT NOW.
     //   ≥ 15 min away: comfortable
@@ -146,32 +166,15 @@ export function SeekerETACard() {
                     </div>
                 )}
                 {minutesAway != null && (
-                    <>
-                        <div className="mt-0.5 text-sm font-inter-tight font-bold">
-                            {minutesAway < 0 ? (
-                                <>They could already be there.</>
-                            ) : minutesAway === 0 ? (
-                                <>Any minute now.</>
-                            ) : (
-                                <>~{minutesAway} min away</>
-                            )}
-                        </div>
-                        {safetyMinutes != null && (
-                            <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
-                                {safetyMinutes >= 0 ? (
-                                    <>
-                                        <Train className="h-3 w-3" />
-                                        {safetyMinutes} min after the whistle
-                                    </>
-                                ) : (
-                                    <>
-                                        <Footprints className="h-3 w-3" />
-                                        Reachable before the whistle blew
-                                    </>
-                                )}
-                            </div>
+                    <div className="mt-0.5 text-sm font-inter-tight font-bold">
+                        {minutesAway < 0 ? (
+                            <>They could already be there.</>
+                        ) : minutesAway === 0 ? (
+                            <>Any minute now.</>
+                        ) : (
+                            <>~{minutesAway} min away</>
                         )}
-                    </>
+                    </div>
                 )}
             </div>
         </div>
