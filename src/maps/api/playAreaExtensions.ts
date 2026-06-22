@@ -10,17 +10,17 @@
  * via the subway / commuter-rail network — for a Jet Lag game,
  * including them in the play area is usually what you want.
  *
- * Approach:
- *
- *   1. Look up the primary's `admin_level` directly from OSM
- *      (Photon doesn't expose it).
- *   2. Pull all admin relations at the same level within ~25 km
- *      of the primary's centroid.
- *   3. Pull all transit stations (rail / subway / tram / ferry /
- *      bus) within the same radius.
- *   4. For each candidate, decide whether it's "transit-connected"
- *      by checking if any station of an allowed mode falls inside
- *      the candidate's bbox.
+ * Approach (v427-rework): use **true topological adjacency** instead
+ * of an admin_level proximity heuristic. Two OSM admin boundary
+ * relations are adjacent iff they share at least one member way (OSM
+ * always splits boundary edges at jurisdictional borders into shared
+ * ways referenced by both sides). One Overpass query gets every
+ * relation that references any way the primary references — that's
+ * the primary plus all its neighbours, REGARDLESS of admin_level. We
+ * filter out the primary itself + any non-administrative-boundary
+ * relations and that's the candidate set. Cleaner, correct, and
+ * doesn't break on consolidated cities, county/municipality bands,
+ * or country-of-the-week edge cases.
  *
  * Single user-visible call — `findExtensionCandidates(...)` —
  * returns a list ready to render in a checkable picker.
@@ -75,29 +75,23 @@ export async function findExtensionCandidates(
     }
 
     const primaryOsmId = primary.properties.osm_id;
-    const adminLevel = await fetchAdminLevel(primaryOsmId);
-    if (adminLevel === null) return [];
 
-    // Pull nearby admin regions at the same level — tags + bbox
-    // only, so we don't ship full polygon geometry for every
-    // candidate (which would be slow and memory-heavy).
-    const adminQuery = buildAdjacentAdminQuery(
-        adminLevel,
-        primaryLat,
-        primaryLng,
-        radiusKm,
-    );
-    // No loadingText: the wizard's adjacent-areas step has its
-    // own inline spinner; a toast on top of that just
-    // double-counts the loading state.
-    const adminData = await getOverpassData(
-        adminQuery,
+    // Topological-adjacency query — every admin relation that shares
+    // at least one member way with the primary. Sharing a member way
+    // is OSM's representation of "shares a boundary segment", so this
+    // gives us the primary plus every neighbour, regardless of
+    // admin_level. The old same-level-with-fallback heuristic was
+    // brittle for consolidated cities and missed legitimate
+    // neighbours at a different level.
+    const adjacencyQuery = buildTopologicalAdjacencyQuery(primaryOsmId);
+    const adjacencyData = await getOverpassData(
+        adjacencyQuery,
         undefined,
         CacheType.ZONE_CACHE,
         90_000,
     );
-    const adminElements = ((adminData as { elements?: unknown[] }).elements ??
-        []) as OverpassRelationStub[];
+    const adjacencyElements = ((adjacencyData as { elements?: unknown[] })
+        .elements ?? []) as OverpassRelationStub[];
 
     // Pull all stations once; we then bbox-test each candidate
     // against this set. v268: query is now stable per (lat, lng,
@@ -113,7 +107,8 @@ export async function findExtensionCandidates(
 
     const candidates: AdjacentAreaCandidate[] = [];
     const seen = new Set<number>();
-    for (const el of adminElements) {
+    for (const el of adjacencyElements) {
+        if (!isAdministrativeBoundary(el)) continue;
         const c = relationStubToCandidate(
             el,
             primaryOsmId,
@@ -127,48 +122,17 @@ export async function findExtensionCandidates(
         }
     }
 
-    // Fallback for consolidated cities. Some primaries sit at an
-    // admin_level with NO same-level siblings nearby — most notably
-    // New York City (admin_level 5; its neighbours Jersey City,
-    // Hoboken, Newark, Yonkers are the normal city level 8), and other
-    // consolidated city-counties. When the same-level search came up
-    // empty, look for nearby admin areas in the city/municipality band
-    // (levels 7–8) instead. (We exclude the coarser level 6 so a
-    // consolidated city's own county-boroughs — e.g. NYC's 5 boroughs,
-    // which are already inside the primary — aren't offered as
-    // additions.) This query is NOT cron-prewarmed, so it's a live
-    // Overpass call the first time, then cached.
-    if (candidates.length === 0 && adminLevel !== "7" && adminLevel !== "8") {
-        const bandQuery = buildMunicipalityBandQuery(
-            primaryLat,
-            primaryLng,
-            radiusKm,
-        );
-        const bandData = await getOverpassData(
-            bandQuery,
-            undefined,
-            CacheType.ZONE_CACHE,
-            90_000,
-        );
-        const bandElements = ((bandData as { elements?: unknown[] }).elements ??
-            []) as OverpassRelationStub[];
-        for (const el of bandElements) {
-            const c = relationStubToCandidate(
-                el,
-                primaryOsmId,
-                primaryLat,
-                primaryLng,
-                stations,
-            );
-            if (c && !seen.has(el.id)) {
-                seen.add(el.id);
-                candidates.push(c);
-            }
-        }
-    }
-
     candidates.sort((a, b) => a.distanceKm - b.distanceKm);
     return candidates.slice(0, limit);
+}
+
+/** Filter: only offer admin-boundary relations as candidates. Skips
+ *  national parks, postal codes, ceremonial areas etc. that share
+ *  ways with the primary but aren't useful play-area extensions. */
+function isAdministrativeBoundary(el: OverpassRelationStub): boolean {
+    const tags = el.tags ?? {};
+    if (tags.type !== "boundary") return false;
+    return tags.boundary === "administrative";
 }
 
 /** Turn one Overpass admin-relation stub into a candidate (or null if
@@ -224,9 +188,42 @@ interface OverpassRelationStub {
 }
 
 /**
+ * Topological-adjacency query. Returns the primary plus every relation
+ * that shares at least one member way with it — which, in OSM, is the
+ * exact set of jurisdictions that share a boundary segment with the
+ * primary.
+ *
+ * Step-by-step:
+ *   - `relation(<id>)` selects the primary into the default set.
+ *   - `way(r)` selects every way that's a member of the primary.
+ *   - `rel(bw)` selects every relation whose member-way set
+ *     intersects the previous way set. That's the primary again, plus
+ *     all neighbours.
+ *
+ * `out tags bb` returns each relation's tags + bounding-box so the
+ * downstream candidate construction has what it needs without
+ * shipping full geometry. The primary itself is filtered out in
+ * `relationStubToCandidate`; non-administrative-boundary relations
+ * (national parks, postal areas, etc.) by `isAdministrativeBoundary`.
+ *
+ * Stable per primary id — `overpass-cache` can cache it freely.
+ */
+export function buildTopologicalAdjacencyQuery(primaryOsmId: number): string {
+    return `
+[out:json][timeout:120];
+relation(${primaryOsmId});
+way(r);
+rel(bw);
+out tags bb;
+`;
+}
+
+/**
  * Look up the admin_level tag for an OSM relation. Stable query
  * keyed by relation id — matches buildAdminLevelQuery in the
- * overpass-cache cron.
+ * overpass-cache cron. Retained for the worker's curated-city
+ * prewarm + any external callers; the v427 adjacency rewrite no
+ * longer uses it.
  */
 export function buildAdminLevelQuery(osmId: number): string {
     return `
@@ -237,11 +234,13 @@ out tags;
 }
 
 /**
- * Pull every admin relation at the same level within `radiusKm` of
- * the primary's centroid. Stable query keyed by (level, lat, lng,
- * radiusKm) — matches buildAdjacentAdminQuery in the overpass-cache
- * cron. Keep the formatting identical to that worker copy or cache
- * hits will silently miss.
+ * @deprecated v427 — the same-admin_level proximity heuristic missed
+ * legitimate neighbours at a different level (consolidated cities, the
+ * county/municipality bands, etc.). `findExtensionCandidates` now uses
+ * topological adjacency via `buildTopologicalAdjacencyQuery`. This
+ * function is retained as an export so the overpass-cache cron + any
+ * curated-city prewarm path keeps building; do NOT use it for fresh
+ * lookups.
  */
 export function buildAdjacentAdminQuery(
     adminLevel: string,
@@ -257,12 +256,7 @@ out tags bb;
 }
 
 /**
- * Fallback query for consolidated cities whose primary admin_level has
- * no same-level siblings nearby (e.g. New York City, admin_level 5).
- * Pulls admin relations in the normal city/municipality band — levels
- * 7–8 — within `radiusKm`. Deliberately excludes level 6 (counties /
- * boroughs) so a consolidated city's own constituent counties aren't
- * offered as additions. `out tags bb` for tags + bbox only.
+ * @deprecated v427 — see `buildAdjacentAdminQuery`.
  */
 export function buildMunicipalityBandQuery(
     lat: number,
@@ -277,20 +271,6 @@ out tags bb;
 }
 
 export const ADJACENT_SEARCH_DEFAULT_RADIUS_KM = 25;
-
-async function fetchAdminLevel(osmId: number): Promise<string | null> {
-    const query = buildAdminLevelQuery(osmId);
-    const data = await getOverpassData(
-        query,
-        undefined,
-        CacheType.ZONE_CACHE,
-        30_000,
-    );
-    const elements = ((data as { elements?: unknown[] }).elements ??
-        []) as Array<{ tags?: Record<string, string> }>;
-    const level = elements[0]?.tags?.admin_level;
-    return level ?? null;
-}
 
 /**
  * Pull every station of an allowed transit mode within `radiusKm`
