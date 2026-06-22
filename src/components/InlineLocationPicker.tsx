@@ -1,7 +1,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
-import { circle as turfCircle } from "@turf/turf";
+import { booleanPointInPolygon, circle as turfCircle } from "@turf/turf";
 import type maplibregl from "maplibre-gl";
 import { Circle as CircleIcon, LocateOff } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -137,6 +137,44 @@ export function InlineLocationPicker({
         return meta?.icon ?? null;
     }, [impactType]);
     const candidatePoints = impact?.candidates ?? null;
+
+    // Optimization: only PLOT reference dots that fall inside the
+    // remaining possible hiding area ($maskData = play area minus every
+    // already-eliminated region). As questions narrow the map this drops
+    // the marker count — and the matching DOM-node count — sharply, and
+    // focuses the seeker on the references that can still matter. The
+    // impact MATH in useQuestionImpact deliberately keeps the FULL
+    // play-area candidate set (the seeker's nearest reference, voronoi
+    // cell and measuring buffer all depend on neighbours that may sit in
+    // already-eliminated land), so this filter is display-only.
+    // Graceful-degrades to the full set while the remaining-area polygon
+    // is still resolving, or if it can't be reduced to polygons.
+    const visibleCandidates = useMemo(() => {
+        if (!candidatePoints || candidatePoints.length === 0)
+            return candidatePoints;
+        if (!$maskData) return candidatePoints;
+        const polys: GeoJSON.Feature[] = [];
+        const collect = (g: GeoJSON.GeoJSON | null | undefined) => {
+            if (!g) return;
+            if (g.type === "FeatureCollection") g.features.forEach(collect);
+            else if (g.type === "Feature") {
+                const t = g.geometry?.type;
+                if (t === "Polygon" || t === "MultiPolygon") polys.push(g);
+            }
+        };
+        collect($maskData as GeoJSON.GeoJSON);
+        if (polys.length === 0) return candidatePoints;
+        return candidatePoints.filter((c) => {
+            const pt: [number, number] = [c.lng, c.lat];
+            return polys.some((p) => {
+                try {
+                    return booleanPointInPolygon(pt, p as never);
+                } catch {
+                    return false;
+                }
+            });
+        });
+    }, [candidatePoints, $maskData]);
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",
@@ -582,8 +620,8 @@ export function InlineLocationPicker({
                         Falls through to nothing when we have no icon for
                         the subtype (radius/tentacles don't render points
                         anyway). */}
-                    {impactMode && candidateIcon && candidatePoints &&
-                        candidatePoints.map((c, i) => {
+                    {impactMode && candidateIcon && visibleCandidates &&
+                        visibleCandidates.map((c, i) => {
                             const Icon = candidateIcon;
                             return (
                                 <Marker
