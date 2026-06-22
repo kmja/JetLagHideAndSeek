@@ -90,6 +90,7 @@ import {
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
 import { ScoutedSpotsPanel } from "./ScoutedSpotsPanel";
+import { SeekerETACard } from "./SeekerETACard";
 import { SeekerLivePositions } from "./SeekerLivePositions";
 
 // Lazy-load the inline picker — leaflet must stay out of the SSR graph.
@@ -674,6 +675,12 @@ function SeekingPhaseView({
                 until at least one seeker has broadcast, so it doesn't
                 add an empty placeholder pre-game. */}
             <SeekerLivePositions />
+
+            {/* Earliest possible seeker arrival at the hider's station,
+                computed from gameStartPosition + the whistle. Self-
+                renders null if there's no zone / no game-start anchor /
+                no transit provider. */}
+            <SeekerETACard />
 
             {/* Hiding zone — locked at this phase; tap "Change" only
                 in rule-bending emergencies. */}

@@ -6,6 +6,7 @@ import { lastKnownPosition, polyGeoJSON } from "@/lib/context";
 import {
     allowedTransit,
     gameSize,
+    gameStartPosition,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
@@ -51,6 +52,7 @@ export function HiderReachOverlay() {
     const $allowed = useStore(allowedTransit);
     const $zone = useStore(hidingZone);
     const $poly = useStore(polyGeoJSON);
+    const $gameStart = useStore(gameStartPosition);
 
     // Memoise the last-fetched anchor so a sub-100m GPS jitter
     // doesn't kick off a fresh Overpass + arrivals fan-out.
@@ -156,7 +158,13 @@ export function HiderReachOverlay() {
 
             // Optimistic: paint dots immediately, no labels.
             hiderReachFC.set(
-                buildFC(plausible, new Map(), $hidingEndsAt, true),
+                buildFC(
+                    plausible,
+                    new Map(),
+                    new Map(),
+                    $hidingEndsAt,
+                    true,
+                ),
             );
 
             const provider = activeJourneyProvider();
@@ -173,11 +181,44 @@ export function HiderReachOverlay() {
                 lat: s.lat,
                 lng: s.lng,
             }));
-            const arrivals = await provider.fetchArrivals(
+            // Hider arrivals — "from where I am now, can I get to this
+            // station before the whistle?".
+            //
+            // Seeker arrivals (in parallel) — "from the shared game-
+            // start position, departing the moment the whistle blows,
+            // how soon could the seekers reach this station?". This is
+            // the strategic-pruning data: a station that's reachable
+            // for the hider but trivially reachable for the seekers
+            // too is a bad hiding pick, and the safetyMinutes gap is
+            // what the colored dot encodes for the hider. The anchor
+            // is fixed for the whole game (gameStartPosition + whistle
+            // departAt) so the worker's R2 cache covers the repeat
+            // hits on every GPS-move re-fetch.
+            const hiderPromise = provider.fetchArrivals(
                 { lat: $gps.lat, lng: $gps.lng, departAt: now },
                 stops,
                 controller.signal,
             );
+            const seekerPromise = $gameStart
+                ? provider
+                      .fetchArrivals(
+                          {
+                              lat: $gameStart.lat,
+                              lng: $gameStart.lng,
+                              departAt: $hidingEndsAt,
+                          },
+                          stops,
+                          controller.signal,
+                      )
+                      .catch(() => [] as { stopId: string; arrivalAt: number | null }[])
+                : Promise.resolve(
+                      [] as { stopId: string; arrivalAt: number | null }[],
+                  );
+
+            const [arrivals, seekerArrivals] = await Promise.all([
+                hiderPromise,
+                seekerPromise,
+            ]);
             if (cancelled) return;
 
             const arrivalMap = new Map<string, number>();
@@ -186,8 +227,20 @@ export function HiderReachOverlay() {
                     arrivalMap.set(r.stopId, r.arrivalAt);
                 }
             }
+            const seekerArrivalMap = new Map<string, number>();
+            for (const r of seekerArrivals) {
+                if (r.arrivalAt != null) {
+                    seekerArrivalMap.set(r.stopId, r.arrivalAt);
+                }
+            }
             hiderReachFC.set(
-                buildFC(plausible, arrivalMap, $hidingEndsAt, false),
+                buildFC(
+                    plausible,
+                    arrivalMap,
+                    seekerArrivalMap,
+                    $hidingEndsAt,
+                    false,
+                ),
             );
         })();
 
@@ -207,6 +260,12 @@ export function HiderReachOverlay() {
         // pick up the cull instead of a one-shot "no boundary yet"
         // pass that includes out-of-area stations.
         $poly,
+        // $gameStart: re-fetch when the game-start anchor resolves so
+        // safetyMinutes populates after a cold start. Coords-only
+        // dependency keeps the effect from re-running on identity
+        // changes when the value is unchanged.
+        $gameStart?.lat,
+        $gameStart?.lng,
     ]);
 
     return null;
@@ -219,29 +278,60 @@ const TOP_SPEED_KMH = 80;
 
 function buildFC(
     stations: AreaStation[],
-    arrivals: Map<string, number>,
+    hiderArrivals: Map<string, number>,
+    seekerArrivals: Map<string, number>,
     budget: number,
     includeUnknown: boolean,
 ): GeoJSON.FeatureCollection<
     GeoJSON.Point,
-    { stopId: string; name?: string; arrivalLabel: string }
+    {
+        stopId: string;
+        name?: string;
+        arrivalLabel: string;
+        safetyMinutes?: number;
+    }
 > {
     const features: GeoJSON.Feature<
         GeoJSON.Point,
-        { stopId: string; name?: string; arrivalLabel: string }
+        {
+            stopId: string;
+            name?: string;
+            arrivalLabel: string;
+            safetyMinutes?: number;
+        }
     >[] = [];
     for (const s of stations) {
-        const arrival = arrivals.get(String(s.id));
+        const arrival = hiderArrivals.get(String(s.id));
         const reachable = arrival != null && arrival <= budget;
         if (!includeUnknown && !reachable) continue;
+        // safetyMinutes: how long the hider has at this station before
+        // the seekers can arrive. seekerArrival - whistle = wait time
+        // the seekers face after starting; positive = hider has buffer,
+        // ≤0 = seekers can be there at or before the whistle.
+        const seekerArrival = seekerArrivals.get(String(s.id));
+        // safetyMinutes is intentionally OMITTED from the props when
+        // unknown — MapLibre expressions can't compare against a JSON
+        // null literal, so the layer's `has` check distinguishes
+        // "no seeker arrival yet" from a real number.
+        const props: {
+            stopId: string;
+            name?: string;
+            arrivalLabel: string;
+            safetyMinutes?: number;
+        } = {
+            stopId: String(s.id),
+            name: s.name,
+            arrivalLabel: reachable ? formatHHMM(arrival!) : "",
+        };
+        if (seekerArrival != null) {
+            props.safetyMinutes = Math.round(
+                (seekerArrival - budget) / 60_000,
+            );
+        }
         features.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: [s.lng, s.lat] },
-            properties: {
-                stopId: String(s.id),
-                name: s.name,
-                arrivalLabel: reachable ? formatHHMM(arrival!) : "",
-            },
+            properties: props as never,
         });
     }
     return { type: "FeatureCollection", features };
