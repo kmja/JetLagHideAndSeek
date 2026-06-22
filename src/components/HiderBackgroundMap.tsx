@@ -3,7 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useStore } from "@nanostores/react";
 import { circle as turfCircle } from "@turf/turf";
 import { Footprints, HelpCircle, MapPin } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
@@ -17,7 +17,7 @@ import {
 } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
-import { hiderReachFC } from "@/lib/journey/state";
+import { hiderReachFC, selectedMapStation } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import {
@@ -54,8 +54,13 @@ import { SelfPositionMarker } from "./SelfPositionMarker";
  * Mounted by HiderShell at `absolute inset-0 z-0` so it fills the
  * viewport behind the header / nav / hand-fan.
  */
+/** Overlay layers the hider can tap to open the StationTransitCard. */
+const HIDER_TAP_LAYERS = ["hider-reach-dots", "hider-reach-labels"];
+
 export function HiderBackgroundMap() {
     const mapRef = useRef<MapRef | null>(null);
+    // Pointer-cursor affordance while hovering a tappable reach feature.
+    const [stationHover, setStationHover] = useState(false);
     const $playArea = useStore(mapGeoLocation);
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $pmtilesUrl = useStore(pmtilesUrl);
@@ -311,6 +316,29 @@ export function HiderBackgroundMap() {
                    overzoom freedom and that's all. */
                 maxZoom={16}
                 onError={handleMapLibreError}
+                interactiveLayerIds={HIDER_TAP_LAYERS}
+                cursor={stationHover ? "pointer" : undefined}
+                onMouseEnter={() => setStationHover(true)}
+                onMouseLeave={() => setStationHover(false)}
+                onClick={(e) => {
+                    const features = e.features;
+                    if (!features || features.length === 0) return;
+                    const f = features[0];
+                    if (f.geometry?.type === "Point") {
+                        const [lng, lat] = f.geometry.coordinates as [
+                            number,
+                            number,
+                        ];
+                        if (!Number.isFinite(lat) || !Number.isFinite(lng))
+                            return;
+                        const props = (f.properties ?? {}) as { name?: string };
+                        selectedMapStation.set({
+                            lat,
+                            lng,
+                            name: props.name,
+                        });
+                    }
+                }}
             >
                 {$satellite && (
                     <Source

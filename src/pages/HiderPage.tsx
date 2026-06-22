@@ -7,6 +7,7 @@ import { ClosingInWatcher } from "@/components/ClosingInWatcher";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderReachOverlay } from "@/components/HiderReachOverlay";
+import { StationTransitCard } from "@/components/StationTransitCard";
 import { HiderView } from "@/components/HiderView";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
@@ -104,6 +105,7 @@ export function HiderPage() {
                 phase + GPS + zone-committed; renders nothing
                 directly. */}
             <HiderReachOverlay />
+            <StationTransitCard />
             <AppConfirmHost />
             <AppPromptHost />
             <Suspense fallback={null}>
