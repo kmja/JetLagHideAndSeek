@@ -90,6 +90,49 @@ export interface AreaStationOptions {
     allowed: TransitMode[];
 }
 
+/**
+ * Resolve a map tap to the nearest transit station within `radiusM`,
+ * or null if none is in range. Tiny single-shot Overpass query (no
+ * mode-filtering, no caching of the result set itself — the worker's
+ * R2/edge cache deduplicates the byte-identical query for nearby taps).
+ * Used by the hider map's "tap basemap" fallback so the hider can
+ * still open a station card when the reach overlay is off.
+ */
+export async function findNearestStation(
+    lat: number,
+    lng: number,
+    radiusM = 300,
+): Promise<{ lat: number; lng: number; name?: string } | null> {
+    const query = `
+[out:json][timeout:10];
+(
+  node["railway"~"^(station|halt|tram_stop)$"](around:${radiusM},${lat},${lng});
+  node["public_transport"="station"](around:${radiusM},${lat},${lng});
+  node["highway"="bus_stop"](around:${radiusM},${lat},${lng});
+);
+out;
+`;
+    let data: { elements?: OverpassNode[] } | null = null;
+    try {
+        data = (await getOverpassData(query, undefined)) as {
+            elements?: OverpassNode[];
+        };
+    } catch {
+        return null;
+    }
+    const elements = data?.elements ?? [];
+    let best: { lat: number; lng: number; name?: string; d: number } | null =
+        null;
+    for (const el of elements) {
+        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
+        const d = haversineMeters(lat, lng, el.lat, el.lon);
+        if (best && d >= best.d) continue;
+        const name = el.tags?.["name:en"] ?? el.tags?.name;
+        best = { lat: el.lat, lng: el.lon, name, d };
+    }
+    return best ? { lat: best.lat, lng: best.lng, name: best.name } : null;
+}
+
 /** Pull every plausibly-reachable transit station around a centre. */
 export async function fetchAreaStations(
     centerLat: number,

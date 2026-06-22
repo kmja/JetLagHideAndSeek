@@ -67,8 +67,9 @@ export function TravelTimesOverlay() {
         };
 
         (async () => {
-            // Optimistic: show all stations immediately with blank labels
-            // so the overlay appears right away while the API resolves.
+            // Optimistic: show all stations immediately in the neutral
+            // "pending" state so the overlay appears right away while
+            // the API resolves.
             travelTimesFC.set(buildFC(stations, new Map(), $endsAt, true));
 
             const results = await provider.fetchArrivals(
@@ -80,11 +81,16 @@ export function TravelTimesOverlay() {
 
             const arrivalMap = new Map<string, number>();
             for (const r of results) {
-                if (r.arrivalAt != null && r.arrivalAt <= $endsAt) {
+                if (r.arrivalAt != null) {
                     arrivalMap.set(r.stopId, r.arrivalAt);
                 }
             }
-            // Final: only show stations the hider could reach in time.
+            // Final: keep BOTH reachable and unreachable stations so the
+            // seeker can scan candidate zones at a glance — green dot
+            // means "the hider could be here", red dot means "rule this
+            // zone out". The map layer paints the colours from the
+            // `reachable` property; the HH:MM label only fires for
+            // reachable stations.
             travelTimesFC.set(buildFC(stations, arrivalMap, $endsAt, false));
         })();
 
@@ -124,12 +130,15 @@ function extractStations(
 }
 
 /**
- * Build the FeatureCollection that Map.tsx renders as travel-time labels.
+ * Build the FeatureCollection that Map.tsx renders for the overlay.
+ * Every station in `stations` is emitted — Map.tsx colours the dot
+ * by `reachable` (post-API) or paints it neutral while `pending`.
  *
- * When `includeUnknown` is true (optimistic pre-API step), all
- * stations are emitted with empty labels so dots appear immediately.
- * When false (post-API), only stations with a confirmed arrival
- * within the hiding budget are included.
+ *   - includeUnknown=true  (optimistic pre-API step) → all stations
+ *     marked pending, no labels.
+ *   - includeUnknown=false (post-API) → reachable stations carry an
+ *     HH:MM label and `reachable:true`; unreachable stations get no
+ *     label and `reachable:false`.
  */
 function buildFC(
     stations: JourneyStop[],
@@ -138,17 +147,28 @@ function buildFC(
     includeUnknown: boolean,
 ): GeoJSON.FeatureCollection<
     GeoJSON.Point,
-    { stopId: string; name?: string; arrivalLabel: string }
+    {
+        stopId: string;
+        name?: string;
+        arrivalLabel: string;
+        reachable: boolean;
+        pending: boolean;
+    }
 > {
     const features: GeoJSON.Feature<
         GeoJSON.Point,
-        { stopId: string; name?: string; arrivalLabel: string }
+        {
+            stopId: string;
+            name?: string;
+            arrivalLabel: string;
+            reachable: boolean;
+            pending: boolean;
+        }
     >[] = [];
 
     for (const s of stations) {
         const arrival = arrivals.get(s.id);
         const reachable = arrival != null && arrival <= budget;
-        if (!includeUnknown && !reachable) continue;
         features.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: [s.lng, s.lat] },
@@ -156,6 +176,8 @@ function buildFC(
                 stopId: s.id,
                 name: s.name,
                 arrivalLabel: reachable ? formatHHMM(arrival!) : "",
+                reachable,
+                pending: includeUnknown,
             },
         });
     }

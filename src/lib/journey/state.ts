@@ -39,6 +39,16 @@ export const travelTimesFC = atom<GeoJSON.FeatureCollection<
         stopId: string;
         name?: string;
         arrivalLabel: string;
+        /** True once the journey-arrivals API has confirmed the hider
+         *  could reach this station before `hidingPeriodEndsAt`. Map.tsx
+         *  colours dots green (reachable) vs red (not), so the seeker
+         *  can scan candidate zones at a glance instead of reading
+         *  every label. */
+        reachable: boolean;
+        /** True before the API has returned for this station — the dot
+         *  is rendered but its reachability isn't known yet, so the
+         *  layer paints it in a neutral pending color. */
+        pending: boolean;
     }
 > | null>(null);
 

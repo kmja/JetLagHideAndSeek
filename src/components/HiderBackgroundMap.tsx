@@ -15,8 +15,9 @@ import {
     polyGeoJSON,
     polyGeoJSONHydrated,
 } from "@/lib/context";
-import { satelliteView } from "@/lib/gameSetup";
+import { hidingPeriodEndsAt, satelliteView } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
+import { findNearestStation } from "@/lib/journey/stations";
 import { hiderReachFC, selectedMapStation } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
@@ -316,28 +317,53 @@ export function HiderBackgroundMap() {
                    overzoom freedom and that's all. */
                 maxZoom={16}
                 onError={handleMapLibreError}
-                interactiveLayerIds={HIDER_TAP_LAYERS}
                 cursor={stationHover ? "pointer" : undefined}
                 onMouseEnter={() => setStationHover(true)}
                 onMouseLeave={() => setStationHover(false)}
                 onClick={(e) => {
-                    const features = e.features;
-                    if (!features || features.length === 0) return;
-                    const f = features[0];
-                    if (f.geometry?.type === "Point") {
-                        const [lng, lat] = f.geometry.coordinates as [
-                            number,
-                            number,
-                        ];
-                        if (!Number.isFinite(lat) || !Number.isFinite(lng))
-                            return;
-                        const props = (f.properties ?? {}) as { name?: string };
-                        selectedMapStation.set({
-                            lat,
-                            lng,
-                            name: props.name,
-                        });
+                    // Tier 1: tap landed on a reach-overlay feature
+                    // (dot or label). Resolve from feature geometry.
+                    const map = e.target;
+                    const hit = map.queryRenderedFeatures(e.point, {
+                        layers: HIDER_TAP_LAYERS,
+                    });
+                    if (hit.length > 0) {
+                        const f = hit[0];
+                        if (f.geometry?.type === "Point") {
+                            const [lng, lat] = f.geometry.coordinates as [
+                                number,
+                                number,
+                            ];
+                            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                                const props = (f.properties ?? {}) as {
+                                    name?: string;
+                                };
+                                selectedMapStation.set({
+                                    lat,
+                                    lng,
+                                    name: props.name,
+                                });
+                            }
+                        }
+                        return;
                     }
+                    // Tier 2: no overlay feature under the tap. During
+                    // the hiding period, fall back to "find the nearest
+                    // transit station within 300 m of the tap" so the
+                    // hider can still open a station card without first
+                    // turning on the reach overlay (the explicit ask).
+                    // No-op outside the hiding period (gameplay invariant
+                    // — the hider doesn't travel after committing).
+                    const endsAt = hidingPeriodEndsAt.get();
+                    if (endsAt == null || endsAt <= Date.now()) return;
+                    const { lat: tapLat, lng: tapLng } = e.lngLat;
+                    void (async () => {
+                        const station = await findNearestStation(
+                            tapLat,
+                            tapLng,
+                        );
+                        if (station) selectedMapStation.set(station);
+                    })();
                 }}
             >
                 {$satellite && (

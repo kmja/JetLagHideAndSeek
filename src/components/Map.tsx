@@ -305,6 +305,7 @@ function buildStyle(
 const STATION_TAP_LAYERS = [
     "hiding-zones-fill",
     "hiding-zones-points",
+    "travel-times-dot",
     "travel-times-labels",
 ];
 
@@ -1778,6 +1779,34 @@ export function Map({ className }: MapProps) {
                         type="geojson"
                         data={$travelTimes}
                     >
+                        {/* Reachability dot — green = the hider could be
+                            here, red = rule this zone out, neutral grey
+                            while the journey-arrivals API is still
+                            resolving. Drawn above the hiding-zones-points
+                            dot so this verdict overrides it visually. */}
+                        <Layer
+                            id="travel-times-dot"
+                            type="circle"
+                            paint={{
+                                "circle-radius": 6,
+                                "circle-color": [
+                                    "case",
+                                    ["==", ["get", "pending"], true],
+                                    "hsl(220, 10%, 70%)",
+                                    ["==", ["get", "reachable"], true],
+                                    "hsl(142, 70%, 45%)",
+                                    "hsl(0, 75%, 55%)",
+                                ],
+                                "circle-stroke-color": "white",
+                                "circle-stroke-width": 1.5,
+                                "circle-opacity": [
+                                    "case",
+                                    ["==", ["get", "pending"], true],
+                                    0.55,
+                                    0.95,
+                                ],
+                            }}
+                        />
                         <Layer
                             id="travel-times-labels"
                             type="symbol"
