@@ -85,3 +85,25 @@ export const hiderReachFC = atom<GeoJSON.FeatureCollection<
 /** Volatile open/closed state for the seeker's trip-planner drawer.
  *  Not persisted — closing the app resets it. */
 export const seekerTripPlannerOpen = atom<boolean>(false);
+
+/* ─────────────────── Map-first station selection ─────────────────── */
+
+/**
+ * The station/zone the user tapped on the map, or null when nothing is
+ * selected. Trip planning in this game almost always STARTS from the
+ * map — a hider exploring where to hide, or a seeker scanning the
+ * remaining candidate zones to see whether (and how) the hider could
+ * have reached one — so a map tap on a station is the primary entry
+ * point, not the search box.
+ *
+ * Set by Map.tsx's click handler (querying the hiding-zone / travel-
+ * time feature under the tap); consumed by `StationTransitCard`, which
+ * plans a trip TO this station from the role-appropriate origin
+ * (seeker → game-start position = "could the hider get here?"; hider →
+ * live GPS = "can I get here?") and renders it. Volatile.
+ */
+export const selectedMapStation = atom<{
+    lat: number;
+    lng: number;
+    name?: string;
+} | null>(null);

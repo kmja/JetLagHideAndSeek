@@ -59,7 +59,7 @@ import {
     showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
-import { travelTimesFC } from "@/lib/journey/state";
+import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
 import { createMapShim } from "@/lib/mapShim";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
@@ -296,6 +296,78 @@ function buildStyle(
         sources,
         layers,
     };
+}
+
+/** Overlay layers a tap can resolve to a station for the station
+ *  transit card. The hiding-zone circle fill + station points (the
+ *  candidate zones the seeker scans) and the travel-time labels (the
+ *  reachable stations) are all valid targets. */
+const STATION_TAP_LAYERS = [
+    "hiding-zones-fill",
+    "hiding-zones-points",
+    "travel-times-labels",
+];
+
+/** Resolve the tapped overlay feature to a station `{ lat, lng, name }`.
+ *  Point features (station dots, travel-time labels) use their geometry;
+ *  hiding-zone circle polygons carry the source station place in their
+ *  properties (set by `turf.circle(center, r, { properties: place })`),
+ *  so we pull the center + name from there, falling back to the polygon
+ *  centroid and the raw click point. */
+function stationFromFeature(
+    f: maplibregl.MapGeoJSONFeature,
+    clickLngLat: maplibregl.LngLat,
+): { lat: number; lng: number; name?: string } | null {
+    const props = (f.properties ?? {}) as Record<string, unknown>;
+    // Name: travel-time labels expose `name` directly; hiding-zone
+    // circles nest the station under `properties` (a stringified place).
+    const nested = parseMaybeJSON(props.properties);
+    const name =
+        (typeof props.name === "string" && props.name) ||
+        (nested && typeof nested.name === "string" && nested.name) ||
+        (nested?.properties &&
+            typeof nested.properties.name === "string" &&
+            nested.properties.name) ||
+        undefined;
+
+    // Coordinates.
+    if (f.geometry?.type === "Point") {
+        const [lng, lat] = f.geometry.coordinates as [number, number];
+        if (Number.isFinite(lat) && Number.isFinite(lng))
+            return { lat, lng, name };
+    }
+    // Circle / polygon — prefer the embedded station center, else
+    // centroid, else the click point.
+    const center = nested?.geometry?.coordinates as
+        | [number, number]
+        | undefined;
+    if (center && Number.isFinite(center[1]) && Number.isFinite(center[0])) {
+        return { lat: center[1], lng: center[0], name };
+    }
+    try {
+        const c = turf.centroid(f as never);
+        const [lng, lat] = c.geometry.coordinates as [number, number];
+        if (Number.isFinite(lat) && Number.isFinite(lng))
+            return { lat, lng, name };
+    } catch {
+        /* fall through to click point */
+    }
+    return { lat: clickLngLat.lat, lng: clickLngLat.lng, name };
+}
+
+/** MapLibre stringifies nested feature properties; parse defensively. */
+function parseMaybeJSON(
+    v: unknown,
+): { name?: string; geometry?: { coordinates?: unknown }; properties?: { name?: string } } | null {
+    if (v && typeof v === "object") return v as never;
+    if (typeof v === "string") {
+        try {
+            return JSON.parse(v);
+        } catch {
+            return null;
+        }
+    }
+    return null;
 }
 
 export function Map({ className }: MapProps) {
@@ -1133,6 +1205,23 @@ export function Map({ className }: MapProps) {
         lng: number;
     } | null>(null);
 
+    // Pointer cursor while hovering a tappable station feature (the
+    // onMouseEnter/Leave events fire only for STATION_TAP_LAYERS).
+    const [stationHover, setStationHover] = useState(false);
+
+    // Map-first trip planning. A tap on a hiding-zone or travel-time
+    // feature resolves the station beneath it and opens the station
+    // transit card (StationTransitCard, mounted by SeekerPage/HiderPage).
+    const handleStationTap = (
+        e: maplibregl.MapLayerMouseEvent | maplibregl.MapMouseEvent,
+    ) => {
+        const features = (e as maplibregl.MapLayerMouseEvent).features;
+        if (!features || features.length === 0) return;
+        const f = features[0];
+        const station = stationFromFeature(f, e.lngLat);
+        if (station) selectedMapStation.set(station);
+    };
+
     // Live blue "you are here" dot, always shown on the seeker map
     // (like every other mapping app). Decoupled from the Follow Me
     // toggle — that now only controls auto-centering below. The watch
@@ -1484,7 +1573,19 @@ export function Map({ className }: MapProps) {
                         lng: e.lngLat.lng,
                     });
                 }}
-                onClick={() => setContextMenu(null)}
+                onClick={(e) => {
+                    setContextMenu(null);
+                    // Map-first trip planning: a tap on a candidate
+                    // hiding zone / station opens the station transit
+                    // card (plan a trip to it from the role-appropriate
+                    // origin). This is the primary entry point — far
+                    // more common than searching for a station by name.
+                    handleStationTap(e);
+                }}
+                interactiveLayerIds={STATION_TAP_LAYERS}
+                cursor={stationHover ? "pointer" : undefined}
+                onMouseEnter={() => setStationHover(true)}
+                onMouseLeave={() => setStationHover(false)}
             >
                 <AttributionControl compact />
                 {/* Zoom buttons removed in v101 — they overlap

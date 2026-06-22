@@ -26,6 +26,7 @@ import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
+import { StationTransitCard } from "@/components/StationTransitCard";
 import { SeekerTopBar } from "@/components/SeekerTopBar";
 import { SeekerTripPlannerLauncher } from "@/components/SeekerTripPlannerLauncher";
 import { SeekerTripPlannerSheet } from "@/components/SeekerTripPlannerSheet";
@@ -262,6 +263,7 @@ export function SeekerPage() {
                         when its open atom is false. */}
                     <SeekerTripPlannerSheet />
                     <SeekerFrozenBanner />
+                    <StationTransitCard />
                     <AppConfirmHost />
                     <AppPromptHost />
                     <GameStartWatcher />
