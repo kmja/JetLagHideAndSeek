@@ -1,7 +1,8 @@
 import { useStore } from "@nanostores/react";
+import { booleanPointInPolygon } from "@turf/turf";
 import { useEffect, useRef } from "react";
 
-import { lastKnownPosition } from "@/lib/context";
+import { lastKnownPosition, polyGeoJSON } from "@/lib/context";
 import {
     allowedTransit,
     gameSize,
@@ -49,6 +50,7 @@ export function HiderReachOverlay() {
     const $size = useStore(gameSize);
     const $allowed = useStore(allowedTransit);
     const $zone = useStore(hidingZone);
+    const $poly = useStore(polyGeoJSON);
 
     // Memoise the last-fetched anchor so a sub-100m GPS jitter
     // doesn't kick off a fresh Overpass + arrivals fan-out.
@@ -119,9 +121,38 @@ export function HiderReachOverlay() {
             // before paying the proxy round-trip.
             const minutesLeft = ($hidingEndsAt - now) / 60_000;
             const maxKm = (TOP_SPEED_KMH * minutesLeft) / 60;
-            const plausible = stations.filter(
+            let plausible = stations.filter(
                 (s) => s.distanceMeters / 1000 <= maxKm,
             );
+            // Play-area cull: stations outside the boundary are useless
+            // — the hider can't hide there, so paying the arrivals
+            // round-trip for them is pure waste. `fetchAreaStations`
+            // is bbox-centred on the hider's GPS so its results
+            // routinely spill outside small play areas. Skipped when
+            // the boundary hasn't hydrated yet so the overlay still
+            // works on a cold start (graceful degrade — same pattern
+            // as the question-impact filter).
+            if ($poly) {
+                const before = plausible.length;
+                plausible = plausible.filter((s) => {
+                    try {
+                        return booleanPointInPolygon(
+                            [s.lng, s.lat],
+                            $poly as never,
+                        );
+                    } catch {
+                        return true;
+                    }
+                });
+                if (before !== plausible.length) {
+                    // Stations dropped here would otherwise burn one
+                    // arrivals-fetch each — visible in worker logs
+                    // when debugging reach quota.
+                    console.debug(
+                        `HiderReachOverlay: dropped ${before - plausible.length} out-of-play-area station(s)`,
+                    );
+                }
+            }
 
             // Optimistic: paint dots immediately, no labels.
             hiderReachFC.set(
@@ -164,7 +195,19 @@ export function HiderReachOverlay() {
             cancelled = true;
             controller.abort();
         };
-    }, [enabled, $gps?.lat, $gps?.lng, $hidingEndsAt, $size, $allowed, $zone]);
+    }, [
+        enabled,
+        $gps?.lat,
+        $gps?.lng,
+        $hidingEndsAt,
+        $size,
+        $allowed,
+        $zone,
+        // $poly: re-fetch when the play-area polygon resolves so we
+        // pick up the cull instead of a one-shot "no boundary yet"
+        // pass that includes out-of-area stations.
+        $poly,
+    ]);
 
     return null;
 }
