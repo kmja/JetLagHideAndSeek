@@ -177,6 +177,46 @@ export async function findExtensionCandidates(
                     candidates.push(c);
                 }
             }
+
+            // Sub-units pass — only for CONSOLIDATED-CITY / megacity
+            // primaries (admin_level ≤ 5). NYC is the canonical case:
+            // it sits at level 5 with no nearby level-5 peers, and the
+            // user expects the boroughs as add-able sub-units to mix
+            // and match (Manhattan + Brooklyn, etc.). Stockholm
+            // Municipality (level 7) deliberately skips this — its
+            // level-8 districts are sub-areas, not adjacent peers.
+            // For a level-N primary we pull admin boundaries at N+1
+            // and N+2 INSIDE the primary's area: that catches both
+            // possible OSM tagging conventions for boroughs (some are
+            // 6, some 7) without sweeping in fine-grained districts.
+            const lvlNum = parseInt(adminLevel, 10);
+            if (Number.isFinite(lvlNum) && lvlNum <= 5) {
+                try {
+                    const subUnits = await fetchSubUnitsInArea(
+                        primaryOsmId,
+                        lvlNum,
+                    );
+                    for (const el of subUnits) {
+                        if (!isAdministrativeBoundary(el)) continue;
+                        const c = relationStubToCandidate(
+                            el,
+                            primaryOsmId,
+                            primaryLat,
+                            primaryLng,
+                            stations,
+                        );
+                        if (c && !seen.has(el.id)) {
+                            seen.add(el.id);
+                            candidates.push(c);
+                        }
+                    }
+                } catch (e) {
+                    console.warn(
+                        "Sub-units pass failed (continuing without):",
+                        e,
+                    );
+                }
+            }
         }
     } catch (e) {
         console.warn(
@@ -187,6 +227,41 @@ export async function findExtensionCandidates(
 
     candidates.sort((a, b) => a.distanceKm - b.distanceKm);
     return candidates.slice(0, limit);
+}
+
+/** Sub-units pass for the consolidated-city case: every admin boundary
+ *  at admin_level (N+1) or (N+2) INSIDE the primary's area. Used so
+ *  NYC (level 5) returns its boroughs (most commonly level 6 or 7,
+ *  varies by mapper) as add-able play-area extensions; never used for
+ *  ordinary municipalities, whose own districts are SUB-areas and
+ *  shouldn't be offered as adjacents. */
+async function fetchSubUnitsInArea(
+    primaryOsmId: number,
+    primaryLevel: number,
+): Promise<OverpassRelationStub[]> {
+    // Overpass area-id convention: a relation with id N becomes an
+    // `area(id:3600000000 + N)` for use as an area filter.
+    const areaId = 3_600_000_000 + primaryOsmId;
+    const lower = primaryLevel + 1;
+    const upper = primaryLevel + 2;
+    // Both digits are single-digit for any sensible primaryLevel ≤ 5,
+    // so a character-class regex is safe and the cheapest form Overpass
+    // can compile.
+    const levelRegex = `^[${lower}${upper}]$`;
+    const query = `
+[out:json][timeout:60];
+area(id:${areaId});
+relation["admin_level"~"${levelRegex}"]["type"="boundary"]["boundary"="administrative"](area);
+out tags bb;
+`;
+    const data = await getOverpassData(
+        query,
+        undefined,
+        CacheType.ZONE_CACHE,
+        90_000,
+    );
+    return ((data as { elements?: unknown[] }).elements ??
+        []) as OverpassRelationStub[];
 }
 
 /** Fetch the `admin_level` tag of an OSM relation. Returns null if
