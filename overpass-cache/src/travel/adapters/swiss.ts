@@ -60,12 +60,14 @@ export async function planJourney(
     url.searchParams.set("date", dateYmd(depart));
     url.searchParams.set("time", timeHm(depart));
     url.searchParams.set("limit", "1");
-    // `fields[]=connections/sections` is the docs-recommended way to
-    // request the leg detail; without it, sections come back trimmed.
-    url.searchParams.append("fields[]", "connections/sections");
-    url.searchParams.append("fields[]", "connections/from");
-    url.searchParams.append("fields[]", "connections/to");
-    url.searchParams.append("fields[]", "connections/duration");
+    // NB: do NOT send `fields[]`. It's a response WHITELIST, not an
+    // "expand detail" hint — `fields[]=connections/sections` prunes the
+    // response down so the per-section departure/arrival timestamps,
+    // `journey`, and station coordinates the parser needs are dropped,
+    // and every connection parses to null → walking fallback. The full
+    // (unfiltered) response is only a few KB and contains everything.
+    // (Confirmed against the live API: Basel SBB → Bad Bf returns a
+    // complete tram itinerary without `fields[]`, an empty one with it.)
 
     const ctrl = new AbortController();
     const onAbort = () => ctrl.abort();

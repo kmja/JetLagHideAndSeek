@@ -1,22 +1,24 @@
 /**
- * Austria — ÖBB via `v6.oebb.transport.rest` (transport.rest / FPTF).
+ * Austria — DB HAFAS via `v6.db.transport.rest` (transport.rest / FPTF).
  *
- * Same `hafas-rest-api` codebase + FPTF response shape as the German DB
- * adapter, just a different base URL — so it reuses `planViaFptf` +
- * `parseFptfJourneys` wholesale. KEYLESS. Covers Austria nationwide
- * (ÖBB rail + S-Bahn + regional bus/tram via VAO data) plus cross-
- * border Central Europe.
+ * The dedicated ÖBB instance (`v6.oebb.transport.rest`) was shut down —
+ * its `/journeys` route now 404s ("Cannot GET /journeys"). Deutsche
+ * Bahn's HAFAS (the same keyless `v6.db.transport.rest` the Germany
+ * adapter uses) carries ÖBB and covers Austrian rail + cross-border
+ * Central Europe, so we reuse it here. Dense intra-city Vienna transit
+ * (U-Bahn/tram) that DB HAFAS doesn't resolve simply returns null and
+ * the dispatcher falls through to the universal Transitous backstop.
  *
- * Not live-testable here; request + response shapes are the verified
- * transport.rest contract, walking backstop covers a wrong request.
- * The README leans on station IDs in examples, so the coordinate
- * params are worth one live confirmation.
+ * Reuses `planViaFptf` + `parseFptfJourneys` wholesale (identical
+ * request + FPTF response shape as Germany).
  */
 
 import type { Journey, PlanRequest } from "../types";
 import { planViaFptf } from "./germany";
 
-const OEBB_REST_URL = "https://v6.oebb.transport.rest/journeys";
+// DB HAFAS — same instance as germany.ts (it carries ÖBB data). The
+// retired v6.oebb.transport.rest is intentionally not used.
+const OEBB_REST_URL = "https://v6.db.transport.rest/journeys";
 
 /** Austria bbox — Bregenz (9.7E) to the Hungarian border (17.2E),
  *  Carinthia (46.3N) up to the Czech/German border (49.1N). Disjoint

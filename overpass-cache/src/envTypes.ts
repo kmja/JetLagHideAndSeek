@@ -50,6 +50,16 @@ export interface Env {
      *  unset, the journey endpoint returns 503 and the seeker
      *  app silently keeps the Travel Times overlay empty. */
     TRAFIKLAB_API_KEY?: string;
+    /** Rejseplanen (Denmark) API 2.0 key. The old keyless open API 1.0
+     *  (`xmlopen.rejseplanen.dk`) was SHUT DOWN — it now serves only a
+     *  deprecation notice — and the replacement API 2.0
+     *  (labs.rejseplanen.dk) requires registration. Until a key is set
+     *  the Denmark adapter defers and Danish origins fall through to the
+     *  Transitous backstop. ⚠️ When wiring a key, the adapter's endpoint
+     *  URL + request shape must be updated to API 2.0 (the response is
+     *  still HAFAS-shaped, so `parseRejseplanenTrip` should largely
+     *  carry over). Configure via `wrangler secret put REJSEPLANEN_API_KEY`. */
+    REJSEPLANEN_API_KEY?: string;
     /** Digitransit (Finland) subscription key, used by the
      *  `/api/travel/plan` Digitransit adapter. Configure via
      *  `wrangler secret put DIGITRANSIT_API_KEY`. Optional — if

@@ -77,7 +77,11 @@ const TRAFIKLAB: TravelAdapter = {
 const DENMARK: TravelAdapter = {
     id: "denmark",
     canServe: denmark.canServe,
-    async plan(req, departAt, _env, signal) {
+    async plan(req, departAt, env, signal) {
+        // Rejseplanen open API 1.0 was shut down; API 2.0 needs a key.
+        // Defer to Transitous until a key (and an API-2.0 request shape)
+        // is wired — see envTypes.REJSEPLANEN_API_KEY + denmark.ts.
+        if (!env.REJSEPLANEN_API_KEY) return null;
         return denmark.planJourney(req, departAt, signal);
     },
 };

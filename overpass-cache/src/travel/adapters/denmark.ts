@@ -10,12 +10,15 @@
  * Covers all of Denmark — Copenhagen (DSB/Metro/S-tog/Movia), Aarhus
  * (letbane), Odense, Aalborg, the regional + intercity rail.
  *
- * NOTE: not live-testable from here (sandbox blocks egress). The
- * request shape follows the long-stable open API but the endpoint may
- * have moved / now want a token; the walking backstop covers a wrong
- * request, and the response PARSER is fixture-tested. Ordered BEFORE
- * Trafiklab so the Øresund region (where the SE/DK bboxes overlap)
- * routes Copenhagen to Rejseplanen rather than the Swedish planner.
+ * ⚠️ STATUS (confirmed live, 2026): the open API 1.0 endpoint below is
+ * SHUT DOWN — `xmlopen.rejseplanen.dk` now returns only an HTTP 299
+ * deprecation page ("API 1.0 has been shut down, replaced by API 2.0").
+ * The router therefore GATES this adapter behind `REJSEPLANEN_API_KEY`
+ * and it defers to Transitous until a key is configured. The parser
+ * (`parseRejseplanenTrip`) stays fixture-tested and should largely
+ * carry over to API 2.0 (still HAFAS-shaped); when wiring a key, update
+ * `REJSEPLANEN_URL` + the request params to the API 2.0 contract
+ * (labs.rejseplanen.dk/hc/en-us/articles/21554723926557).
  */
 
 import type {
@@ -26,6 +29,10 @@ import type {
     TravelPlace,
 } from "../types";
 
+// ⚠️ DEAD: API 1.0 shut down (HTTP 299 deprecation page). Only reached
+// when REJSEPLANEN_API_KEY is set (router gate) — migrate to API 2.0
+// before relying on it. Left here so the request/parse scaffolding is
+// ready to repoint.
 const REJSEPLANEN_URL = "https://xmlopen.rejseplanen.dk/bin/rest.exe/trip";
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
