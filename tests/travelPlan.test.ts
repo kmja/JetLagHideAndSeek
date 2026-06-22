@@ -134,8 +134,12 @@ describe("adapter dispatch selection", () => {
         );
     });
 
-    test("Paris: no country adapter, navitia then universal", () => {
+    test("Paris: IDFM PRIM (france) first, then broad navitia, then universal", () => {
+        // PRIM is the authoritative Île-de-France source + a separate
+        // free quota pool, so it's ordered ahead of the broad navitia.io
+        // fallback for the IdF bbox.
         expect(selectAdapters(48.8566, 2.3522).map((a) => a.id)).toEqual([
+            "france",
             "navitia",
             ...U,
         ]);

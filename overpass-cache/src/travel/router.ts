@@ -23,6 +23,7 @@ import * as denmark from "./adapters/denmark";
 import * as digitransit from "./adapters/digitransit";
 import * as entur from "./adapters/entur";
 import * as estonia from "./adapters/estonia";
+import * as france from "./adapters/france";
 import * as germany from "./adapters/germany";
 import * as hungary from "./adapters/hungary";
 import * as ireland from "./adapters/ireland";
@@ -247,6 +248,20 @@ const AUSTRALIA: TravelAdapter = {
     },
 };
 
+/** IDFM PRIM (Paris / Île-de-France) — keyed Navitia instance, free
+ *  20k/day quota pool. Defers without the key. Ordered ahead of the
+ *  broad navitia.io fallback so Paris-region origins use the
+ *  authoritative IdF source + its separate quota; the rest of France
+ *  still falls through to navitia. */
+const FRANCE: TravelAdapter = {
+    id: "france",
+    canServe: france.canServe,
+    async plan(req, departAt, env, signal) {
+        if (!env.PRIM_API_KEY) return null;
+        return france.planJourney(req, env.PRIM_API_KEY, departAt, signal);
+    },
+};
+
 /** navitia (broad European fallback) — keyed; defers without the key.
  *  Ordered last among the regional adapters so country-specific
  *  planners win first; navitia only runs where they all decline. */
@@ -331,6 +346,7 @@ export const ADAPTERS: TravelAdapter[] = [
     NSW,
     AUSTRALIA,
     KOREA,
+    FRANCE,
     NAVITIA,
     MOTIS_SELF_HOSTED,
     TRANSITOUS,

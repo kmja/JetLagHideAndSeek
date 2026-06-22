@@ -52,7 +52,31 @@ export async function planJourney(
     departAt: number,
     signal?: AbortSignal,
 ): Promise<Journey | null> {
-    const url = new URL(NAVITIA_URL);
+    // navitia.io takes the key in the `Authorization` header.
+    return planViaNavitia(
+        NAVITIA_URL,
+        { Authorization: apiKey },
+        req,
+        departAt,
+        signal,
+    );
+}
+
+/**
+ * Generic Navitia v2 `/journeys` fetch + parse, shared by every
+ * Navitia-shaped instance (navitia.io, IDFM PRIM, SNCF, …). `authHeaders`
+ * carries the per-instance auth (navitia.io uses `Authorization: <key>`;
+ * PRIM uses `apikey: <key>`). The request + response contract is
+ * identical across instances, so `parseNavitiaJourneys` is reused as-is.
+ */
+export async function planViaNavitia(
+    journeysUrl: string,
+    authHeaders: Record<string, string>,
+    req: PlanRequest,
+    departAt: number,
+    signal?: AbortSignal,
+): Promise<Journey | null> {
+    const url = new URL(journeysUrl);
     // Note the lng;lat ordering.
     url.searchParams.set("from", `${req.origin.lng};${req.origin.lat}`);
     url.searchParams.set("to", `${req.destination.lng};${req.destination.lat}`);
@@ -69,7 +93,7 @@ export async function planJourney(
     try {
         resp = await fetch(url.toString(), {
             signal: ctrl.signal,
-            headers: { Accept: "application/json", Authorization: apiKey },
+            headers: { Accept: "application/json", ...authHeaders },
         });
     } catch (e) {
         console.warn("navitia fetch failed:", e);

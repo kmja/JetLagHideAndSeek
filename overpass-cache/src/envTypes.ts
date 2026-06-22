@@ -72,11 +72,22 @@ export interface Env {
      *  adapter works without a key, and just runs faster with one. */
     TFL_API_KEY?: string;
     /** navitia.io API key for the broad-European `/api/travel/plan`
-     *  fallback adapter (covers France/Paris, Benelux, Iberia, Italy,
-     *  …). Configure via `wrangler secret put NAVITIA_API_KEY`. Free
-     *  signup at https://navitia.io/. Optional — without it the
-     *  adapter defers and those regions fall through to walking. */
+     *  fallback adapter (covers Benelux, Iberia, Italy, …).
+     *  ⚠️ navitia.io's free self-service tier appears to have been
+     *  discontinued (Hove/Kisio now gate it behind a commercial
+     *  contact) — new free keys may be unobtainable. The adapter is
+     *  kept (it works if you DO have a key) but defers cleanly when
+     *  unset, and Transitous backstops the same regions. For Paris use
+     *  `PRIM_API_KEY` instead (IDFM's own free marketplace, below).
+     *  Configure via `wrangler secret put NAVITIA_API_KEY`. */
     NAVITIA_API_KEY?: string;
+    /** IDFM PRIM (Île-de-France / Paris) API key — free, no billing,
+     *  20k journeys/day, from https://prim.iledefrance-mobilites.fr.
+     *  Navitia-shaped; sent as the `apikey` header. Optional — without
+     *  it Paris-region origins fall through to the navitia.io adapter
+     *  (if that key is set) then Transitous. Configure via
+     *  `wrangler secret put PRIM_API_KEY`. */
+    PRIM_API_KEY?: string;
     /** Transport for NSW (Sydney/Australia) Open Data Trip Planner
      *  key, sent as `Authorization: apikey <KEY>`. Configure via
      *  `wrangler secret put TFNSW_API_KEY`. Free signup at the TfNSW
