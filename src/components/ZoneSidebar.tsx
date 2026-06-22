@@ -110,6 +110,15 @@ export const ZoneSidebar = () => {
     const isStationSearchActive = stationSearch.trim().length > 0;
     const setStations = trainStations.set;
     const sidebarRef = useRef<HTMLDivElement>(null);
+    // Re-entrancy guard for the hiding-zone computation. We used to gate
+    // on the shared `isLoading` atom, but that atom is ALSO raised by the
+    // play-area boundary load, the transit overlays and the travel-times
+    // pass — so toggling "Hiding zones" while any of those were in flight
+    // bailed the effect, and because `isLoading`/`map` weren't deps it
+    // never retried (the overlay silently did nothing). A dedicated ref
+    // decouples "a zone computation is already running" from "the app is
+    // loading something else".
+    const zoneComputingRef = useRef(false);
     const [importUrl, setImportUrl] = useState("");
 
     const removeHidingZones = () => {
@@ -157,14 +166,16 @@ export const ZoneSidebar = () => {
     };
 
     useEffect(() => {
-        if (!map || isLoading.get()) return;
+        if (!map) return;
 
         const initializeHidingZones = async () => {
+            zoneComputingRef.current = true;
             isLoading.set(true);
 
             const needsDefault = !useCustomStations || includeDefaultStations;
             if (needsDefault && $displayHidingZonesOptions.length === 0) {
                 toast.error("At least one place type must be selected");
+                zoneComputingRef.current = false;
                 isLoading.set(false);
                 return;
             }
@@ -427,10 +438,17 @@ export const ZoneSidebar = () => {
             }
 
             setStations(circles);
+            zoneComputingRef.current = false;
             isLoading.set(false);
         };
 
-        if ($displayHidingZones && $questionFinishedMapData) {
+        // Skip only if a zone computation is ALREADY running (re-entrancy),
+        // not just because something else set the shared `isLoading` flag.
+        if (
+            $displayHidingZones &&
+            $questionFinishedMapData &&
+            !zoneComputingRef.current
+        ) {
             initializeHidingZones().catch((error) => {
                 console.warn("Hiding zone initialization failed:", error);
                 toast.error(
@@ -444,10 +462,18 @@ export const ZoneSidebar = () => {
                 // is permanently disabled until reload. Was the root
                 // cause behind a flood of user-reported "can't tap
                 // anything" symptoms after an Overpass timeout.
+                zoneComputingRef.current = false;
                 isLoading.set(false);
             });
         }
     }, [
+        // `map` IS a dep now: without it, toggling the overlay before the
+        // MapLibre instance was in context bailed the effect forever.
+        // `$isLoading` deliberately is NOT a dep — this effect writes it,
+        // so depending on it would loop; instead we dropped the
+        // `isLoading.get()` early-bail entirely (the old bug) and use
+        // `zoneComputingRef` purely for re-entrancy.
+        map,
         $questionFinishedMapData,
         $displayHidingZones,
         $displayHidingZonesOptions,
@@ -459,7 +485,11 @@ export const ZoneSidebar = () => {
     ]);
 
     useEffect(() => {
-        if (!map || isLoading.get()) return;
+        // Only `!map` gates the render pass — the old `isLoading.get()`
+        // bail meant the overlay never painted if any unrelated load was
+        // in flight when the toggle flipped (and never retried, since
+        // neither map nor isLoading was a dep here).
+        if (!map) return;
 
         if ($displayHidingZones && hidingZoneModeStationID) {
             const hiderStation = find(
@@ -499,6 +529,7 @@ export const ZoneSidebar = () => {
             removeHidingZones();
         }
     }, [
+        map,
         $disabledStations,
         $displayHidingZones,
         $displayHidingZonesStyle,
