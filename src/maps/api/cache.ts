@@ -297,6 +297,19 @@ function responseFromBuffer(
     bytes: Uint8Array,
     template: Response,
 ): Response {
+    // ⚠️ Strip Content-Encoding (and the now-wrong Content-Length).
+    // `bytes` is the already-DECODED body — the browser transparently
+    // gunzips a fetch response when we read its stream/arrayBuffer. Our
+    // overpass-cache worker serves R2 gzip entries with an explicit
+    // `Content-Encoding: gzip` header; copying that header onto a
+    // response whose body is plain JSON means a later `.json()` on the
+    // CACHED entry tries to gunzip plain text and throws "Unexpected
+    // token" (a raw 0x1f byte) — surfacing as "[overpass] winning
+    // response wasn't valid JSON — treating as empty", which silently
+    // blanks the transit overlays AND the hiding-zone station query.
+    const headers = new Headers(template.headers);
+    headers.delete("Content-Encoding");
+    headers.delete("Content-Length");
     // Copy to a fresh ArrayBuffer so each Response owns its own
     // memory and can be consumed independently — passing the
     // same Uint8Array to multiple Response constructors causes
@@ -304,7 +317,7 @@ function responseFromBuffer(
     return new Response(bytes.slice().buffer, {
         status: template.status,
         statusText: template.statusText,
-        headers: template.headers,
+        headers,
     });
 }
 
@@ -398,11 +411,23 @@ export const cacheFetch = async (
                 }
                 return responseFromBuffer(bytes, rawResponse);
             }
-            // Non-progress path: original behaviour — clone for
-            // the cache, return the original to the caller. No
-            // custom stream involved, no tee deadlock risk.
-            await cache.put(url, rawResponse.clone());
-            return rawResponse;
+            // Non-progress path: read the DECODED body once, then build
+            // header-stripped Responses for both the cache and the
+            // caller. We can't just `cache.put(rawResponse.clone())`:
+            // the worker's `Content-Encoding: gzip` header would ride
+            // along into CacheStorage, and re-reads of that entry fail
+            // to gunzip plain JSON (the "winning response wasn't valid
+            // JSON" bug that blanks transit overlays + hiding zones).
+            // `arrayBuffer()` transparently decodes the gzip, so the
+            // bytes are plain JSON and `responseFromBuffer` drops the
+            // stale encoding headers.
+            const decoded = new Uint8Array(await rawResponse.arrayBuffer());
+            try {
+                await cache.put(url, responseFromBuffer(decoded, rawResponse));
+            } catch (e) {
+                console.warn("Cache write failed:", e);
+            }
+            return responseFromBuffer(decoded, rawResponse);
         };
 
         const fetchPromise = fetchAndMaybeCache();

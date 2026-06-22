@@ -44,9 +44,16 @@ export enum QuestionSpecificLocation {
 }
 
 export enum CacheType {
-    CACHE = "jlhs-map-generator-cache",
-    ZONE_CACHE = "jlhs-map-generator-zone-cache",
-    PERMANENT_CACHE = "jlhs-map-generator-permanent-cache",
+    // `-v2` suffix (v429): the previous namespace can hold entries
+    // poisoned by the gzip Content-Encoding caching bug (an overpass
+    // response cached with `Content-Encoding: gzip` over an already-
+    // decoded body, which then fails to re-parse). Bumping the cache
+    // name orphans those entries so every client immediately reads the
+    // freshly-fixed namespace instead of waiting for TTL expiry. The
+    // old caches are garbage-collected by the browser over time.
+    CACHE = "jlhs-map-generator-cache-v2",
+    ZONE_CACHE = "jlhs-map-generator-zone-cache-v2",
+    PERMANENT_CACHE = "jlhs-map-generator-permanent-cache-v2",
 }
 
 export interface CustomStation {
