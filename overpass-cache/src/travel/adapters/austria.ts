@@ -1,24 +1,25 @@
 /**
- * Austria — DB HAFAS via `v6.db.transport.rest` (transport.rest / FPTF).
+ * Austria — currently DEFERS to the Transitous backstop.
  *
- * The dedicated ÖBB instance (`v6.oebb.transport.rest`) was shut down —
- * its `/journeys` route now 404s ("Cannot GET /journeys"). Deutsche
- * Bahn's HAFAS (the same keyless `v6.db.transport.rest` the Germany
- * adapter uses) carries ÖBB and covers Austrian rail + cross-border
- * Central Europe, so we reuse it here. Dense intra-city Vienna transit
- * (U-Bahn/tram) that DB HAFAS doesn't resolve simply returns null and
- * the dispatcher falls through to the universal Transitous backstop.
+ * History: the dedicated ÖBB instance (`v6.oebb.transport.rest`) was
+ * shut down (its `/journeys` route 404s). DB HAFAS
+ * (`v6.db.transport.rest`) is reachable but HANGS on intra-Austrian
+ * queries — a Vienna-local trip burned the full upstream timeout (8 s)
+ * and returned nothing, because DB's HAFAS lacks good Austrian-local
+ * routing data. Since this app's trips are overwhelmingly intra-city,
+ * keeping DB here just taxed every Austrian request with a multi-second
+ * hang before falling through. Transitous routes Vienna fine (~0.9 s),
+ * so Austria defers to it.
  *
- * Reuses `planViaFptf` + `parseFptfJourneys` wholesale (identical
- * request + FPTF response shape as Germany).
+ * A real regional Austrian planner exists (VAO / AnachB) but is keyed;
+ * wire it here behind an env key when available — `canServe` already
+ * marks the territory.
  */
 
 import type { Journey, PlanRequest } from "../types";
-import { planViaFptf } from "./germany";
 
-// DB HAFAS — same instance as germany.ts (it carries ÖBB data). The
-// retired v6.oebb.transport.rest is intentionally not used.
-const OEBB_REST_URL = "https://v6.db.transport.rest/journeys";
+// (DB HAFAS via planViaFptf was tried and removed — see header. No
+// keyless Austrian-local planner exists today.)
 
 /** Austria bbox — Bregenz (9.7E) to the Hungarian border (17.2E),
  *  Carinthia (46.3N) up to the Czech/German border (49.1N). Disjoint
@@ -37,9 +38,11 @@ export function canServe(lat: number, lng: number): boolean {
 }
 
 export async function planJourney(
-    req: PlanRequest,
-    departAt: number,
-    signal?: AbortSignal,
+    _req: PlanRequest,
+    _departAt: number,
+    _signal?: AbortSignal,
 ): Promise<Journey | null> {
-    return planViaFptf(OEBB_REST_URL, "Austria", req, departAt, signal);
+    // No working keyless Austrian planner today (ÖBB instance dead, DB
+    // HAFAS hangs on Austrian-local). Defer to Transitous.
+    return null;
 }

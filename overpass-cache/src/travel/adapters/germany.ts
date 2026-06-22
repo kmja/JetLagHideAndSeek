@@ -28,7 +28,13 @@ import type {
 } from "../types";
 
 const DBREST_URL = "https://v6.db.transport.rest/journeys";
-const UPSTREAM_TIMEOUT_MS = 8_000;
+// 4.5s, not 8s: DB HAFAS occasionally HANGS (it sat for the full 8s on
+// an Austrian-local query before we deferred Austria). Since this
+// adapter runs in the sequential dispatch hot path ahead of the
+// Transitous backstop, a long hang here delays the whole response. DB
+// answers valid German queries in well under a second, so a 4.5s
+// ceiling keeps fast paths intact while capping a hang's cost.
+const UPSTREAM_TIMEOUT_MS = 4_500;
 
 /** Germany bbox. Northern lat split at 47.7 keeps it disjoint from the
  *  Switzerland adapter (whose box tops out at 47.7); covers Munich
