@@ -25,6 +25,8 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
+import { LocationPauseBanner } from "@/components/LocationPauseBanner";
+import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { SeekerTopBar } from "@/components/SeekerTopBar";
@@ -263,6 +265,8 @@ export function SeekerPage() {
                         when its open atom is false. */}
                     <SeekerTripPlannerSheet />
                     <SeekerFrozenBanner />
+                    <LocationPauseWatcher />
+                    <LocationPauseBanner />
                     <StationTransitCard />
                     <AppConfirmHost />
                     <AppPromptHost />

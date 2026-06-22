@@ -6,6 +6,7 @@ import { playerRole } from "@/lib/hiderRole";
 import {
     multiplayerEnabled,
     seekerLocationSharing,
+    seekerSelfBroadcastAt,
 } from "@/lib/multiplayer/session";
 import { seekerPushLocation } from "@/lib/multiplayer/store";
 
@@ -69,6 +70,9 @@ export function useSeekerLocationBroadcast() {
             if (last && now - last.ts < MIN_BROADCAST_GAP_MS) return;
             lastSentRef.current = { lat, lng, accuracy, ts: now };
             seekerPushLocation(lat, lng, accuracy);
+            // Surface our own broadcast time so the seeker's
+            // LocationPauseWatcher can tell we're actively sharing.
+            seekerSelfBroadcastAt.set(now);
         };
 
         const watchId = navigator.geolocation.watchPosition(
@@ -96,8 +100,10 @@ export function useSeekerLocationBroadcast() {
             const last = lastSentRef.current;
             if (!last) return;
             if (Date.now() - last.ts < HEARTBEAT_MS) return;
-            lastSentRef.current = { ...last, ts: Date.now() };
+            const t = Date.now();
+            lastSentRef.current = { ...last, ts: t };
             seekerPushLocation(last.lat, last.lng, last.accuracy);
+            seekerSelfBroadcastAt.set(t);
         }, HEARTBEAT_MS / 2);
 
         return () => {

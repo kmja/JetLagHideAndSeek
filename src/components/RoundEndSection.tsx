@@ -5,6 +5,8 @@ import { useState } from "react";
 import { appConfirm } from "@/lib/confirm";
 import { copyFoundLink, shareFoundLink } from "@/lib/foundShare";
 import {
+    effectiveHiddenDebitMs,
+    gamePausedForLocationAt,
     hiddenCreditMs,
     hiddenDebitMs,
     hidingPeriodEndsAt,
@@ -123,10 +125,13 @@ function FoundSummary({
     onNewGame: () => void;
 }) {
     const $credit = useStore(hiddenCreditMs);
-    const $debit = useStore(hiddenDebitMs);
+    useStore(hiddenDebitMs);
+    useStore(gamePausedForLocationAt);
     const elapsedMs = Math.max(
         0,
-        Math.max(0, foundAt - hidingEndsAt) + $credit - $debit,
+        Math.max(0, foundAt - hidingEndsAt) +
+            $credit -
+            effectiveHiddenDebitMs(foundAt),
     );
     const totalSec = Math.floor(elapsedMs / 1000);
     const hh = Math.floor(totalSec / 3600);

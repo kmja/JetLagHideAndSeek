@@ -647,6 +647,59 @@ export const hiddenDebitMs = persistentAtom<number>(
     },
 );
 
+/* ───────────── Seekers-must-share-location pause ───────────── */
+
+/**
+ * Seekers are required to share their live location during the seeking
+ * phase. If the hider's device stops receiving a fresh seeker location,
+ * a 5-minute grace timer starts; `locationGraceStartedAt` is the Unix ms
+ * it began (null when a fresh location is flowing). When the grace
+ * window lapses with still no location, the game pauses
+ * (`gamePausedForLocationAt`). Persistent so a reload mid-grace/pause
+ * doesn't lose the state. Both reset each new round/game.
+ */
+export const LOCATION_SHARE_GRACE_MS = 5 * 60 * 1000;
+/** A seeker location older than this counts as "not sharing". */
+export const LOCATION_SHARE_FRESH_MS = 60 * 1000;
+
+export const locationGraceStartedAt = persistentAtom<number | null>(
+    "locationGraceStartedAt",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
+ * Unix ms the game paused because no seeker was sharing location past
+ * the grace window. While set, the hider's clock is frozen — scoring
+ * subtracts the in-progress pause live, and banks it into
+ * `hiddenDebitMs` on resume. Null when the game is running.
+ */
+export const gamePausedForLocationAt = persistentAtom<number | null>(
+    "gamePausedForLocationAt",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
+ * Total ms to subtract from the hider's hidden time for clock pauses:
+ * the banked `hiddenDebitMs` PLUS, while a location pause is in
+ * progress, the live elapsed pause so the displayed/scored time freezes
+ * immediately rather than only correcting on resume. `now` is passed so
+ * callers can drive it from their shared 1 Hz clock.
+ */
+export function effectiveHiddenDebitMs(now: number = Date.now()): number {
+    const banked = hiddenDebitMs.get();
+    const pausedAt = gamePausedForLocationAt.get();
+    const live = pausedAt != null ? Math.max(0, now - pausedAt) : 0;
+    return banked + live;
+}
+
 /**
  * How long the hider has to answer a question, in ms, per rulebook
  * (p5/p32): 5 minutes for everything EXCEPT photo questions, which get

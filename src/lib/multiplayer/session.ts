@@ -165,6 +165,16 @@ export interface SeekerLocation {
 export const seekerLocations = atom<Record<string, SeekerLocation>>({});
 
 /**
+ * Unix ms of THIS device's last successful seeker-location broadcast,
+ * or null if it never broadcast (or GPS is denied/unavailable). The
+ * seeker's own device never appears in `seekerLocations` (the server
+ * forwards `loc` only to the hide team), so this is how the seeker's
+ * own LocationPauseWatcher knows whether it's currently sharing. Set
+ * by `useSeekerLocationBroadcast`; volatile.
+ */
+export const seekerSelfBroadcastAt = atom<number | null>(null);
+
+/**
  * Whether the local device should broadcast its GPS to the hide team
  * while it's holding the seeker role. Defaults on (the rulebook makes
  * it expected behaviour) but a privacy escape hatch lives in the

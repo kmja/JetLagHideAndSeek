@@ -12,10 +12,13 @@ import {
     gameSize,
     gameStartFiredFor,
     gameStartPosition,
+    effectiveHiddenDebitMs,
+    gamePausedForLocationAt,
     HIDING_PERIOD_MINUTES,
     hiddenCreditMs,
     hiddenDebitMs,
     hidingPeriodEndsAt,
+    locationGraceStartedAt,
     MOVE_PERIOD_MINUTES,
     pendingHidingDurationMin,
     preloadBucketTimestamps,
@@ -73,7 +76,7 @@ export function startNewRound() {
             0,
             Math.max(0, prevFoundAt - prevEndsAt) +
                 hiddenCreditMs.get() -
-                hiddenDebitMs.get(),
+                effectiveHiddenDebitMs(prevFoundAt),
         );
         // Resolve the hider's name: multiplayer participant if we
         // have one, otherwise the local display-name (solo plays
@@ -122,6 +125,8 @@ export function startNewRound() {
     seekersFrozenUntil.set(null);
     hiddenCreditMs.set(0);
     hiddenDebitMs.set(0);
+    locationGraceStartedAt.set(null);
+    gamePausedForLocationAt.set(null);
 }
 
 /**
@@ -215,6 +220,8 @@ export function startNewGame() {
     seekersFrozenUntil.set(null);
     hiddenCreditMs.set(0);
     hiddenDebitMs.set(0);
+    locationGraceStartedAt.set(null);
+    gamePausedForLocationAt.set(null);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);

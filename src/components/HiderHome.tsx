@@ -30,6 +30,8 @@ import {
     endgameStartedAt,
     formatTimeRemaining,
     gameSize,
+    effectiveHiddenDebitMs,
+    gamePausedForLocationAt,
     hiddenCreditMs,
     hiddenDebitMs,
     HIDING_PERIOD_MINUTES,
@@ -890,10 +892,14 @@ function FinalScoreBanner({
     timeBonusMinutes: number;
 }) {
     const $credit = useStore(hiddenCreditMs);
-    const $debit = useStore(hiddenDebitMs);
+    // Subscribe so the figure settles if a location pause is resolved.
+    useStore(hiddenDebitMs);
+    useStore(gamePausedForLocationAt);
     const seekMs = Math.max(
         0,
-        Math.max(0, foundAt - hidingEndsAt) + $credit - $debit,
+        Math.max(0, foundAt - hidingEndsAt) +
+            $credit -
+            effectiveHiddenDebitMs(foundAt),
     );
     const finalMs = Math.max(0, seekMs - timeBonusMinutes * 60_000);
 

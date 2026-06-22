@@ -7,6 +7,8 @@ import { ClosingInWatcher } from "@/components/ClosingInWatcher";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderReachOverlay } from "@/components/HiderReachOverlay";
+import { LocationPauseBanner } from "@/components/LocationPauseBanner";
+import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { HiderView } from "@/components/HiderView";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
@@ -106,6 +108,8 @@ export function HiderPage() {
                 directly. */}
             <HiderReachOverlay />
             <StationTransitCard />
+            <LocationPauseWatcher />
+            <LocationPauseBanner />
             <AppConfirmHost />
             <AppPromptHost />
             <Suspense fallback={null}>

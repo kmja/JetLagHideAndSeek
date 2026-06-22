@@ -10,7 +10,7 @@ import {
     endgameStartedAt,
     formatTimeRemaining,
     hiddenCreditMs,
-    hiddenDebitMs,
+    effectiveHiddenDebitMs,
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
@@ -103,7 +103,7 @@ export function HiderTimer() {
         // — so the live tally matches the final score.
         const elapsedMs = Math.max(
             0,
-            now - $endsAt + hiddenCreditMs.get() - hiddenDebitMs.get(),
+            now - $endsAt + hiddenCreditMs.get() - effectiveHiddenDebitMs(now),
         );
         const total = Math.floor(elapsedMs / 1000);
         const h = Math.floor(total / 3600);
