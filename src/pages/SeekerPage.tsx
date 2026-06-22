@@ -26,6 +26,7 @@ import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { LocationPauseBanner } from "@/components/LocationPauseBanner";
+import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
 import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
 import { StationTransitCard } from "@/components/StationTransitCard";
@@ -266,6 +267,7 @@ export function SeekerPage() {
                     <SeekerTripPlannerSheet />
                     <SeekerFrozenBanner />
                     <LocationPauseWatcher />
+                    <HidingZoneOptionsSync />
                     <LocationPauseBanner />
                     <StationTransitCard />
                     <AppConfirmHost />

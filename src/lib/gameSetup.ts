@@ -750,6 +750,56 @@ export const TRANSIT_LABELS: Record<TransitMode, string> = {
     ferry: "Ferry",
 };
 
+/**
+ * Overpass selector(s) for each transit mode's station-like features.
+ * These are the filters the hiding-zone overlay unions to derive its
+ * candidate stations FROM the game's `allowedTransit` set — so the
+ * player-controlled "which modes can we ride" knob also doubles as the
+ * "what counts as a hiding zone" knob (e.g. disallowing Bus in a
+ * Stockholm game drops ~6 000 bus-stop zones from the map).
+ *
+ * Selectors are intentionally narrow per mode (no Frankenstein
+ * railway-station-AND-bus-stop union per mode) so unions across multi-
+ * mode selections produce a sensible result. The strings are passed
+ * unchanged to `findPlacesInZone` and concatenated into one Overpass
+ * `nwr…` block.
+ */
+export const HIDING_ZONE_FILTERS_BY_MODE: Record<TransitMode, string[]> = {
+    // Heavy rail + commuter rail platforms.
+    train: ["[railway=station][subway!=yes]", "[railway=halt]"],
+    // Underground / metro stops. `subway=yes` flag is how OSM tags
+    // metro stations sharing a node with mainline rail.
+    subway: ["[railway=station][subway=yes]", "[station=subway]"],
+    // Light-rail / streetcar / tram stops.
+    tram: ["[railway=tram_stop]", "[railway=halt][light_rail=yes]"],
+    // Bus stops — the big one (Stockholm-scale games can omit this to
+    // keep the station count tractable).
+    bus: ["[highway=bus_stop]"],
+    // Ferry terminals + ferry-platform PT nodes.
+    ferry: ["[amenity=ferry_terminal]", "[public_transport=platform][platform=ferry]"],
+};
+
+/**
+ * Derive the hiding-zone Overpass filter list from a set of allowed
+ * transit modes. Deduplicated; preserves the per-mode order so the
+ * highest-priority selector (typically railway=station, the
+ * conventional "main" station) lands first in the array — that matters
+ * because `findPlacesInZone` uses options[0] as the primary filter and
+ * options[1:] as the alternative-union list.
+ */
+export function hidingZoneFiltersFor(modes: TransitMode[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const m of modes) {
+        for (const f of HIDING_ZONE_FILTERS_BY_MODE[m] ?? []) {
+            if (seen.has(f)) continue;
+            seen.add(f);
+            out.push(f);
+        }
+    }
+    return out;
+}
+
 /** Format milliseconds-remaining as MM:SS (or H:MM:SS over an hour). */
 export function formatTimeRemaining(ms: number): string {
     const total = Math.max(0, Math.floor(ms / 1000));

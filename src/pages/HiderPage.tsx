@@ -8,6 +8,7 @@ import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderReachOverlay } from "@/components/HiderReachOverlay";
 import { LocationPauseBanner } from "@/components/LocationPauseBanner";
+import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
 import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { HiderView } from "@/components/HiderView";
@@ -109,6 +110,7 @@ export function HiderPage() {
             <HiderReachOverlay />
             <StationTransitCard />
             <LocationPauseWatcher />
+            <HidingZoneOptionsSync />
             <LocationPauseBanner />
             <AppConfirmHost />
             <AppPromptHost />

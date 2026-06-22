@@ -30,6 +30,7 @@ import {
     displayHidingZonesStyle,
     hidingRadius,
     hidingRadiusUnits,
+    hidingZonesAutoFromTransit,
     hidingZonesGeoJSON,
     includeDefaultStations as includeDefaultStationsAtom,
     isLoading,
@@ -93,6 +94,7 @@ export const ZoneSidebar = () => {
     const $displayHidingZones = useStore(displayHidingZones);
     const $questionFinishedMapData = useStore(questionFinishedMapData);
     const $displayHidingZonesOptions = useStore(displayHidingZonesOptions);
+    const $autoFromTransit = useStore(hidingZonesAutoFromTransit);
     const $displayHidingZonesStyle = useStore(displayHidingZonesStyle);
     const $hidingRadius = useStore(hidingRadius);
     const $hidingRadiusUnits = useStore(hidingRadiusUnits);
@@ -854,9 +856,16 @@ export const ZoneSidebar = () => {
                                             value: "[railway=halt][light_rail=yes]",
                                         },
                                     ]}
-                                    onValueChange={
-                                        displayHidingZonesOptions.set
-                                    }
+                                    onValueChange={(next) => {
+                                        // Any manual edit flips the
+                                        // auto-from-allowed-transit
+                                        // tracker off. A "Match allowed
+                                        // transit" button below flips
+                                        // it back on (and snaps the
+                                        // selection to match).
+                                        hidingZonesAutoFromTransit.set(false);
+                                        displayHidingZonesOptions.set(next);
+                                    }}
                                     defaultValue={$displayHidingZonesOptions}
                                     placeholder="Select allowed places"
                                     animation={2}
@@ -869,6 +878,31 @@ export const ZoneSidebar = () => {
                                             !includeDefaultStations)
                                     }
                                 />
+                                <div className="mt-1.5 px-1 flex items-center justify-between gap-2">
+                                    <span className="text-[11px] text-muted-foreground leading-snug">
+                                        {$autoFromTransit
+                                            ? "Auto-matched to allowed transit modes."
+                                            : "Custom selection — no longer tracking allowed transit."}
+                                    </span>
+                                    {!$autoFromTransit && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                hidingZonesAutoFromTransit.set(
+                                                    true,
+                                                );
+                                            }}
+                                            className={cn(
+                                                "shrink-0 rounded-sm border border-border bg-secondary px-2 py-1",
+                                                "text-[11px] font-poppins font-semibold uppercase tracking-wide",
+                                                "hover:bg-accent transition-colors",
+                                            )}
+                                            title="Snap the station-type list back to whatever transit modes the game allows."
+                                        >
+                                            Match allowed transit
+                                        </button>
+                                    )}
+                                </div>
                             </SidebarMenuItem>
                             <SidebarMenuItem>
                                 <Label className="font-semibold font-poppins ml-2">

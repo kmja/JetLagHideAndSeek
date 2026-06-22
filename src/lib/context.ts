@@ -272,6 +272,31 @@ export const displayHidingZonesOptions = persistentAtom<string[]>(
         decode: JSON.parse,
     },
 );
+
+/**
+ * Whether `displayHidingZonesOptions` is currently auto-tracking the
+ * game's `allowedTransit` (true) or has been manually customised in
+ * the Zone Sidebar (false). When true, the watcher in
+ * `HidingZoneOptionsSync` rewrites the options on every transit-mode
+ * toggle so the candidate-station set always reflects "what transit
+ * we're allowed to take" — which the player explicitly uses to
+ * control station counts (omitting Bus in a Stockholm game drops
+ * ~6 000 bus-stop zones). When false, the user's manual selection is
+ * preserved and the watcher leaves it alone.
+ *
+ * Default true so the rule "stations follow allowedTransit" is the
+ * out-of-the-box behaviour. Flipped to false the moment the user
+ * touches the MultiSelect in the Zone Sidebar; flipped back to true
+ * when they tap the "Match allowed transit" reset action.
+ */
+export const hidingZonesAutoFromTransit = persistentAtom<boolean>(
+    "hidingZonesAutoFromTransit",
+    true,
+    {
+        encode: JSON.stringify,
+        decode: JSON.parse,
+    },
+);
 export const displayHidingZonesStyle = persistentAtom<
     "zones" | "stations" | "no-overlap" | "no-display"
 >("displayHidingZonesStyle", "zones");
