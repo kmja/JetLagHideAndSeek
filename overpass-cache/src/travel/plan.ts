@@ -103,8 +103,17 @@ export async function handleTravelPlan(
         journey,
     };
 
-    // Write back through both layers, best-effort + non-blocking.
-    ctx.waitUntil(writeCached(env, edgeCache, key, payload));
+    // Write back through both layers, best-effort + non-blocking. The
+    // walking fallback is NOT persisted: it's produced whenever every
+    // real adapter declines OR transiently fails, so caching it for
+    // 24h would mask a recovered upstream (a one-off Transitous hiccup
+    // would pin "walking estimate" on a route that actually has
+    // transit). Walking is a cheap haversine to recompute, so we just
+    // re-dispatch next time and pick up the real journey once the
+    // upstream is healthy again.
+    if (source !== "walking") {
+        ctx.waitUntil(writeCached(env, edgeCache, key, payload));
+    }
 
     return jsonResponse(payload, 200, cors, "MISS");
 }
