@@ -1433,7 +1433,19 @@ export function Map({ className }: MapProps) {
     // need to filter the canvas, pre-invert overlays, or carve
     // satellite out. The elimination mask renders as plain dark slate
     // in every mode.
-    const eliminationFillColor = "#0f172a";
+    // Elimination mask paint — theme-aware. In light mode the original
+    // `#0f172a` slate at 0.45 over the bright Protomaps basemap reads
+    // instantly as "darkened/eliminated"; in dark mode the basemap is
+    // already near-black, so the same paint blended (~3 % perceptual
+    // delta) made the mask effectively invisible — eliminated land,
+    // remaining play area, and "off the play area entirely" all looked
+    // identical, and overlays underneath the mask (rail tiles, transit
+    // GeoJSONs) bled through visually. Dark mode now uses near-pure
+    // black at 0.75 opacity, which crushes everything outside the
+    // in-play polygon to a clearly distinct shade vs. the slate basemap.
+    const eliminationFillColor = $theme === "dark" ? "#000000" : "#0f172a";
+    const eliminationFillOpacity = $theme === "dark" ? 0.75 : 0.45;
+    const eliminationOutlineOpacity = $theme === "dark" ? 0.85 : 0.55;
 
     return (
         <div className={cn("relative w-full h-screen", className)}>
@@ -1603,8 +1615,20 @@ export function Map({ className }: MapProps) {
                                 ["==", ["geometry-type"], "MultiPolygon"],
                             ]}
                             paint={{
-                                "fill-color": "hsl(2, 70%, 54%)",
-                                "fill-opacity": 0.12,
+                                // Light mode: faint red tint over the bright
+                                // basemap reads as "highlighted remaining
+                                // area". Dark mode: a faint red tint over a
+                                // near-black basemap disappears, so the
+                                // overlay paints a brightening near-white
+                                // wash that POSITIVELY lights up the
+                                // remaining hiding circles against the
+                                // (now much darker) eliminated surround.
+                                "fill-color":
+                                    $theme === "dark"
+                                        ? "#f5e7e3"
+                                        : "hsl(2, 70%, 54%)",
+                                "fill-opacity":
+                                    $theme === "dark" ? 0.22 : 0.12,
                             }}
                         />
                         <Layer
@@ -1708,7 +1732,7 @@ export function Map({ className }: MapProps) {
                             type="fill"
                             paint={{
                                 "fill-color": eliminationFillColor,
-                                "fill-opacity": 0.45,
+                                "fill-opacity": eliminationFillOpacity,
                             }}
                         />
                         <Layer
@@ -1717,7 +1741,7 @@ export function Map({ className }: MapProps) {
                             paint={{
                                 "line-color": eliminationFillColor,
                                 "line-width": 1,
-                                "line-opacity": 0.55,
+                                "line-opacity": eliminationOutlineOpacity,
                             }}
                         />
                     </Source>
