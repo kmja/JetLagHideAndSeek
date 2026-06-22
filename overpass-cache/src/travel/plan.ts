@@ -23,8 +23,8 @@
  */
 
 import type { Env } from "../envTypes";
-import { dispatchPlan } from "./router";
-import type { PlanRequest, PlanResponse, TravelMode } from "./types";
+import { ADAPTERS, dispatchPlan, selectAdapters } from "./router";
+import type { Journey, PlanRequest, PlanResponse, TravelMode } from "./types";
 
 const DEPART_BUCKET_MS = 5 * 60 * 1000;
 const R2_TTL_MS = 24 * 60 * 60 * 1000;
@@ -71,6 +71,17 @@ export async function handleTravelPlan(
     const modes = normaliseModes(body.modes);
     const req: PlanRequest = { origin, destination, departAt, modes };
 
+    // Diagnostic mode (`?debug=1`): bypass the cache, run EVERY candidate
+    // adapter independently for this origin, and report what each one
+    // did — which adapters the live build even has, which `canServe`
+    // the origin, whether their API key is present, and whether the
+    // upstream call yielded a journey / null / threw. No secrets are
+    // returned (only booleans for key presence). This is the only way
+    // to see, in production, why a coordinate fell through to walking.
+    if (new URL(request.url).searchParams.get("debug") === "1") {
+        return jsonResponse(await diagnose(req, departAt, env), 200, cors);
+    }
+
     const departBucket =
         Math.floor(departAt / DEPART_BUCKET_MS) * DEPART_BUCKET_MS;
     const edgeCache = caches.default;
@@ -96,6 +107,102 @@ export async function handleTravelPlan(
     ctx.waitUntil(writeCached(env, edgeCache, key, payload));
 
     return jsonResponse(payload, 200, cors, "MISS");
+}
+
+/* ─────────────────────── Diagnostics ─────────────────────── */
+
+/** Per-adapter env-key presence, reported as a coarse status so the
+ *  diagnostic can distinguish "deferred: no key" from "called upstream
+ *  and got nothing". Never returns the key value itself. */
+function keyStatus(id: string, env: Env): "keyless" | "present" | "missing" {
+    const present = (...keys: (keyof Env)[]) =>
+        keys.every((k) => Boolean(env[k])) ? "present" : "missing";
+    switch (id) {
+        case "trafiklab":
+            return present("TRAFIKLAB_API_KEY");
+        case "digitransit":
+            return present("DIGITRANSIT_API_KEY");
+        case "nsw":
+            return present("TFNSW_API_KEY");
+        case "barcelona":
+            return present("TMB_APP_ID", "TMB_APP_KEY");
+        case "netherlands":
+            return present("NS_API_KEY");
+        case "korea":
+            return present("ODSAY_API_KEY");
+        case "navitia":
+            return present("NAVITIA_API_KEY");
+        case "motis-self-hosted":
+            return present("MOTIS_SELF_HOSTED_URL");
+        case "tfl":
+            // Works keyless; a key only raises the rate limit.
+            return env.TFL_API_KEY ? "present" : "keyless";
+        default:
+            // denmark / entur / swiss / germany / austria / estonia /
+            // ireland / transitous / walking — all keyless.
+            return "keyless";
+    }
+}
+
+interface AdapterDiagnosis {
+    id: string;
+    selected: boolean;
+    key: "keyless" | "present" | "missing";
+    /** "journey" | "null" | `threw: …` — only set when the adapter ran. */
+    result?: string;
+    durationMin?: number;
+    transfers?: number;
+    ms?: number;
+}
+
+/**
+ * Run each candidate adapter for `req.origin` in isolation and report
+ * the outcome. Adapters NOT selected (origin outside their `canServe`)
+ * are listed too, with `selected:false`, so a missing adapter in the
+ * deployed build is obvious. Walking is skipped (it always succeeds).
+ */
+async function diagnose(
+    req: PlanRequest,
+    departAt: number,
+    env: Env,
+): Promise<unknown> {
+    const selected = new Set(
+        selectAdapters(req.origin.lat, req.origin.lng).map((a) => a.id),
+    );
+    const rows: AdapterDiagnosis[] = [];
+    for (const adapter of ADAPTERS) {
+        if (adapter.id === "walking") continue;
+        const isSelected = selected.has(adapter.id);
+        const key = keyStatus(adapter.id, env);
+        const row: AdapterDiagnosis = { id: adapter.id, selected: isSelected, key };
+        if (isSelected) {
+            const t0 = Date.now();
+            try {
+                const j: Journey | null = await adapter.plan(
+                    req,
+                    departAt,
+                    env,
+                );
+                row.result = j ? "journey" : "null";
+                if (j) {
+                    row.durationMin = j.durationMin;
+                    row.transfers = j.transfers;
+                }
+            } catch (e) {
+                row.result = `threw: ${e instanceof Error ? e.message : String(e)}`;
+            }
+            row.ms = Date.now() - t0;
+        }
+        rows.push(row);
+    }
+    return {
+        debug: true,
+        origin: req.origin,
+        destination: req.destination,
+        departAt,
+        adapterIdsInBuild: ADAPTERS.map((a) => a.id),
+        adapters: rows,
+    };
 }
 
 /* ─────────────────────── Cache layers ─────────────────────── */
