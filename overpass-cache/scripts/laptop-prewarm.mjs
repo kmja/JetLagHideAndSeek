@@ -646,6 +646,32 @@ async function evictDiscovered(city) {
     }
 }
 
+/** Drop a specific cached Overpass query from R2 so the next fetch goes
+ *  back to upstream. Used when the cached response turns out to be
+ *  unusable (e.g. a boundary that came back with no derivable geometry,
+ *  so refs/transit have nothing to key off). Returns true on a clean
+ *  eviction so the caller can decide whether to re-fetch this run. */
+async function evictCachedQuery(query, label) {
+    try {
+        const resp = await fetch(`${WORKER}/admin/evict-query`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SECRET}`,
+            },
+            body: JSON.stringify({ query }),
+        });
+        if (!resp.ok) {
+            console.warn(`  ✗ evict-query (${label}) HTTP ${resp.status}`);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.warn(`  ✗ evict-query (${label}) ${e?.message ?? e}`);
+        return false;
+    }
+}
+
 /** Fetch an already-cached Overpass response through the worker's
  *  public endpoint. Used only after `isFresh` returns true, so this
  *  always hits R2 (no upstream traffic). Returns parsed JSON or null
@@ -821,69 +847,101 @@ async function processCity(city) {
 
     if (DO_BOUNDARIES) {
         const q = boundaryQuery(city.relationId);
-        if (await isFresh(q, "boundary")) {
-            console.log(`  ⤼ boundary already cached — skipping`);
+        let needFreshFetch = !(await isFresh(q, "boundary"));
+        if (!needFreshFetch) {
+            console.log(`  ⤼ boundary already cached — checking geometry`);
             // Pull the extent from the cached boundary so refs (and,
             // as a fallback, transit) can run. We don't download it from
             // upstream — we have it in R2 — but the laptop script doesn't
             // have a direct R2 read path. Easiest: hit the public
             // /api/interpreter, which serves from R2 in <10 ms on a hit,
             // and parse the geometry locally. No upstream traffic, no
-            // rate-limit cost. v356: fetch it even when `effectiveExtent`
-            // is already set, because refs need the boundary-derived one.
-            if (!effectiveExtent || !boundaryExtent) {
-                const cached = await fetchCached(q);
-                if (cached) {
-                    const derived = extentFromBoundaryResponse(cached);
-                    if (derived) {
-                        boundaryExtent = derived;
-                        if (!effectiveExtent) effectiveExtent = derived;
-                        console.log(
-                            `  ⌐ extent derived from cached boundary geom`,
-                        );
-                    }
+            // rate-limit cost.
+            const cached = await fetchCached(q);
+            if (!cached) {
+                console.warn(
+                    `  ⚠ /api/interpreter returned no body for cached boundary — re-fetching`,
+                );
+                needFreshFetch = true;
+            } else {
+                const derived = extentFromBoundaryResponse(cached);
+                if (derived) {
+                    boundaryExtent = derived;
+                    if (!effectiveExtent) effectiveExtent = derived;
+                    console.log(
+                        `  ⌐ extent derived from cached boundary geom`,
+                    );
+                } else {
+                    // The cached body has no usable geometry — most
+                    // likely Overpass once returned a relation header
+                    // with no member ways, and we stored it. Drop the
+                    // bad entry and re-fetch this run so refs/transit
+                    // get a working extent instead of silently being
+                    // skipped every time.
+                    console.warn(
+                        `  ⚠ cached boundary has no derivable geometry — evicting and re-fetching`,
+                    );
+                    await evictCachedQuery(q, "boundary");
+                    needFreshFetch = true;
                 }
             }
-        } else {
-        const res = await fetchOverpass(q, "boundary");
-        if (res) {
-            const parsed = safeJSON(res.text);
-            if (parsed && Array.isArray(parsed.elements) && parsed.elements.length > 0) {
-                try {
-                    const r = await uploadToWorker({
-                        query: q,
-                        bodyText: res.text,
-                        kind: "boundary",
-                        sourceName: city.name,
-                        sourceRelationId: String(city.relationId),
-                    });
-                    console.log(
-                        `  ✓ boundary stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms)`,
-                    );
-                } catch (e) {
-                    console.warn(`  ✗ boundary upload: ${e.message}`);
-                }
-                const derived = extentFromBoundaryResponse(parsed);
-                if (derived) {
+        }
+        if (needFreshFetch) {
+            const res = await fetchOverpass(q, "boundary");
+            if (res) {
+                const parsed = safeJSON(res.text);
+                const hasElements =
+                    parsed &&
+                    Array.isArray(parsed.elements) &&
+                    parsed.elements.length > 0;
+                const derived = hasElements
+                    ? extentFromBoundaryResponse(parsed)
+                    : null;
+                if (hasElements && derived) {
+                    try {
+                        const r = await uploadToWorker({
+                            query: q,
+                            bodyText: res.text,
+                            kind: "boundary",
+                            sourceName: city.name,
+                            sourceRelationId: String(city.relationId),
+                        });
+                        console.log(
+                            `  ✓ boundary stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms)`,
+                        );
+                    } catch (e) {
+                        console.warn(`  ✗ boundary upload: ${e.message}`);
+                    }
                     boundaryExtent = derived;
                     if (!effectiveExtent) effectiveExtent = derived;
                     console.log(
                         `  ⌐ extent derived from boundary geom: [${derived.map((n) => n.toFixed(3)).join(", ")}]`,
                     );
+                } else if (hasElements && !derived) {
+                    // Upstream returned the relation but no member
+                    // geometry came along — usually a city whose OSM
+                    // relation has no `way` members (just a centre
+                    // node, or only sub-relations). Caching this would
+                    // poison future runs (we'd hit the "no geometry"
+                    // branch above every time), so DROP it on the floor
+                    // and warn — the operator can revisit the city's
+                    // relation id by hand.
+                    console.warn(
+                        `  ⚠ boundary response has no derivable geometry — NOT caching, refs/transit will skip`,
+                    );
+                } else {
+                    console.warn(`  ⚠ boundary response empty / unparseable`);
+                    // An empty boundary from a non-bundled (discovered)
+                    // city means Photon resolved its name to a
+                    // non-boundary relation. Evict it so the name returns
+                    // to the discovery queue and gets re-resolved
+                    // correctly. Bundled cities (HAND_CURATED / BULK)
+                    // aren't in the discovered doc, so evicting them is a
+                    // harmless no-op (removed:false).
+                    await evictDiscovered(city);
                 }
-            } else {
-                console.warn(`  ⚠ boundary response empty / unparseable`);
-                // An empty boundary from a non-bundled (discovered)
-                // city means Photon resolved its name to a
-                // non-boundary relation. Evict it so the name returns
-                // to the discovery queue and gets re-resolved
-                // correctly. Bundled cities (HAND_CURATED / BULK)
-                // aren't in the discovered doc, so evicting them is a
-                // harmless no-op (removed:false).
-                await evictDiscovered(city);
+                await sleep(DELAY_MS);
             }
-            await sleep(DELAY_MS);
-        }
         }
     }
 

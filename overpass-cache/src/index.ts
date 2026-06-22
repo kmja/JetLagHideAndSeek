@@ -812,6 +812,9 @@ async function handleRequest(
         if (url.pathname === "/admin/evict-discovered") {
             return handleAdminEvictDiscovered(request, env, cors);
         }
+        if (url.pathname === "/admin/evict-query") {
+            return handleAdminEvictQuery(request, env, cors);
+        }
         if (url.pathname.startsWith("/tiles/")) {
             return handleTiles(request, env, cors);
         }
@@ -5839,6 +5842,58 @@ async function handleAdminCheckFresh(
  *
  * Body: `{ "relationId": 123456 }`
  */
+/**
+ * `POST /admin/evict-query` — remove the cached body for one specific
+ * Overpass query from R2. Used by the laptop prewarm script to drop a
+ * boundary that was cached but turned out to carry no usable geometry
+ * (so the next pass re-fetches it from upstream). Payload:
+ * `{ query: string }`. Hashes the query through `r2KeyForQuery` so the
+ * key matches the one `handleOverpass` uses on store; the script
+ * never has to know the key shape.
+ */
+async function handleAdminEvictQuery(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let payload: { query?: string };
+    try {
+        payload = await request.json();
+    } catch {
+        return jsonResponse({ error: "invalid JSON" }, 400, cors);
+    }
+    if (!payload?.query || typeof payload.query !== "string") {
+        return jsonResponse(
+            { error: "missing or non-string 'query'" },
+            400,
+            cors,
+        );
+    }
+    const cacheKey = await r2KeyForQuery(payload.query);
+    try {
+        await env.CACHE.delete(`overpass/${cacheKey}`);
+    } catch (e) {
+        return jsonResponse(
+            {
+                error: "R2 delete failed",
+                detail: e instanceof Error ? e.message : String(e),
+            },
+            500,
+            cors,
+        );
+    }
+    return jsonResponse({ status: "ok", cacheKey }, 200, cors);
+}
+
 async function handleAdminEvictDiscovered(
     request: Request,
     env: Env,
