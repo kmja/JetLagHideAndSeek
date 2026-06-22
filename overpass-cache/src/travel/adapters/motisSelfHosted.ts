@@ -10,14 +10,21 @@
  * needs a persistent process with feeds in memory) and point this
  * adapter at it via `MOTIS_SELF_HOSTED_URL`.
  *
- * It speaks the exact same MOTIS v2 `/api/v1/plan` API as Transitous,
- * so it reuses `transitous.planJourney` logic via a configurable base
- * URL and the shared `parseMotisPlan`. When the env var is set this is
- * ordered AHEAD of the public Transitous instance (so your own box wins
- * and the non-commercial public one is only a backstop). When unset it
- * defers.
+ * It speaks the same MOTIS plan API as Transitous, so it reuses
+ * `transitous.planViaMotis` via a configurable base URL + the shared
+ * `parseMotisPlan`. When the env var is set this is ordered AHEAD of the
+ * public Transitous instance (so your own box wins and the
+ * non-commercial public one is only a backstop). When unset it defers.
  *
- * See README / CLAUDE.md "M5" notes for the self-host recipe.
+ * ⚠️ `MOTIS_SELF_HOSTED_URL` must be the FULL plan-endpoint URL,
+ * including the version segment, because MOTIS uses path-based
+ * versioning: a fresh self-hosted `:master` build serves
+ * `…/api/v6/plan`, while the public Transitous instance currently
+ * serves `…/api/v1/plan`. Match whatever your instance exposes (check
+ * `GET /api/openapi.yaml`). The request/response contract is identical
+ * across versions; only the `vN` differs.
+ *
+ * Full deployment recipe: overpass-cache/SELF_HOSTING_MOTIS.md.
  */
 
 import type { Journey, PlanRequest } from "../types";
