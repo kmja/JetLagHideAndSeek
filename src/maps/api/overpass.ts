@@ -17,7 +17,11 @@ import {
 } from "@/lib/loadingProgress";
 import { safeUnion } from "@/maps/geo-utils";
 
-import { cacheFetch, determineCache } from "./cache";
+import {
+    cacheFetch,
+    determineCache,
+    safeJsonFromCachedResponse,
+} from "./cache";
 import {
     LOCATION_FIRST_TAG,
     OVERPASS_API,
@@ -80,7 +84,9 @@ export const getOverpassData = async (
         const cache = await determineCache(cacheType);
         const hit = await cache.match(primaryUrl);
         if (hit && hit.ok) {
-            return await hit.clone().json();
+            // Use the gzip-sniffing safe parser — heals any cache entry
+            // a previous build poisoned with raw gzip bytes.
+            return await safeJsonFromCachedResponse(hit.clone());
         }
     } catch {
         /* Cache API unavailable (private mode / iOS quirk) — race. */
@@ -235,7 +241,23 @@ export const getOverpassData = async (
         // winning mirror wasn't primary.
         try {
             const cache = await determineCache(cacheType);
-            await cache.put(primaryUrl, winner.clone());
+            // Strip Content-Encoding/Length defensively before
+            // caching — the same poisoning trap that bit responses
+            // coming back through cacheFetch can bite this code path
+            // if `winner` ever ends up with a stale encoding header.
+            const cloned = winner.clone();
+            const safeHeaders = new Headers(cloned.headers);
+            safeHeaders.delete("Content-Encoding");
+            safeHeaders.delete("Content-Length");
+            const body = new Uint8Array(await cloned.arrayBuffer());
+            await cache.put(
+                primaryUrl,
+                new Response(body.slice().buffer, {
+                    status: cloned.status,
+                    statusText: cloned.statusText,
+                    headers: safeHeaders,
+                }),
+            );
         } catch {
             /* no-op */
         }
@@ -247,7 +269,9 @@ export const getOverpassData = async (
         // a parse failure as "no data" (same as a total miss) so the
         // caller degrades gracefully.
         try {
-            return await winner.json();
+            // safeJsonFromCachedResponse handles the legacy poisoned-
+            // cache case too, in case `winner` came from a cache hit.
+            return await safeJsonFromCachedResponse(winner);
         } catch (e) {
             console.warn(
                 "[overpass] winning response wasn't valid JSON — treating as empty:",

@@ -321,6 +321,40 @@ function responseFromBuffer(
     });
 }
 
+/**
+ * Defensive JSON parse for a Response read from CacheStorage. CacheStorage
+ * is byte-faithful: it stores exactly what we put in, headers and all.
+ * If a previous build wrote raw gzip bytes (or a header that confuses
+ * `.json()`) into the namespace, `.json()` throws on the gzip magic byte
+ * (0x1f). This helper reads the body, sniffs the first two bytes, and
+ * runs the body through `DecompressionStream("gzip")` if it looks
+ * gzipped — healing legacy entries without needing the user to clear
+ * site data.
+ *
+ * Use at every CacheStorage read site; harmless for already-plain
+ * responses (the magic-byte check is two byte comparisons).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function safeJsonFromCachedResponse(resp: Response): Promise<any> {
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
+        // Looks like gzip magic. Pipe it through DecompressionStream and
+        // parse the result. Available in all evergreen browsers and
+        // Cloudflare Workers.
+        try {
+            const blob = new Blob([buf]);
+            const stream = blob
+                .stream()
+                .pipeThrough(new DecompressionStream("gzip"));
+            const decoded = await new Response(stream).text();
+            return JSON.parse(decoded);
+        } catch {
+            // Fall through to the raw parse — caller catches.
+        }
+    }
+    return JSON.parse(new TextDecoder().decode(buf));
+}
+
 export const cacheFetch = async (
     url: string,
     loadingText?: string,
