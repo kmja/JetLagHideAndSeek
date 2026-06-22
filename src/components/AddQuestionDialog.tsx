@@ -30,6 +30,10 @@ import {
     questions,
 } from "@/lib/context";
 import { type GameSize, gameSize, playArea } from "@/lib/gameSetup";
+import {
+    alternateQuestionTypes,
+    askOncePerQuestion,
+} from "@/lib/houseRules";
 import { fitMapToRadius } from "@/lib/mapFit";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import {
@@ -154,15 +158,21 @@ const SubtypeTile = ({
     onClick,
     disabled,
     blockedReason,
+    repeatMultiplier,
 }: {
     category: CategoryId;
     subtype: SubtypeMeta;
     onClick: () => void;
     disabled?: boolean;
     blockedReason?: string;
+    /** Rulebook p65 repeat-cost multiplier. >1 → render a "Repeat · N×"
+     *  badge so the seeker sees the cost before tapping. */
+    repeatMultiplier?: number;
 }) => {
     const catMeta = CATEGORIES[category];
     const Icon = subtype.icon;
+    const showRepeat =
+        !disabled && repeatMultiplier !== undefined && repeatMultiplier > 1;
     return (
         <button
             type="button"
@@ -177,8 +187,18 @@ const SubtypeTile = ({
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
             style={{ borderTopColor: catMeta.color }}
-            title={blockedReason ?? subtype.description}
+            title={
+                blockedReason ??
+                (showRepeat
+                    ? `Repeat: hider runs the draw-keep cycle ${repeatMultiplier}× (rulebook p65)`
+                    : subtype.description)
+            }
         >
+            {showRepeat && (
+                <span className="absolute top-1 right-1 inline-flex items-center justify-center px-1.5 h-4 rounded-sm bg-yellow-500/90 text-black text-[10px] font-poppins font-bold leading-none">
+                    {repeatMultiplier}×
+                </span>
+            )}
             <span
                 className="inline-flex items-center justify-center w-10 h-10 rounded-sm shrink-0"
                 style={{ backgroundColor: catMeta.color }}
@@ -294,27 +314,31 @@ export const AddQuestionDialog = ({
         [],
     );
 
-    // Rulebook enforcement —
+    // Rulebook enforcement, with two House Rules toggles —
     //
-    // Rule 1: each question can only be asked once. For matching /
-    //         measuring / tentacles / photo a "question" is identified by
-    //         its subtype (your nearest MUSEUM, your nearest AQUARIUM, …).
-    //         Radius + thermometer use per-preset uniqueness, which their
-    //         own cards already enforce (RADIUS_PRESETS + thermometer
-    //         distance sigs). Track used subtypes here so the subtype-
-    //         picker can grey out already-asked tiles, plus a count per
-    //         category for "all subtypes used → block the category tile".
+    // Rule 1 (rulebook p65): a question CAN be asked again at increased
+    //         cost (2× the first repeat, 3× the next, …). The hider
+    //         runs the draw-keep cycle that many times. House rule
+    //         `askOncePerQuestion` flips this to a hard block (the
+    //         previous app behaviour).
     //
-    // Rule 2: you can't ask two questions of the same type back-to-back.
-    //         "Type" = category (matching / measuring / radar / thermometer
-    //         / tentacles / photo); the seeker has to alternate. The most
-    //         recently added question determines what's blocked next.
-    const usedSubtypes = React.useMemo(() => {
-        const map: Record<string, Set<string>> = {
-            matching: new Set(),
-            measuring: new Set(),
-            tentacles: new Set(),
-            photo: new Set(),
+    // Rule 2 (house rule only): alternate question categories. NOT in
+    //         the printed rulebook — toggle via `alternateQuestionTypes`.
+    //
+    // We track BOTH the set of used subtypes and a per-subtype count so
+    // the picker can grey out (hard-block mode) or surface a "Repeat ·
+    // N×" badge (rulebook mode).
+    const $askOnce = useStore(askOncePerQuestion);
+    const $alternate = useStore(alternateQuestionTypes);
+    const subtypeCounts = React.useMemo(() => {
+        const map: Record<string, Record<string, number>> = {
+            matching: {},
+            measuring: {},
+            tentacles: {},
+            photo: {},
+        };
+        const bump = (cat: string, key: string) => {
+            map[cat][key] = (map[cat][key] ?? 0) + 1;
         };
         for (const q of $questions) {
             const d = q.data as {
@@ -322,15 +346,29 @@ export const AddQuestionDialog = ({
                 locationType?: string;
             };
             if (q.id === "matching" || q.id === "measuring") {
-                if (d.type) map[q.id].add(d.type);
+                if (d.type) bump(q.id, d.type);
             } else if (q.id === "tentacles") {
-                if (d.locationType) map.tentacles.add(d.locationType);
+                if (d.locationType) bump("tentacles", d.locationType);
             } else if (q.id === "photo") {
-                if (d.type) map.photo.add(d.type);
+                if (d.type) bump("photo", d.type);
             }
         }
         return map;
     }, [$questions]);
+    const usedSubtypes = React.useMemo(() => {
+        const map: Record<string, Set<string>> = {
+            matching: new Set(),
+            measuring: new Set(),
+            tentacles: new Set(),
+            photo: new Set(),
+        };
+        for (const cat of Object.keys(map)) {
+            for (const key of Object.keys(subtypeCounts[cat])) {
+                map[cat].add(key);
+            }
+        }
+        return map;
+    }, [subtypeCounts]);
 
     const lastQuestionType = React.useMemo(
         () =>
@@ -683,22 +721,24 @@ export const AddQuestionDialog = ({
                                         (q.data as { status?: string })
                                             .status === "started",
                                 );
-                                // Rule 2 phrasing — same wording for every
-                                // category, swap in the category label.
+                                // Alternation is a HOUSE RULE — off by
+                                // default (rulebook allows back-to-back
+                                // same-category). Only gate when the
+                                // user has turned the toggle on.
                                 const alternationReason = (label: string) =>
-                                    `You just asked a ${label} question — alternate types before asking another.`;
+                                    `House rule: you just asked a ${label} question — alternate categories first.`;
                                 const matchingBlockedByLast =
-                                    lastQuestionType === "matching";
+                                    $alternate && lastQuestionType === "matching";
                                 const measuringBlockedByLast =
-                                    lastQuestionType === "measuring";
+                                    $alternate && lastQuestionType === "measuring";
                                 const radiusBlockedByLast =
-                                    lastQuestionType === "radius";
+                                    $alternate && lastQuestionType === "radius";
                                 const thermometerBlockedByLast =
-                                    lastQuestionType === "thermometer";
+                                    $alternate && lastQuestionType === "thermometer";
                                 const photoBlockedByLast =
-                                    lastQuestionType === "photo";
+                                    $alternate && lastQuestionType === "photo";
                                 const tentaclesBlockedByLast =
-                                    lastQuestionType === "tentacles";
+                                    $alternate && lastQuestionType === "tentacles";
                                 return (
                                     <>
                                         <CategoryTile
@@ -929,15 +969,24 @@ export const AddQuestionDialog = ({
                                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
                                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                                             {subtypes?.map((subtype) => {
-                                                // Rule 1: each subtype can
-                                                // only be asked once per
-                                                // game (your nearest museum,
-                                                // your nearest aquarium, …).
-                                                const subtypeUsed =
-                                                    usedSubtypes[
+                                                // Per-subtype repeat count:
+                                                // 0 = never asked; N > 0 =
+                                                // the next ask is the
+                                                // (N+1)-th and costs (N+1)×
+                                                // per rulebook p65. The
+                                                // House Rule
+                                                // `askOncePerQuestion`
+                                                // flips the rulebook
+                                                // pay-N× into a hard block.
+                                                const askedTimes =
+                                                    subtypeCounts[
                                                         subtypePickerFor
-                                                    ]?.has(subtype.value) ??
-                                                    false;
+                                                    ]?.[subtype.value] ?? 0;
+                                                const subtypeUsed =
+                                                    askedTimes > 0;
+                                                const hardBlock =
+                                                    $askOnce && subtypeUsed;
+                                                const repeatMult = askedTimes + 1;
                                                 return (
                                                     <SubtypeTile
                                                         key={subtype.value}
@@ -949,10 +998,15 @@ export const AddQuestionDialog = ({
                                                             $mapGeo?.properties
                                                                 ?.countrycode,
                                                         )}
-                                                        disabled={subtypeUsed}
-                                                        blockedReason={
+                                                        disabled={hardBlock}
+                                                        repeatMultiplier={
                                                             subtypeUsed
-                                                                ? "Already asked — each question can only be asked once per game."
+                                                                ? repeatMult
+                                                                : undefined
+                                                        }
+                                                        blockedReason={
+                                                            hardBlock
+                                                                ? "House rule: each question can only be asked once per game."
                                                                 : undefined
                                                         }
                                                         onClick={() => {

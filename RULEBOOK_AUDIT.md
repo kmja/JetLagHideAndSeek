@@ -63,45 +63,32 @@ hand" now require the hider to pay before casting.
   landing branch.
 - Tests: `tests/castingCost.test.ts`.
 
-### B2 · Repeat questions hard-blocked → should be pay-double ⏳ DEFERRED
-Rulebook p65: a question CAN be asked again; the seekers "pay its cost
-twice" — the hider performs the draw-keep cycle twice (draw 3 keep 1,
-then draw 3 keep 1 again — NOT draw 6 keep 2). A third ask triples it,
-and so on. The app currently hard-blocks repeats: used subtypes
-(`AddQuestionDialog`), radius sigs (`cards/radius.tsx`), and
-thermometer sigs (`ThermometerConfigureDialog`) are all disabled once
-used. `HowToPlaySheet` already advertises "Repeat questions cost 2×",
-so the block contradicts our own docs.
+### B2 · Repeat questions hard-blocked → pay-double per rulebook ✅ v415
+Rulebook p65: a question CAN be asked again; the seekers "pay its
+cost twice" — the hider performs the draw-keep cycle twice (draw 3
+keep 1, then draw 3 keep 1 again — NOT draw 6 keep 2). A third ask
+triples it, and so on.
+- `questionIdentity(id, data)` + `priorAnsweredCount(key, identity)`
+  in `hiderRole.ts` derive the per-question identity (radius preset,
+  thermometer preset, matching/measuring/tentacles/photo subtype).
+- `ShareBackRow` and `recordPhotoAnswerDraw` loop `presentDraw`
+  `priorAnswered + 1` times, with a toast announcing the N×.
+- `pendingDrawQueue` lets multi-cycle picks queue cleanly behind the
+  active one — `resolvePendingDraw` shifts the next entry in, so the
+  picker re-opens for each cycle.
+- Seeker pickers (AddQuestionDialog subtype tile, ThermometerConfigure)
+  now show a "Repeat · N×" badge instead of a hard block; radius
+  preset gate likewise softens.
+- House rule `askOncePerQuestion` (Settings → House rules) restores
+  the old hard block for tables that prefer it.
 
-**Why deferred:** a correct fix spans five surfaces and must land
-together — shipping the unblock without the cost multiplier would let
-seekers re-ask for free, which is worse than the current state.
+## C — house rules (now opt-in)
 
-**Implementation plan:**
-1. Replace each picker's `disabled` on a used option with a "Repeat ·
-   N× cost" affordance (keep it tappable; show the multiplier).
-2. Derive the repeat index hider-side: when a question is answered,
-   count prior *answered* inbox entries with the same identity
-   (category + defining params) → `repeatIndex`. Identity helpers:
-   - radius → `radius + unit + center` (the existing sig already
-     encodes size; center distinguishes re-centred asks)
-   - thermometer → preset sig
-   - matching / measuring / tentacles → subtype value
-   - photo → single identity per game
-3. In the answer paths, run the draw cycle `repeatIndex + 1` times
-   (loop `presentDraw(budget.draw, budget.keep, …)`), so a 2nd ask
-   draws the budget twice. Chalice (+1 draw) and late-answer
-   (no draw) interactions already route through `presentDraw` /
-   `settleLateAnswer`, so they compose.
-4. Surface the multiplier in the seeker's question card + the hider's
-   inbox row so both sides see the doubled cost.
-
-## C — house rules (intentional, documented)
-
-### C1 · Question/curse alternation — invented rule, kept
+### C1 · Question/curse alternation — moved to House Rules ✅ v415
 v395 added a deliberate alternation constraint not in the printed
-rulebook. Left in place as a house rule; flagged here so it isn't
-mistaken for a faithful-rules bug in a future audit.
+rulebook. The rule itself is now a **House Rule toggle**
+(`alternateQuestionTypes`, off by default → rulebook). When on, the
+AddQuestionDialog category tiles re-enable the v395 alternation gate.
 
 ## Notes
 - All scoring now flows through one formula:

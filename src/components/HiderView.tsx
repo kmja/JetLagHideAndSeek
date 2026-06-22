@@ -21,6 +21,8 @@ import {
     hiderInbox,
     playerRole,
     presentDraw,
+    priorAnsweredCount,
+    questionIdentity,
     QUESTION_DRAW_BUDGET,
     roundFoundAt,
     settleLateAnswer,
@@ -639,17 +641,34 @@ function ShareBackRow({
         if (!alreadyReplied && !late) {
             const budget = QUESTION_DRAW_BUDGET[question.id];
             if (budget) {
+                // Rulebook p65: a repeated question pays its cost N×.
+                // The seekers' N-th ask runs the draw-keep cycle N
+                // times — NOT once with a multiplied draw count
+                // (rulebook is explicit: "draw 3, keep 1, then draw 3,
+                // keep 1 again. Importantly: hiders cannot draw 6 and
+                // keep 2"). Identity excludes this question's own key
+                // so we count prior answers only.
+                const identity = questionIdentity(question.id, question.data);
+                const cycles = priorAnsweredCount(question.key, identity) + 1;
+                if (cycles > 1) {
+                    toast.info(
+                        `Repeat question — running the draw cycle ${cycles}× (rulebook p65).`,
+                        { autoClose: 4000 },
+                    );
+                }
                 // v315: dropped the "Drew N from deck" / "Pick K of N"
                 // toasts that used to fire here. The DrawPickerDialog
                 // (or the new card appearing in the fan when the
                 // draw auto-resolves) is the confirmation; a
                 // notification on top doubled the same moment.
-                presentDraw(
-                    budget.draw,
-                    budget.keep,
-                    question.id,
-                    question.key,
-                );
+                for (let i = 0; i < cycles; i++) {
+                    presentDraw(
+                        budget.draw,
+                        budget.keep,
+                        question.id,
+                        question.key,
+                    );
+                }
             }
         } else if (late) {
             toast.info(

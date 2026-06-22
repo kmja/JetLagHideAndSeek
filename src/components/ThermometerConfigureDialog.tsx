@@ -17,6 +17,7 @@ import {
     questions,
 } from "@/lib/context";
 import { gameSize } from "@/lib/gameSetup";
+import { askOncePerQuestion } from "@/lib/houseRules";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { seekerResendQuestion } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
@@ -89,23 +90,28 @@ export function ThermometerConfigureDialog({
 }: ThermometerConfigureDialogProps) {
     const $size = useStore(gameSize);
     const $questions = useStore(questions);
+    const $askOnce = useStore(askOncePerQuestion);
     const presets = presetsForGameSize($size);
 
-    // Which presets are taken by other finished thermometers? Per
-    // rulebook (and v339 carry-over) you can't repeat a preset — so
-    // disable them in the picker.
-    const usedSigs = new Set(
-        $questions
-            .filter(
-                (q) =>
-                    q.id === "thermometer" &&
-                    (q.data as ThermometerQuestion).status !== "started" &&
-                    (q.data as ThermometerQuestion).distance,
-            )
-            .map((q) => (q.data as ThermometerQuestion).distance!),
-    );
+    // Per-preset repeat count among finished thermometers. The rulebook
+    // (p65) allows the same question again at N× cost, so by default
+    // we let the seeker re-pick a used preset (badge shows the next
+    // multiplier). House rule `askOncePerQuestion` flips this to a
+    // hard block.
+    const sigCounts = new Map<string, number>();
+    for (const q of $questions) {
+        if (q.id !== "thermometer") continue;
+        const d = q.data as ThermometerQuestion;
+        if (d.status === "started" || !d.distance) continue;
+        sigCounts.set(d.distance, (sigCounts.get(d.distance) ?? 0) + 1);
+    }
+    const usedSigs = new Set(sigCounts.keys());
 
-    const firstAvailable = presets.find((p) => !usedSigs.has(p.sig))?.sig;
+    // Default selection: pick the first preset that isn't a repeat —
+    // a repeat is allowed (rulebook p65) but shouldn't be the
+    // pre-selected default unless every preset is already used.
+    const firstAvailable =
+        presets.find((p) => !usedSigs.has(p.sig))?.sig ?? presets[0]?.sig;
     const [selected, setSelected] = useState<string | null>(
         firstAvailable ?? null,
     );
@@ -209,34 +215,44 @@ export function ThermometerConfigureDialog({
                 </DialogHeader>
                 <div className="mt-2 grid grid-cols-2 gap-2">
                     {presets.map((preset) => {
-                        const used = usedSigs.has(preset.sig);
+                        const askedTimes = sigCounts.get(preset.sig) ?? 0;
+                        const used = askedTimes > 0;
+                        const hardBlock = $askOnce && used;
+                        const repeatMult = askedTimes + 1;
                         const active = selected === preset.sig;
                         return (
                             <button
                                 key={preset.sig}
                                 type="button"
                                 onClick={() =>
-                                    !used && setSelected(preset.sig)
+                                    !hardBlock && setSelected(preset.sig)
                                 }
-                                disabled={used || submitting}
+                                disabled={hardBlock || submitting}
                                 aria-pressed={active}
                                 title={
-                                    used
-                                        ? `${preset.label} already used this game`
-                                        : `Pick ${preset.label}`
+                                    hardBlock
+                                        ? `House rule: ${preset.label} already used this game`
+                                        : used
+                                          ? `Repeat: hider runs the draw-keep cycle ${repeatMult}× (rulebook p65)`
+                                          : `Pick ${preset.label}`
                                 }
                                 className={cn(
-                                    "flex flex-col items-center justify-center gap-1 py-4 rounded-md border-2 text-sm font-poppins font-semibold",
+                                    "relative flex flex-col items-center justify-center gap-1 py-4 rounded-md border-2 text-sm font-poppins font-semibold",
                                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    used
+                                    hardBlock
                                         ? "border-border bg-secondary/40 text-muted-foreground line-through opacity-60 cursor-not-allowed"
                                         : active
                                           ? "border-primary bg-primary/15 text-primary"
                                           : "border-border bg-secondary/30 hover:bg-secondary/60",
                                 )}
                             >
+                                {used && !hardBlock && (
+                                    <span className="absolute top-1 right-1 inline-flex items-center justify-center px-1.5 h-4 rounded-sm bg-yellow-500/90 text-black text-[10px] font-poppins font-bold leading-none">
+                                        {repeatMult}×
+                                    </span>
+                                )}
                                 <span className="text-base">{preset.label}</span>
-                                {used && (
+                                {hardBlock && (
                                     <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
                                         Used
                                     </span>

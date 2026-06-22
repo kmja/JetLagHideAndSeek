@@ -483,6 +483,28 @@ export const pendingDraw = __globalPersistent<PendingDraw | null>(
     },
 );
 
+/**
+ * Backlog of pending draws waiting for the current `pendingDraw` pick
+ * to resolve. Filled when a repeated question (rulebook p65) runs the
+ * draw cycle more than once: cycle #1 lands in `pendingDraw`; cycles
+ * #2+ queue here. `resolvePendingDraw` shifts the next entry into
+ * `pendingDraw` so the picker re-opens for each cycle in turn.
+ */
+export const pendingDrawQueue = __globalPersistent<PendingDraw[]>(
+    "__jlhs_pendingDrawQueue",
+    "pendingDrawQueue",
+    [],
+    JSON.stringify,
+    (v) => {
+        try {
+            const parsed = JSON.parse(v);
+            return Array.isArray(parsed) ? (parsed as PendingDraw[]) : [];
+        } catch {
+            return [];
+        }
+    },
+);
+
 /* ────────────────── Helpers ────────────────── */
 
 /**
@@ -501,6 +523,7 @@ export function resetHiderRoundState() {
     hiderDiscard.set([]);
     hiderHandLimit.set(6);
     pendingDraw.set(null);
+    pendingDrawQueue.set([]);
     roundFoundAt.set(null);
     hiderForfeited.set(false);
     chaliceDrawsRemaining.set(0);
@@ -571,12 +594,21 @@ export function presentDraw(
         hiderHand.set([...hiderHand.get(), ...drawn]);
         return true;
     }
-    pendingDraw.set({
+    const pending: PendingDraw = {
         cards: drawn,
         keep,
         sourceCategory,
         sourceQuestionKey,
-    });
+    };
+    // Rulebook p65 repeats: if a previous cycle's pick is still open,
+    // queue this one behind it instead of clobbering. The resolver
+    // shifts the next entry into `pendingDraw` once the active pick
+    // is committed, so the hider works through every cycle in turn.
+    if (pendingDraw.get() !== null) {
+        pendingDrawQueue.set([...pendingDrawQueue.get(), pending]);
+    } else {
+        pendingDraw.set(pending);
+    }
     return false;
 }
 
@@ -597,7 +629,16 @@ export function resolvePendingDraw(keepIds: string[]): void {
     if (kept.length > 0) hiderHand.set([...hiderHand.get(), ...kept]);
     if (discarded.length > 0)
         hiderDiscard.set([...hiderDiscard.get(), ...discarded]);
-    pendingDraw.set(null);
+    // Advance to the next queued cycle (rulebook-repeat draws) if any,
+    // so the picker re-opens for the next pick. Otherwise clear.
+    const queue = pendingDrawQueue.get();
+    if (queue.length > 0) {
+        const [next, ...rest] = queue;
+        pendingDrawQueue.set(rest);
+        pendingDraw.set(next);
+    } else {
+        pendingDraw.set(null);
+    }
 }
 
 /**
@@ -642,6 +683,62 @@ export const QUESTION_DRAW_BUDGET: Record<
     photo: { draw: 1, keep: 1 },
     tentacles: { draw: 4, keep: 2 },
 };
+
+/**
+ * Stable per-question "what was asked" identity used to count repeats
+ * (rulebook p65 — repeating a question costs N×). Same identity →
+ * "the same question", so a hider seeing the second arrival can run
+ * the draw-keep budget twice.
+ *
+ *   - radius      → preset signature ("500m" / "1km" / "custom-…")
+ *   - thermometer → preset signature (e.g. "2km")
+ *   - matching    → subtype (`type`)
+ *   - measuring   → subtype (`type`)
+ *   - tentacles   → subtype (`locationType`)
+ *   - photo       → subtype (`type`)
+ *
+ * Falls back to the bare category id when the question shape carries
+ * no subtype/preset slot — better to undercount repeats than to throw.
+ */
+export function questionIdentity(id: string, data: unknown): string {
+    const d = (data ?? {}) as Record<string, unknown>;
+    if (id === "matching" || id === "measuring" || id === "photo") {
+        const t = typeof d.type === "string" ? d.type : "";
+        return `${id}:${t}`;
+    }
+    if (id === "tentacles") {
+        const t = typeof d.locationType === "string" ? d.locationType : "";
+        return `${id}:${t}`;
+    }
+    if (id === "radius") {
+        const radius = typeof d.radius === "number" ? d.radius : "?";
+        const unit = typeof d.unit === "string" ? d.unit : "?";
+        const useCustom = d.useCustom === true;
+        return `radius:${useCustom ? "custom" : `${radius}${unit}`}`;
+    }
+    if (id === "thermometer") {
+        const sig = typeof d.targetSig === "string" ? d.targetSig : "";
+        return `thermometer:${sig}`;
+    }
+    return id;
+}
+
+/**
+ * How many times this question (by `questionIdentity`) has already
+ * been answered in the hider's inbox, excluding the entry with `key`.
+ * The seeker's N-th ask is the (N-1)-th prior answered entry, so the
+ * draw multiplier per rulebook p65 is `priorAnswered + 1`.
+ */
+export function priorAnsweredCount(key: number, identity: string): number {
+    return hiderInbox
+        .get()
+        .filter(
+            (e) =>
+                e.key !== key &&
+                e.repliedAt !== undefined &&
+                questionIdentity(e.id, e.data) === identity,
+        ).length;
+}
 
 /**
  * Rulebook p61: a question not answered within its window pauses the
@@ -696,6 +793,14 @@ export function recordPhotoAnswerDraw(
     );
     if (late) return false;
     const budget = QUESTION_DRAW_BUDGET.photo;
-    presentDraw(budget.draw, budget.keep, "photo", key);
+    // Rulebook p65: a repeated question pays its cost N×. Same identity
+    // → same question; cycles = priorAnswered + 1. Photo's identity
+    // includes the subtype so 2× "photo of a bench" is distinct from
+    // 1× "photo of a bench" + 1× "photo of a fountain".
+    const identity = questionIdentity("photo", existing?.data ?? {});
+    const cycles = priorAnsweredCount(key, identity) + 1;
+    for (let i = 0; i < cycles; i++) {
+        presentDraw(budget.draw, budget.keep, "photo", key);
+    }
     return true;
 }

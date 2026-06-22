@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { BookOpen } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
+import { HouseRulesSection } from "@/components/HouseRulesSection";
 import { HowToPlaySheet } from "@/components/HowToPlaySheet";
 import { PreloadChoicesPanel } from "@/components/PreloadChoicesPanel";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
@@ -99,6 +100,8 @@ export function AppSettingsDrawer() {
                                     <ThemeToggle />
                                 </div>
                             </div>
+
+                            <HouseRulesSection />
 
                             {$setupCompleted && (
                                 <div className="pt-3 mt-3 border-t border-border">

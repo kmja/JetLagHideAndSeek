@@ -25,6 +25,7 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { askOncePerQuestion } from "@/lib/houseRules";
 import { fitMapToRadius } from "@/lib/mapFit";
 import { cn } from "@/lib/utils";
 import type { RadiusQuestion, Units } from "@/maps/schema";
@@ -92,6 +93,7 @@ export const RadiusQuestionComponent = ({
     const $hiderMode = useStore(hiderMode);
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
+    const $askOnce = useStore(askOncePerQuestion);
     const label = `Radar
     ${
         $questions
@@ -253,8 +255,9 @@ export const RadiusQuestionComponent = ({
                                         // fetching" flag is up is wrong.
                                         disabled={
                                             !data.drag ||
-                                            (usedSigs.has(preset.sig) &&
-                                                currentSig !== preset.sig)
+                                            ($askOnce &&
+                                            usedSigs.has(preset.sig) &&
+                                            currentSig !== preset.sig)
                                         }
                                         className={cn(
                                             presetBtnClass(preset.sig),
@@ -331,7 +334,8 @@ export const RadiusQuestionComponent = ({
                                     }}
                                     disabled={
                                         !data.drag ||
-                                        (usedSigs.has("custom") &&
+                                        ($askOnce &&
+                                            usedSigs.has("custom") &&
                                             !data.useCustom)
                                     }
                                     className={cn(
