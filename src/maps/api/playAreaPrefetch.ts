@@ -500,6 +500,46 @@ if (typeof window !== "undefined") {
     });
 }
 
+/**
+ * Single-family bbox-only Overpass query. Bypasses the relation-keyed
+ * `/api/refs/<id>` endpoint entirely, so it CAN'T be poisoned by a
+ * cached entry that was warmed when the family wasn't on the cron's
+ * filter list (the Umeå rail-station case). Returns partitioned
+ * `PrefetchedFeature[]` for that family.
+ */
+async function runSingleFamilyBboxFetch(
+    family: FamilyKey,
+): Promise<PrefetchedFeature[]> {
+    const filter = filterForFamily(family);
+    const bboxFilter = buildPaddedBboxFilter(50);
+    if (!bboxFilter) return [];
+    const query = `
+[out:json][timeout:120]${bboxFilter};
+(
+nwr${filter};
+);
+out center;
+`;
+    const data = await getOverpassData(
+        query,
+        undefined,
+        CacheType.ZONE_CACHE,
+        undefined,
+        false,
+        undefined,
+        /* silent */ true,
+    );
+    const elements = ((data as { elements?: unknown[] }).elements ??
+        []) as Array<Record<string, unknown>>;
+    const feats: PrefetchedFeature[] = [];
+    for (const el of elements) {
+        if (!elementMatchesFamily(el, family)) continue;
+        const feat = featureFromElement(el);
+        if (feat) feats.push(feat);
+    }
+    return feats;
+}
+
 async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
     if (filters.length === 0) return [];
 
@@ -1007,10 +1047,31 @@ async function runPrefetchFamiliesInOneQuery(
             console.debug(
                 `[preload] ${emptyFamilies.length}/${todo.length} families empty in combined query — re-fetching just those`,
             );
+            // ⚠️ Issue a fresh SINGLE-FAMILY bbox query via getOverpassData
+            // directly — DO NOT recurse through `prefetchCategory(f)`, which
+            // would just hit the master in-flight (or re-run the combined
+            // query and re-derive the same stale partition). Real failure
+            // mode: when the worker's `/api/refs/<id>` entry was warmed
+            // before a family (e.g. rail-station) was added to the cron's
+            // filter list, the union returns elements for OTHER families
+            // but never any stations. The recursion path would keep
+            // bouncing off that stale entry and the family stays cached as
+            // empty forever — exactly the Umeå 'bus overlay works, hiding
+            // zones don't' symptom. Going directly to a bbox query for the
+            // missing family bypasses the relation-keyed cache entirely.
             for (const f of emptyFamilies) {
-                prefetchCategory(f).catch(() => {
-                    bumpStatus({ failedKey: cacheKey(f) });
-                });
+                void (async () => {
+                    try {
+                        const feats = await runSingleFamilyBboxFetch(f);
+                        cache.set(cacheKey(f), feats);
+                        bumpStatus({
+                            warmedKey: cacheKey(f),
+                            count: feats.length,
+                        });
+                    } catch {
+                        bumpStatus({ failedKey: cacheKey(f) });
+                    }
+                })();
             }
             // Partial success still counts: at least one family landed,
             // clear any stale failure mark so a *useful* retry isn't
