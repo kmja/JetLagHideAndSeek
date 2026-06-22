@@ -122,23 +122,39 @@ export async function findExtensionCandidates(
         }
     }
 
-    // Proximity fallback: some OSM regions (Sweden in particular —
-    // Stockholm is the reported case) draw each municipality's outer
-    // boundary as a SEPARATE way per side. Two neighbouring relations
-    // then share no member-way ids at all, so `way(r); rel(bw);`
-    // returns no neighbours and we'd hand the user an empty list.
-    // When topological yields zero administrative neighbours, fall
-    // back to a proximity-band query: every admin-level 7/8 boundary
-    // within `radiusKm` of the primary's centroid. Same candidate
-    // synthesis, same dedupe, so the two paths produce identical
-    // output for the consumer.
-    if (candidates.length === 0) {
-        const bandQuery = buildMunicipalityBandQuery(
-            primaryLat,
-            primaryLng,
-            radiusKm,
-        );
-        try {
+    // Proximity fallback. Two real cases this catches that topological
+    // misses:
+    //   1. Boundary-duplication countries (Sweden in particular): each
+    //      municipality draws its own outer ways with no shared ids
+    //      between neighbours, so `way(r); rel(bw);` returns no
+    //      neighbours at all — Stockholm hits this hard.
+    //   2. NEAR-neighbours that aren't directly adjacent but a seeker
+    //      can plausibly play in (Järfälla doesn't touch Stockholm
+    //      Municipality, but it sits ~15 km away and is plainly a
+    //      Stockholm-area extension).
+    //
+    // To make this useful we run an ADMIN-LEVEL-MATCHED proximity
+    // query. Stockholm Municipality is admin_level=7; its internal
+    // districts (Södermalm, Norrmalm, …) are admin_level=8, and a
+    // wider regex would pull those in as "adjacent areas" even though
+    // they're SUB-AREAS of the primary, not peers. Looking up the
+    // primary's own admin_level first and then asking only for peers
+    // at that level filters those out cleanly while still catching
+    // every kommun within range.
+    //
+    // Always run, then union+dedupe with the topological pass — that
+    // way a region where topological DOES work (most of the world)
+    // still gets its directly-adjacent peers, plus near-neighbours
+    // surfaced by proximity. Limit + sort below picks the closest.
+    try {
+        const adminLevel = await fetchAdminLevel(primaryOsmId);
+        if (adminLevel) {
+            const bandQuery = buildAdjacentAdminQuery(
+                adminLevel,
+                primaryLat,
+                primaryLng,
+                radiusKm,
+            );
             const bandData = await getOverpassData(
                 bandQuery,
                 undefined,
@@ -161,16 +177,39 @@ export async function findExtensionCandidates(
                     candidates.push(c);
                 }
             }
-        } catch (e) {
-            console.warn(
-                "Proximity adjacency fallback failed (continuing with empty list):",
-                e,
-            );
         }
+    } catch (e) {
+        console.warn(
+            "Same-level proximity adjacency failed (continuing with topological only):",
+            e,
+        );
     }
 
     candidates.sort((a, b) => a.distanceKm - b.distanceKm);
     return candidates.slice(0, limit);
+}
+
+/** Fetch the `admin_level` tag of an OSM relation. Returns null if
+ *  the relation has no `admin_level` tag, the query fails, or the tag
+ *  isn't a sensible number string. Used by the proximity-adjacency
+ *  fallback so we only surface SAME-LEVEL peers, not the primary's
+ *  own sub-areas. */
+async function fetchAdminLevel(osmId: number): Promise<string | null> {
+    try {
+        const data = await getOverpassData(
+            buildAdminLevelQuery(osmId),
+            undefined,
+            CacheType.ZONE_CACHE,
+            30_000,
+        );
+        const els = ((data as { elements?: unknown[] }).elements ??
+            []) as Array<{ tags?: Record<string, string> }>;
+        const lvl = els[0]?.tags?.admin_level;
+        if (lvl && /^\d+$/.test(lvl)) return lvl;
+        return null;
+    } catch {
+        return null;
+    }
 }
 
 /** Filter: only offer admin-boundary relations as candidates. Skips
@@ -281,13 +320,19 @@ out tags;
 }
 
 /**
- * @deprecated v427 — the same-admin_level proximity heuristic missed
- * legitimate neighbours at a different level (consolidated cities, the
- * county/municipality bands, etc.). `findExtensionCandidates` now uses
- * topological adjacency via `buildTopologicalAdjacencyQuery`. This
- * function is retained as an export so the overpass-cache cron + any
- * curated-city prewarm path keeps building; do NOT use it for fresh
- * lookups.
+ * Same-admin_level proximity query: every admin boundary at the given
+ * level within `radiusKm` of (lat, lng). `findExtensionCandidates`
+ * runs this alongside the topological-adjacency pass and unions the
+ * results, so the consumer gets:
+ *   - directly-adjacent peers (from topological), AND
+ *   - same-level peers within range (from this query) — covering both
+ *     Sweden's duplicated-ways case where topological returns 0, and
+ *     NEAR-neighbours that don't directly border the primary but a
+ *     seeker can plausibly play in (e.g. Järfälla relative to
+ *     Stockholm Municipality).
+ * The admin_level filter excludes the primary's sub-areas (Sweden
+ * districts at level 8 inside a level-7 kommun), which an
+ * unrestricted level=7|8 band would noisily include.
  */
 export function buildAdjacentAdminQuery(
     adminLevel: string,
