@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { holedMask } from "@/maps";
 
 import { ConfigureDialogContext } from "./configureDialogContext";
+import { MapNavControls } from "./MapNavControls";
 import { MapTilesVeil } from "./MapTilesVeil";
 import { SelfPositionMarker } from "./SelfPositionMarker";
 
@@ -786,6 +787,14 @@ export function InlineLocationPicker({
                             </>
                         )}
                 </Map>
+                {/* Reset-rotation-and-tilt only — there's no live GPS
+                    track on the inline picker, so a follow-me toggle
+                    would just confuse. */}
+                <MapNavControls
+                    mapRef={mapRef}
+                    showFollowMe={false}
+                    className="right-2 bottom-2"
+                />
                 <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
             </div>
             {/* v317: dropped the coords + Use GPS row that used to sit

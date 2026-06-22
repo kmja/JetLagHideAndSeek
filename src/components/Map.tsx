@@ -21,6 +21,7 @@ import {
     Dialog,
     DialogContent,
 } from "@/components/ui/dialog";
+import { MapNavControls } from "@/components/MapNavControls";
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
@@ -2113,6 +2114,14 @@ export function Map({ className }: MapProps) {
                     },
                 )}
             </MapGL>
+
+            {/* Classic map controls: follow-me toggle + reset
+                rotation/tilt. Stacked bottom-left of the map so they
+                don't compete with the map-options chip top-right. */}
+            <MapNavControls
+                mapRef={mapRef}
+                className="left-3 bottom-20"
+            />
 
             {/* Context menu — absolutely-positioned at the
                 click point. Mirrors the leaflet-contextmenu

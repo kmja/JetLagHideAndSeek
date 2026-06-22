@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
+import { MapNavControls } from "@/components/MapNavControls";
 import {
     isLoading,
     lastKnownPosition,
@@ -549,6 +550,9 @@ export function HiderBackgroundMap() {
                     </Marker>
                 ))}
             </Map>
+            {/* Classic map controls — follow-me toggle + reset
+                rotation/tilt. Stacked above the hand-fan/bottom-nav. */}
+            <MapNavControls mapRef={mapRef} className="right-3 bottom-44" />
 
             {/* Top-right cluster — basemap + transit toggles. Sits
                 below the HiderTimeHeader (which ends near 8.5rem

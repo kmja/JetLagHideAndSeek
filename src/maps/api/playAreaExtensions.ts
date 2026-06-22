@@ -122,6 +122,53 @@ export async function findExtensionCandidates(
         }
     }
 
+    // Proximity fallback: some OSM regions (Sweden in particular —
+    // Stockholm is the reported case) draw each municipality's outer
+    // boundary as a SEPARATE way per side. Two neighbouring relations
+    // then share no member-way ids at all, so `way(r); rel(bw);`
+    // returns no neighbours and we'd hand the user an empty list.
+    // When topological yields zero administrative neighbours, fall
+    // back to a proximity-band query: every admin-level 7/8 boundary
+    // within `radiusKm` of the primary's centroid. Same candidate
+    // synthesis, same dedupe, so the two paths produce identical
+    // output for the consumer.
+    if (candidates.length === 0) {
+        const bandQuery = buildMunicipalityBandQuery(
+            primaryLat,
+            primaryLng,
+            radiusKm,
+        );
+        try {
+            const bandData = await getOverpassData(
+                bandQuery,
+                undefined,
+                CacheType.ZONE_CACHE,
+                90_000,
+            );
+            const bandElements = ((bandData as { elements?: unknown[] })
+                .elements ?? []) as OverpassRelationStub[];
+            for (const el of bandElements) {
+                if (!isAdministrativeBoundary(el)) continue;
+                const c = relationStubToCandidate(
+                    el,
+                    primaryOsmId,
+                    primaryLat,
+                    primaryLng,
+                    stations,
+                );
+                if (c && !seen.has(el.id)) {
+                    seen.add(el.id);
+                    candidates.push(c);
+                }
+            }
+        } catch (e) {
+            console.warn(
+                "Proximity adjacency fallback failed (continuing with empty list):",
+                e,
+            );
+        }
+    }
+
     candidates.sort((a, b) => a.distanceKm - b.distanceKm);
     return candidates.slice(0, limit);
 }
@@ -256,7 +303,12 @@ out tags bb;
 }
 
 /**
- * @deprecated v427 — see `buildAdjacentAdminQuery`.
+ * Proximity-band query: every admin-level 7/8 boundary within
+ * `radiusKm * 1000` metres of (lat, lng). Used by
+ * `findExtensionCandidates` as the FALLBACK when topological
+ * adjacency returns nothing — that happens in countries where each
+ * municipality draws its own boundary ways (no shared way ids
+ * between neighbours), most notably Sweden.
  */
 export function buildMunicipalityBandQuery(
     lat: number,
