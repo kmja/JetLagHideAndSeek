@@ -1,14 +1,13 @@
 import { useStore } from "@nanostores/react";
-import { Loader2, Maximize2, Sparkles, TrainTrack } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { MapPin, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
     additionalMapGeoLocations,
     adjacentCandidatePreview,
+    toggleAdjacentArea,
 } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
-import { cn } from "@/lib/utils";
 import {
     type AdjacentAreaCandidate,
     findExtensionCandidates,
@@ -16,83 +15,66 @@ import {
 import type { OpenStreetMap } from "@/maps/api/types";
 
 /**
- * "Extend with neighbouring areas" controller, shown under the
- * play-area preview map in step 1 of the setup wizard.
+ * Adjacent-area controller for step 1 of the setup wizard.
  *
  * Why this exists: Stockholm Municipality (the OSM admin relation
- * matching "Stockholm") legally excludes Solna, Sundbyberg,
- * Danderyd, Järfälla, etc. — but those are tightly integrated via
- * the city's subway / commuter-rail network, and a Jet Lag player
- * almost always wants them included. Same pattern for NYC and its
- * boroughs (Manhattan + Brooklyn + …), Paris vs. the Île-de-France
- * metro, and so on.
+ * matching "Stockholm") legally excludes Solna, Sundbyberg, Danderyd,
+ * Järfälla, etc. — but those are tightly integrated via the city's
+ * subway / commuter-rail network, and a Jet Lag player almost always
+ * wants them included. Same pattern for NYC and its boroughs, Paris vs.
+ * the Île-de-France metro, and so on.
  *
- * v438: the picker is now MAP-FIRST. This component no longer renders
- * a checklist — instead it fetches the candidate set, pre-adds the
- * transit-connected ones, and publishes them to
- * `adjacentCandidatePreview` so `PlayAreaPreviewMap` can paint a
- * tappable "+/✓" pill at each one. All this component renders is a
- * compact status caption plus Select-all / Clear shortcuts. The
- * canonical "is this area added?" state lives in
- * `additionalMapGeoLocations`, written by the map pills directly.
+ * v456: no longer renders the "Extend with neighbouring areas" panel
+ * (with its reveal button + select-all shortcuts). It now:
+ *   1. Fetches the candidate neighbours IMMEDIATELY — in parallel with
+ *      the main play area's boundary load, not gated behind a reveal —
+ *      and publishes them to `adjacentCandidatePreview` so the preview
+ *      map paints each candidate's WHOLE boundary as a tappable region.
+ *   2. Renders compact rows for every area the user has added, each with
+ *      a remove control.
+ *
+ * The canonical "is this area added?" state lives in
+ * `additionalMapGeoLocations`, mutated by the map (tap-to-add) and the
+ * remove buttons here, so both surfaces stay in sync.
  */
-export function PlayAreaExtensions({
-    primary,
-    ready = true,
-}: {
-    primary: OpenStreetMap;
-    /** Hold the candidate fetch until the preview map has painted the
-     *  main play area, so the boundary-polygon request wins the worker
-     *  first. The lookup then runs in the background and the pills are
-     *  ready by the time the user taps "Add nearby areas". */
-    ready?: boolean;
-}) {
+/**
+ * Module-level so it survives PlayAreaStep unmounting (step 1 only
+ * mounts while `step === 1`). Without this, returning to step 1 would
+ * remount this controller and wipe every area the user added. We only
+ * reset the added-area list when the primary GENUINELY changes.
+ */
+let lastResetPrimaryId: number | null = null;
+
+/** Module-level candidate cache (by primary + transit) so re-entering
+ *  step 1 repaints the tappable neighbours instantly instead of
+ *  re-hitting Overpass. */
+const candidateCache = new Map<string, AdjacentAreaCandidate[]>();
+
+export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     const $allowedTransit = useStore(allowedTransit);
     const $additional = useStore(additionalMapGeoLocations);
 
-    const [candidates, setCandidates] = useState<AdjacentAreaCandidate[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    // The pills only paint once the user opts in via "Add nearby areas".
-    // Until then the map shows just the main play area (fast first
-    // reveal) while the candidate fetch runs in the background, so the
-    // pills are ready the instant the user reveals them.
-    const [revealed, setRevealed] = useState(false);
-    /** Tracks the primary we've fetched for, so swapping primary
-     *  triggers a refresh. */
-    const fetchedForRef = useRef<number | null>(null);
-
-    // Derive `checked` from the canonical store. The map "+/✓" pill
-    // and the Select-all / Clear buttons both write through
-    // `additionalMapGeoLocations`, so this stays in sync without an
-    // extra state hop.
-    const checked = new Set<number>(
-        $additional
-            .map(
-                (e) =>
-                    (e.location?.properties as { osm_id?: number } | undefined)
-                        ?.osm_id,
-            )
-            .filter((v): v is number => typeof v === "number"),
+    const cacheKey = `${primary.properties.osm_id}:${[...$allowedTransit].sort().join(",")}`;
+    const [candidates, setCandidates] = useState<AdjacentAreaCandidate[]>(
+        () => candidateCache.get(cacheKey) ?? [],
     );
 
     useEffect(() => {
-        // Wait for the main play area to paint before we start the
-        // (heavier) adjacency lookup — see the `ready` prop.
-        if (!ready) return;
         const primaryId = primary.properties.osm_id;
-        if (fetchedForRef.current === primaryId) return;
-        fetchedForRef.current = primaryId;
+        // Reset added areas ONLY when the primary actually changes —
+        // not on a back-nav remount for the same primary, and not on a
+        // transit-mode tweak (which keeps the same neighbours).
+        if (lastResetPrimaryId !== primaryId) {
+            lastResetPrimaryId = primaryId;
+            additionalMapGeoLocations.set([]);
+        }
 
-        // Always clear stale extensions when the primary changes —
-        // the previously-added "neighbours" almost certainly don't
-        // belong to the new primary. Nothing is selected by default;
-        // the user opts each neighbour in via the map pills.
-        additionalMapGeoLocations.set([]);
+        const cached = candidateCache.get(cacheKey);
+        if (cached) {
+            setCandidates(cached);
+            return;
+        }
         setCandidates([]);
-        setError(null);
-        setRevealed(false);
-        setLoading(true);
 
         let cancelled = false;
         findExtensionCandidates(primary, $allowedTransit, {
@@ -101,34 +83,24 @@ export function PlayAreaExtensions({
         })
             .then((c) => {
                 if (cancelled) return;
+                candidateCache.set(cacheKey, c);
                 setCandidates(c);
             })
             .catch((e) => {
-                if (cancelled) return;
-                console.warn("Extension lookup failed", e);
-                setError(
-                    "Couldn't fetch nearby areas. You can still play with just the main area.",
-                );
-            })
-            .finally(() => {
-                if (cancelled) return;
-                setLoading(false);
+                if (!cancelled) console.warn("Extension lookup failed", e);
             });
 
         return () => {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [primary.properties.osm_id, $allowedTransit.join(","), ready]);
+    }, [cacheKey]);
 
-    // Publish a compact preview of the candidates for the play-area
-    // preview map's "+/✓" overlay — but only once the user has
-    // REVEALED them. Before that the atom stays null so the preview map
-    // paints just the main play area and never widens the camera for
-    // off-area pills (keeps the first reveal fast and uncluttered).
-    // Cleared on unmount, when hidden, or when there are no candidates.
+    // Publish candidates for the preview map's tappable-boundary overlay
+    // the moment they land — no reveal gate. Cleared on unmount / when
+    // there are none.
     useEffect(() => {
-        if (!revealed || candidates.length === 0) {
+        if (candidates.length === 0) {
             adjacentCandidatePreview.set(null);
             return;
         }
@@ -149,87 +121,55 @@ export function PlayAreaExtensions({
         return () => {
             adjacentCandidatePreview.set(null);
         };
-    }, [candidates, revealed]);
+    }, [candidates]);
 
-    if (!loading && candidates.length === 0 && !error) {
-        // No siblings found — primary is in a region without
-        // adjacent admin regions of the same level (e.g. a country
-        // pick). Hide the picker entirely.
-        return null;
+    const added = $additional.filter((e) => e.location);
+
+    if (added.length === 0) {
+        // Nothing added yet — surface a one-line hint, but only when
+        // there ARE neighbours to add, so the tap-the-map gesture is
+        // discoverable. Otherwise render nothing.
+        if (candidates.length === 0) return null;
+        return (
+            <p className="text-[11px] text-muted-foreground leading-snug px-0.5">
+                Tap a neighbouring area on the map to fold it into your play
+                area.
+            </p>
+        );
     }
 
-    const checkedCount = checked.size;
-    const allChecked =
-        candidates.length > 0 &&
-        candidates.every((c) => checked.has(c.feature.properties.osm_id));
-
-    const selectAll = () =>
-        additionalMapGeoLocations.set(
-            candidates.map((c) => ({
-                location: c.feature,
-                added: true,
-                base: false,
-            })),
-        );
-    const clearAll = () => additionalMapGeoLocations.set([]);
-
     return (
-        <div className="rounded-md border border-dashed border-border bg-secondary/20 p-3 space-y-2.5">
-            <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary shrink-0" />
-                <div className="flex-1 min-w-0">
-                    <div className="text-xs font-poppins font-bold uppercase tracking-wider">
-                        Extend with neighbouring areas
-                    </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {error
-                            ? error
-                            : revealed
-                              ? "Tap the pills on the map to extend or trim your play area."
-                              : "Some neighbouring areas can be folded in so they count as one play area."}
-                    </div>
-                </div>
-                {loading && !revealed && (
-                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
-                )}
+        <div className="space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground px-0.5">
+                Added areas
             </div>
-
-            {!revealed && !error && (
-                <Button
-                    variant="outline"
-                    onClick={() => setRevealed(true)}
-                    className="w-full gap-1.5"
-                >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    {loading
-                        ? "Extend play area…"
-                        : `Extend play area (${candidates.length})`}
-                </Button>
-            )}
-
-            {revealed && candidates.length > 0 && (
-                <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-border/40">
-                    <button
-                        type="button"
-                        onClick={allChecked ? clearAll : selectAll}
-                        className={cn(
-                            "px-2.5 py-1 rounded-sm text-[11px] font-poppins font-semibold",
-                            "border transition-colors",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            "bg-secondary/40 border-border hover:bg-accent",
-                        )}
+            {added.map((e) => {
+                const locProps = e.location?.properties as
+                    | { osm_id?: number; name?: string }
+                    | undefined;
+                const id = locProps?.osm_id;
+                const name = locProps?.name || "Neighbouring area";
+                return (
+                    <div
+                        key={id ?? name}
+                        className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2"
                     >
-                        {allChecked ? "Clear all" : "Select all"}
-                    </button>
-                    <span className="text-[10px] text-muted-foreground tabular-nums">
-                        {checkedCount}/{candidates.length} selected
-                    </span>
-                    <span className="ml-auto inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-poppins font-bold text-emerald-300">
-                        <TrainTrack className="w-3 h-3" />
-                        Transit-connected
-                    </span>
-                </div>
-            )}
+                        <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
+                        <span className="flex-1 truncate text-sm">{name}</span>
+                        {typeof id === "number" && (
+                            <button
+                                type="button"
+                                onClick={() => toggleAdjacentArea(id)}
+                                aria-label={`Remove ${name}`}
+                                title={`Remove ${name}`}
+                                className="rounded-sm p-1 text-muted-foreground hover:bg-background/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 }

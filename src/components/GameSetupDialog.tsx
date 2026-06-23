@@ -1196,6 +1196,24 @@ export function PlayAreaStep({
                     <Check className="w-4 h-4 text-primary shrink-0" />
                 </div>
 
+                {/* Adjacent areas. v456: the controller is headless —
+                    it fetches neighbours immediately (in parallel with
+                    the main play area) and publishes them so the preview
+                    map paints each candidate's whole boundary as a
+                    tap-to-add region. The only thing rendered here are
+                    compact rows for the areas already added, sitting
+                    directly below the main play-area card. */}
+                <div
+                    className={cn(
+                        "transition-opacity duration-300 ease-out",
+                        previewMapReady
+                            ? "opacity-100"
+                            : "opacity-0 pointer-events-none",
+                    )}
+                >
+                    <PlayAreaExtensions primary={value} />
+                </div>
+
                 <div
                     className={cn(
                         "transition-opacity duration-300 ease-out",
@@ -1224,28 +1242,6 @@ export function PlayAreaStep({
                         <Pencil className="w-3.5 h-3.5" />
                         Change area
                     </Button>
-                </div>
-
-                {/* Adjacent-areas picker. v438: map-first — instead of a
-                    checklist dialog, this controller fetches the candidate
-                    neighbours, pre-adds the transit-connected ones, and
-                    publishes them so the preview map above paints a
-                    tappable "+/✓" pill at each. The user adds / removes
-                    neighbouring municipalities by tapping the map
-                    directly; selections persist in the
-                    `additionalMapGeoLocations` atom. */}
-                <div
-                    className={cn(
-                        "transition-opacity duration-300 ease-out",
-                        previewMapReady
-                            ? "opacity-100"
-                            : "opacity-0 pointer-events-none",
-                    )}
-                >
-                    <PlayAreaExtensions
-                        primary={value}
-                        ready={previewMapReady}
-                    />
                 </div>
             </div>
         );

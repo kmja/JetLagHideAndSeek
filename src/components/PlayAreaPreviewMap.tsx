@@ -3,7 +3,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import { Check, Plus } from "lucide-react";
-import type { ExpressionSpecification } from "maplibre-gl";
+import type {
+    ExpressionSpecification,
+    MapLayerMouseEvent,
+} from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, {
     Layer,
@@ -214,38 +217,23 @@ export function PlayAreaPreviewMap({
     // v438: subscribe to the adjacent-area candidates so the camera can
     // widen to include their pills. Without this, neighbours whose
     // centroid falls OUTSIDE the primary's bbox (an adjacent county,
-    // a cross-line municipality) would have their "+/✓" pill parked
+    // a cross-line municipality) would have their boundary parked
     // off-screen until the user manually zoomed out.
     const $adjacent = useStore(adjacentCandidatePreview);
-    // v441: the COMMITTED extensions (areas the user already added).
-    // Drawn always (CommittedAreasOverlay below) and folded into the
-    // camera fit, so the assembled play area matches the seeker map even
-    // after the extend panel collapses / on later wizard steps.
-    const $committed = useStore(additionalMapGeoLocations);
-    const committedExtents = useMemo(
-        () =>
-            $committed
-                .map(
-                    (e) =>
-                        (
-                            e.location?.properties as
-                                | { extent?: number[] }
-                                | undefined
-                        )?.extent,
-                )
-                .filter(
-                    (x): x is [number, number, number, number] =>
-                        Array.isArray(x) && x.length === 4,
-                ),
-        [$committed],
-    );
 
     // Once the real polygon lands, re-fit the camera to its actual
     // extent (the bbox extent was an over-approximation for irregular
     // shapes — Dalarna's bbox included parts of Norway and Uppsala).
-    // When adjacent candidates OR committed extensions are present we
-    // widen the fit to include their bboxes too, so every pill / added
-    // area stays on-screen. Depends on all inputs so the last one wins.
+    // When adjacent candidates are present we widen the fit ONCE to
+    // include their bboxes too, so every candidate boundary starts
+    // on-screen.
+    //
+    // v456: deliberately does NOT depend on the committed extensions
+    // (`additionalMapGeoLocations`). Adding/removing an area used to
+    // re-fit the camera here, which read as a jarring zoom-out on every
+    // add — the user asked for that to stop. The camera now settles once
+    // (main polygon + candidate bboxes) and stays put while areas are
+    // toggled.
     useEffect(() => {
         const base = realPolygon
             ? (turf.bbox({
@@ -263,12 +251,13 @@ export function PlayAreaPreviewMap({
               : null;
         if (!base) return;
         let [minX, minY, maxX, maxY] = base;
-        // candidate + committed bboxes are [maxLat, minLng, minLat, maxLng].
-        const extraBoxes = [
-            ...($adjacent?.candidates ?? []).map((c) => c.bbox),
-            ...committedExtents,
-        ];
-        for (const [cMaxLat, cMinLng, cMinLat, cMaxLng] of extraBoxes) {
+        // candidate bboxes are [maxLat, minLng, minLat, maxLng].
+        for (const [
+            cMaxLat,
+            cMinLng,
+            cMinLat,
+            cMaxLng,
+        ] of ($adjacent?.candidates ?? []).map((c) => c.bbox)) {
             minX = Math.min(minX, cMinLng);
             maxX = Math.max(maxX, cMaxLng);
             minY = Math.min(minY, cMinLat);
@@ -288,7 +277,7 @@ export function PlayAreaPreviewMap({
             /* ignore */
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [realPolygon, $adjacent, committedExtents]);
+    }, [realPolygon, $adjacent]);
 
     // Fit the map to the bbox. Called both from the bbox-change effect
     // (parent swaps `value` without unmounting) AND from the map's
@@ -672,6 +661,36 @@ function AdjacentCandidatesOverlay({
         };
     }, [candidates, mapRef]);
 
+    // v456: the WHOLE candidate boundary is the add/remove target — tap
+    // anywhere inside it, not just the pill. Bind a click handler to the
+    // fill layer (registering against the layer id is safe even before
+    // the layer mounts), plus a pointer cursor on hover.
+    useEffect(() => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const layerId = "adjacent-candidates-fill";
+        const onClick = (e: MapLayerMouseEvent) => {
+            const id = e.features?.[0]?.properties?.osmId;
+            if (id !== undefined && id !== null) {
+                toggleAdjacentArea(Number(id));
+            }
+        };
+        const onEnter = () => {
+            map.getCanvas().style.cursor = "pointer";
+        };
+        const onLeave = () => {
+            map.getCanvas().style.cursor = "";
+        };
+        map.on("click", layerId, onClick);
+        map.on("mouseenter", layerId, onEnter);
+        map.on("mouseleave", layerId, onLeave);
+        return () => {
+            map.off("click", layerId, onClick);
+            map.off("mouseenter", layerId, onEnter);
+            map.off("mouseleave", layerId, onLeave);
+        };
+    }, [mapRef]);
+
     if (!preview || preview.candidates.length === 0) return null;
 
     const addedIds = new Set<number>(
@@ -732,18 +751,23 @@ function AdjacentCandidatesOverlay({
     return (
         <>
             <Source id="adjacent-candidates" type="geojson" data={fc}>
-                {/* Real boundaries: faint fill + solid outline. */}
+                {/* Fill across EVERY candidate (real polygon or bbox
+                    fallback) — this is the click target, so the whole
+                    area toggles, not just a pill. Non-real (still
+                    loading) fills stay faint-but-nonzero so they remain
+                    hit-testable. */}
                 <Layer
                     id="adjacent-candidates-fill"
                     type="fill"
-                    filter={["==", ["get", "real"], true]}
                     paint={{
                         "fill-color": colorExpr,
                         "fill-opacity": [
                             "case",
                             ["==", ["get", "added"], true],
-                            0.2,
-                            0.07,
+                            0.22,
+                            ["==", ["get", "real"], true],
+                            0.08,
+                            0.05,
                         ],
                     }}
                 />
