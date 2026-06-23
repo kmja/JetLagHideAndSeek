@@ -236,16 +236,31 @@ export function SeekerPage() {
                                 card. Without it those errors
                                 bubble up to the root and the
                                 whole app blanks. */}
+                            {/* v465: wrap the Map in an `absolute inset-0`
+                                box so its `h-full` resolves against a
+                                DEFINITE-height container. The map area is
+                                a `flex-1` item — its height is set by the
+                                flex algorithm but its COMPUTED height is
+                                `auto`, so a percentage height (h-full →
+                                100%) on a direct child collapses to 0 and
+                                the MapLibre canvas renders blank. An
+                                absolutely-positioned inset-0 box derives a
+                                concrete height from its offsets, which the
+                                Map's h-full (and MapGL's height:100%) can
+                                then resolve against. This is the same
+                                pattern the pre-game warmup Map uses. */}
                             {showMap ? (
-                                <MapErrorBoundary>
-                                    <Map className="w-full h-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
-                                </MapErrorBoundary>
+                                <div className="absolute inset-0">
+                                    <MapErrorBoundary>
+                                        <Map className="w-full h-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                    </MapErrorBoundary>
+                                </div>
                             ) : (
                                 // Placeholder backdrop while the
                                 // wizard runs. Matches the map's
                                 // dark base so the dialog doesn't
                                 // sit on a flash of bare body.
-                                <div className="w-full h-full bg-[#0f172a]" />
+                                <div className="absolute inset-0 bg-[#0f172a]" />
                             )}
                             {showMap && <MapLoadingOverlay />}
                         </div>
