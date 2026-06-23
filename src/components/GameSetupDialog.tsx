@@ -838,6 +838,17 @@ function EditTabs({
 
 /* ─── Step 1 — Play area ─── */
 
+/**
+ * v454: shared loading copy for the locate → preview-tiles handoff.
+ * The GPS-pending placeholder and the preview map's tile veil now use
+ * the SAME wording, so a fresh auto-suggest reads as one continuous
+ * "finding your area" load instead of the label jumping to a second
+ * "Loading map" phase the moment GPS resolves.
+ */
+const LOCATING_LABEL = "Finding a play area near you…";
+const LOCATING_SUBLABEL =
+    "Using your location to suggest a starting area you can tweak.";
+
 export function PlayAreaStep({
     value,
     onChange,
@@ -1123,12 +1134,22 @@ export function PlayAreaStep({
         // the top of the function (see `previewMapReady`); we set it via
         // onReady here. opacity-0 + pointer-events-none keep the dialog's
         // dimensions stable so there's no layout shift on reveal.
+        // v454: did this preview arrive straight from the GPS
+        // auto-suggest (not a manual "Change area" search)? If so, carry
+        // the locate-phase copy into the tile veil so the handoff is
+        // seamless — one continuous load, not a jump to "Loading map".
+        const fromGpsSuggest =
+            gpsState === "done" && !userInitiatedSearch.current;
         return (
             <div className="space-y-3">
                 <PlayAreaPreviewMap
                     value={value}
                     height="h-[220px]"
                     onReady={() => setPreviewMapReady(true)}
+                    veilLabel={fromGpsSuggest ? LOCATING_LABEL : undefined}
+                    veilSublabel={
+                        fromGpsSuggest ? LOCATING_SUBLABEL : undefined
+                    }
                 />
 
                 <div
@@ -1268,12 +1289,10 @@ export function PlayAreaStep({
                         )}
                     >
                         <div className="text-sm font-medium text-foreground text-center">
-                            Finding a play area near you…
+                            {LOCATING_LABEL}
                         </div>
                         <div className="text-xs text-muted-foreground text-center leading-snug">
-                            Using your device's location to suggest a
-                            starting play area. You can still pick somewhere
-                            else once it lands.
+                            {LOCATING_SUBLABEL}
                         </div>
                     </div>
                 </div>

@@ -75,6 +75,8 @@ export function PlayAreaPreviewMap({
     value,
     height = "h-[160px]",
     onReady,
+    veilLabel,
+    veilSublabel,
 }: {
     value: OpenStreetMap;
     height?: string;
@@ -83,6 +85,12 @@ export function PlayAreaPreviewMap({
      *  in the play-area name and Change/Adjacent buttons in sync with
      *  the map appearing, instead of letting them show ahead of it. */
     onReady?: () => void;
+    /** v454: override the loading-veil copy. The wizard passes the same
+     *  "Finding a play area near you…" wording the GPS-pending placeholder
+     *  used, so the GPS → tile-load handoff reads as ONE continuous load
+     *  instead of the label jumping to a second "Loading map" phase. */
+    veilLabel?: string;
+    veilSublabel?: string;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     // v228: opt into the dark-tile CSS filter only when the resolved
@@ -425,7 +433,13 @@ export function PlayAreaPreviewMap({
                 <CommittedAreasOverlay />
                 <AdjacentCandidatesOverlay mapRef={mapRef} />
             </MapGL>
-            <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
+            <MapTilesVeil
+                visible={showVeil}
+                rounded
+                timedOut={timedOut}
+                label={veilLabel}
+                sublabel={veilSublabel}
+            />
         </div>
     );
 }
