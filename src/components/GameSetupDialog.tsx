@@ -8,7 +8,6 @@ import {
     MapPin,
     Maximize2,
     Pencil,
-    Plus,
     Ship,
     Train,
     TrainTrack,
@@ -849,7 +848,6 @@ export function PlayAreaStep({
     value: OpenStreetMap | null;
     onChange: (v: OpenStreetMap | null) => void;
 }) {
-    const $additional = useStore(additionalMapGeoLocations);
     // Preview vs. search. Default: preview when there's a committed
     // area (edit mode reopen, or a fresh wizard that's already
     // landed on a GPS-suggested match). The user toggles to search
@@ -864,7 +862,6 @@ export function PlayAreaStep({
     // should bounce to the preview by itself — that's the streamlined
     // flow. When true, we let the user finish picking before bouncing.
     const userInitiatedSearch = useRef(false);
-    const [adjacentOpen, setAdjacentOpen] = useState(false);
     // v382: gate the preview's play-area card + Change/Adjacent buttons
     // on the map having actually painted, so they fade in together
     // instead of leading the map. PlayAreaPreviewMap calls back via
@@ -1172,7 +1169,7 @@ export function PlayAreaStep({
 
                 <div
                     className={cn(
-                        "grid grid-cols-2 gap-2 transition-opacity duration-300 ease-out",
+                        "transition-opacity duration-300 ease-out",
                         previewMapReady
                             ? "opacity-100"
                             : "opacity-0 pointer-events-none",
@@ -1193,71 +1190,31 @@ export function PlayAreaStep({
                             setResults([]);
                             setSearched(false);
                         }}
-                        className="gap-1.5"
+                        className="gap-1.5 w-full"
                     >
                         <Pencil className="w-3.5 h-3.5" />
                         Change area
                     </Button>
-                    <Button
-                        variant="outline"
-                        onClick={() => setAdjacentOpen(true)}
-                        className="gap-1.5"
-                    >
-                        <Plus className="w-3.5 h-3.5" />
-                        Adjacent
-                        {$additional.length > 0 && (
-                            <span
-                                className={cn(
-                                    "ml-1 px-1.5 py-0.5 rounded-sm",
-                                    "text-[9px] tabular-nums font-poppins font-bold",
-                                    "bg-primary text-primary-foreground",
-                                )}
-                            >
-                                {$additional.length}
-                            </span>
-                        )}
-                    </Button>
                 </div>
 
-                {/* Adjacent-areas dialog. Wraps the existing
-                    PlayAreaExtensions picker so the user can browse
-                    neighbouring municipalities without leaving the
-                    wizard step — a sibling Dialog rather than a
-                    sibling wizard step. Closes when the user taps
-                    Done; selections persist in the
-                    `additionalMapGeoLocations` atom either way. */}
-                <Dialog open={adjacentOpen} onOpenChange={setAdjacentOpen}>
-                    <DialogContent
-                        className={cn(
-                            "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                            "flex flex-col p-0 max-h-[85vh]",
-                        )}
-                    >
-                        <div className="px-4 pt-3 pb-3 shrink-0 border-b border-border">
-                            <DialogTitle
-                                className="font-display font-black uppercase text-lg leading-tight"
-                                style={{ letterSpacing: "-0.02em" }}
-                            >
-                                Adjacent areas
-                            </DialogTitle>
-                            <DialogDescription className="text-xs leading-snug">
-                                Some cities are tightly linked to
-                                neighbouring municipalities that locals
-                                treat as one. Pick the ones you want to
-                                include.
-                            </DialogDescription>
-                        </div>
-                        <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
-                            <PlayAreaExtensions primary={value} />
-                        </div>
-                        <DialogFooter className="px-4 py-3 shrink-0 border-t border-border">
-                            <Button onClick={() => setAdjacentOpen(false)}>
-                                <Check className="w-4 h-4 mr-1" />
-                                Done
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                {/* Adjacent-areas picker. v438: map-first — instead of a
+                    checklist dialog, this controller fetches the candidate
+                    neighbours, pre-adds the transit-connected ones, and
+                    publishes them so the preview map above paints a
+                    tappable "+/✓" pill at each. The user adds / removes
+                    neighbouring municipalities by tapping the map
+                    directly; selections persist in the
+                    `additionalMapGeoLocations` atom. */}
+                <div
+                    className={cn(
+                        "transition-opacity duration-300 ease-out",
+                        previewMapReady
+                            ? "opacity-100"
+                            : "opacity-0 pointer-events-none",
+                    )}
+                >
+                    <PlayAreaExtensions primary={value} />
+                </div>
 
                 <p className="text-[11px] leading-snug text-muted-foreground border border-dashed border-border/60 rounded-md p-2.5">
                     <span className="font-semibold text-foreground">

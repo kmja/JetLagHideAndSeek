@@ -4,7 +4,14 @@ import {
     buildAdjacentAdminQuery,
     buildMunicipalityBandQuery,
     buildTopologicalAdjacencyQuery,
+    withinLevelWindow,
 } from "@/maps/api/playAreaExtensions";
+
+const stub = (admin_level: string | undefined, id = 1) => ({
+    type: "relation" as const,
+    id,
+    tags: admin_level ? { admin_level } : {},
+});
 
 describe("topological-adjacency Overpass query (v427)", () => {
     test("walks relation → member ways → relations referencing those ways", () => {
@@ -51,5 +58,36 @@ describe("deprecated admin-level queries (retained for prewarm)", () => {
         expect(buildMunicipalityBandQuery(0, 0, 10)).toContain(
             "(around:10000,0,0)",
         );
+    });
+});
+
+describe("withinLevelWindow — generalised granularity gate", () => {
+    test("NYC (level 5): keeps boroughs (county level 6), drops community districts + parent state", () => {
+        // NYC consolidated city is admin_level 5; window is [5, 7].
+        expect(withinLevelWindow(stub("6"), 5)).toBe(true); // borough/county
+        expect(withinLevelWindow(stub("7"), 5)).toBe(true); // borough (alt tagging)
+        expect(withinLevelWindow(stub("8"), 5)).toBe(false); // NJ city / CD
+        expect(withinLevelWindow(stub("9"), 5)).toBe(false); // community district
+        expect(withinLevelWindow(stub("4"), 5)).toBe(false); // parent state
+        expect(withinLevelWindow(stub("2"), 5)).toBe(false); // country
+    });
+
+    test("Stockholm (kommun level 7): keeps same-level peers like Solna, drops the parent county", () => {
+        // window is [7, 9].
+        expect(withinLevelWindow(stub("7"), 7)).toBe(true); // Solna (peer kommun)
+        expect(withinLevelWindow(stub("6"), 7)).toBe(false); // parent län/county
+        expect(withinLevelWindow(stub("4"), 7)).toBe(false); // region
+        expect(withinLevelWindow(stub("8"), 7)).toBe(true); // edge of window
+        expect(withinLevelWindow(stub("10"), 7)).toBe(false); // ward — too fine
+    });
+
+    test("no-op when the primary has no usable admin_level", () => {
+        expect(withinLevelWindow(stub("8"), null)).toBe(true);
+        expect(withinLevelWindow(stub(undefined), null)).toBe(true);
+    });
+
+    test("candidate without an admin_level is dropped once a window exists", () => {
+        expect(withinLevelWindow(stub(undefined), 7)).toBe(false);
+        expect(withinLevelWindow(stub("not-a-number"), 7)).toBe(false);
     });
 });

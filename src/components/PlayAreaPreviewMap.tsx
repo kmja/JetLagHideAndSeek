@@ -24,9 +24,9 @@ import {
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
-import { cn } from "@/lib/utils";
 
 import { MapTilesVeil } from "./MapTilesVeil";
 
@@ -114,7 +114,7 @@ export function PlayAreaPreviewMap({
     const osmType = value.properties.osm_type;
     const [realPolygon, setRealPolygon] = useState<
         GeoJSON.Polygon | GeoJSON.MultiPolygon | null
-    >(() => (osmId ? polygonCache.get(osmId) ?? null : null));
+    >(() => (osmId ? (polygonCache.get(osmId) ?? null) : null));
 
     // v319: was this exact area already previewed earlier this session?
     // A module-cache hit at first mount means the boundary geometry is in
@@ -179,10 +179,9 @@ export function PlayAreaPreviewMap({
     }, [osmId, osmType]);
 
     // The overlay is the real polygon or nothing. No bbox fallback.
-    const polygon = useMemo<
-        | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-        | null
-    >(() => {
+    const polygon = useMemo<GeoJSON.Feature<
+        GeoJSON.Polygon | GeoJSON.MultiPolygon
+    > | null>(() => {
         if (!realPolygon) return null;
         return {
             type: "Feature",
@@ -191,17 +190,45 @@ export function PlayAreaPreviewMap({
         };
     }, [realPolygon]);
 
+    // v438: subscribe to the adjacent-area candidates so the camera can
+    // widen to include their pills. Without this, neighbours whose
+    // centroid falls OUTSIDE the primary's bbox (an adjacent county,
+    // a cross-line municipality) would have their "+/✓" pill parked
+    // off-screen until the user manually zoomed out.
+    const $adjacent = useStore(adjacentCandidatePreview);
+
     // Once the real polygon lands, re-fit the camera to its actual
     // extent (the bbox extent was an over-approximation for irregular
     // shapes — Dalarna's bbox included parts of Norway and Uppsala).
+    // When adjacent candidates are present we widen the fit to also
+    // include each candidate's bbox so every pill is reachable on the
+    // first paint. Depends on both inputs so whichever lands last wins.
     useEffect(() => {
-        if (!realPolygon) return;
+        const base = realPolygon
+            ? (turf.bbox({
+                  type: "Feature",
+                  properties: {},
+                  geometry: realPolygon,
+              } as GeoJSON.Feature) as [number, number, number, number])
+            : bbox
+              ? ([bbox.minLng, bbox.minLat, bbox.maxLng, bbox.maxLat] as [
+                    number,
+                    number,
+                    number,
+                    number,
+                ])
+              : null;
+        if (!base) return;
+        let [minX, minY, maxX, maxY] = base;
+        for (const c of $adjacent?.candidates ?? []) {
+            // candidate bbox is [maxLat, minLng, minLat, maxLng].
+            const [cMaxLat, cMinLng, cMinLat, cMaxLng] = c.bbox;
+            minX = Math.min(minX, cMinLng);
+            maxX = Math.max(maxX, cMaxLng);
+            minY = Math.min(minY, cMinLat);
+            maxY = Math.max(maxY, cMaxLat);
+        }
         try {
-            const [minX, minY, maxX, maxY] = turf.bbox({
-                type: "Feature",
-                properties: {},
-                geometry: realPolygon,
-            } as GeoJSON.Feature);
             const map = mapRef.current?.getMap();
             if (!map) return;
             map.fitBounds(
@@ -209,12 +236,13 @@ export function PlayAreaPreviewMap({
                     [minX, minY],
                     [maxX, maxY],
                 ],
-                { padding: 16, duration: 500, maxZoom: 12 },
+                { padding: 24, duration: 500, maxZoom: 12 },
             );
         } catch {
             /* ignore */
         }
-    }, [realPolygon]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [realPolygon, $adjacent]);
 
     // Fit the map to the bbox. Called both from the bbox-change effect
     // (parent swaps `value` without unmounting) AND from the map's

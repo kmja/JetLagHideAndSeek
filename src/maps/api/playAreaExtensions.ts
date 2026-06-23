@@ -22,6 +22,18 @@
  * doesn't break on consolidated cities, county/municipality bands,
  * or country-of-the-week edge cases.
  *
+ * Granularity gate (generalised, not per-city): topological adjacency
+ * over-collects at the extremes — a city's coastline/border ways are
+ * shared BOTH with the parent region (its state/country boundary) and
+ * with whatever micro-divisions happen to sit on the perimeter (NYC's
+ * level-8/9 community districts, ward-level neighbourhoods elsewhere).
+ * Neither is a "reasonable expansion". So every candidate, from every
+ * pass, is funnelled through `withinLevelWindow`: keep only admin
+ * areas whose level sits in `[primaryLevel, primaryLevel +
+ * SUB_LEVEL_DEPTH]`. That admits same-level peers (Solna ↔ Stockholm)
+ * and immediate sub-units (boroughs ↔ NYC) while dropping the parent
+ * region above and the micro-divisions below — no city-specific code.
+ *
  * Single user-visible call — `findExtensionCandidates(...)` —
  * returns a list ready to render in a checkable picker.
  */
@@ -76,6 +88,17 @@ export async function findExtensionCandidates(
 
     const primaryOsmId = primary.properties.osm_id;
 
+    // The primary's own admin_level drives the granularity window every
+    // candidate is filtered against (see `withinLevelWindow`). Fetched
+    // up front because all three passes below feed through it. Stable
+    // cached query, so this is usually an R2 hit. Null = the primary has
+    // no usable admin_level, in which case the window filter no-ops and
+    // we fall back to "any administrative boundary".
+    const primaryAdminLevel = await fetchAdminLevel(primaryOsmId);
+    const primaryLevel = primaryAdminLevel
+        ? parseInt(primaryAdminLevel, 10)
+        : null;
+
     // Topological-adjacency query — every admin relation that shares
     // at least one member way with the primary. Sharing a member way
     // is OSM's representation of "shares a boundary segment", so this
@@ -107,8 +130,13 @@ export async function findExtensionCandidates(
 
     const candidates: AdjacentAreaCandidate[] = [];
     const seen = new Set<number>();
-    for (const el of adjacencyElements) {
-        if (!isAdministrativeBoundary(el)) continue;
+    // Single funnel every pass feeds through: skip non-admin relations,
+    // skip out-of-window granularity (parent regions ABOVE the primary,
+    // micro-divisions far BELOW it), dedupe, build the candidate.
+    const consider = (el: OverpassRelationStub) => {
+        if (!isAdministrativeBoundary(el)) return;
+        if (!withinLevelWindow(el, primaryLevel)) return;
+        if (seen.has(el.id)) return;
         const c = relationStubToCandidate(
             el,
             primaryOsmId,
@@ -116,11 +144,12 @@ export async function findExtensionCandidates(
             primaryLng,
             stations,
         );
-        if (c && !seen.has(el.id)) {
+        if (c) {
             seen.add(el.id);
             candidates.push(c);
         }
-    }
+    };
+    for (const el of adjacencyElements) consider(el);
 
     // Proximity fallback. Two real cases this catches that topological
     // misses:
@@ -147,10 +176,9 @@ export async function findExtensionCandidates(
     // still gets its directly-adjacent peers, plus near-neighbours
     // surfaced by proximity. Limit + sort below picks the closest.
     try {
-        const adminLevel = await fetchAdminLevel(primaryOsmId);
-        if (adminLevel) {
+        if (primaryAdminLevel) {
             const bandQuery = buildAdjacentAdminQuery(
-                adminLevel,
+                primaryAdminLevel,
                 primaryLat,
                 primaryLng,
                 radiusKm,
@@ -163,20 +191,7 @@ export async function findExtensionCandidates(
             );
             const bandElements = ((bandData as { elements?: unknown[] })
                 .elements ?? []) as OverpassRelationStub[];
-            for (const el of bandElements) {
-                if (!isAdministrativeBoundary(el)) continue;
-                const c = relationStubToCandidate(
-                    el,
-                    primaryOsmId,
-                    primaryLat,
-                    primaryLng,
-                    stations,
-                );
-                if (c && !seen.has(el.id)) {
-                    seen.add(el.id);
-                    candidates.push(c);
-                }
-            }
+            for (const el of bandElements) consider(el);
 
             // Sub-units pass — only for CONSOLIDATED-CITY / megacity
             // primaries (admin_level ≤ 5). NYC is the canonical case:
@@ -189,27 +204,19 @@ export async function findExtensionCandidates(
             // and N+2 INSIDE the primary's area: that catches both
             // possible OSM tagging conventions for boroughs (some are
             // 6, some 7) without sweeping in fine-grained districts.
-            const lvlNum = parseInt(adminLevel, 10);
-            if (Number.isFinite(lvlNum) && lvlNum <= 5) {
+            // The `consider` funnel still applies the level window, so
+            // anything finer than N+SUB_LEVEL_DEPTH is dropped here too.
+            if (
+                primaryLevel !== null &&
+                Number.isFinite(primaryLevel) &&
+                primaryLevel <= 5
+            ) {
                 try {
                     const subUnits = await fetchSubUnitsInArea(
                         primaryOsmId,
-                        lvlNum,
+                        primaryLevel,
                     );
-                    for (const el of subUnits) {
-                        if (!isAdministrativeBoundary(el)) continue;
-                        const c = relationStubToCandidate(
-                            el,
-                            primaryOsmId,
-                            primaryLat,
-                            primaryLng,
-                            stations,
-                        );
-                        if (c && !seen.has(el.id)) {
-                            seen.add(el.id);
-                            candidates.push(c);
-                        }
-                    }
+                    for (const el of subUnits) consider(el);
                 } catch (e) {
                     console.warn(
                         "Sub-units pass failed (continuing without):",
@@ -294,6 +301,51 @@ function isAdministrativeBoundary(el: OverpassRelationStub): boolean {
     const tags = el.tags ?? {};
     if (tags.type !== "boundary") return false;
     return tags.boundary === "administrative";
+}
+
+/**
+ * How many admin_levels BELOW the primary still count as a "reasonable
+ * expansion" rather than a micro-division. The wanted granularity is
+ * country-dependent (Stockholm's peers are SAME-level kommuns; NYC's
+ * boroughs are ONE level down — counties at level 6 under the level-5
+ * consolidated city), so we accept the primary's level through the
+ * primary's level + this depth. 2 is enough to catch boroughs whether
+ * a mapper tagged them at N+1 or N+2, while still excluding the next
+ * tier down — e.g. NYC's level-8/9 community districts, which form the
+ * city's perimeter ways and so leak through the topological pass.
+ */
+const SUB_LEVEL_DEPTH = 2;
+
+/**
+ * Granularity gate, generalised — NOT special-cased per city. A
+ * candidate is a "reasonable expansion" only when its admin_level
+ * sits in `[primaryLevel, primaryLevel + SUB_LEVEL_DEPTH]`:
+ *
+ *   - BELOW the floor (numerically smaller level) → a parent region
+ *     that engulfs the primary. The topological pass returns these
+ *     because the primary's coast/border ways are shared with the
+ *     state/country boundary (NY State, New Jersey for NYC). Never a
+ *     play-area expansion — drop.
+ *   - ABOVE the ceiling → a micro-division far finer than the primary
+ *     (NYC community districts, ward-level neighbourhoods). These leak
+ *     through topological when they sit on the primary's perimeter.
+ *     Drop.
+ *   - INSIDE the window → same-level peers (Solna ↔ Stockholm) and
+ *     immediate sub-units (boroughs ↔ NYC). Keep.
+ *
+ * When `primaryLevel` is null (the primary has no usable admin_level)
+ * we can't reason about granularity, so the gate is a no-op and we
+ * fall back to "any administrative boundary".
+ */
+export function withinLevelWindow(
+    el: OverpassRelationStub,
+    primaryLevel: number | null,
+): boolean {
+    if (primaryLevel === null || !Number.isFinite(primaryLevel)) return true;
+    const raw = el.tags?.admin_level;
+    const lvl = raw ? parseInt(raw, 10) : NaN;
+    if (!Number.isFinite(lvl)) return false;
+    return lvl >= primaryLevel && lvl <= primaryLevel + SUB_LEVEL_DEPTH;
 }
 
 /** Turn one Overpass admin-relation stub into a candidate (or null if
