@@ -628,6 +628,10 @@ function AdjacentCandidatesOverlay({
 }) {
     const preview = useStore(adjacentCandidatePreview);
     const $additional = useStore(additionalMapGeoLocations);
+    // v464: dim the unselected fill/outline in dark mode — the off-white
+    // tint that reads well on the light basemap is glaring on the dark
+    // one. Lower the opacities when the resolved theme is dark.
+    const dark = useStore(resolvedTheme) === "dark";
     const [labeledIds, setLabeledIds] = useState<Set<number>>(new Set());
     // Real OSM boundaries for each candidate, fetched lazily once the
     // pills are revealed (the bbox rectangle is the fallback until each
@@ -819,8 +823,8 @@ function AdjacentCandidatesOverlay({
                             ["==", ["get", "added"], true],
                             0,
                             ["==", ["get", "transit"], true],
-                            0.2,
-                            0.14,
+                            dark ? 0.12 : 0.2,
+                            dark ? 0.08 : 0.14,
                         ],
                     }}
                 />
@@ -837,7 +841,7 @@ function AdjacentCandidatesOverlay({
                             "case",
                             ["==", ["get", "added"], true],
                             0,
-                            0.9,
+                            dark ? 0.6 : 0.9,
                         ],
                     }}
                 />
@@ -853,7 +857,7 @@ function AdjacentCandidatesOverlay({
                             "case",
                             ["==", ["get", "added"], true],
                             0,
-                            0.5,
+                            dark ? 0.35 : 0.5,
                         ],
                         "line-dasharray": [3, 3],
                     }}

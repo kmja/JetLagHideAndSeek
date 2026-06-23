@@ -108,15 +108,31 @@ export async function findExtensionCandidates(
     // admin_level. The old same-level-with-fallback heuristic was
     // brittle for consolidated cities and missed legitimate
     // neighbours at a different level.
-    const adjacencyQuery = buildTopologicalAdjacencyQuery(primaryOsmId);
-    const adjacencyData = await getOverpassData(
-        adjacencyQuery,
-        undefined,
-        CacheType.ZONE_CACHE,
-        90_000,
-    );
-    const adjacencyElements = ((adjacencyData as { elements?: unknown[] })
-        .elements ?? []) as OverpassRelationStub[];
+    // IMPORTANT: this pass is wrapped in try/catch and treated as
+    // best-effort. For a huge boundary (NYC's coastline references
+    // thousands of ways, each referenced by many relations) the
+    // `way(r); rel(bw)` expansion can blow past the timeout. Before
+    // v464 that rejection propagated out of the whole function — so
+    // NYC produced ZERO candidates even though the sub-units pass below
+    // is exactly what yields its boroughs. Now a topological failure
+    // just leaves `adjacencyElements` empty and the band + sub-units
+    // passes still run.
+    let adjacencyElements: OverpassRelationStub[] = [];
+    try {
+        const adjacencyData = await getOverpassData(
+            buildTopologicalAdjacencyQuery(primaryOsmId),
+            undefined,
+            CacheType.ZONE_CACHE,
+            90_000,
+        );
+        adjacencyElements = ((adjacencyData as { elements?: unknown[] })
+            .elements ?? []) as OverpassRelationStub[];
+    } catch (e) {
+        console.warn(
+            "Topological adjacency failed (continuing with proximity + sub-units):",
+            e,
+        );
+    }
 
     // Pull all stations once; we then bbox-test each candidate
     // against this set. v268: query is now stable per (lat, lng,
@@ -124,10 +140,22 @@ export async function findExtensionCandidates(
     // CLIENT-SIDE — so the cache key doesn't fan out across 2^5
     // mode subsets and the overpass-cache cron can usefully prewarm
     // every curated city's adjacent-search response.
-    const allStations =
-        allowedTransit.length > 0
-            ? await fetchTransitStations(primaryLat, primaryLng, radiusKm)
-            : [];
+    let allStations: Array<{ lat: number; lon: number; mode: TransitMode }> =
+        [];
+    if (allowedTransit.length > 0) {
+        try {
+            allStations = await fetchTransitStations(
+                primaryLat,
+                primaryLng,
+                radiusKm,
+            );
+        } catch (e) {
+            // Transit detection is a nice-to-have (drives the green
+            // "transit-connected" tint); its failure must not zero out
+            // the candidate set.
+            console.warn("Transit-station fetch failed (continuing):", e);
+        }
+    }
     const stations = allStations.filter((s) => allowedTransit.includes(s.mode));
 
     const candidates: AdjacentAreaCandidate[] = [];
