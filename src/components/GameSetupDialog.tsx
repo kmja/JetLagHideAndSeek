@@ -870,7 +870,18 @@ export function PlayAreaStep({
     // and the new map has to re-load).
     const [previewMapReady, setPreviewMapReady] = useState(false);
     const previewValueOsmId = value?.properties?.osm_id ?? null;
+    // Reset ONLY when the area genuinely changes mid-mount (search picks a
+    // different area without unmounting PlayAreaStep). We must NOT reset
+    // on the initial mount: on back-navigation the step remounts with the
+    // polygon already cached, so PlayAreaPreviewMap fires onReady
+    // synchronously — and a blind reset here would race in right after
+    // and clobber previewMapReady back to false, leaving the play-area
+    // card / Change / Extend controls stuck invisible (opacity-0). Track
+    // the previous id so a fresh mount (prev === current) is a no-op.
+    const prevPreviewOsmId = useRef(previewValueOsmId);
     useEffect(() => {
+        if (prevPreviewOsmId.current === previewValueOsmId) return;
+        prevPreviewOsmId.current = previewValueOsmId;
         setPreviewMapReady(false);
     }, [previewValueOsmId]);
     const [query, setQuery] = useState("");

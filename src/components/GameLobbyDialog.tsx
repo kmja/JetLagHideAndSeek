@@ -124,6 +124,12 @@ export function GameLobbyDialog() {
     const $manualOpen = useStore(lobbyManualOpen);
     const $foundAt = useStore(roundFoundAt);
     const $seekerSharing = useStore(seekerLocationSharing);
+    // v442: the setup/area editor is a Radix Dialog that would otherwise
+    // open BEHIND this drawer (the drawer content sits at z-[1055], above
+    // the dialog's z-[1050]). So whenever the editor is open we close the
+    // lobby; it auto-reopens when the editor closes. This is what makes
+    // the map's "Edit" button actually reach the play-area picker.
+    const $setupOpen = useStore(setupDialogOpen);
 
     // Two open paths:
     //   1. Auto-open pre-game: standard wizard → lobby → start flow.
@@ -132,11 +138,12 @@ export function GameLobbyDialog() {
     //      to revisit the roster, re-share the join code, or rotate
     //      roles. The manual flag wins regardless of $hidingEndsAt.
     const open =
-        $manualOpen ||
-        ($welcomeSeen &&
-            $setupCompleted &&
-            $hidingEndsAt === null &&
-            $playerRole !== null);
+        !$setupOpen &&
+        ($manualOpen ||
+            ($welcomeSeen &&
+                $setupCompleted &&
+                $hidingEndsAt === null &&
+                $playerRole !== null));
 
     const isHiderRole =
         $playerRole === "hider" || $playerRole === "coHider";
@@ -436,10 +443,11 @@ export function GameLobbyDialog() {
                         <div className="px-5 pt-5 pb-4 shrink-0 border-b border-border space-y-2.5">
                             <div className="flex items-start gap-3">
                                 <div className="flex-1 min-w-0 space-y-2">
-                                    {/* v442: title is just the play area.
-                                        Size + transit stack below it as
-                                        their own rows, each inline-
-                                        editable for the host. */}
+                                    {/* v442: title is just the play area;
+                                        the size pill sits under it. Transit
+                                        chips are a full-width row below
+                                        (outside this column) so they aren't
+                                        clipped by the Leave button. */}
                                     <VaulDrawer.Title className="text-xl font-bold leading-tight tracking-tight truncate min-w-0">
                                         {cityLabel || "Lobby"}
                                     </VaulDrawer.Title>
@@ -462,13 +470,14 @@ export function GameLobbyDialog() {
                                                         >
                                                             <SizeBadge
                                                                 size={$size}
+                                                                className="text-sm px-2.5 py-1"
                                                             />
-                                                            <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                                                            <ChevronDown className="w-4 h-4 text-muted-foreground" />
                                                         </button>
                                                     </PopoverTrigger>
                                                     <PopoverContent
                                                         align="start"
-                                                        className="w-44 p-1"
+                                                        className="z-[1060] w-44 p-1"
                                                     >
                                                         {SIZE_OPTIONS.map(
                                                             (o) => (
@@ -500,93 +509,13 @@ export function GameLobbyDialog() {
                                                     </PopoverContent>
                                                 </Popover>
                                             ) : (
-                                                <SizeBadge size={$size} />
+                                                <SizeBadge
+                                                    size={$size}
+                                                    className="text-sm px-2.5 py-1"
+                                                />
                                             )}
                                         </div>
                                     )}
-
-                                    {/* Transit chips — single row (scrolls
-                                        if it must), each with a remove (x)
-                                        and an add (+) for the host. */}
-                                    <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
-                                        {$allowedTransit.length === 0 &&
-                                        !isHost ? (
-                                            <span className="text-xs text-muted-foreground italic">
-                                                Walking only
-                                            </span>
-                                        ) : (
-                                            $allowedTransit.map((m) => {
-                                                const Icon = TRANSIT_ICONS[m];
-                                                return (
-                                                    <span
-                                                        key={m}
-                                                        className={cn(
-                                                            "inline-flex shrink-0 items-center gap-1.5 py-1 rounded-sm bg-secondary border border-border text-xs",
-                                                            isHost
-                                                                ? "pl-2 pr-1"
-                                                                : "px-2",
-                                                        )}
-                                                    >
-                                                        <Icon className="w-3.5 h-3.5" />
-                                                        <span>
-                                                            {TRANSIT_LABELS[m]}
-                                                        </span>
-                                                        {isHost && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    removeMode(m)
-                                                                }
-                                                                aria-label={`Remove ${TRANSIT_LABELS[m]}`}
-                                                                className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:bg-background/70 hover:text-foreground transition-colors"
-                                                            >
-                                                                <X className="w-3 h-3" />
-                                                            </button>
-                                                        )}
-                                                    </span>
-                                                );
-                                            })
-                                        )}
-                                        {isHost && addableModes.length > 0 && (
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <button
-                                                        type="button"
-                                                        aria-label="Add transit mode"
-                                                        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-sm border border-dashed border-border text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                                    >
-                                                        <Plus className="w-4 h-4" />
-                                                    </button>
-                                                </PopoverTrigger>
-                                                <PopoverContent
-                                                    align="start"
-                                                    className="w-44 p-1"
-                                                >
-                                                    {addableModes.map((m) => {
-                                                        const Icon =
-                                                            TRANSIT_ICONS[m];
-                                                        return (
-                                                            <button
-                                                                key={m}
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    addMode(m)
-                                                                }
-                                                                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent transition-colors"
-                                                            >
-                                                                <Icon className="w-4 h-4" />
-                                                                {
-                                                                    TRANSIT_LABELS[
-                                                                        m
-                                                                    ]
-                                                                }
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </PopoverContent>
-                                            </Popover>
-                                        )}
-                                    </div>
                                 </div>
                                 {$mp && $code && (
                                     /* v318: switched from solid-fill
@@ -616,10 +545,81 @@ export function GameLobbyDialog() {
                                     </button>
                                 )}
                             </div>
-                            {/* v442: the "Edit game settings" button is
-                                gone — size + transit are edited inline
-                                above, and the play area via the Edit
-                                button on the map below. */}
+
+                            {/* Transit chips — FULL-WIDTH row (own line, not
+                                squeezed beside the Leave button). Runs the
+                                width of the drawer and scrolls horizontally
+                                if the chips overflow. Host: x to remove a
+                                mode, + to add one. */}
+                            <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+                                {$allowedTransit.length === 0 ? (
+                                    <span className="text-xs text-muted-foreground italic">
+                                        Walking only
+                                    </span>
+                                ) : (
+                                    $allowedTransit.map((m) => {
+                                        const Icon = TRANSIT_ICONS[m];
+                                        return (
+                                            <span
+                                                key={m}
+                                                className={cn(
+                                                    "inline-flex shrink-0 items-center gap-1.5 py-1 rounded-sm bg-secondary border border-border text-xs",
+                                                    isHost
+                                                        ? "pl-2 pr-1"
+                                                        : "px-2",
+                                                )}
+                                            >
+                                                <Icon className="w-3.5 h-3.5" />
+                                                <span>{TRANSIT_LABELS[m]}</span>
+                                                {isHost && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            removeMode(m)
+                                                        }
+                                                        aria-label={`Remove ${TRANSIT_LABELS[m]}`}
+                                                        className="ml-0.5 rounded-sm p-0.5 text-muted-foreground hover:bg-background/70 hover:text-foreground transition-colors"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                )}
+                                            </span>
+                                        );
+                                    })
+                                )}
+                                {isHost && addableModes.length > 0 && (
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <button
+                                                type="button"
+                                                aria-label="Add transit mode"
+                                                className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-sm border border-dashed border-border text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            >
+                                                <Plus className="w-4 h-4" />
+                                            </button>
+                                        </PopoverTrigger>
+                                        <PopoverContent
+                                            align="start"
+                                            className="z-[1060] w-44 p-1"
+                                        >
+                                            {addableModes.map((m) => {
+                                                const Icon = TRANSIT_ICONS[m];
+                                                return (
+                                                    <button
+                                                        key={m}
+                                                        type="button"
+                                                        onClick={() => addMode(m)}
+                                                        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent transition-colors"
+                                                    >
+                                                        <Icon className="w-4 h-4" />
+                                                        {TRANSIT_LABELS[m]}
+                                                    </button>
+                                                );
+                                            })}
+                                        </PopoverContent>
+                                    </Popover>
+                                )}
+                            </div>
                         </div>
                     );
                 })()}
