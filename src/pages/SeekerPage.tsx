@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
+import { AppShell } from "@/components/AppShell";
 import { BottomNav } from "@/components/BottomNav";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
@@ -171,101 +172,70 @@ export function SeekerPage() {
             <SidebarProviderL>
                 <SidebarProviderR defaultOpen={false}>
                     <QuestionSidebar />
-                    {/* v462: the mobile header + bottom nav are now real
-                        flow rows in this column — header on top, map in
-                        the middle (flex-1), nav at the bottom — instead of
-                        `fixed` bars overlaid on a full-screen map. That
-                        means the map area is exactly the space between
-                        them, so the on-map controls anchor to it with
-                        plain top-2 / bottom-2 rather than the fragile
-                        top-[64px] / bottom-[80px] offsets that were
-                        mis-placing (and clipping) buttons. On desktop the
-                        header/nav are `md:hidden`, so main is just the
-                        full-height map area as before. */}
-                    <main className="flex flex-col flex-grow group h-svh min-h-0">
-                        <SeekerTopBar />
+                    {/* v466: the seeker shell is now the shared AppShell
+                        (header → map area → footer flex column). The map
+                        area is a definite-height `relative flex-1` box so
+                        the on-map controls anchor to it with plain top-2 /
+                        bottom-2 and the Map fills it via `absolute inset-0`
+                        (see AppShell for the height rationale). On desktop
+                        the header/nav are `md:hidden`, so it's just the
+                        full-height map area between the sidebars. */}
+                    <AppShell
+                        as="main"
+                        className="flex-grow h-svh"
+                        mapAreaId="map-modal-dialog-container-leaflet"
+                        header={<SeekerTopBar />}
+                        footer={<BottomNav />}
+                    >
                         <div
-                            className="relative flex-1 min-h-0"
-                            id="map-modal-dialog-container-leaflet"
+                            className="absolute top-2 left-2 z-[1030] group-[.fullscreen]:hidden hidden md:block"
+                            data-tutorial-id="left-sidebar-trigger"
                         >
-                            <div
-                                className="absolute top-2 left-2 z-[1030] group-[.fullscreen]:hidden hidden md:block"
-                                data-tutorial-id="left-sidebar-trigger"
-                            >
-                                <SidebarTriggerL />
-                            </div>
-                            {/* Persistent hider timer. v457: the card
-                                positions itself — bottom-LEFT during
-                                the hiding period (yellow "hiding time
-                                remaining" box) and bottom-RIGHT once
-                                seeking starts (white clock + gold
-                                "time to beat" strip), matching the
-                                Jet Lag show. */}
-                            <HiderTimer />
-                            {/* Top-right cluster: map-options chip +
-                                trip-planner launcher. Anchors to the
-                                top of the map area (which now sits
-                                below the header), so a plain top-2 is
-                                correct on every breakpoint. */}
-                            <div className="absolute top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
-                                <MapDisplayControls />
-                                {/* Trip planner launcher — small
-                                    pill sitting under the map-
-                                    options chip. Opens the bottom-
-                                    drawer SeekerTripPlannerSheet
-                                    which fetches a journey from
-                                    live GPS to the typed place. */}
-                                <SeekerTripPlannerLauncher />
-                            </div>
-                            <div className="bottom-5 right-2 mx-auto mb-2 w-fit absolute z-[1030] group-[.fullscreen]:hidden hidden md:block">
-                                <OptionDrawers />
-                            </div>
-                            <ThermometerOverlay />
-                            <PendingAnswerOverlay />
-                            <TravelTimesOverlay />
-                            {/* Transit overlays + radar sweep are
-                                now built into Map directly as
-                                Source/Layer pairs; the old
-                                sibling components have been
-                                deleted along with the Leaflet
-                                renderer.
-                                Error boundary catches any render-
-                                time error the map might raise
-                                (style parse, WebGL init, etc.)
-                                and surfaces a recover-and-reload
-                                card. Without it those errors
-                                bubble up to the root and the
-                                whole app blanks. */}
-                            {/* v465: wrap the Map in an `absolute inset-0`
-                                box so its `h-full` resolves against a
-                                DEFINITE-height container. The map area is
-                                a `flex-1` item — its height is set by the
-                                flex algorithm but its COMPUTED height is
-                                `auto`, so a percentage height (h-full →
-                                100%) on a direct child collapses to 0 and
-                                the MapLibre canvas renders blank. An
-                                absolutely-positioned inset-0 box derives a
-                                concrete height from its offsets, which the
-                                Map's h-full (and MapGL's height:100%) can
-                                then resolve against. This is the same
-                                pattern the pre-game warmup Map uses. */}
-                            {showMap ? (
-                                <div className="absolute inset-0">
-                                    <MapErrorBoundary>
-                                        <Map className="w-full h-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
-                                    </MapErrorBoundary>
-                                </div>
-                            ) : (
-                                // Placeholder backdrop while the
-                                // wizard runs. Matches the map's
-                                // dark base so the dialog doesn't
-                                // sit on a flash of bare body.
-                                <div className="absolute inset-0 bg-[#0f172a]" />
-                            )}
-                            {showMap && <MapLoadingOverlay />}
+                            <SidebarTriggerL />
                         </div>
-                        <BottomNav />
-                    </main>
+                        {/* Persistent hider timer. v457: the card
+                            positions itself — bottom-LEFT during the
+                            hiding period (yellow "hiding time remaining"
+                            box) and bottom-RIGHT once seeking starts
+                            (white clock + gold "time to beat" strip),
+                            matching the Jet Lag show. */}
+                        <HiderTimer />
+                        {/* Top-right cluster: map-options chip +
+                            trip-planner launcher. */}
+                        <div className="absolute top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
+                            <MapDisplayControls />
+                            {/* Trip planner launcher — small pill sitting
+                                under the map-options chip. Opens the
+                                bottom-drawer SeekerTripPlannerSheet which
+                                fetches a journey from live GPS to the
+                                typed place. */}
+                            <SeekerTripPlannerLauncher />
+                        </div>
+                        <div className="bottom-5 right-2 mx-auto mb-2 w-fit absolute z-[1030] group-[.fullscreen]:hidden hidden md:block">
+                            <OptionDrawers />
+                        </div>
+                        <ThermometerOverlay />
+                        <PendingAnswerOverlay />
+                        <TravelTimesOverlay />
+                        {/* Error boundary catches any render-time error the
+                            map might raise (style parse, WebGL init, etc.)
+                            and surfaces a recover-and-reload card. The
+                            `absolute inset-0` wrapper gives the Map a
+                            definite-height containing block — see AppShell. */}
+                        {showMap ? (
+                            <div className="absolute inset-0">
+                                <MapErrorBoundary>
+                                    <Map className="w-full h-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                </MapErrorBoundary>
+                            </div>
+                        ) : (
+                            // Placeholder backdrop while the wizard runs.
+                            // Matches the map's dark base so the dialog
+                            // doesn't sit on a flash of bare body.
+                            <div className="absolute inset-0 bg-[#0f172a]" />
+                        )}
+                        {showMap && <MapLoadingOverlay />}
+                    </AppShell>
                     <ZoneSidebar />
                     <Suspense fallback={null}>
                         <GameSetupDialog />

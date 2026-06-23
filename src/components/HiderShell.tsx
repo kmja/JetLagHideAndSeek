@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 
+import { AppShell } from "@/components/AppShell";
 import { HiderBackgroundMap } from "@/components/HiderBackgroundMap";
 import { HiderBottomNav } from "@/components/HiderBottomNav";
 import { HiderTimeHeader } from "@/components/HiderTimeHeader";
@@ -33,22 +34,27 @@ export function HiderShell() {
     const $hand = useStore(hiderHand);
     const hasCards = $hand.length > 0;
     return (
-        <div
-            className="fixed inset-0 flex flex-col bg-background text-foreground overflow-hidden"
+        <AppShell
+            className="fixed inset-0 bg-background text-foreground overflow-hidden"
             style={{
+                // Reserve the HiderHandFan's peek-strip height when a hand
+                // is held, so the bottom nav lands directly above the
+                // (still fixed) fan.
                 paddingBottom: hasCards
                     ? `${FAN_HEIGHT_PX}px`
                     : "env(safe-area-inset-bottom)",
             }}
+            header={
+                <>
+                    <HiderTopBar />
+                    <HiderTimeHeader />
+                </>
+            }
+            footer={<HiderBottomNav />}
         >
-            <HiderTopBar />
-            <HiderTimeHeader />
-            <div className="relative flex-1 min-h-0">
-                <HiderBackgroundMap />
-                <HiderUnansweredOverlay />
-            </div>
-            <HiderBottomNav />
-        </div>
+            <HiderBackgroundMap />
+            <HiderUnansweredOverlay />
+        </AppShell>
     );
 }
 
