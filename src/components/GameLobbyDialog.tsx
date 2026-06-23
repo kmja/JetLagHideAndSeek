@@ -666,10 +666,28 @@ export function GameLobbyDialog() {
                         height bump because it's a recovery surface
                         with its own retry button. */}
                     {!$code && hostingState === "creating" && (
-                        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2.5 min-h-[3.5rem] animate-in fade-in duration-200">
-                            <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
-                            <div className="text-xs">
-                                Creating game room…
+                        // Skeleton of the room-code card it becomes —
+                        // same shell + min-height, so when the code lands
+                        // the pulsing placeholders are simply replaced by
+                        // the real code + buttons with no layout shift.
+                        <div
+                            className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2 min-h-[3.5rem] animate-in fade-in duration-200"
+                            role="status"
+                            aria-live="polite"
+                            aria-label="Creating game room"
+                        >
+                            <div className="flex flex-col min-w-0 leading-none gap-1.5">
+                                <span className="text-[9px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                    Creating room…
+                                </span>
+                                {/* where the room code will appear */}
+                                <div className="h-[1.125rem] w-28 rounded-sm bg-primary/20 animate-pulse" />
+                            </div>
+                            {/* Share / Copy / QR button slots */}
+                            <div className="ml-auto flex items-center gap-1.5">
+                                <div className="h-8 w-[4.5rem] rounded-md bg-secondary animate-pulse" />
+                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:150ms]" />
+                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:300ms]" />
                             </div>
                         </div>
                     )}
