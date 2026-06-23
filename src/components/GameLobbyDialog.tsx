@@ -2,27 +2,23 @@ import { useStore } from "@nanostores/react";
 import {
     Check,
     ChevronDown,
-    Copy,
     Footprints,
     Loader2,
     LogOut,
     Pencil,
     Plus,
-    QrCode,
     Radio,
     RadioReceiver,
     Share2,
     VenetianMask,
     X,
 } from "lucide-react";
-import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
     Popover,
     PopoverContent,
@@ -340,8 +336,6 @@ export function GameLobbyDialog() {
         return `${window.location.origin}/?join=${$code}`;
     }, [$code]);
 
-    const [copied, setCopied] = useState(false);
-    const [qrOpen, setQrOpen] = useState(false);
     // v455: the lobby is a MODAL vaul drawer (Radix Dialog under the
     // hood), so anything portaled to document.body — like the size /
     // add-transit Popovers — renders inert (pointer-events: none).
@@ -349,13 +343,13 @@ export function GameLobbyDialog() {
     // here via a callback ref so they inherit pointer-events: auto and
     // their option clicks actually fire.
     const [drawerEl, setDrawerEl] = useState<HTMLElement | null>(null);
+    // Fallback for the Share button when the Web Share API isn't
+    // available (most desktops): copy the invite link to the clipboard.
     const handleCopy = async () => {
         if (!shareUrl) return;
         try {
             await navigator.clipboard.writeText(shareUrl);
-            setCopied(true);
             toast.success("Invite link copied.", { autoClose: 1500 });
-            setTimeout(() => setCopied(false), 1500);
         } catch {
             toast.error("Couldn't copy. Long-press the link instead.");
         }
@@ -663,47 +657,6 @@ export function GameLobbyDialog() {
                         </div>
                     )}
 
-                    {/* Large QR for cross-room scanning, opened by
-                        the QR icon button above. The lobby keeps the
-                        row compact; this is the "lean in to scan"
-                        affordance. */}
-                    {$mp && $code && shareUrl && (
-                        <Dialog open={qrOpen} onOpenChange={setQrOpen}>
-                            <DialogContent
-                                className={cn(
-                                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                                    "sm:max-w-xs flex flex-col items-center p-6 gap-4",
-                                )}
-                            >
-                                <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em]">
-                                    Scan to join
-                                </DialogTitle>
-                                <div
-                                    className="bg-white rounded-md p-3"
-                                    aria-label="Scan to join this game"
-                                >
-                                    <QRCodeSVG
-                                        value={shareUrl}
-                                        size={240}
-                                        level="M"
-                                        marginSize={0}
-                                        bgColor="#ffffff"
-                                        fgColor="#0f172a"
-                                    />
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
-                                        Room code
-                                    </div>
-                                    <div className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.10em] text-primary mt-1">
-                                        {$code}
-                                    </div>
-                                </div>
-                            </DialogContent>
-                        </Dialog>
-                    )}
-
-
                     {/* Pre-game play-area map. Restored in v260; v275
                         moved BELOW the room-code card so the share
                         affordance is the first actionable thing in the
@@ -840,12 +793,14 @@ export function GameLobbyDialog() {
                             </p>
                         )}
 
-                    {/* Share / room code section (v455): the full-width
-                        card is back, positioned here at the bottom of the
-                        roster block (below the "need a seeker + hider"
-                        hint). Eyebrow label + code on the left, Share /
-                        Copy / QR on the right. A pulsing skeleton holds
-                        the slot while the room is still being created. */}
+                    {/* Share / room code section: full-width card at the
+                        bottom of the roster block (below the "need a seeker
+                        + hider" hint). Eyebrow label + code on the left, a
+                        single Share button on the right (v460 — was a
+                        Share / Copy / QR cluster). The Share button uses the
+                        Web Share API and falls back to copying the link. A
+                        pulsing skeleton holds the slot while the room is
+                        still being created. */}
                     {$mp && !isMidGame && hostingState === "creating" && !$code && (
                         <div
                             className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2 min-h-[3.5rem] animate-in fade-in duration-200"
@@ -859,10 +814,8 @@ export function GameLobbyDialog() {
                                 </span>
                                 <div className="h-[1.125rem] w-28 rounded-sm bg-primary/20 animate-pulse" />
                             </div>
-                            <div className="ml-auto flex items-center gap-1.5">
+                            <div className="ml-auto flex items-center">
                                 <div className="h-8 w-[4.5rem] rounded-md bg-secondary animate-pulse" />
-                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:150ms]" />
-                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:300ms]" />
                             </div>
                         </div>
                     )}
@@ -882,7 +835,7 @@ export function GameLobbyDialog() {
                                     {$code}
                                 </span>
                             </div>
-                            <div className="ml-auto flex items-center gap-1.5">
+                            <div className="ml-auto flex items-center">
                                 <Button
                                     size="sm"
                                     onClick={handleShare}
@@ -893,34 +846,6 @@ export function GameLobbyDialog() {
                                     <Share2 className="w-3.5 h-3.5" />
                                     Share
                                 </Button>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleCopy}
-                                    aria-label="Copy invite link"
-                                    title={
-                                        copied ? "Copied!" : "Copy invite link"
-                                    }
-                                    className="px-2"
-                                >
-                                    {copied ? (
-                                        <Check className="w-3.5 h-3.5" />
-                                    ) : (
-                                        <Copy className="w-3.5 h-3.5" />
-                                    )}
-                                </Button>
-                                {shareUrl && (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => setQrOpen(true)}
-                                        aria-label="Show large QR code"
-                                        title="Show large QR code"
-                                        className="px-2"
-                                    >
-                                        <QrCode className="w-3.5 h-3.5" />
-                                    </Button>
-                                )}
                             </div>
                         </div>
                     )}
