@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Footprints, Users, VenetianMask } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
     Dialog,
@@ -67,6 +67,33 @@ export function RolePicker() {
         $welcomeSeen &&
         $setupCompleted &&
         Boolean($code);
+
+    // v452: keep the dialog centered within the VISIBLE area (above the
+    // on-screen keyboard) instead of the full viewport — otherwise, with
+    // the name field focused, the centered dialog floats mid-screen with
+    // a big gap down to the keyboard. We track the keyboard inset via the
+    // VisualViewport API and shift the dialog's `top` up by half of it.
+    const [kbInset, setKbInset] = useState(0);
+    useEffect(() => {
+        const vv =
+            typeof window !== "undefined" ? window.visualViewport : null;
+        if (!open || !vv) {
+            setKbInset(0);
+            return;
+        }
+        const update = () => {
+            // Height hidden at the bottom = keyboard (and any bottom UI).
+            const inset = window.innerHeight - (vv.height + vv.offsetTop);
+            setKbInset(inset > 80 ? inset : 0);
+        };
+        update();
+        vv.addEventListener("resize", update);
+        vv.addEventListener("scroll", update);
+        return () => {
+            vv.removeEventListener("resize", update);
+            vv.removeEventListener("scroll", update);
+        };
+    }, [open]);
 
     // v279: name input moved here from the setup wizard. Roles +
     // display name are the same "this is me" decision; co-locating
@@ -142,6 +169,11 @@ export function RolePicker() {
                     // than clip the role tiles off the top.
                     "overflow-y-auto",
                 )}
+                // Inline `top` overrides the centered `top-[50%]` class
+                // (the translate-y centering in the class survives), so
+                // when the keyboard is up the dialog re-centers in the
+                // visible area and sits snug above it.
+                style={{ top: `calc(50% - ${kbInset / 2}px)` }}
                 overlayClassName="z-[1060]"
             >
                 {/* Compact header — no logo flourish, so the whole
