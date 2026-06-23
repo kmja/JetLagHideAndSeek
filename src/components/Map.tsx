@@ -399,6 +399,10 @@ export function Map({ className }: MapProps) {
     const mapRef = useRef<MapRef | null>(null);
     // v377: debounce handle for persisting the viewport to localStorage.
     const viewportPersistTimer = useRef<number | null>(null);
+    // v445: latches true once any real protomaps tile has painted, so the
+    // basemap-health watchdog never flips a working map to the (404-ing)
+    // fallback on a later re-arm. See the watchdog effect below.
+    const everPaintedTileRef = useRef(false);
 
     const $theme = useStore(resolvedTheme);
     // v241: rebuild style when the resolved PMTiles URL flips (e.g.
@@ -555,7 +559,17 @@ export function Map({ className }: MapProps) {
             Boolean($tfKey);
         if (usingThunderforest) return;
 
-        let healthy = false;
+        // v445: once ANY protomaps tile has ever painted this session the
+        // basemap is proven alive — never flip to the fallback after that.
+        // The effect re-arms on dep changes ($pmtilesUrl / $tileKey / …),
+        // and a re-arm AFTER the map has settled (idle, every visible tile
+        // already loaded) sees no fresh `sourcedata`+tile events, so the
+        // 10 s timer would false-positive and flip to the proxied demo
+        // bucket — which currently 404s, blanking a map that had loaded
+        // fine ("tiles disappear after a few seconds"). The latch closes
+        // that hole: the watchdog only ever fires on a genuine cold load
+        // that never painted a single tile (the Houston case it's for).
+        let healthy = everPaintedTileRef.current;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const onSourceData = (e: any) => {
             // A `sourcedata` event carrying an actual tile for the
@@ -563,11 +577,14 @@ export function Map({ className }: MapProps) {
             // one tile decoded — the basemap is alive. Metadata-only
             // events (no `e.tile`) don't count: the archive header can
             // load and the tile range-requests still abort.
-            if (e?.sourceId === "protomaps" && e?.tile) healthy = true;
+            if (e?.sourceId === "protomaps" && e?.tile) {
+                healthy = true;
+                everPaintedTileRef.current = true;
+            }
         };
         map.on("sourcedata", onSourceData);
         const t = window.setTimeout(() => {
-            if (!healthy) {
+            if (!healthy && !everPaintedTileRef.current) {
                 // v363: hard=true — the 10 s watchdog is a settled
                 // verdict (a real tile would have arrived by now), not
                 // a transient blip. Bypass the burst gate.
