@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { Footprints, Users, VenetianMask } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
@@ -112,40 +113,28 @@ export function RolePicker() {
         displayNameAtom.set(draftName.trim());
     };
 
-    const pickSeeker = () => {
+    // v452: select-then-confirm. Tapping a tile only HIGHLIGHTS it (like
+    // the transit-mode chips); the "Join game" button below commits.
+    const [selected, setSelected] = useState<
+        "seeker" | "hider" | "coHider" | null
+    >(null);
+
+    const confirmJoin = () => {
+        if (!selected) return;
+        if (selected === "hider" && hiderTaken) return;
+        if (selected === "coHider" && !hiderTaken) return;
         commitName();
-        playerRole.set("seeker");
-        // Push the choice to the server so the multiplayer roster
-        // reflects the switch immediately (no-op when offline).
-        setOnlineRole("seeker");
-        // If we're on /h (hider page) and just became a seeker,
-        // navigate back to / so we don't sit on the wrong surface.
-        if (
-            typeof window !== "undefined" &&
-            window.location.pathname.startsWith("/h")
-        ) {
+        playerRole.set(selected);
+        // Server only knows seeker / hider / null — coHider is layered
+        // on top of the hider role client-side.
+        if (selected !== "coHider") setOnlineRole(selected);
+        if (typeof window === "undefined") return;
+        const onHiderPage = window.location.pathname.startsWith("/h");
+        if (selected === "hider" || selected === "coHider") {
+            if (!onHiderPage) window.location.assign("/h");
+        } else if (onHiderPage) {
             window.location.assign("/");
         }
-    };
-
-    const pickHider = () => {
-        if (hiderTaken) return;
-        commitName();
-        playerRole.set("hider");
-        setOnlineRole("hider");
-        // Send them to the hider home.
-        if (typeof window !== "undefined") window.location.assign("/h");
-    };
-
-    // Co-hider only makes sense once a primary hider holds the slot —
-    // you're joining their hide, not starting your own.
-    const pickCoHider = () => {
-        if (!hiderTaken) return;
-        commitName();
-        playerRole.set("coHider");
-        // No setOnlineRole — coHider is not a server-tracked role
-        // (the server only knows seeker / hider / null).
-        if (typeof window !== "undefined") window.location.assign("/h");
     };
 
     return (
@@ -188,19 +177,40 @@ export function RolePicker() {
                     </DialogDescription>
                 </div>
 
+                {/* Display name — above the roles. Optional: blank lets
+                    the server assign a Jet Lag cast name. */}
+                <div className="px-5 pt-3 pb-1 space-y-1">
+                    <label
+                        htmlFor="rolepicker-display-name"
+                        className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
+                    >
+                        Your display name
+                    </label>
+                    <Input
+                        id="rolepicker-display-name"
+                        value={draftName}
+                        onChange={(e) => setDraftName(e.target.value)}
+                        placeholder={`What others see (e.g. ${castPlaceholder})`}
+                        maxLength={24}
+                    />
+                </div>
+
                 {/* Role tiles — side-by-side on EVERY width (was stacked
                     on mobile, which made the dialog too tall for the
                     keyboard). Compact: icon + label + one short line. */}
                 <div className="px-5 pt-3 pb-2 grid grid-cols-2 gap-2.5">
                     <button
                         type="button"
-                        onClick={pickSeeker}
+                        onClick={() => setSelected("seeker")}
+                        aria-pressed={selected === "seeker"}
                         className={cn(
-                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm",
-                            "bg-secondary/40 border-2 border-border",
+                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm border-2",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                            "hover:bg-accent hover:-translate-y-[1px] transition-all",
+                            "transition-all hover:-translate-y-[1px]",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            selected === "seeker"
+                                ? "border-primary bg-primary/10"
+                                : "border-border bg-secondary/40 hover:bg-accent",
                         )}
                     >
                         <div className="flex items-center gap-2">
@@ -218,16 +228,18 @@ export function RolePicker() {
 
                     <button
                         type="button"
-                        onClick={pickHider}
+                        onClick={() => setSelected("hider")}
                         disabled={hiderTaken}
+                        aria-pressed={selected === "hider"}
                         className={cn(
-                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm",
-                            "bg-secondary/20 border-2 border-border/70",
+                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm border-2",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                             "transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             hiderTaken
-                                ? "opacity-50 cursor-not-allowed"
-                                : "hover:bg-accent hover:-translate-y-[1px]",
+                                ? "opacity-50 cursor-not-allowed border-border/70 bg-secondary/20"
+                                : selected === "hider"
+                                  ? "border-primary bg-primary/10 hover:-translate-y-[1px]"
+                                  : "border-border/70 bg-secondary/20 hover:bg-accent hover:-translate-y-[1px]",
                         )}
                     >
                         <div className="flex items-center gap-2">
@@ -255,13 +267,16 @@ export function RolePicker() {
                     <div className="px-5 pb-2">
                         <button
                             type="button"
-                            onClick={pickCoHider}
+                            onClick={() => setSelected("coHider")}
+                            aria-pressed={selected === "coHider"}
                             className={cn(
-                                "w-full flex items-center text-left gap-2.5 p-2.5 rounded-sm",
-                                "bg-secondary border-2 border-border",
+                                "w-full flex items-center text-left gap-2.5 p-2.5 rounded-sm border-2",
                                 "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                                "hover:bg-accent hover:-translate-y-[1px] transition-all",
+                                "transition-all hover:-translate-y-[1px]",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                selected === "coHider"
+                                    ? "border-primary bg-primary/10"
+                                    : "border-border bg-secondary hover:bg-accent",
                             )}
                         >
                             <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-muted text-foreground shrink-0">
@@ -282,23 +297,15 @@ export function RolePicker() {
                     </div>
                 )}
 
-                {/* Display name — kept BELOW the role tiles so the
-                    keyboard covers only this field, never the roles.
-                    Optional: blank lets the server assign a cast name. */}
-                <div className="px-5 pt-2 pb-4 space-y-1 border-t border-border">
-                    <label
-                        htmlFor="rolepicker-display-name"
-                        className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
+                {/* Confirm — disabled until a role is highlighted. */}
+                <div className="px-5 pb-4">
+                    <Button
+                        onClick={confirmJoin}
+                        disabled={!selected}
+                        className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
                     >
-                        Your display name
-                    </label>
-                    <Input
-                        id="rolepicker-display-name"
-                        value={draftName}
-                        onChange={(e) => setDraftName(e.target.value)}
-                        placeholder={`What others see (e.g. ${castPlaceholder})`}
-                        maxLength={24}
-                    />
+                        Join game
+                    </Button>
                 </div>
             </DialogContent>
         </Dialog>
