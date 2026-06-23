@@ -1,7 +1,8 @@
 import { useStore } from "@nanostores/react";
-import { Loader2, Sparkles, TrainTrack } from "lucide-react";
+import { Loader2, MapPin, Sparkles, TrainTrack } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import {
     additionalMapGeoLocations,
     adjacentCandidatePreview,
@@ -35,13 +36,28 @@ import type { OpenStreetMap } from "@/maps/api/types";
  * canonical "is this area added?" state lives in
  * `additionalMapGeoLocations`, written by the map pills directly.
  */
-export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
+export function PlayAreaExtensions({
+    primary,
+    ready = true,
+}: {
+    primary: OpenStreetMap;
+    /** Hold the candidate fetch until the preview map has painted the
+     *  main play area, so the boundary-polygon request wins the worker
+     *  first. The lookup then runs in the background and the pills are
+     *  ready by the time the user taps "Add nearby areas". */
+    ready?: boolean;
+}) {
     const $allowedTransit = useStore(allowedTransit);
     const $additional = useStore(additionalMapGeoLocations);
 
     const [candidates, setCandidates] = useState<AdjacentAreaCandidate[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // The pills only paint once the user opts in via "Add nearby areas".
+    // Until then the map shows just the main play area (fast first
+    // reveal) while the candidate fetch runs in the background, so the
+    // pills are ready the instant the user reveals them.
+    const [revealed, setRevealed] = useState(false);
     /** Tracks the primary we've fetched for, so swapping primary
      *  triggers a refresh. */
     const fetchedForRef = useRef<number | null>(null);
@@ -61,16 +77,21 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     );
 
     useEffect(() => {
+        // Wait for the main play area to paint before we start the
+        // (heavier) adjacency lookup — see the `ready` prop.
+        if (!ready) return;
         const primaryId = primary.properties.osm_id;
         if (fetchedForRef.current === primaryId) return;
         fetchedForRef.current = primaryId;
 
         // Always clear stale extensions when the primary changes —
         // the previously-added "neighbours" almost certainly don't
-        // belong to the new primary.
+        // belong to the new primary. Nothing is selected by default;
+        // the user opts each neighbour in via the map pills.
         additionalMapGeoLocations.set([]);
         setCandidates([]);
         setError(null);
+        setRevealed(false);
         setLoading(true);
 
         let cancelled = false;
@@ -81,17 +102,6 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
             .then((c) => {
                 if (cancelled) return;
                 setCandidates(c);
-                // Pre-add transit-connected candidates directly into
-                // additionalMapGeoLocations — that's the canonical
-                // source of truth `checked` derives from above.
-                const pre = c
-                    .filter((cand) => cand.hasMatchingTransit)
-                    .map((cand) => ({
-                        location: cand.feature,
-                        added: true,
-                        base: false,
-                    }));
-                additionalMapGeoLocations.set(pre);
             })
             .catch((e) => {
                 if (cancelled) return;
@@ -109,13 +119,16 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [primary.properties.osm_id, $allowedTransit.join(",")]);
+    }, [primary.properties.osm_id, $allowedTransit.join(","), ready]);
 
     // Publish a compact preview of the candidates for the play-area
-    // preview map's "+/✓" overlay. Cleared on unmount or when there
-    // are no candidates.
+    // preview map's "+/✓" overlay — but only once the user has
+    // REVEALED them. Before that the atom stays null so the preview map
+    // paints just the main play area and never widens the camera for
+    // off-area pills (keeps the first reveal fast and uncluttered).
+    // Cleared on unmount, when hidden, or when there are no candidates.
     useEffect(() => {
-        if (candidates.length === 0) {
+        if (!revealed || candidates.length === 0) {
             adjacentCandidatePreview.set(null);
             return;
         }
@@ -136,7 +149,7 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         return () => {
             adjacentCandidatePreview.set(null);
         };
-    }, [candidates]);
+    }, [candidates, revealed]);
 
     if (!loading && candidates.length === 0 && !error) {
         // No siblings found — primary is in a region without
@@ -169,19 +182,32 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
                         Extend with neighbouring areas
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {loading
-                            ? "Scanning the area for transit-connected neighbours…"
-                            : error
-                              ? error
-                              : `${checkedCount} added — tap the pills on the map to add or remove neighbouring areas.`}
+                        {error
+                            ? error
+                            : revealed
+                              ? "Tap the pills on the map to add or remove neighbouring areas."
+                              : "Some nearby areas can be added so they count as one play area."}
                     </div>
                 </div>
-                {loading && (
+                {loading && !revealed && (
                     <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0" />
                 )}
             </div>
 
-            {!loading && candidates.length > 0 && (
+            {!revealed && !error && (
+                <Button
+                    variant="outline"
+                    onClick={() => setRevealed(true)}
+                    className="w-full gap-1.5"
+                >
+                    <MapPin className="w-3.5 h-3.5" />
+                    {loading
+                        ? "Add nearby areas…"
+                        : `Add nearby areas (${candidates.length})`}
+                </Button>
+            )}
+
+            {revealed && candidates.length > 0 && (
                 <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-border/40">
                     <button
                         type="button"

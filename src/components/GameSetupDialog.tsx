@@ -1213,7 +1213,10 @@ export function PlayAreaStep({
                             : "opacity-0 pointer-events-none",
                     )}
                 >
-                    <PlayAreaExtensions primary={value} />
+                    <PlayAreaExtensions
+                        primary={value}
+                        ready={previewMapReady}
+                    />
                 </div>
 
                 <p className="text-[11px] leading-snug text-muted-foreground border border-dashed border-border/60 rounded-md p-2.5">

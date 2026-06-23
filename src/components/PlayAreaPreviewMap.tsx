@@ -384,7 +384,7 @@ export function PlayAreaPreviewMap({
                         />
                     </Source>
                 )}
-                <AdjacentCandidatesOverlay />
+                <AdjacentCandidatesOverlay mapRef={mapRef} />
             </MapGL>
             <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
         </div>
@@ -402,10 +402,65 @@ export function PlayAreaPreviewMap({
  * the primary tint so the player can still see them as picker options
  * but the visual weight matches their "you probably don't want this"
  * status. Self-renders null when the picker is closed.
+ *
+ * Name labels are collision-aware: a pill only shows its name when its
+ * on-screen centroid is at least `LABEL_MIN_GAP_PX` from every other
+ * pill. When pills cluster (e.g. a dense metro at low zoom) the labels
+ * overlap into mush, so we drop to icon-only there and only surface
+ * text for pills that are spread far enough apart to stay legible.
+ * Recomputed on every pan / zoom.
  */
-function AdjacentCandidatesOverlay() {
+const LABEL_MIN_GAP_PX = 110;
+
+function AdjacentCandidatesOverlay({
+    mapRef,
+}: {
+    mapRef: React.RefObject<MapRef | null>;
+}) {
     const preview = useStore(adjacentCandidatePreview);
     const $additional = useStore(additionalMapGeoLocations);
+    const [labeledIds, setLabeledIds] = useState<Set<number>>(new Set());
+
+    const candidates = preview?.candidates;
+    useEffect(() => {
+        const map = mapRef.current?.getMap();
+        if (!map || !candidates || candidates.length === 0) {
+            setLabeledIds(new Set());
+            return;
+        }
+        const recompute = () => {
+            const pts = candidates.map((c) => {
+                const [maxLat, minLng, minLat, maxLng] = c.bbox;
+                const p = map.project([
+                    (minLng + maxLng) / 2,
+                    (minLat + maxLat) / 2,
+                ]);
+                return { id: c.osmId, x: p.x, y: p.y };
+            });
+            const labeled = new Set<number>();
+            for (let i = 0; i < pts.length; i++) {
+                let nearest = Infinity;
+                for (let j = 0; j < pts.length; j++) {
+                    if (i === j) continue;
+                    const d = Math.hypot(
+                        pts[i].x - pts[j].x,
+                        pts[i].y - pts[j].y,
+                    );
+                    if (d < nearest) nearest = d;
+                }
+                if (nearest >= LABEL_MIN_GAP_PX) labeled.add(pts[i].id);
+            }
+            setLabeledIds(labeled);
+        };
+        recompute();
+        map.on("move", recompute);
+        map.on("zoom", recompute);
+        return () => {
+            map.off("move", recompute);
+            map.off("zoom", recompute);
+        };
+    }, [candidates, mapRef]);
+
     if (!preview || preview.candidates.length === 0) return null;
 
     const addedIds = new Set<number>(
@@ -516,9 +571,11 @@ function AdjacentCandidatesOverlay() {
                             ) : (
                                 <Plus className="h-3 w-3" />
                             )}
-                            <span className="max-w-[120px] truncate">
-                                {c.name}
-                            </span>
+                            {labeledIds.has(c.osmId) && (
+                                <span className="max-w-[120px] truncate">
+                                    {c.name}
+                                </span>
+                            )}
                         </button>
                     </Marker>
                 );
