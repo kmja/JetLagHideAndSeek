@@ -1,21 +1,15 @@
 import { useStore } from "@nanostores/react";
-import type { LucideIcon } from "lucide-react";
 import {
     AlertTriangle,
     Ban,
-    Bus,
     Crosshair,
     Eye,
     Flag,
     Lock,
     LockOpen,
     MapPin,
-    Ship,
     Sparkles,
     Timer,
-    Train,
-    TrainTrack,
-    TramFront,
     Trophy,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
@@ -27,19 +21,19 @@ import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { appConfirm } from "@/lib/confirm";
 import {
     allowedTransit,
+    effectiveHiddenDebitMs,
     endgameStartedAt,
     formatTimeRemaining,
-    gameSize,
-    effectiveHiddenDebitMs,
     gamePausedForLocationAt,
+    gameSize,
     hiddenCreditMs,
     hiddenDebitMs,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     setupCompleted,
+    TRANSIT_ICONS,
     TRANSIT_LABELS,
-    type TransitMode,
 } from "@/lib/gameSetup";
 import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
@@ -442,14 +436,6 @@ export function HiderHome() {
 }
 
 /* ────────────────── Phase 1: HIDING ────────────────── */
-
-const TRANSIT_ICONS: Record<TransitMode, LucideIcon> = {
-    bus: Bus,
-    tram: TramFront,
-    train: Train,
-    subway: TrainTrack,
-    ferry: Ship,
-};
 
 function HidingPhaseView({
     remainingMs,

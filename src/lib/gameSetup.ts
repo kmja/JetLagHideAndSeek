@@ -1,4 +1,12 @@
 import { persistentAtom } from "@nanostores/persistent";
+import {
+    Bus,
+    type LucideIcon,
+    Ship,
+    TrainFront,
+    TrainFrontTunnel,
+    TramFront,
+} from "lucide-react";
 import { atom } from "nanostores";
 
 import { displayHidingZones } from "@/lib/context";
@@ -748,6 +756,24 @@ export const TRANSIT_LABELS: Record<TransitMode, string> = {
     train: "Train",
     subway: "Subway",
     ferry: "Ferry",
+};
+
+/**
+ * Canonical per-mode icons — the SINGLE source of truth. Every surface
+ * that shows a transit-mode glyph (mode chips, roster, journey legs,
+ * map-overlay toggles, station pickers) imports from here so the same
+ * mode always looks the same. The rail family is front-view for a
+ * coherent, distinct set: plain front = train, front-in-tunnel =
+ * subway, tram-front = tram. (`TrainTrack` — literal rails — is
+ * deliberately NOT here; it's reserved for the map's raw-track raster
+ * overlay, which represents track, not a service.)
+ */
+export const TRANSIT_ICONS: Record<TransitMode, LucideIcon> = {
+    bus: Bus,
+    tram: TramFront,
+    train: TrainFront,
+    subway: TrainFrontTunnel,
+    ferry: Ship,
 };
 
 /**

@@ -1,20 +1,14 @@
 import { useStore } from "@nanostores/react";
-import type { LucideIcon } from "lucide-react";
-import {
-    Bus,
-    Check,
-    Loader2,
-    LocateFixed,
-    Ship,
-    Train,
-    TrainTrack,
-    TramFront,
-} from "lucide-react";
+import { Check, Loader2, LocateFixed } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
-import { allowedTransit, type TransitMode } from "@/lib/gameSetup";
+import {
+    allowedTransit,
+    TRANSIT_ICONS,
+    type TransitMode,
+} from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { getOverpassData } from "@/maps/api/overpass";
@@ -33,13 +27,6 @@ import { getOverpassData } from "@/maps/api/overpass";
  * seeker eliminate the wrong territory.
  */
 
-const MODE_ICONS: Record<TransitMode, LucideIcon> = {
-    bus: Bus,
-    tram: TramFront,
-    train: Train,
-    subway: TrainTrack,
-    ferry: Ship,
-};
 
 const MODE_LABELS: Record<TransitMode, string> = {
     bus: "Bus stop",
@@ -211,7 +198,7 @@ export function NearbyStationsPicker({
             </div>
             <ul className="space-y-1.5">
                 {state.stations.slice(0, 8).map((s) => {
-                    const Icon = MODE_ICONS[s.mode];
+                    const Icon = TRANSIT_ICONS[s.mode];
                     return (
                         <li key={s.id}>
                             <button

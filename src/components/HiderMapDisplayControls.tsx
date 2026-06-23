@@ -1,15 +1,11 @@
 import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
-    Bus,
     Layers,
     Loader2,
     Map as MapIcon,
     Radar,
     Satellite,
-    Ship,
-    Train,
-    TrainFront,
     TrainTrack,
 } from "lucide-react";
 
@@ -27,6 +23,7 @@ import {
     showTrainRoutes,
     showTramRoutes,
     showTransitLines,
+    TRANSIT_ICONS,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
 import { showHiderReach } from "@/lib/journey/state";
@@ -45,7 +42,6 @@ import { cn } from "@/lib/utils";
  * they're either irrelevant to the hider's view or could leak
  * deduction shape back to the seeker via a screenshot.
  */
-const PANE_HEIGHT = "h-9";
 
 export function HiderMapDisplayControls() {
     const $satellite = useStore(satelliteView);
@@ -222,7 +218,7 @@ export function HiderMapDisplayControls() {
                                     buttons.push(
                                         <TransitIconToggle
                                             key="rail"
-                                            icon={Train}
+                                            icon={TrainTrack}
                                             label="Rail (train/tram)"
                                             on={$rail}
                                             onToggle={() =>
@@ -236,7 +232,7 @@ export function HiderMapDisplayControls() {
                                     buttons.push(
                                         <TransitIconToggle
                                             key="subway"
-                                            icon={TrainTrack}
+                                            icon={TRANSIT_ICONS.subway}
                                             label="Subway"
                                             on={$subway}
                                             loading={$transitLoading.subway}
@@ -251,7 +247,7 @@ export function HiderMapDisplayControls() {
                                     buttons.push(
                                         <TransitIconToggle
                                             key="bus"
-                                            icon={Bus}
+                                            icon={TRANSIT_ICONS.bus}
                                             label="Bus"
                                             on={$bus}
                                             loading={$transitLoading.bus}
@@ -266,7 +262,7 @@ export function HiderMapDisplayControls() {
                                     buttons.push(
                                         <TransitIconToggle
                                             key="ferry"
-                                            icon={Ship}
+                                            icon={TRANSIT_ICONS.ferry}
                                             label="Ferry"
                                             on={$ferry}
                                             loading={$transitLoading.ferry}
@@ -286,7 +282,7 @@ export function HiderMapDisplayControls() {
                                     buttons.push(
                                         <TransitIconToggle
                                             key="train"
-                                            icon={TrainFront}
+                                            icon={TRANSIT_ICONS.train}
                                             label="Train (lines)"
                                             on={$train}
                                             loading={$transitLoading.train}
@@ -301,7 +297,7 @@ export function HiderMapDisplayControls() {
                                     buttons.push(
                                         <TransitIconToggle
                                             key="tram"
-                                            icon={TrainTrack}
+                                            icon={TRANSIT_ICONS.tram}
                                             label="Tram (lines)"
                                             on={$tram}
                                             loading={$transitLoading.tram}

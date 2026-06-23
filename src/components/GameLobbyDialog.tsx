@@ -1,6 +1,5 @@
 import { useStore } from "@nanostores/react";
 import {
-    Bus,
     Check,
     ChevronDown,
     Copy,
@@ -13,10 +12,6 @@ import {
     Radio,
     RadioReceiver,
     Share2,
-    Ship,
-    Train,
-    TrainTrack,
-    TramFront,
     VenetianMask,
     X,
 } from "lucide-react";
@@ -46,6 +41,7 @@ import {
     preloadChoices,
     setupCompleted,
     setupDialogOpen,
+    TRANSIT_ICONS,
     TRANSIT_LABELS,
     type TransitMode,
     welcomeSeen,
@@ -1289,13 +1285,6 @@ function RosterCard({
     );
 }
 
-const TRANSIT_ICONS: Record<TransitMode, React.ComponentType<{ className?: string }>> = {
-    bus: Bus,
-    tram: TramFront,
-    train: Train,
-    subway: TrainTrack,
-    ferry: Ship,
-};
 
 /**
  * Best-effort "is this a metered (cellular / data-saver / slow) link?"

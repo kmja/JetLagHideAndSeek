@@ -1,18 +1,13 @@
 import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
-    Bus,
     Camera,
     Clock,
     Layers,
     Loader2,
     Map as MapIcon,
     Satellite,
-    Ship,
     Target,
-    Train,
-    TrainFront,
-    TrainFrontTunnel,
     TrainTrack,
 } from "lucide-react";
 
@@ -22,7 +17,6 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { displayHidingZones, isLoading } from "@/lib/context";
-import { showTravelTimes } from "@/lib/journey/state";
 import {
     allowedTransit,
     satelliteView,
@@ -32,8 +26,10 @@ import {
     showTrainRoutes,
     showTramRoutes,
     showTransitLines,
+    TRANSIT_ICONS,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
+import { showTravelTimes } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,7 +45,6 @@ import { cn } from "@/lib/utils";
  * Both chips share the same `h-9` height so the cluster reads as a
  * single compact toolbar.
  */
-const PANE_HEIGHT = "h-9";
 
 export function MapDisplayControls() {
     const $satellite = useStore(satelliteView);
@@ -300,7 +295,7 @@ export function MapDisplayControls() {
                                         buttons.push(
                                             <TransitIconToggle
                                                 key="rail"
-                                                icon={Train}
+                                                icon={TrainTrack}
                                                 label="Rail (train/tram — bundled OpenRailwayMap layer)"
                                                 on={$rail}
                                                 onToggle={() =>
@@ -316,7 +311,7 @@ export function MapDisplayControls() {
                                         buttons.push(
                                             <TransitIconToggle
                                                 key="subway"
-                                                icon={TrainFrontTunnel}
+                                                icon={TRANSIT_ICONS.subway}
                                                 label="Subway"
                                                 on={$subway}
                                                 loading={
@@ -335,7 +330,7 @@ export function MapDisplayControls() {
                                         buttons.push(
                                             <TransitIconToggle
                                                 key="bus"
-                                                icon={Bus}
+                                                icon={TRANSIT_ICONS.bus}
                                                 label="Bus"
                                                 on={$bus}
                                                 loading={$transitLoading.bus}
@@ -350,7 +345,7 @@ export function MapDisplayControls() {
                                         buttons.push(
                                             <TransitIconToggle
                                                 key="ferry"
-                                                icon={Ship}
+                                                icon={TRANSIT_ICONS.ferry}
                                                 label="Ferry"
                                                 on={$ferry}
                                                 loading={
@@ -373,7 +368,7 @@ export function MapDisplayControls() {
                                         buttons.push(
                                             <TransitIconToggle
                                                 key="train"
-                                                icon={TrainFront}
+                                                icon={TRANSIT_ICONS.train}
                                                 label="Train (lines)"
                                                 on={$train}
                                                 loading={
@@ -392,7 +387,7 @@ export function MapDisplayControls() {
                                         buttons.push(
                                             <TransitIconToggle
                                                 key="tram"
-                                                icon={TrainTrack}
+                                                icon={TRANSIT_ICONS.tram}
                                                 label="Tram (lines)"
                                                 on={$tram}
                                                 loading={

@@ -1,20 +1,16 @@
 import type { LucideIcon } from "lucide-react";
 import {
     ArrowRight,
-    Bus,
     Clock,
     Footprints,
     Loader2,
     MapPin,
     RefreshCw,
     Repeat,
-    Ship,
-    Train,
-    TrainFront,
-    TrainTrack,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { TRANSIT_ICONS } from "@/lib/gameSetup";
 import type { Journey, JourneyLeg } from "@/lib/journey/plan";
 import { cn } from "@/lib/utils";
 
@@ -52,12 +48,10 @@ export interface JourneyCardProps {
 
 const MODE_ICONS: Record<string, LucideIcon> = {
     walk: Footprints,
-    bus: Bus,
-    tram: TrainTrack,
-    train: TrainFront,
-    subway: Train,
-    ferry: Ship,
-    transit: Train,
+    // bus / tram / train / subway / ferry from the canonical set.
+    ...TRANSIT_ICONS,
+    // Generic "transit" leg (mode unknown) → the train glyph.
+    transit: TRANSIT_ICONS.train,
 };
 
 const MODE_LABELS: Record<string, string> = {
@@ -197,7 +191,7 @@ function JourneySummary({
 }
 
 function LegRow({ leg }: { leg: JourneyLeg }) {
-    const Icon = MODE_ICONS[leg.mode] ?? Train;
+    const Icon = MODE_ICONS[leg.mode] ?? TRANSIT_ICONS.train;
     const modeLabel = MODE_LABELS[leg.mode] ?? "Transit";
     const durationMin = Math.max(
         1,

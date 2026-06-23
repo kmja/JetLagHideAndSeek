@@ -1,17 +1,13 @@
 import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
-    Bus,
     Check,
     ChevronLeft,
     Footprints,
     MapPin,
     Maximize2,
     Pencil,
-    Ship,
-    Train,
     TrainTrack,
-    TramFront,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -50,6 +46,7 @@ import {
     setupCompleted,
     setupDialogOpen,
     SIZE_DESCRIPTIONS,
+    TRANSIT_ICONS,
     TRANSIT_LABELS,
     type TransitMode,
 } from "@/lib/gameSetup";
@@ -1446,13 +1443,6 @@ export function PlayAreaStep({
 
 /* ─── Step 2 — Transit ─── */
 
-const TRANSIT_ICONS: Record<TransitMode, typeof Bus> = {
-    bus: Bus,
-    tram: TramFront,
-    train: Train,
-    subway: TrainTrack,
-    ferry: Ship,
-};
 
 export function TransitStep({
     value,
