@@ -15,6 +15,7 @@
  *     [--max 200] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
+ *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
  *     [--tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
  *     [--delay-ms 2000]
  *
@@ -70,6 +71,11 @@
  *                   query per country in HSR_COUNTRIES. HSR is an
  *                   inter-city network, so it's keyed by country, not
  *                   city (v214).
+ *     6. One-ring — (default on, --skip-one-ring to drop) the adjacent
+ *                   admin areas of the top N cities, each processed as a
+ *                   FULL play area (same boundary/refs/transit/metro/
+ *                   elevation/photon/adjacent-search as a curated city),
+ *                   so areas folded in via "Extend play area" are warm.
  *
  * Idempotent + skippable: every query asks the worker
  * (/admin/check-fresh) whether R2 already holds a non-stale entry for
@@ -126,15 +132,16 @@ const DO_PHOTON = !args["skip-photon"];
 // stations, megacity sub-units). Mirrors the worker cron's
 // prewarmAdjacentSearchForCity. On by default; --skip-adjacent to drop.
 const DO_ADJACENT = !args["skip-adjacent"];
-// v360: one-ring neighbor warming. After the main city loop, discover the
-// adjacent admin areas of the top N cities and warm each one's references
-// (boundary + refs) via the worker's GET /api/refs/<id>?warm=1 endpoint,
-// so a seeker who extends a major city with an adjacent area gets an
-// instant cache hit instead of a cold on-tap fetch. OPT-IN (it adds a lot
-// of work). `--one-ring-top=N` bounds it (default 100). The city list
-// leads with HAND_CURATED majors, so "first N" is a reasonable
-// most-played proxy (there's no population field to rank by).
-const DO_ONE_RING = !!args["one-ring"];
+// v360 / v442: one-ring neighbour warming. After the main city loop,
+// discover the adjacent admin areas of the top N cities and process each
+// as a FULL play area (boundary, refs, transit, metro, elevation, photon,
+// adjacent-search) — so an area a seeker folds in via "Extend play area"
+// behaves exactly like the primary. v442 made it DEFAULT-ON (it's the
+// point of warming adjacent areas) — pass --skip-one-ring to drop it.
+// `--one-ring-top=N` bounds the city count (default 100); the city list
+// leads with HAND_CURATED majors, so "first N" is a reasonable most-
+// played proxy (there's no population field to rank by).
+const DO_ONE_RING = !args["skip-one-ring"];
 const ONE_RING_TOP = args["one-ring-top"]
     ? parseInt(args["one-ring-top"], 10)
     : 100;
@@ -1860,9 +1867,10 @@ async function drainDiscovery() {
  * same-admin_level boundary relations whose centre sits within ~25 km of
  * the city centre. Mirrors the client's `buildAdjacentAdminQuery`
  * (src/maps/api/playAreaExtensions.ts) so we warm exactly what the seeker
- * can add. Returns unique relation ids (excluding the city itself).
+ * can add. Returns `{ relationId, name }` for each neighbour (excluding
+ * the city itself) so they can be processed as full play areas.
  */
-async function findNeighborIds(city) {
+async function findNeighbors(city) {
     // Get the city's admin_level + centroid from its boundary. The main
     // loop already warmed it, so this hits R2 (served in a few ms).
     const bq = boundaryQuery(city.relationId);
@@ -1889,37 +1897,51 @@ async function findNeighborIds(city) {
     const adminLevel = rel?.tags?.admin_level;
     if (!adminLevel) return [];
 
-    // ADJACENT_SEARCH_DEFAULT_RADIUS_KM = 25 on the client.
-    const q = `[out:json][timeout:60];relation["admin_level"="${adminLevel}"]["type"="boundary"](around:25000,${lat},${lng});out ids;`;
+    // ADJACENT_SEARCH_DEFAULT_RADIUS_KM = 25 on the client. `out tags
+    // center;` (not `out ids;`) so we get each neighbour's name for
+    // photon warming + readable logs when we treat it as a play area.
+    const q = `[out:json][timeout:60];relation["admin_level"="${adminLevel}"]["type"="boundary"](around:25000,${lat},${lng});out tags center;`;
     const res = await fetchOverpass(q, `one-ring neighbors ${city.name}`);
     if (!res) return [];
     const data = safeJSON(res.text);
-    const ids = (data?.elements ?? [])
-        .map((e) => e.id)
-        .filter((id) => typeof id === "number" && id !== city.relationId);
-    return ids.slice(0, ONE_RING_MAX_PER_CITY);
+    const neighbors = (data?.elements ?? [])
+        .filter(
+            (e) =>
+                e.type === "relation" &&
+                typeof e.id === "number" &&
+                e.id !== city.relationId,
+        )
+        .map((e) => ({
+            relationId: e.id,
+            name: e.tags?.name || e.tags?.["name:en"] || `r${e.id}`,
+        }));
+    return neighbors.slice(0, ONE_RING_MAX_PER_CITY);
 }
 
 /**
- * One-ring pass: warm the adjacent areas of the top N cities. Warming is
- * delegated to the worker's relation-keyed warm endpoint (boundary +
- * refs, background, skip-if-fresh, slot-paced), so this pass only
- * discovers neighbors and pings — it doesn't fetch the heavy reference
- * bodies itself. Deduped against the main city list and across cities.
+ * One-ring pass: warm the adjacent areas of the top N cities as FULL
+ * play areas. v442: each discovered neighbour now runs through the same
+ * `processCity` pipeline as a curated city — boundary, references,
+ * transit, metro routes, elevation, photon, and its own adjacent-search
+ * queries — not just the boundary+refs warm it used to do. A neighbour a
+ * seeker folds in via "Extend play area" then behaves exactly like the
+ * primary did. Deduped against the main city list and across cities, and
+ * bounded by ONE_RING_TOP × ONE_RING_MAX_PER_CITY so the pass stays
+ * sane. (processCity does NOT recurse into one-ring, so no neighbour-of-
+ * neighbour blow-up.)
  */
 async function processOneRing(cities) {
     const top = cities.slice(0, ONE_RING_TOP);
     const cityIds = new Set(cities.map((c) => c.relationId));
     const seen = new Set();
     let discovered = 0;
-    let requested = 0;
     console.log(
-        `=== one-ring: neighbors of top ${top.length} cities (max ${ONE_RING_MAX_PER_CITY}/city) ===`,
+        `=== one-ring: neighbors of top ${top.length} cities as full play areas (max ${ONE_RING_MAX_PER_CITY}/city) ===`,
     );
     for (const city of top) {
-        let ids = [];
+        let neighbors = [];
         try {
-            ids = await findNeighborIds(city);
+            neighbors = await findNeighbors(city);
         } catch (e) {
             console.warn(
                 `  ! one-ring discover ${city.name} failed:`,
@@ -1927,31 +1949,23 @@ async function processOneRing(cities) {
             );
             continue;
         }
-        for (const id of ids) {
-            if (seen.has(id) || cityIds.has(id)) continue;
-            seen.add(id);
+        for (const n of neighbors) {
+            if (seen.has(n.relationId) || cityIds.has(n.relationId)) continue;
+            seen.add(n.relationId);
             discovered++;
             try {
-                const resp = await fetchRetry(
-                    `${WORKER}/api/refs/${id}?warm=1`,
-                    { method: "GET" },
-                    "one-ring warm",
-                );
-                if (resp.ok) requested++;
+                // Treat the neighbour as any other play area.
+                await processCity(n);
             } catch (e) {
                 console.warn(
-                    `  ! one-ring warm r${id} failed:`,
+                    `  ! one-ring process ${n.name} (r${n.relationId}) failed:`,
                     e?.message ?? e,
                 );
             }
-            // Pace the warm pings so the worker's background warms (2
-            // concurrent upstream) aren't handed a giant burst at once.
-            await sleep(DELAY_MS);
         }
-        await sleep(DELAY_MS);
     }
     console.log(
-        `=== one-ring: ${discovered} unique neighbors discovered, ${requested} warm requests accepted ===`,
+        `=== one-ring: processed ${discovered} unique neighbour play areas ===`,
     );
 }
 
@@ -1990,9 +2004,10 @@ async function main() {
         }
     }
 
-    // v360: one-ring neighbor warming (opt-in). Runs after the main loop
-    // so the top cities' boundaries are already cached for the
-    // centroid/admin_level lookups in findNeighborIds.
+    // v360 / v442: one-ring neighbour warming (default on). Runs after
+    // the main loop so the top cities' boundaries are already cached for
+    // the centroid/admin_level lookups in findNeighbors, then processes
+    // each neighbour as a full play area.
     if (DO_ONE_RING) {
         try {
             await processOneRing(cities);

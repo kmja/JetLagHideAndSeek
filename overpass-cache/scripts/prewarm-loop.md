@@ -13,7 +13,13 @@ city:
   topological adjacency, admin-level, adjacent band, transit stations,
   and megacity sub-units (v440)
 
-and once per run, **HSR** (high-speed rail) per country.
+and once per run, **HSR** (high-speed rail) per country, plus the
+**one-ring** pass (v442, default on): the adjacent areas of the top
+~100 cities are each warmed as a *full* play area — boundary, references,
+transit, metro, elevation, photon, adjacent-search — so an area a seeker
+folds in via "Extend play area" is just as warm as the primary. Bound it
+with `--one-ring-top N` / `--one-ring-max-per-city N`, or drop it with
+`--skip-one-ring`.
 
 It's idempotent: each query asks the worker whether R2 already holds a
 fresh entry and skips the upstream fetch if so. So running it on a loop
@@ -44,8 +50,10 @@ limits); subsequent passes are fast because almost everything's warm.
 Useful flags:
 - `--max 50` — only the first 50 cities (quick smoke test).
 - `--skip-transit` / `--skip-references` / `--skip-hsr` /
-  `--skip-boundaries` / `--skip-discover` / `--skip-adjacent` — drop a
-  phase.
+  `--skip-boundaries` / `--skip-discover` / `--skip-adjacent` /
+  `--skip-one-ring` — drop a phase.
+- `--one-ring-top N` (default 100) / `--one-ring-max-per-city N`
+  (default 12) — bound the one-ring full-play-area warming.
 - `--delay-ms 3000` — slower pacing if you see lots of 429s.
 
 ## Run on a loop (overnight / indefinitely)
