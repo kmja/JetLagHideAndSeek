@@ -5250,15 +5250,24 @@ interface CacheStats {
 let cacheStatsMemo: CacheStats | null = null;
 const CACHE_STATS_TTL_MS = 60_000;
 
-/** Walk the `overpass/` prefix (up to ~10k entries) and tally counts,
- *  bytes, prewarmed count, and a per-`kind` breakdown. Memoised. */
+/** Safety ceiling on the scan. Each R2 list page is 1000 keys (=1
+ *  subrequest), so this is up to 80 list calls — well inside the
+ *  per-invocation subrequest budget, and only ever paid once per memo
+ *  window. Big enough to count the whole cache exactly at our scale
+ *  (well past the ~10–20k entries we run today). */
+const CACHE_STATS_MAX_SCAN = 80_000;
+
+/** Walk the `overpass/` prefix and tally counts, bytes, prewarmed
+ *  count, and a per-`kind` breakdown. Pages the full prefix (up to
+ *  CACHE_STATS_MAX_SCAN) so `byKind` is exact, not a sample. Memoised
+ *  ~60 s. */
 async function computeCacheStats(env: Env): Promise<CacheStats> {
     if (cacheStatsMemo && Date.now() - cacheStatsMemo.computedAt < CACHE_STATS_TTL_MS) {
         return cacheStatsMemo;
     }
     // R2 doesn't surface a cheap "count + total size" without
-    // listing every key. Page through up to ~10k entries — fine
-    // for our scale, and aborts early on bigger ones.
+    // listing every key. Page the whole prefix, bounded by
+    // CACHE_STATS_MAX_SCAN so a runaway cache can't hang the request.
     let cursor: string | undefined = undefined;
     let count = 0;
     let totalBytes = 0;
@@ -5283,13 +5292,13 @@ async function computeCacheStats(env: Env): Promise<CacheStats> {
             byKind[kind] = (byKind[kind] ?? 0) + 1;
         }
         cursor = page.truncated ? page.cursor : undefined;
-        if (count >= 10_000) break;
+        if (count >= CACHE_STATS_MAX_SCAN) break;
     } while (cursor);
     cacheStatsMemo = {
         cachedEntries: count,
         totalBytes,
         prewarmedEntries: prewarmedCount,
-        tooManyToCountExactly: count >= 10_000,
+        tooManyToCountExactly: count >= CACHE_STATS_MAX_SCAN,
         byKind,
         computedAt: Date.now(),
     };
