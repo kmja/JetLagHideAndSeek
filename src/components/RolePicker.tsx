@@ -22,12 +22,6 @@ import {
 import { setOnlineRole } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
-import {
-    HideSeekMark,
-    HideSeekWordmark,
-    SectionPill,
-} from "./JetLagLogo";
-
 /**
  * First-time role gate. Shown when the user lands on the seeker app and
  * `playerRole` hasn't been set. Picking a role is the only way to dismiss
@@ -143,38 +137,34 @@ export function RolePicker() {
                     "z-[1060]",
                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0",
+                    // Safety: if the compact body still can't clear the
+                    // keyboard on a very short viewport, scroll rather
+                    // than clip the role tiles off the top.
+                    "overflow-y-auto",
                 )}
                 overlayClassName="z-[1060]"
             >
-                <div className="px-6 pt-5 pb-4 shrink-0 border-b border-border">
-                    <div className="mb-3 flex items-center gap-3">
-                        <HideSeekMark size={36} onDark />
-                        <HideSeekWordmark />
-                        <SectionPill className="ml-auto">Pick role</SectionPill>
-                    </div>
-                    <DialogTitle className="font-inter-tight font-black uppercase text-2xl tracking-tight leading-tight">
-                        Which side are you on?
+                {/* Compact header — no logo flourish, so the whole
+                    dialog stays short enough to clear the on-screen
+                    keyboard. */}
+                <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border">
+                    <DialogTitle className="font-inter-tight font-black uppercase text-lg tracking-tight leading-tight">
+                        Pick your role
                     </DialogTitle>
-                    <DialogDescription className="mt-2 text-sm">
-                        Each device runs one side of the game. Pick yours
-                        — you can switch later from the More menu.
+                    <DialogDescription className="mt-0.5 text-xs text-muted-foreground">
+                        You can switch teams later in the lobby.
                     </DialogDescription>
                 </div>
 
-                <div className="px-6 pt-4 pb-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Icon + tone choices mirror the lobby roster
-                        cards: Footprints for seekers (tracking
-                        the hider — the older magnifying-glass icon
-                        read as a generic "search field"),
-                        VenetianMask for hiders, muted instead of
-                        brand-coloured so the role identity doesn't
-                        fight the question-category palette
-                        downstream. */}
+                {/* Role tiles — side-by-side on EVERY width (was stacked
+                    on mobile, which made the dialog too tall for the
+                    keyboard). Compact: icon + label + one short line. */}
+                <div className="px-5 pt-3 pb-2 grid grid-cols-2 gap-2.5">
                     <button
                         type="button"
                         onClick={pickSeeker}
                         className={cn(
-                            "flex flex-col items-start text-left gap-2 p-4 rounded-sm",
+                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm",
                             "bg-secondary/40 border-2 border-border",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                             "hover:bg-accent hover:-translate-y-[1px] transition-all",
@@ -182,16 +172,15 @@ export function RolePicker() {
                         )}
                     >
                         <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-secondary text-muted-foreground">
-                                <Footprints size={18} strokeWidth={2.4} />
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-secondary text-muted-foreground">
+                                <Footprints size={16} strokeWidth={2.4} />
                             </span>
                             <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
                                 Seeker
                             </span>
                         </div>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                            Track the hider with questions, eliminate
-                            possibilities on the map, close in.
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                            Ask questions, rule out the map, close in.
                         </p>
                     </button>
 
@@ -200,7 +189,7 @@ export function RolePicker() {
                         onClick={pickHider}
                         disabled={hiderTaken}
                         className={cn(
-                            "flex flex-col items-start text-left gap-2 p-4 rounded-sm",
+                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm",
                             "bg-secondary/20 border-2 border-border/70",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                             "transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -210,19 +199,19 @@ export function RolePicker() {
                         )}
                     >
                         <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-secondary/60 text-muted-foreground/70">
-                                <VenetianMask size={18} strokeWidth={2.4} />
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-secondary/60 text-muted-foreground/70">
+                                <VenetianMask size={16} strokeWidth={2.4} />
                             </span>
                             <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
                                 Hider
                             </span>
                         </div>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                            Answers the seekers' questions and manages
-                            the deck of hider cards. One per game.
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                            Answer questions, play the hider deck. One per
+                            game.
                         </p>
                         {hiderTaken && (
-                            <p className="text-[11px] font-semibold text-destructive">
+                            <p className="text-[10px] font-semibold text-destructive leading-snug">
                                 Taken by{" "}
                                 {hiderHolder?.displayName || "another player"}
                             </p>
@@ -231,44 +220,40 @@ export function RolePicker() {
                 </div>
 
                 {hiderTaken && (
-                    <div className="px-6 pb-4">
+                    <div className="px-5 pb-2">
                         <button
                             type="button"
                             onClick={pickCoHider}
                             className={cn(
-                                "w-full flex items-start text-left gap-3 p-4 rounded-sm",
+                                "w-full flex items-center text-left gap-2.5 p-2.5 rounded-sm",
                                 "bg-secondary border-2 border-border",
                                 "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
                                 "hover:bg-accent hover:-translate-y-[1px] transition-all",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             )}
                         >
-                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-muted text-foreground shrink-0">
-                                <Users size={18} strokeWidth={2.4} />
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-muted text-foreground shrink-0">
+                                <Users size={16} strokeWidth={2.4} />
                             </span>
-                            <span className="flex flex-col gap-1">
+                            <span className="flex flex-col gap-0.5 min-w-0">
                                 <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
                                     Co-hider
                                 </span>
-                                <span className="text-xs text-muted-foreground leading-snug">
-                                    View-only. You see{" "}
+                                <span className="text-[11px] text-muted-foreground leading-snug">
+                                    Join{" "}
                                     {hiderHolder?.displayName || "the hider"}
-                                    's view live — hiding zone, incoming
-                                    questions, deck — but they answer
-                                    questions and play the cards.
+                                    's hide — view-only; they answer and play
+                                    the cards.
                                 </span>
                             </span>
                         </button>
                     </div>
                 )}
 
-                {/* Display name — placed BELOW the role tiles so the
-                    on-screen keyboard (which slides up from the bottom
-                    when this field is focused) covers only this input,
-                    never the role buttons above. Optional: a blank
-                    submission lets the server assign a Jet Lag cast
-                    name. Pre-filled from the persistent atom. */}
-                <div className="px-6 pt-1 pb-5 space-y-1.5 border-t border-border">
+                {/* Display name — kept BELOW the role tiles so the
+                    keyboard covers only this field, never the roles.
+                    Optional: blank lets the server assign a cast name. */}
+                <div className="px-5 pt-2 pb-4 space-y-1 border-t border-border">
                     <label
                         htmlFor="rolepicker-display-name"
                         className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
