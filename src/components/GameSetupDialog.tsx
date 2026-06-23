@@ -1229,16 +1229,6 @@ export function PlayAreaStep({
                         ready={previewMapReady}
                     />
                 </div>
-
-                <p className="text-[11px] leading-snug text-muted-foreground border border-dashed border-border/60 rounded-md p-2.5">
-                    <span className="font-semibold text-foreground">
-                        Tip:
-                    </span>{" "}
-                    every seeker should turn on location sharing (Apple{" "}
-                    <span className="italic">Find My</span> or Google
-                    Maps live-share) so the hider can follow your
-                    movement through the round.
-                </p>
             </div>
         );
     }

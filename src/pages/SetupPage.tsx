@@ -10,12 +10,7 @@ import {
     TransitStep,
 } from "@/components/GameSetupDialog";
 import { SectionPill } from "@/components/JetLagLogo";
-import {
-    estimatePreloadMb,
-    formatSize,
-} from "@/components/PreloadChoicesPanel";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
     additionalMapGeoLocations,
     disabledStations,
@@ -36,7 +31,6 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
-    preloadChoices,
     resetMapOverlays,
     setupCompleted,
     type TransitMode,
@@ -108,15 +102,6 @@ export function SetupPage() {
     // Once the user taps a size tile we stop auto-inferring from the
     // chosen play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
-    // v277: the wizard's preload choice is now one checkbox covering
-    // all three buckets. Drafts the initial state from the persisted
-    // atom so a returning user lands on their last choice; on Finish
-    // we apply it back. The Settings drawer still exposes the
-    // per-bucket toggles for fine control mid-game.
-    const [draftPreloadOn, setDraftPreloadOn] = useState<boolean>(() => {
-        const c = preloadChoices.get();
-        return c.map || c.references || c.transit;
-    });
     // Auto-infer size from the picked area unless the user has
     // overridden it. Mirrors GameSetupDialog's behaviour.
     useEffect(() => {
@@ -143,14 +128,9 @@ export function SetupPage() {
     const handleFinish = () => {
         allowedTransit.set(draftTransit);
         gameSize.set(draftSize);
-        // v277: apply the single wizard checkbox to all three buckets.
-        // The Settings drawer still lets the user pick which buckets
-        // mid-game; the wizard collapses the choice for newcomers.
-        preloadChoices.set({
-            map: draftPreloadOn,
-            references: draftPreloadOn,
-            transit: draftPreloadOn,
-        });
+        // v444: the preload decision moved to the lobby (network-aware —
+        // auto on wifi, a checkbox on cellular), so the wizard no longer
+        // touches preloadChoices.
         resetMapOverlays();
 
         // Defer the hiding-period clock until the play-area boundary
@@ -217,9 +197,9 @@ export function SetupPage() {
                         className="font-display font-black uppercase text-xl leading-tight flex-1"
                         style={{ letterSpacing: "-0.02em" }}
                     >
-                        {step === 1 && "Where are you playing?"}
-                        {step === 2 && "What transit is allowed?"}
-                        {step === 3 && "How big is the game?"}
+                        {step === 1 && "Play area"}
+                        {step === 2 && "Transit types"}
+                        {step === 3 && "Game size"}
                     </h1>
                     <SectionPill>Step {step} / 3</SectionPill>
                 </div>
@@ -256,79 +236,10 @@ export function SetupPage() {
                         />
                     )}
                     {step === 3 && (
-                        <div className="space-y-5">
-                            <SizeStep
-                                value={draftSize}
-                                onChange={setDraftSizeManual}
-                            />
-
-                            {/* v277: single preload checkbox. Replaces
-                                the old standalone Step 4 + the
-                                three-row per-bucket panel. The Settings
-                                drawer still exposes the per-bucket
-                                toggles for fine control mid-game; the
-                                wizard collapses to one decision for
-                                newcomers. v279: name input moved to
-                                the RolePicker; copy on the checkbox
-                                is plain-language. */}
-                            <label
-                                className={cn(
-                                    "flex items-start gap-3 p-3 rounded-md border cursor-pointer",
-                                    "bg-secondary/30 hover:bg-secondary/60 transition-colors",
-                                    draftPreloadOn
-                                        ? "border-primary/50"
-                                        : "border-border",
-                                )}
-                            >
-                                <Checkbox
-                                    checked={draftPreloadOn}
-                                    onCheckedChange={(c) =>
-                                        setDraftPreloadOn(c === true)
-                                    }
-                                    className="mt-0.5"
-                                    aria-label="Get the app ready before you play"
-                                />
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <span className="text-sm font-semibold text-foreground">
-                                            Get the app ready before you
-                                            play
-                                        </span>
-                                        <span
-                                            className={cn(
-                                                "text-[10px] font-mono tabular-nums shrink-0",
-                                                "px-1.5 py-0.5 rounded-sm border",
-                                                draftPreloadOn
-                                                    ? "bg-primary/10 border-primary/30 text-primary"
-                                                    : "bg-secondary/60 border-border text-muted-foreground",
-                                            )}
-                                            title={
-                                                draftFeature
-                                                    ? `Estimated download for your play area`
-                                                    : "Rough estimate — pick a play area for a more accurate number"
-                                            }
-                                        >
-                                            ~
-                                            {formatSize(
-                                                estimatePreloadMb(
-                                                    draftFeature
-                                                        ? estimateAreaKm2(
-                                                              draftFeature,
-                                                          )
-                                                        : null,
-                                                ),
-                                            )}
-                                        </span>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground mt-1 leading-snug">
-                                        Spend a little data now and the app
-                                        will feel instant — no loading
-                                        spinners or stutter while you're
-                                        chasing the hider.
-                                    </p>
-                                </div>
-                            </label>
-                        </div>
+                        <SizeStep
+                            value={draftSize}
+                            onChange={setDraftSizeManual}
+                        />
                     )}
                 </div>
             </div>

@@ -27,6 +27,7 @@ import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
     Popover,
@@ -43,6 +44,7 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
+    preloadChoices,
     setupCompleted,
     setupDialogOpen,
     TRANSIT_LABELS,
@@ -273,6 +275,22 @@ export function GameLobbyDialog() {
         lobbyManualOpen.set(false);
         setupDialogOpen.set(true);
     };
+
+    // Preload (moved from the wizard, v444). On an unmetered link we just
+    // preload silently; only a positively-metered link gets the opt-in
+    // checkbox. `metered` is sampled once at mount.
+    const $preload = useStore(preloadChoices);
+    const [metered] = useState(() => isMeteredConnection());
+    const preloadOn = $preload.map || $preload.references || $preload.transit;
+    const setPreloadOn = (on: boolean) =>
+        preloadChoices.set({ map: on, references: on, transit: on });
+    useEffect(() => {
+        if (isMidGame || metered) return;
+        const c = preloadChoices.get();
+        if (!(c.map && c.references && c.transit)) {
+            preloadChoices.set({ map: true, references: true, transit: true });
+        }
+    }, [isMidGame, metered]);
 
     // Start gates on role balance + host status only — NOT on the
     // boundary load. The Overpass fetch for a big play area can
@@ -697,6 +715,16 @@ export function GameLobbyDialog() {
                             <div className="ml-auto flex items-center gap-1.5">
                                 <Button
                                     size="sm"
+                                    onClick={handleShare}
+                                    aria-label="Share invite link"
+                                    title="Share invite link"
+                                    className="gap-1.5"
+                                >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    Share
+                                </Button>
+                                <Button
+                                    size="sm"
                                     variant="outline"
                                     onClick={handleCopy}
                                     aria-label="Copy invite link"
@@ -712,16 +740,6 @@ export function GameLobbyDialog() {
                                     ) : (
                                         <Copy className="w-3.5 h-3.5" />
                                     )}
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    onClick={handleShare}
-                                    aria-label="Share invite link"
-                                    title="Share invite link"
-                                    className="gap-1.5"
-                                >
-                                    <Share2 className="w-3.5 h-3.5" />
-                                    Share
                                 </Button>
                                 {shareUrl && (
                                     <Button
@@ -879,6 +897,27 @@ export function GameLobbyDialog() {
                             <b>hider</b> before the game can start.
                             Share the invite to bring more in.
                         </p>
+                    )}
+
+                    {/* Preload opt-in — only on a metered link. On wifi
+                        the lobby preloads silently (see the effect), so
+                        this checkbox doesn't render at all. */}
+                    {!isMidGame && metered && (
+                        <label className="flex items-center gap-3 p-3 rounded-md border border-border bg-secondary/30 cursor-pointer animate-in fade-in duration-200">
+                            <Checkbox
+                                checked={preloadOn}
+                                onCheckedChange={(c) =>
+                                    setPreloadOn(c === true)
+                                }
+                                aria-label="Preload game data"
+                            />
+                            <span className="flex-1 text-sm font-medium text-foreground">
+                                Preload game data{" "}
+                                <span className="text-muted-foreground tabular-nums">
+                                    (~15MB)
+                                </span>
+                            </span>
+                        </label>
                     )}
 
                     {/* v318: leaderboard — surfaces the rolling
@@ -1209,6 +1248,38 @@ const TRANSIT_ICONS: Record<TransitMode, React.ComponentType<{ className?: strin
     subway: TrainTrack,
     ferry: Ship,
 };
+
+/**
+ * Best-effort "is this a metered (cellular / data-saver / slow) link?"
+ * check via the Network Information API. Returns false when we can't
+ * tell (desktop, iOS Safari — no API), which we treat as unmetered:
+ * the lobby then preloads silently. Only a positively-detected metered
+ * link surfaces the opt-in checkbox so the user can skip the ~15 MB.
+ */
+function isMeteredConnection(): boolean {
+    if (typeof navigator === "undefined") return false;
+    const c = (
+        navigator as Navigator & {
+            connection?: {
+                type?: string;
+                effectiveType?: string;
+                saveData?: boolean;
+            };
+            mozConnection?: unknown;
+            webkitConnection?: unknown;
+        }
+    ).connection;
+    if (!c) return false;
+    if (c.saveData) return true;
+    if (c.type === "cellular") return true;
+    if (
+        c.effectiveType &&
+        ["slow-2g", "2g", "3g"].includes(c.effectiveType)
+    ) {
+        return true;
+    }
+    return false;
+}
 
 /** Canonical mode order for the editable chip row + add menu. */
 const ALL_TRANSIT_MODES: TransitMode[] = [
