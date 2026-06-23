@@ -70,6 +70,9 @@ const GameLobbyDialog = lazyWithRetry(() =>
         default: m.GameLobbyDialog,
     })),
 );
+const RolePicker = lazyWithRetry(() =>
+    import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
+);
 const GameSetupDialog = lazyWithRetry(() =>
     import("@/components/GameSetupDialog").then((m) => ({
         default: m.GameSetupDialog,
@@ -148,6 +151,7 @@ export function SeekerPage() {
                 </div>
                 <Suspense fallback={null}>
                     <GameLobbyDialog />
+                    <RolePicker />
                     <GameSetupDialog />
                     <DebugPhaseControls />
                     <StaleSessionPrompt />
@@ -248,6 +252,7 @@ export function SeekerPage() {
                     <Suspense fallback={null}>
                         <GameSetupDialog />
                         <GameLobbyDialog />
+                        <RolePicker />
                         <AnswerLinkReader />
                         <CurseInbox />
                         <DebugPhaseControls />

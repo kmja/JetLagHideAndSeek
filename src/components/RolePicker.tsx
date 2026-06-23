@@ -1,8 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Footprints, Users, VenetianMask } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
@@ -10,9 +9,10 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { welcomeSeen } from "@/lib/gameSetup";
-import { playerRole, rolePickerOpen } from "@/lib/hiderRole";
+import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
+import { playerRole } from "@/lib/hiderRole";
 import {
+    currentGameCode,
     displayName as displayNameAtom,
     multiplayerEnabled,
     participants,
@@ -41,11 +41,12 @@ import {
  */
 export function RolePicker() {
     const $role = useStore(playerRole);
-    const $open = useStore(rolePickerOpen);
     const $mp = useStore(multiplayerEnabled);
     const $participants = useStore(participants);
     const $self = useStore(selfParticipantId);
     const $welcomeSeen = useStore(welcomeSeen);
+    const $setupCompleted = useStore(setupCompleted);
+    const $code = useStore(currentGameCode);
 
     // In an online room the main hider slot is exclusive — the server
     // rejects a second hider (`role_taken`). Gate the option in the UI
@@ -61,14 +62,17 @@ export function RolePicker() {
         : undefined;
     const hiderTaken = Boolean(hiderHolder);
 
-    // Auto-open when no role has been chosen yet — but only after the
-    // welcome screen has been dismissed. Otherwise both dialogs race
-    // to open on a fresh load and stack on top of each other.
-    useEffect(() => {
-        if ($role === null && $welcomeSeen) rolePickerOpen.set(true);
-    }, [$role, $welcomeSeen]);
-
-    const open = ($open || $role === null) && $welcomeSeen;
+    // v448: the host's role + name dialog. It layers OVER the lobby once
+    // the game room exists ($code), so the host sees the lobby they just
+    // created behind it. Joiners never see this — they pick their role
+    // (and name) in the Welcome "Join" flow before the lobby mounts, so
+    // they arrive with a role already set. Derived purely from state; no
+    // imperative open atom.
+    const open =
+        $role === null &&
+        $welcomeSeen &&
+        $setupCompleted &&
+        Boolean($code);
 
     // v279: name input moved here from the setup wizard. Roles +
     // display name are the same "this is me" decision; co-locating
@@ -93,7 +97,6 @@ export function RolePicker() {
         // Push the choice to the server so the multiplayer roster
         // reflects the switch immediately (no-op when offline).
         setOnlineRole("seeker");
-        rolePickerOpen.set(false);
         // If we're on /h (hider page) and just became a seeker,
         // navigate back to / so we don't sit on the wrong surface.
         if (
@@ -109,7 +112,6 @@ export function RolePicker() {
         commitName();
         playerRole.set("hider");
         setOnlineRole("hider");
-        rolePickerOpen.set(false);
         // Send them to the hider home.
         if (typeof window !== "undefined") window.location.assign("/h");
     };
@@ -122,25 +124,27 @@ export function RolePicker() {
         playerRole.set("coHider");
         // No setOnlineRole — coHider is not a server-tracked role
         // (the server only knows seeker / hider / null).
-        rolePickerOpen.set(false);
         if (typeof window !== "undefined") window.location.assign("/h");
     };
 
     return (
         <Dialog
             open={open}
-            onOpenChange={(o) => {
-                // Don't allow dismissing without a choice — same pattern
-                // as the wizard's onOpenChange guard.
-                if (!o && playerRole.get() === null) return;
-                rolePickerOpen.set(o);
-            }}
+            // Not dismissible without a choice — picking a role flips
+            // `open` (derived from $role) on its own, so Esc / outside-
+            // click are intentionally no-ops here.
+            onOpenChange={() => {}}
         >
             <DialogContent
+                closeIcon={false}
+                // z-[1060] (content + overlay) so it stacks ABOVE the
+                // lobby drawer, whose content sits at z-[1055].
                 className={cn(
+                    "z-[1060]",
                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0",
                 )}
+                overlayClassName="z-[1060]"
             >
                 <div className="px-6 pt-5 pb-4 shrink-0 border-b border-border">
                     <div className="mb-3 flex items-center gap-3">
@@ -157,28 +161,7 @@ export function RolePicker() {
                     </DialogDescription>
                 </div>
 
-                {/* Display name. Optional — blank submissions are
-                    fine, the server assigns a unique Jet Lag cast
-                    name. Pre-filled from the persistent atom so a
-                    returning user / role-switcher just confirms
-                    rather than retyping. */}
-                <div className="px-6 pt-4 pb-1 space-y-1.5">
-                    <label
-                        htmlFor="rolepicker-display-name"
-                        className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
-                    >
-                        Your display name
-                    </label>
-                    <Input
-                        id="rolepicker-display-name"
-                        value={draftName}
-                        onChange={(e) => setDraftName(e.target.value)}
-                        placeholder={`What others see (e.g. ${castPlaceholder})`}
-                        maxLength={24}
-                    />
-                </div>
-
-                <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="px-6 pt-4 pb-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Icon + tone choices mirror the lobby roster
                         cards: Footprints for seekers (tracking
                         the hider — the older magnifying-glass icon
@@ -278,6 +261,28 @@ export function RolePicker() {
                         </button>
                     </div>
                 )}
+
+                {/* Display name — placed BELOW the role tiles so the
+                    on-screen keyboard (which slides up from the bottom
+                    when this field is focused) covers only this input,
+                    never the role buttons above. Optional: a blank
+                    submission lets the server assign a Jet Lag cast
+                    name. Pre-filled from the persistent atom. */}
+                <div className="px-6 pt-1 pb-5 space-y-1.5 border-t border-border">
+                    <label
+                        htmlFor="rolepicker-display-name"
+                        className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
+                    >
+                        Your display name
+                    </label>
+                    <Input
+                        id="rolepicker-display-name"
+                        value={draftName}
+                        onChange={(e) => setDraftName(e.target.value)}
+                        placeholder={`What others see (e.g. ${castPlaceholder})`}
+                        maxLength={24}
+                    />
+                </div>
             </DialogContent>
         </Dialog>
     );

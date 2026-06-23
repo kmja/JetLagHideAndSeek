@@ -31,10 +31,14 @@ const DialogContent = React.forwardRef<
     React.ElementRef<typeof DialogPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
         closeIcon?: boolean;
+        /** Extra classes for the dim overlay — e.g. a raised z-index so
+         *  the dialog can stack above an open drawer (lobby) whose
+         *  content already sits above the default dialog z. */
+        overlayClassName?: string;
     }
->(({ className, children, closeIcon = true, ...props }, ref) => (
+>(({ className, children, closeIcon = true, overlayClassName, ...props }, ref) => (
     <DialogPortal>
-        <DialogOverlay />
+        <DialogOverlay className={overlayClassName} />
         <DialogPrimitive.Content
             ref={ref}
             className={cn(
