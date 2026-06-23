@@ -20,7 +20,11 @@ export function SeekerTopBar() {
     return (
         <header
             className={cn(
-                "md:hidden fixed top-0 inset-x-0 z-[1040]",
+                // v462: a real flow row at the top of the seeker column
+                // (was `fixed top-0`). Sits ABOVE the map instead of
+                // overlaying it, so the map's top controls no longer need
+                // to dodge it with a magic top offset.
+                "md:hidden shrink-0 z-[1040]",
                 "px-3 pb-2",
                 // v292: drop the rigid `h-14` and let the bar size
                 // itself as safe-area + content + pb. With h-14 the

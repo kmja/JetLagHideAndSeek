@@ -110,7 +110,7 @@ export function MapLoadingOverlay() {
         // back into pointer events for the retry button.
         <div
             className={cn(
-                "absolute left-0 right-0 top-[68px] md:top-12 z-[1020]",
+                "absolute left-0 right-0 top-2 md:top-12 z-[1020]",
                 "flex items-start justify-center px-2",
                 "pointer-events-none",
             )}

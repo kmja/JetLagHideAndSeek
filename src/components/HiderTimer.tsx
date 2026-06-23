@@ -124,7 +124,10 @@ export function HiderTimer() {
         <div
             className={cn(
                 "absolute z-[1030] group-[.fullscreen]:hidden",
-                "bottom-[80px] md:bottom-[64px]",
+                // v462: the bottom nav is now a flow row below the map
+                // area (not an overlay), so the timer only needs to clear
+                // the map edge — no more bottom-[80px] dodge.
+                "bottom-2 md:bottom-4",
                 "flex flex-col gap-2",
                 inHidingPeriod
                     ? "left-2 md:left-4 items-start"

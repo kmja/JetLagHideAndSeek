@@ -40,8 +40,6 @@ export const BottomNav = () => {
     // useNow fires immediately on subscribe so the snap-to-now case stays
     // correct without the extra effect.
     const now = useNow($hidingEndsAt !== null);
-    const hidingRunning =
-        $hidingEndsAt !== null && $hidingEndsAt > now;
 
     // Derive `hiding` from the live timestamp where possible — falling
     // back to `now` only between interval ticks. This guarantees the
@@ -69,7 +67,11 @@ export const BottomNav = () => {
     return (
         <div
             className={cn(
-                "md:hidden fixed bottom-0 left-0 right-0 z-[1040]",
+                // v462: a real flow row at the bottom of the seeker column
+                // (was `fixed bottom-0`). Sits BELOW the map instead of
+                // overlaying it, so the map's bottom controls anchor to
+                // the map area with a plain bottom offset.
+                "md:hidden shrink-0 z-[1040]",
                 "bg-background/95 backdrop-blur-md border-t border-border",
                 "pb-[env(safe-area-inset-bottom)]",
             )}

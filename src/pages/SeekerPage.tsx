@@ -171,80 +171,87 @@ export function SeekerPage() {
             <SidebarProviderL>
                 <SidebarProviderR defaultOpen={false}>
                     <QuestionSidebar />
-                    <main className="flex flex-col flex-grow group">
+                    {/* v462: the mobile header + bottom nav are now real
+                        flow rows in this column — header on top, map in
+                        the middle (flex-1), nav at the bottom — instead of
+                        `fixed` bars overlaid on a full-screen map. That
+                        means the map area is exactly the space between
+                        them, so the on-map controls anchor to it with
+                        plain top-2 / bottom-2 rather than the fragile
+                        top-[64px] / bottom-[80px] offsets that were
+                        mis-placing (and clipping) buttons. On desktop the
+                        header/nav are `md:hidden`, so main is just the
+                        full-height map area as before. */}
+                    <main className="flex flex-col flex-grow group h-svh min-h-0">
+                        <SeekerTopBar />
                         <div
-                            className="flex justify-center"
+                            className="relative flex-1 min-h-0"
                             id="map-modal-dialog-container-leaflet"
                         >
-                            <div className="w-full h-full relative">
-                                <div
-                                    className="absolute top-[72px] md:top-2 left-2 z-[1030] group-[.fullscreen]:hidden hidden md:block"
-                                    data-tutorial-id="left-sidebar-trigger"
-                                >
-                                    <SidebarTriggerL />
-                                </div>
-                                {/* Persistent hider timer. v457: the card
-                                    positions itself — bottom-LEFT during
-                                    the hiding period (yellow "hiding time
-                                    remaining" box) and bottom-RIGHT once
-                                    seeking starts (white clock + gold
-                                    "time to beat" strip), matching the
-                                    Jet Lag show. */}
-                                <HiderTimer />
-                                {/* Top-right cluster: zones trigger +
-                                    satellite + transit-lines toggles.
-                                    Visible on both desktop and mobile —
-                                    the bottom-nav slot that previously
-                                    held the zones trigger has been
-                                    reassigned to "Game". On mobile we
-                                    shift it below the SeekerTopBar. */}
-                                <div className="absolute top-[64px] md:top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
-                                    <MapDisplayControls />
-                                    {/* Trip planner launcher — small
-                                        pill sitting under the map-
-                                        options chip. Opens the bottom-
-                                        drawer SeekerTripPlannerSheet
-                                        which fetches a journey from
-                                        live GPS to the typed place. */}
-                                    <SeekerTripPlannerLauncher />
-                                </div>
-                                <div className="bottom-5 right-2 mx-auto mb-2 w-fit absolute z-[1030] group-[.fullscreen]:hidden hidden md:block">
-                                    <OptionDrawers />
-                                </div>
-                                <ThermometerOverlay />
-                                <PendingAnswerOverlay />
-                                <TravelTimesOverlay />
-                                {/* Transit overlays + radar sweep are
-                                    now built into Map directly as
-                                    Source/Layer pairs; the old
-                                    sibling components have been
-                                    deleted along with the Leaflet
-                                    renderer.
-                                    Error boundary catches any render-
-                                    time error the map might raise
-                                    (style parse, WebGL init, etc.)
-                                    and surfaces a recover-and-reload
-                                    card. Without it those errors
-                                    bubble up to the root and the
-                                    whole app blanks. */}
-                                {showMap ? (
-                                    <MapErrorBoundary>
-                                        <Map className="w-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
-                                    </MapErrorBoundary>
-                                ) : (
-                                    // Placeholder backdrop while the
-                                    // wizard runs. Matches the map's
-                                    // dark base so the dialog doesn't
-                                    // sit on a flash of bare body.
-                                    <div className="w-full h-screen bg-[#0f172a]" />
-                                )}
-                                {showMap && <MapLoadingOverlay />}
+                            <div
+                                className="absolute top-2 left-2 z-[1030] group-[.fullscreen]:hidden hidden md:block"
+                                data-tutorial-id="left-sidebar-trigger"
+                            >
+                                <SidebarTriggerL />
                             </div>
+                            {/* Persistent hider timer. v457: the card
+                                positions itself — bottom-LEFT during
+                                the hiding period (yellow "hiding time
+                                remaining" box) and bottom-RIGHT once
+                                seeking starts (white clock + gold
+                                "time to beat" strip), matching the
+                                Jet Lag show. */}
+                            <HiderTimer />
+                            {/* Top-right cluster: map-options chip +
+                                trip-planner launcher. Anchors to the
+                                top of the map area (which now sits
+                                below the header), so a plain top-2 is
+                                correct on every breakpoint. */}
+                            <div className="absolute top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
+                                <MapDisplayControls />
+                                {/* Trip planner launcher — small
+                                    pill sitting under the map-
+                                    options chip. Opens the bottom-
+                                    drawer SeekerTripPlannerSheet
+                                    which fetches a journey from
+                                    live GPS to the typed place. */}
+                                <SeekerTripPlannerLauncher />
+                            </div>
+                            <div className="bottom-5 right-2 mx-auto mb-2 w-fit absolute z-[1030] group-[.fullscreen]:hidden hidden md:block">
+                                <OptionDrawers />
+                            </div>
+                            <ThermometerOverlay />
+                            <PendingAnswerOverlay />
+                            <TravelTimesOverlay />
+                            {/* Transit overlays + radar sweep are
+                                now built into Map directly as
+                                Source/Layer pairs; the old
+                                sibling components have been
+                                deleted along with the Leaflet
+                                renderer.
+                                Error boundary catches any render-
+                                time error the map might raise
+                                (style parse, WebGL init, etc.)
+                                and surfaces a recover-and-reload
+                                card. Without it those errors
+                                bubble up to the root and the
+                                whole app blanks. */}
+                            {showMap ? (
+                                <MapErrorBoundary>
+                                    <Map className="w-full h-full group-[.fullscreen]:w-full group-[.fullscreen]:h-full" />
+                                </MapErrorBoundary>
+                            ) : (
+                                // Placeholder backdrop while the
+                                // wizard runs. Matches the map's
+                                // dark base so the dialog doesn't
+                                // sit on a flash of bare body.
+                                <div className="w-full h-full bg-[#0f172a]" />
+                            )}
+                            {showMap && <MapLoadingOverlay />}
                         </div>
+                        <BottomNav />
                     </main>
                     <ZoneSidebar />
-                    <SeekerTopBar />
-                    <BottomNav />
                     <Suspense fallback={null}>
                         <GameSetupDialog />
                         <GameLobbyDialog />
