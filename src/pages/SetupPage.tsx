@@ -198,7 +198,7 @@ export function SetupPage() {
                         style={{ letterSpacing: "-0.02em" }}
                     >
                         {step === 1 && "Play area"}
-                        {step === 2 && "Transit types"}
+                        {step === 2 && "Transit modes"}
                         {step === 3 && "Game size"}
                     </h1>
                     <SectionPill>Step {step} / 3</SectionPill>

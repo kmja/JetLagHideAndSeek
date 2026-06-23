@@ -9,9 +9,15 @@ const PopoverTrigger = PopoverPrimitive.Trigger;
 
 const PopoverContent = React.forwardRef<
     React.ElementRef<typeof PopoverPrimitive.Content>,
-    React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
-    <PopoverPrimitive.Portal>
+    React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & {
+        /** Portal target. Defaults to `document.body`. Pass a node INSIDE
+         *  a modal vaul Drawer / Radix Dialog so the popover inherits
+         *  `pointer-events: auto` — otherwise the modal layer renders the
+         *  body-portaled content inert and clicks have no effect. */
+        container?: HTMLElement | null;
+    }
+>(({ className, align = "center", sideOffset = 4, container, ...props }, ref) => (
+    <PopoverPrimitive.Portal container={container ?? undefined}>
         <PopoverPrimitive.Content
             ref={ref}
             align={align}

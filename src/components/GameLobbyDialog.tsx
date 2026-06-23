@@ -342,6 +342,13 @@ export function GameLobbyDialog() {
 
     const [copied, setCopied] = useState(false);
     const [qrOpen, setQrOpen] = useState(false);
+    // v455: the lobby is a MODAL vaul drawer (Radix Dialog under the
+    // hood), so anything portaled to document.body — like the size /
+    // add-transit Popovers — renders inert (pointer-events: none).
+    // Portal those popovers into the drawer content instead, captured
+    // here via a callback ref so they inherit pointer-events: auto and
+    // their option clicks actually fire.
+    const [drawerEl, setDrawerEl] = useState<HTMLElement | null>(null);
     const handleCopy = async () => {
         if (!shareUrl) return;
         try {
@@ -426,6 +433,7 @@ export function GameLobbyDialog() {
             <VaulDrawer.Portal>
                 <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/60" />
                 <VaulDrawer.Content
+                    ref={setDrawerEl}
                     className={cn(
                         "fixed inset-x-0 z-[1055] flex flex-col",
                         // v297: pre-game (no manual reopen, no hiding
@@ -506,6 +514,7 @@ export function GameLobbyDialog() {
                                                     </PopoverTrigger>
                                                     <PopoverContent
                                                         align="start"
+                                                        container={drawerEl}
                                                         className="z-[1060] w-44 p-1"
                                                     >
                                                         {SIZE_OPTIONS.map(
@@ -546,87 +555,6 @@ export function GameLobbyDialog() {
                                         </div>
                                     )}
                                 </div>
-                                {/* v453: compact share cluster in the
-                                    header corner — room code stacked above
-                                    the Share / Copy / QR buttons. Shows a
-                                    pulsing skeleton while the room is being
-                                    created. (Leave moved to the footer.) */}
-                                {$mp &&
-                                    ($code || hostingState === "creating") && (
-                                        <div className="shrink-0 flex flex-col items-end gap-1.5">
-                                            {$code ? (
-                                                <>
-                                                    <div className="flex flex-col items-end leading-none">
-                                                        <span className="text-[9px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
-                                                            Room code
-                                                        </span>
-                                                        <span className="font-display font-black uppercase text-base tabular-nums tracking-[0.08em] text-primary mt-0.5">
-                                                            {$code}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <Button
-                                                            size="sm"
-                                                            onClick={handleShare}
-                                                            aria-label="Share invite link"
-                                                            title="Share invite link"
-                                                            className="px-2 h-8"
-                                                        >
-                                                            <Share2 className="w-3.5 h-3.5" />
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            onClick={handleCopy}
-                                                            aria-label="Copy invite link"
-                                                            title={
-                                                                copied
-                                                                    ? "Copied!"
-                                                                    : "Copy invite link"
-                                                            }
-                                                            className="px-2 h-8"
-                                                        >
-                                                            {copied ? (
-                                                                <Check className="w-3.5 h-3.5" />
-                                                            ) : (
-                                                                <Copy className="w-3.5 h-3.5" />
-                                                            )}
-                                                        </Button>
-                                                        {shareUrl && (
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={() =>
-                                                                    setQrOpen(
-                                                                        true,
-                                                                    )
-                                                                }
-                                                                aria-label="Show large QR code"
-                                                                title="Show large QR code"
-                                                                className="px-2 h-8"
-                                                            >
-                                                                <QrCode className="w-3.5 h-3.5" />
-                                                            </Button>
-                                                        )}
-                                                    </div>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <div className="flex flex-col items-end leading-none gap-1">
-                                                        <span className="text-[9px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
-                                                            Creating room…
-                                                        </span>
-                                                        <div className="h-4 w-20 rounded-sm bg-primary/20 animate-pulse" />
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <div className="h-8 w-9 rounded-md bg-secondary animate-pulse" />
-                                                        <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:150ms]" />
-                                                        <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:300ms]" />
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
                             </div>
 
                             {/* Transit chips — FULL-WIDTH row (own line, not
@@ -683,6 +611,7 @@ export function GameLobbyDialog() {
                                         </PopoverTrigger>
                                         <PopoverContent
                                             align="start"
+                                            container={drawerEl}
                                             className="z-[1060] w-44 p-1"
                                         >
                                             {addableModes.map((m) => {
@@ -911,6 +840,91 @@ export function GameLobbyDialog() {
                             </p>
                         )}
 
+                    {/* Share / room code section (v455): the full-width
+                        card is back, positioned here at the bottom of the
+                        roster block (below the "need a seeker + hider"
+                        hint). Eyebrow label + code on the left, Share /
+                        Copy / QR on the right. A pulsing skeleton holds
+                        the slot while the room is still being created. */}
+                    {$mp && !isMidGame && hostingState === "creating" && !$code && (
+                        <div
+                            className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2 min-h-[3.5rem] animate-in fade-in duration-200"
+                            role="status"
+                            aria-live="polite"
+                            aria-label="Creating game room"
+                        >
+                            <div className="flex flex-col min-w-0 leading-none gap-1.5">
+                                <span className="text-[9px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                    Creating room…
+                                </span>
+                                <div className="h-[1.125rem] w-28 rounded-sm bg-primary/20 animate-pulse" />
+                            </div>
+                            <div className="ml-auto flex items-center gap-1.5">
+                                <div className="h-8 w-[4.5rem] rounded-md bg-secondary animate-pulse" />
+                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:150ms]" />
+                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:300ms]" />
+                            </div>
+                        </div>
+                    )}
+                    {$mp && !isMidGame && $code && (
+                        <div
+                            className={cn(
+                                "rounded-md border border-border bg-secondary/40",
+                                "px-3 py-2 flex items-center gap-2 min-h-[3.5rem]",
+                                "animate-in fade-in duration-200",
+                            )}
+                        >
+                            <div className="flex flex-col min-w-0 leading-none">
+                                <span className="text-[9px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                    Room code
+                                </span>
+                                <span className="font-display font-black uppercase text-lg tabular-nums tracking-[0.08em] text-primary mt-0.5">
+                                    {$code}
+                                </span>
+                            </div>
+                            <div className="ml-auto flex items-center gap-1.5">
+                                <Button
+                                    size="sm"
+                                    onClick={handleShare}
+                                    aria-label="Share invite link"
+                                    title="Share invite link"
+                                    className="gap-1.5"
+                                >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    Share
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleCopy}
+                                    aria-label="Copy invite link"
+                                    title={
+                                        copied ? "Copied!" : "Copy invite link"
+                                    }
+                                    className="px-2"
+                                >
+                                    {copied ? (
+                                        <Check className="w-3.5 h-3.5" />
+                                    ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                </Button>
+                                {shareUrl && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setQrOpen(true)}
+                                        aria-label="Show large QR code"
+                                        title="Show large QR code"
+                                        className="px-2"
+                                    >
+                                        <QrCode className="w-3.5 h-3.5" />
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Preload opt-in — only on a metered link. On wifi
                         the lobby preloads silently (see the effect), so
                         this checkbox doesn't render at all. */}
@@ -960,8 +974,8 @@ export function GameLobbyDialog() {
 
                 {/* Footer — Start for pre-game host, then a Leave
                     button below it. v453: Leave moved back here from
-                    the header (the header corner now carries the
-                    compact share cluster). Mid-game manual reopens
+                    the header. v455: the share section moved to the
+                    bottom of the roster block. Mid-game manual reopens
                     still dismiss via swipe-down; the Leave button
                     stays available there too. */}
                 <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
