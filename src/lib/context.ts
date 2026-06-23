@@ -56,6 +56,66 @@ export const additionalMapGeoLocations = persistentAtom<
     encode: JSON.stringify,
     decode: JSON.parse,
 });
+
+/**
+ * Volatile preview-state for the "extend with neighbouring areas"
+ * picker: while the play-area step of the setup wizard is open, this
+ * carries the candidate adjacent areas (with bbox + name) so the
+ * preview map can paint them as dashed-rectangle outlines with a
+ * tappable "+/✓" pill. Null when the picker is closed.
+ *
+ * The PRIMITIVE state of "is this candidate currently added?" stays
+ * derived from `additionalMapGeoLocations` — both the dialog
+ * checklist and the map pill mutate that atom directly, so the two
+ * surfaces stay in sync without an extra ping-pong.
+ */
+export interface AdjacentCandidatePreview {
+    /** Per-candidate render data. `bbox` is `[maxLat, minLng, minLat, maxLng]`
+     *  (the Overpass `extent` order the upstream uses). `osmId` is the
+     *  stable id the dialog + map both key on. `feature` is what gets
+     *  pushed into `additionalMapGeoLocations` on add. */
+    candidates: Array<{
+        osmId: number;
+        name: string;
+        bbox: [number, number, number, number];
+        hasMatchingTransit: boolean;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        feature: any;
+    }>;
+}
+export const adjacentCandidatePreview =
+    atom<AdjacentCandidatePreview | null>(null);
+
+/**
+ * Add or remove a candidate adjacent area from the play area. Shared
+ * by the picker checklist and the map "+/✓" pill, so both surfaces
+ * write to the same source of truth (`additionalMapGeoLocations`).
+ */
+export function toggleAdjacentArea(osmId: number): void {
+    const current = additionalMapGeoLocations.get();
+    const isAdded = current.some(
+        (e) =>
+            (e.location?.properties as { osm_id?: number } | undefined)
+                ?.osm_id === osmId,
+    );
+    if (isAdded) {
+        additionalMapGeoLocations.set(
+            current.filter(
+                (e) =>
+                    (e.location?.properties as { osm_id?: number } | undefined)
+                        ?.osm_id !== osmId,
+            ),
+        );
+        return;
+    }
+    const preview = adjacentCandidatePreview.get();
+    const cand = preview?.candidates.find((c) => c.osmId === osmId);
+    if (!cand) return;
+    additionalMapGeoLocations.set([
+        ...current,
+        { location: cand.feature, added: true, base: false },
+    ]);
+}
 export const permanentOverlay = persistentAtom<FeatureCollection | null>(
     "permanentOverlay",
     null,

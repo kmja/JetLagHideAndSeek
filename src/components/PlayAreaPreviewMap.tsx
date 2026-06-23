@@ -2,10 +2,21 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
+import { Check, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
+import MapGL, {
+    Layer,
+    type MapRef,
+    Marker,
+    Source,
+} from "react-map-gl/maplibre";
 
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
+import {
+    additionalMapGeoLocations,
+    adjacentCandidatePreview,
+    toggleAdjacentArea,
+} from "@/lib/context";
 import { clipPolygonToLand } from "@/lib/landClip";
 import {
     handleMapLibreError,
@@ -15,6 +26,7 @@ import {
 import { resolvedTheme } from "@/lib/theme";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
+import { cn } from "@/lib/utils";
 
 import { MapTilesVeil } from "./MapTilesVeil";
 
@@ -310,7 +322,13 @@ export function PlayAreaPreviewMap({
                 style={{ width: "100%", height: "100%" }}
                 mapStyle={mapStyle}
                 attributionControl={false}
-                interactive={false}
+                /* Interactive so the +/✓ Markers below receive taps;
+                   pinch-zoom and drag also work, which fits the
+                   "explore neighbouring areas" flow. */
+                interactive
+                dragRotate={false}
+                pitchWithRotate={false}
+                touchPitch={false}
                 onLoad={() => {
                     fitToBbox(false);
                     onLoad();
@@ -338,9 +356,146 @@ export function PlayAreaPreviewMap({
                         />
                     </Source>
                 )}
+                <AdjacentCandidatesOverlay />
             </MapGL>
             <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
         </div>
+    );
+}
+
+/**
+ * Renders adjacent-area candidates published by `PlayAreaExtensions` as
+ * faint dashed bbox-rectangles + a tappable "+/✓" pill at each
+ * candidate's centroid. Tapping a pill flips the candidate's added
+ * state via `toggleAdjacentArea` — same mutation the in-dialog
+ * checklist makes, so both surfaces stay in sync.
+ *
+ * Candidates without matching transit paint in muted grey rather than
+ * the primary tint so the player can still see them as picker options
+ * but the visual weight matches their "you probably don't want this"
+ * status. Self-renders null when the picker is closed.
+ */
+function AdjacentCandidatesOverlay() {
+    const preview = useStore(adjacentCandidatePreview);
+    const $additional = useStore(additionalMapGeoLocations);
+    if (!preview || preview.candidates.length === 0) return null;
+
+    const addedIds = new Set<number>(
+        $additional
+            .map(
+                (e) =>
+                    (e.location?.properties as { osm_id?: number } | undefined)
+                        ?.osm_id,
+            )
+            .filter((v): v is number => typeof v === "number"),
+    );
+
+    // Build a single FeatureCollection of bbox-rectangles for the
+    // dashed outline layer.
+    const fc: GeoJSON.FeatureCollection = {
+        type: "FeatureCollection",
+        features: preview.candidates.map((c) => {
+            const [maxLat, minLng, minLat, maxLng] = c.bbox;
+            return {
+                type: "Feature",
+                properties: {
+                    osmId: c.osmId,
+                    added: addedIds.has(c.osmId),
+                    transit: c.hasMatchingTransit,
+                },
+                geometry: {
+                    type: "Polygon",
+                    coordinates: [
+                        [
+                            [minLng, minLat],
+                            [maxLng, minLat],
+                            [maxLng, maxLat],
+                            [minLng, maxLat],
+                            [minLng, minLat],
+                        ],
+                    ],
+                },
+            };
+        }),
+    };
+
+    return (
+        <>
+            <Source id="adjacent-candidates" type="geojson" data={fc}>
+                <Layer
+                    id="adjacent-candidates-line"
+                    type="line"
+                    paint={{
+                        "line-color": [
+                            "case",
+                            ["==", ["get", "added"], true],
+                            "hsl(2, 70%, 54%)",
+                            ["==", ["get", "transit"], true],
+                            "hsl(142, 60%, 55%)",
+                            "hsl(220, 8%, 60%)",
+                        ],
+                        "line-width": 1.5,
+                        "line-opacity": 0.7,
+                        "line-dasharray": [3, 3],
+                    }}
+                />
+            </Source>
+            {preview.candidates.map((c) => {
+                const [maxLat, minLng, minLat, maxLng] = c.bbox;
+                const lat = (minLat + maxLat) / 2;
+                const lng = (minLng + maxLng) / 2;
+                const isAdded = addedIds.has(c.osmId);
+                return (
+                    <Marker
+                        key={c.osmId}
+                        latitude={lat}
+                        longitude={lng}
+                        anchor="center"
+                    >
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                toggleAdjacentArea(c.osmId);
+                            }}
+                            aria-pressed={isAdded}
+                            aria-label={
+                                isAdded
+                                    ? `Remove ${c.name} from play area`
+                                    : `Add ${c.name} to play area`
+                            }
+                            title={
+                                isAdded
+                                    ? `Remove ${c.name}`
+                                    : c.hasMatchingTransit
+                                      ? `Add ${c.name} (has transit)`
+                                      : `Add ${c.name} (no matching transit)`
+                            }
+                            className={cn(
+                                "inline-flex items-center gap-1 px-1.5 py-0.5",
+                                "rounded-full border-2 shadow-md",
+                                "text-[10px] font-poppins font-bold uppercase tracking-wide",
+                                "transition-colors",
+                                isAdded
+                                    ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
+                                    : c.hasMatchingTransit
+                                      ? "bg-background border-emerald-500/70 text-foreground hover:bg-emerald-500/15"
+                                      : "bg-background/90 border-muted-foreground/50 text-muted-foreground hover:bg-accent",
+                            )}
+                        >
+                            {isAdded ? (
+                                <Check className="h-3 w-3" />
+                            ) : (
+                                <Plus className="h-3 w-3" />
+                            )}
+                            <span className="max-w-[120px] truncate">
+                                {c.name}
+                            </span>
+                        </button>
+                    </Marker>
+                );
+            })}
+        </>
     );
 }
 

@@ -11,7 +11,11 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { additionalMapGeoLocations } from "@/lib/context";
+import {
+    additionalMapGeoLocations,
+    adjacentCandidatePreview,
+    toggleAdjacentArea,
+} from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 import {
@@ -51,11 +55,22 @@ export function PlayAreaExtensions({
     const [candidates, setCandidates] = useState<AdjacentAreaCandidate[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    /** Set of candidate osm_ids currently checked. */
-    const [checked, setChecked] = useState<Set<number>>(new Set());
     /** Tracks the primary we've fetched for, so swapping primary
      *  triggers a refresh. */
     const fetchedForRef = useRef<number | null>(null);
+
+    // Derive `checked` from the canonical store. The map "+/✓" pill
+    // and the in-dialog row both write through `toggleAdjacentArea`,
+    // so this stays in sync without an extra state hop.
+    const checked = new Set<number>(
+        $additional
+            .map(
+                (e) =>
+                    (e.location?.properties as { osm_id?: number } | undefined)
+                        ?.osm_id,
+            )
+            .filter((v): v is number => typeof v === "number"),
+    );
 
     useEffect(() => {
         const primaryId = primary.properties.osm_id;
@@ -66,7 +81,6 @@ export function PlayAreaExtensions({
         // the previously-added "neighbours" almost certainly don't
         // belong to the new primary.
         additionalMapGeoLocations.set([]);
-        setChecked(new Set());
         setCandidates([]);
         setError(null);
         setLoading(true);
@@ -79,16 +93,17 @@ export function PlayAreaExtensions({
             .then((c) => {
                 if (cancelled) return;
                 setCandidates(c);
-                // Pre-check transit-connected candidates. The user
-                // can deselect any they don't want before
-                // continuing to step 2.
-                const pre = new Set<number>();
-                for (const cand of c) {
-                    if (cand.hasMatchingTransit) {
-                        pre.add(cand.feature.properties.osm_id);
-                    }
-                }
-                setChecked(pre);
+                // Pre-add transit-connected candidates directly into
+                // additionalMapGeoLocations — that's the canonical
+                // source of truth `checked` derives from above.
+                const pre = c
+                    .filter((cand) => cand.hasMatchingTransit)
+                    .map((cand) => ({
+                        location: cand.feature,
+                        added: true,
+                        base: false,
+                    }));
+                additionalMapGeoLocations.set(pre);
             })
             .catch((e) => {
                 if (cancelled) return;
@@ -108,20 +123,32 @@ export function PlayAreaExtensions({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [primary.properties.osm_id, $allowedTransit.join(",")]);
 
-    // Whenever the checked set changes, sync to
-    // additionalMapGeoLocations so the rest of the app picks it up.
+    // Publish a compact preview of the candidates for the play-area
+    // preview map's "+/✓" overlay. Cleared on unmount or when there
+    // are no candidates.
     useEffect(() => {
-        if (candidates.length === 0) return;
-        const entries = candidates
-            .filter((c) => checked.has(c.feature.properties.osm_id))
-            .map((c) => ({
-                location: c.feature,
-                added: true,
-                base: false,
-            }));
-        additionalMapGeoLocations.set(entries);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [checked, candidates]);
+        if (candidates.length === 0) {
+            adjacentCandidatePreview.set(null);
+            return;
+        }
+        adjacentCandidatePreview.set({
+            candidates: candidates.map((c) => ({
+                osmId: c.feature.properties.osm_id,
+                name: c.feature.properties.name as string,
+                bbox: c.feature.properties.extent as [
+                    number,
+                    number,
+                    number,
+                    number,
+                ],
+                hasMatchingTransit: c.hasMatchingTransit,
+                feature: c.feature,
+            })),
+        });
+        return () => {
+            adjacentCandidatePreview.set(null);
+        };
+    }, [candidates]);
 
     if (!loading && candidates.length === 0 && !error) {
         // No siblings found — primary is in a region without
@@ -136,10 +163,16 @@ export function PlayAreaExtensions({
         candidates.every((c) => checked.has(c.feature.properties.osm_id));
     const someChecked = checkedCount > 0 && !allChecked;
     const toggleAll = () => {
-        setChecked(
-            allChecked
-                ? new Set()
-                : new Set(candidates.map((c) => c.feature.properties.osm_id)),
+        if (allChecked) {
+            additionalMapGeoLocations.set([]);
+            return;
+        }
+        additionalMapGeoLocations.set(
+            candidates.map((c) => ({
+                location: c.feature,
+                added: true,
+                base: false,
+            })),
         );
     };
 
@@ -222,14 +255,7 @@ export function PlayAreaExtensions({
                             <li key={id}>
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setChecked((curr) => {
-                                            const next = new Set(curr);
-                                            if (next.has(id)) next.delete(id);
-                                            else next.add(id);
-                                            return next;
-                                        });
-                                    }}
+                                    onClick={() => toggleAdjacentArea(id)}
                                     aria-pressed={isChecked}
                                     className={cn(
                                         "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
