@@ -3,6 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
 import { Check, Plus } from "lucide-react";
+import type { ExpressionSpecification } from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, {
     Layer,
@@ -37,6 +38,18 @@ import { MapTilesVeil } from "./MapTilesVeil";
  * so the built-in `Map<K, V>` type stays in scope here.)
  */
 const polygonCache = new Map<
+    number,
+    GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+>();
+
+/**
+ * Sibling cache for ADJACENT-AREA candidate boundaries (the dashed-pill
+ * overlay). Kept separate from `polygonCache` (which holds the primary's
+ * land-clipped boundary) because candidate outlines are drawn raw — no
+ * coastline clip needed for a faint reference rectangle/outline. Keyed
+ * by OSM relation id; `null` = fetch resolved with no geometry.
+ */
+const candidatePolygonCache = new Map<
     number,
     GeoJSON.Polygon | GeoJSON.MultiPolygon | null
 >();
@@ -420,8 +433,49 @@ function AdjacentCandidatesOverlay({
     const preview = useStore(adjacentCandidatePreview);
     const $additional = useStore(additionalMapGeoLocations);
     const [labeledIds, setLabeledIds] = useState<Set<number>>(new Set());
+    // Real OSM boundaries for each candidate, fetched lazily once the
+    // pills are revealed (the bbox rectangle is the fallback until each
+    // lands). Seeded from the module cache so re-reveals are instant.
+    const [polys, setPolys] = useState<
+        Map<number, GeoJSON.Polygon | GeoJSON.MultiPolygon>
+    >(new Map());
 
     const candidates = preview?.candidates;
+
+    useEffect(() => {
+        if (!candidates || candidates.length === 0) return;
+        let cancelled = false;
+        const ctrl = new AbortController();
+        // Apply any cache hits synchronously so they paint immediately.
+        setPolys((prev) => {
+            let next = prev;
+            for (const c of candidates) {
+                const cached = candidatePolygonCache.get(c.osmId);
+                if (cached && !next.has(c.osmId)) {
+                    if (next === prev) next = new Map(prev);
+                    next.set(c.osmId, cached);
+                }
+            }
+            return next;
+        });
+        for (const c of candidates) {
+            if (candidatePolygonCache.has(c.osmId)) continue;
+            fetchRawBoundaryPolygon(c.osmId, ctrl.signal)
+                .then((geom) => {
+                    if (cancelled) return;
+                    candidatePolygonCache.set(c.osmId, geom);
+                    if (geom)
+                        setPolys((prev) => new Map(prev).set(c.osmId, geom));
+                })
+                .catch(() => {
+                    /* swallowed — bbox fallback stays */
+                });
+        }
+        return () => {
+            cancelled = true;
+            ctrl.abort();
+        };
+    }, [candidates]);
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!map || !candidates || candidates.length === 0) {
@@ -473,52 +527,88 @@ function AdjacentCandidatesOverlay({
             .filter((v): v is number => typeof v === "number"),
     );
 
-    // Build a single FeatureCollection of bbox-rectangles for the
-    // dashed outline layer.
+    // Build a FeatureCollection of candidate outlines. Prefer the real
+    // OSM admin boundary (fetched in the effect above); fall back to the
+    // bbox rectangle until each polygon lands, so there's always
+    // something to tap towards. `real` drives solid-vs-dashed styling.
     const fc: GeoJSON.FeatureCollection = {
         type: "FeatureCollection",
         features: preview.candidates.map((c) => {
+            const geom = polys.get(c.osmId);
             const [maxLat, minLng, minLat, maxLng] = c.bbox;
+            const fallback: GeoJSON.Polygon = {
+                type: "Polygon",
+                coordinates: [
+                    [
+                        [minLng, minLat],
+                        [maxLng, minLat],
+                        [maxLng, maxLat],
+                        [minLng, maxLat],
+                        [minLng, minLat],
+                    ],
+                ],
+            };
             return {
                 type: "Feature",
                 properties: {
                     osmId: c.osmId,
                     added: addedIds.has(c.osmId),
                     transit: c.hasMatchingTransit,
+                    real: !!geom,
                 },
-                geometry: {
-                    type: "Polygon",
-                    coordinates: [
-                        [
-                            [minLng, minLat],
-                            [maxLng, minLat],
-                            [maxLng, maxLat],
-                            [minLng, maxLat],
-                            [minLng, minLat],
-                        ],
-                    ],
-                },
+                geometry: geom ?? fallback,
             };
         }),
     };
 
+    // Shared colour ramp: added (red) → transit-connected (green) →
+    // neither (grey). Reused by the fill and both line layers.
+    const colorExpr: ExpressionSpecification = [
+        "case",
+        ["==", ["get", "added"], true],
+        "hsl(2, 70%, 54%)",
+        ["==", ["get", "transit"], true],
+        "hsl(142, 60%, 55%)",
+        "hsl(220, 8%, 60%)",
+    ];
+
     return (
         <>
             <Source id="adjacent-candidates" type="geojson" data={fc}>
+                {/* Real boundaries: faint fill + solid outline. */}
+                <Layer
+                    id="adjacent-candidates-fill"
+                    type="fill"
+                    filter={["==", ["get", "real"], true]}
+                    paint={{
+                        "fill-color": colorExpr,
+                        "fill-opacity": [
+                            "case",
+                            ["==", ["get", "added"], true],
+                            0.2,
+                            0.07,
+                        ],
+                    }}
+                />
                 <Layer
                     id="adjacent-candidates-line"
                     type="line"
+                    filter={["==", ["get", "real"], true]}
                     paint={{
-                        "line-color": [
-                            "case",
-                            ["==", ["get", "added"], true],
-                            "hsl(2, 70%, 54%)",
-                            ["==", ["get", "transit"], true],
-                            "hsl(142, 60%, 55%)",
-                            "hsl(220, 8%, 60%)",
-                        ],
+                        "line-color": colorExpr,
                         "line-width": 1.5,
-                        "line-opacity": 0.7,
+                        "line-opacity": 0.85,
+                    }}
+                />
+                {/* Bbox fallback (still loading): dashed rectangle. */}
+                <Layer
+                    id="adjacent-candidates-line-bbox"
+                    type="line"
+                    filter={["==", ["get", "real"], false]}
+                    paint={{
+                        "line-color": colorExpr,
+                        "line-width": 1.5,
+                        "line-opacity": 0.5,
                         "line-dasharray": [3, 3],
                     }}
                 />

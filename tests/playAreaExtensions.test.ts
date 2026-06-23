@@ -72,13 +72,16 @@ describe("withinLevelWindow — generalised granularity gate", () => {
         expect(withinLevelWindow(stub("2"), 5)).toBe(false); // country
     });
 
-    test("Stockholm (kommun level 7): keeps same-level peers like Solna, drops the parent county", () => {
-        // window is [7, 9].
+    test("Stockholm (kommun level 7): keeps same-level peers like Solna, drops internal districts and the parent county", () => {
+        // Ordinary city → same-level only (depth 0), window [7, 7].
         expect(withinLevelWindow(stub("7"), 7)).toBe(true); // Solna (peer kommun)
         expect(withinLevelWindow(stub("6"), 7)).toBe(false); // parent län/county
         expect(withinLevelWindow(stub("4"), 7)).toBe(false); // region
-        expect(withinLevelWindow(stub("8"), 7)).toBe(true); // edge of window
-        expect(withinLevelWindow(stub("10"), 7)).toBe(false); // ward — too fine
+        // Internal districts (Södermalm/Norrmalm at level 8) are already
+        // inside the play area — never offered as an extension.
+        expect(withinLevelWindow(stub("8"), 7)).toBe(false);
+        expect(withinLevelWindow(stub("9"), 7)).toBe(false);
+        expect(withinLevelWindow(stub("10"), 7)).toBe(false);
     });
 
     test("no-op when the primary has no usable admin_level", () => {

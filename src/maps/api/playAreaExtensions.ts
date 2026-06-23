@@ -28,11 +28,13 @@
  * with whatever micro-divisions happen to sit on the perimeter (NYC's
  * level-8/9 community districts, ward-level neighbourhoods elsewhere).
  * Neither is a "reasonable expansion". So every candidate, from every
- * pass, is funnelled through `withinLevelWindow`: keep only admin
- * areas whose level sits in `[primaryLevel, primaryLevel +
- * SUB_LEVEL_DEPTH]`. That admits same-level peers (Solna ↔ Stockholm)
- * and immediate sub-units (boroughs ↔ NYC) while dropping the parent
- * region above and the micro-divisions below — no city-specific code.
+ * pass, is funnelled through `withinLevelWindow`: same-level peers
+ * (Solna ↔ Stockholm) are always kept; sub-units (boroughs ↔ NYC) are
+ * kept ONLY for consolidated-city / megacity primaries (level ≤ 5).
+ * For an ordinary city its own finer sub-areas (Stockholm's level-8
+ * districts) are already inside the play area, so they're dropped —
+ * which is exactly why same-level-only avoids offering areas that are
+ * contained in the selection. No city-specific code.
  *
  * Single user-visible call — `findExtensionCandidates(...)` —
  * returns a list ready to render in a checkable picker.
@@ -305,33 +307,38 @@ function isAdministrativeBoundary(el: OverpassRelationStub): boolean {
 
 /**
  * How many admin_levels BELOW the primary still count as a "reasonable
- * expansion" rather than a micro-division. The wanted granularity is
- * country-dependent (Stockholm's peers are SAME-level kommuns; NYC's
- * boroughs are ONE level down — counties at level 6 under the level-5
- * consolidated city), so we accept the primary's level through the
- * primary's level + this depth. 2 is enough to catch boroughs whether
- * a mapper tagged them at N+1 or N+2, while still excluding the next
- * tier down — e.g. NYC's level-8/9 community districts, which form the
- * city's perimeter ways and so leak through the topological pass.
+ * expansion" — but ONLY for consolidated-city / megacity primaries
+ * (admin_level ≤ MEGACITY_MAX_LEVEL). NYC is the canonical case: it sits
+ * at level 5 with no nearby level-5 peers, so its boroughs (county level
+ * 6) are the wanted extensions even though they're CONTAINED in the
+ * primary. For an ordinary city the immediate sub-units are its own
+ * internal districts (Stockholm's Södermalm / Norrmalm at level 8 inside
+ * the level-7 municipality) — those are already part of the play area,
+ * never an "extension", so we admit ONLY same-level peers there (depth
+ * 0). Same-level admin areas can't nest, which is what guarantees we
+ * never offer something already inside the selected area.
  */
 const SUB_LEVEL_DEPTH = 2;
+const MEGACITY_MAX_LEVEL = 5;
 
 /**
  * Granularity gate, generalised — NOT special-cased per city. A
  * candidate is a "reasonable expansion" only when its admin_level
- * sits in `[primaryLevel, primaryLevel + SUB_LEVEL_DEPTH]`:
+ * sits in `[primaryLevel, primaryLevel + depth]`, where `depth` is
+ * `SUB_LEVEL_DEPTH` for megacity primaries (≤ MEGACITY_MAX_LEVEL) and
+ * `0` for everything else:
  *
  *   - BELOW the floor (numerically smaller level) → a parent region
  *     that engulfs the primary. The topological pass returns these
  *     because the primary's coast/border ways are shared with the
  *     state/country boundary (NY State, New Jersey for NYC). Never a
  *     play-area expansion — drop.
- *   - ABOVE the ceiling → a micro-division far finer than the primary
- *     (NYC community districts, ward-level neighbourhoods). These leak
- *     through topological when they sit on the primary's perimeter.
- *     Drop.
- *   - INSIDE the window → same-level peers (Solna ↔ Stockholm) and
- *     immediate sub-units (boroughs ↔ NYC). Keep.
+ *   - ABOVE the ceiling → for a normal city this is its own internal
+ *     sub-areas (Stockholm's districts), which are already inside the
+ *     play area; for a megacity it's the next tier finer than the
+ *     wanted sub-units (NYC community districts). Drop.
+ *   - INSIDE the window → same-level peers (Solna ↔ Stockholm), plus
+ *     immediate sub-units for megacities only (boroughs ↔ NYC). Keep.
  *
  * When `primaryLevel` is null (the primary has no usable admin_level)
  * we can't reason about granularity, so the gate is a no-op and we
@@ -345,7 +352,8 @@ export function withinLevelWindow(
     const raw = el.tags?.admin_level;
     const lvl = raw ? parseInt(raw, 10) : NaN;
     if (!Number.isFinite(lvl)) return false;
-    return lvl >= primaryLevel && lvl <= primaryLevel + SUB_LEVEL_DEPTH;
+    const depth = primaryLevel <= MEGACITY_MAX_LEVEL ? SUB_LEVEL_DEPTH : 0;
+    return lvl >= primaryLevel && lvl <= primaryLevel + depth;
 }
 
 /** Turn one Overpass admin-relation stub into a candidate (or null if

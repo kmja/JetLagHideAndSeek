@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Loader2, MapPin, Sparkles, TrainTrack } from "lucide-react";
+import { Loader2, Maximize2, Sparkles, TrainTrack } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -185,8 +185,8 @@ export function PlayAreaExtensions({
                         {error
                             ? error
                             : revealed
-                              ? "Tap the pills on the map to add or remove neighbouring areas."
-                              : "Some nearby areas can be added so they count as one play area."}
+                              ? "Tap the pills on the map to extend or trim your play area."
+                              : "Some neighbouring areas can be folded in so they count as one play area."}
                     </div>
                 </div>
                 {loading && !revealed && (
@@ -200,10 +200,10 @@ export function PlayAreaExtensions({
                     onClick={() => setRevealed(true)}
                     className="w-full gap-1.5"
                 >
-                    <MapPin className="w-3.5 h-3.5" />
+                    <Maximize2 className="w-3.5 h-3.5" />
                     {loading
-                        ? "Add nearby areas…"
-                        : `Add nearby areas (${candidates.length})`}
+                        ? "Extend play area…"
+                        : `Extend play area (${candidates.length})`}
                 </Button>
             )}
 
