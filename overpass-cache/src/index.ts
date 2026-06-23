@@ -568,13 +568,14 @@ export default {
             }
         }
 
-        // Phase 4: ADJACENT-SEARCH (v268). The wizard's "extend play
-        // area to nearby municipalities" picker fires three Overpass
-        // queries — admin-level lookup, adjacent admin relations,
-        // transit stations — that previously hit live mirrors for
-        // every curated city because they're keyed differently from
-        // the boundary R2 entries. Prewarming them here makes the
-        // wizard's adjacent-areas step near-instant for any city the
+        // Phase 4: ADJACENT-SEARCH (v268, extended v440). The wizard's
+        // "extend play area to nearby municipalities" picker fires up to
+        // five Overpass queries — topological adjacency (the primary
+        // pass), admin-level lookup, adjacent admin relations, transit
+        // stations, and (megacities only) sub-units — that are keyed
+        // differently from the boundary R2 entries, so they'd otherwise
+        // hit live mirrors for every curated city. Prewarming them here
+        // makes the wizard's extend step near-instant for any city the
         // cron has covered.
         for (const city of picked) {
             if (!city.extent) continue;
@@ -595,7 +596,7 @@ export default {
                 );
                 if (r.stored > 0) {
                     console.log(
-                        `[prewarm] adjacent ${city.name}: stored ${r.stored}/3`,
+                        `[prewarm] adjacent ${city.name}: stored ${r.stored}`,
                     );
                 }
             } catch (e) {
@@ -3462,20 +3463,61 @@ out;
 }
 
 /**
- * Prewarm every R2 entry the wizard's adjacent-areas picker reads
- * for one city — admin level lookup, adjacent admin relations
- * within 25 km, and transit stations within 25 km. Three queries,
- * fired serially so we don't blow the per-tick Overpass slot
- * budget. Each one shares the existing skip-if-fresh logic via
- * `prewarmQuery`.
+ * Build the topological-adjacency query (the v427 rework's PRIMARY
+ * adjacency pass — every relation sharing a member way with the
+ * primary). Byte-identical to `buildTopologicalAdjacencyQuery` in
+ * src/maps/api/playAreaExtensions.ts.
+ */
+function buildTopologicalAdjacencyQuery(primaryOsmId: number): string {
+    return `
+[out:json][timeout:120];
+relation(${primaryOsmId});
+way(r);
+rel(bw);
+out tags bb;
+`;
+}
+
+/**
+ * Build the megacity sub-units query (admin boundaries one/two levels
+ * BELOW the primary, inside its area — NYC → boroughs). Byte-identical
+ * to the query in `fetchSubUnitsInArea` in
+ * src/maps/api/playAreaExtensions.ts. Only meaningful for primaries at
+ * admin_level ≤ 5; the caller gates on that.
+ */
+function buildSubUnitsInAreaQuery(
+    primaryOsmId: number,
+    primaryLevel: number,
+): string {
+    const areaId = 3_600_000_000 + primaryOsmId;
+    const lower = primaryLevel + 1;
+    const upper = primaryLevel + 2;
+    const levelRegex = `^[${lower}${upper}]$`;
+    return `
+[out:json][timeout:60];
+area(id:${areaId});
+relation["admin_level"~"${levelRegex}"]["type"="boundary"]["boundary"="administrative"](area);
+out tags bb;
+`;
+}
+
+/**
+ * Prewarm every R2 entry the wizard's adjacent-areas picker reads for
+ * one city. Mirrors `findExtensionCandidates` in
+ * src/maps/api/playAreaExtensions.ts, which fires (in order):
+ *   0. topological adjacency  (relation-id keyed — the PRIMARY pass)
+ *   1. admin-level lookup     (relation-id keyed — yields the level)
+ *   2. adjacent admin band    (centroid + level keyed)
+ *   3. transit stations       (centroid keyed, all modes, 25 km)
+ *   4. sub-units in area      (megacities ≤ level 5 only — boroughs)
+ * Fired serially so we don't blow the per-tick Overpass slot budget;
+ * each shares the skip-if-fresh logic via `prewarmQuery`.
  *
- * The admin level lookup is small + has stable cache key
- * (relation-id only), so it warms cheap and stays warm. The
- * adjacent relations query depends on the city's actual
- * admin_level; we fetch it inline first so the second query's
- * cache key matches what the client will compute. Both adjacent
- * queries are keyed by the city's centroid (computed from
- * `city.extent`) — the same centroid the wizard derives at runtime.
+ * The relation-keyed queries (0, 1) warm cheap and stay warm. The
+ * band/sub-units queries depend on the city's actual admin_level, so
+ * we resolve it from query 1 first; the band query is also keyed by
+ * the city's centroid (computed from `city.extent`) — the same centroid
+ * the wizard derives at runtime.
  */
 async function prewarmAdjacentSearchForCity(
     env: Env,
@@ -3490,8 +3532,23 @@ async function prewarmAdjacentSearchForCity(
     const radius = ADJACENT_SEARCH_RADIUS_KM;
     let stored = 0;
 
+    // 0. Topological adjacency — the v427 rework's PRIMARY pass and
+    //    the FIRST query the wizard fires, so warming it matters most.
+    //    Keyed on the relation id alone (stable), independent of the
+    //    admin_level lookup below.
+    {
+        const r = await prewarmQuery(
+            env,
+            buildTopologicalAdjacencyQuery(city.relationId),
+            city,
+            ttlMs,
+            "adjacent-topological",
+        );
+        if (r.status === "stored") stored++;
+    }
+
     // 1. Admin level lookup — also yields the level we need for
-    //    query 2. Look in cache first; only fetch upstream when
+    //    queries 2 and 4. Look in cache first; only fetch upstream when
     //    cache is stale / missing.
     const adminLevelQuery = buildAdminLevelQuery(city.relationId);
     let adminLevel: string | null = null;
@@ -3551,6 +3608,24 @@ async function prewarmAdjacentSearchForCity(
             "adjacent-stations",
         );
         if (r.status === "stored") stored++;
+    }
+
+    // 4. Megacity sub-units (boroughs etc.) — only for consolidated
+    //    cities at admin_level ≤ 5, mirroring the client's gate in
+    //    `findExtensionCandidates`. For everything else the client
+    //    never fires this query, so warming it would be wasted work.
+    if (adminLevel) {
+        const lvl = parseInt(adminLevel, 10);
+        if (Number.isFinite(lvl) && lvl <= 5) {
+            const r = await prewarmQuery(
+                env,
+                buildSubUnitsInAreaQuery(city.relationId, lvl),
+                city,
+                ttlMs,
+                "adjacent-subunits",
+            );
+            if (r.status === "stored") stored++;
+        }
     }
 
     return { stored };

@@ -14,7 +14,7 @@
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
- *     [--skip-transit] [--skip-hsr] [--skip-photon] \
+ *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
  *     [--tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
  *     [--delay-ms 2000]
  *
@@ -51,6 +51,10 @@
  *                   point near Stockholm centre" are instant for
  *                   every future user. Skipped if the search-box
  *                   query for that exact city is already cached.
+ *     4b. Adjacent — the wizard's "extend play area" picker queries
+ *                   (topological adjacency, admin-level, adjacent band,
+ *                   transit stations, megacity sub-units). Mirrors the
+ *                   worker cron; --skip-adjacent to drop (v440).
  *     5. Tile pack — (OPT-IN, --tile-packs) `pmtiles extract` the
  *                   master basemap over the city bbox into a small
  *                   self-contained .pmtiles, upload to
@@ -117,6 +121,11 @@ const DO_HSR = !args["skip-hsr"];
 const DO_DISCOVER = !args["skip-discover"];
 const DO_TRANSIT = !args["skip-transit"];
 const DO_PHOTON = !args["skip-photon"];
+// v440: warm the wizard's "extend play area" adjacent-search queries
+// per city (topological adjacency, admin-level, adjacent band, transit
+// stations, megacity sub-units). Mirrors the worker cron's
+// prewarmAdjacentSearchForCity. On by default; --skip-adjacent to drop.
+const DO_ADJACENT = !args["skip-adjacent"];
 // v360: one-ring neighbor warming. After the main city loop, discover the
 // adjacent admin areas of the top N cities and warm each one's references
 // (boundary + refs) via the worker's GET /api/refs/<id>?warm=1 endpoint,
@@ -501,6 +510,37 @@ function referenceQuery(extent) {
 // string.
 function hsrCountryQuery(iso) {
     return `\n[out:json][timeout:180];\narea["ISO3166-1"="${iso}"]["admin_level"="2"]->.hsrArea;\nway["railway"="rail"]["highspeed"="yes"](area.hsrArea);\nout geom;\n`;
+}
+
+/* --------------- Adjacent-search queries (v440) -------------------- *
+ *
+ * The wizard's "extend play area" picker
+ * (src/maps/api/playAreaExtensions.ts) fires up to five Overpass
+ * queries. Each builder below is BYTE-IDENTICAL to its client
+ * counterpart AND to the worker mirror in overpass-cache/src/index.ts —
+ * the R2 key is a SHA-256 of the exact string, so any whitespace drift
+ * misses the cache. Centroid is the bbox centre (same as the worker
+ * cron), keeping laptop + cron writing to identical keys.
+ */
+const ADJACENT_SEARCH_RADIUS_KM = 25; // == ADJACENT_SEARCH_DEFAULT_RADIUS_KM
+
+function adjacentAdminLevelQuery(osmId) {
+    return `\n[out:json][timeout:25];\nrelation(${osmId});\nout tags;\n`;
+}
+function adjacentTopologicalQuery(osmId) {
+    return `\n[out:json][timeout:120];\nrelation(${osmId});\nway(r);\nrel(bw);\nout tags bb;\n`;
+}
+function adjacentAdminBandQuery(adminLevel, lat, lng, radiusKm) {
+    return `\n[out:json][timeout:60];\nrelation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});\nout tags bb;\n`;
+}
+function adjacentStationsQuery(lat, lng, radiusKm) {
+    const r = radiusKm * 1000;
+    return `\n[out:json][timeout:45];\n(\n  node["station"="subway"](around:${r},${lat},${lng});\n  node["railway"="station"](around:${r},${lat},${lng});\n  node["railway"="halt"](around:${r},${lat},${lng});\n  node["railway"="tram_stop"](around:${r},${lat},${lng});\n  node["amenity"="ferry_terminal"](around:${r},${lat},${lng});\n);\nout;\n`;
+}
+function adjacentSubUnitsQuery(osmId, level) {
+    const areaId = 3600000000 + osmId;
+    const levelRegex = `^[${level + 1}${level + 2}]$`;
+    return `\n[out:json][timeout:60];\narea(id:${areaId});\nrelation["admin_level"~"${levelRegex}"]["type"="boundary"]["boundary"="administrative"](area);\nout tags bb;\n`;
 }
 
 /* ------------------------- Network helpers ------------------------ */
@@ -1116,8 +1156,125 @@ async function processCity(city) {
         await processMetroRoutes(city, boundaryExtent ?? effectiveExtent);
     }
 
+    // v440: warm the wizard's "extend play area" adjacent-search queries
+    // (topological adjacency, admin-level, band, stations, sub-units).
+    if (DO_ADJACENT) {
+        await processAdjacentSearch(city, boundaryExtent ?? effectiveExtent);
+    }
+
     // HSR is no longer per-city — see processHsrCountries(), run once
     // after the whole city loop.
+}
+
+/* ──────────────── Adjacent-search prewarm (v440) ─────────────────── *
+ *
+ * Warms the up-to-five Overpass queries the wizard's "extend play area"
+ * picker fires, so that step is instant for any city this loop covers.
+ * Mirrors prewarmAdjacentSearchForCity in overpass-cache/src/index.ts;
+ * the relation-keyed queries (topological, admin-level, sub-units) are
+ * the most valuable since their cache key is stable regardless of
+ * centroid rounding.
+ */
+async function processAdjacentSearch(city, extent) {
+    if (!extent) {
+        console.log(`  ⤼ no extent available — skipping adjacent-search`);
+        return;
+    }
+    // Photon extent shape: [maxLat, minLng, minLat, maxLng]. Bbox centre
+    // matches the worker cron so both write identical centroid-keyed keys.
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const lat = (maxLat + minLat) / 2;
+    const lng = (minLng + maxLng) / 2;
+    const radius = ADJACENT_SEARCH_RADIUS_KM;
+
+    // Warm one query: skip if R2 already fresh, else fetch + upload.
+    const warm = async (q, label, kind) => {
+        if (await isFresh(q, label)) {
+            console.log(`  ⤼ ${label} already cached — skipping`);
+            return;
+        }
+        const res = await fetchOverpass(q, label);
+        if (!res) return;
+        try {
+            await uploadToWorker({
+                query: q,
+                bodyText: res.text,
+                kind,
+                sourceName: city.name,
+                sourceRelationId: String(city.relationId),
+            });
+            console.log(`  ✓ ${label} stored (${res.ms} ms)`);
+        } catch (e) {
+            console.warn(`  ✗ ${label} upload: ${e.message}`);
+        }
+        await sleep(DELAY_MS);
+    };
+
+    // 0. Topological adjacency — the primary pass; relation-keyed.
+    await warm(
+        adjacentTopologicalQuery(city.relationId),
+        "adjacent topological",
+        "adjacent-topological",
+    );
+
+    // 1. Admin-level lookup — yields the level for queries 2 and 4.
+    let adminLevel = null;
+    const alq = adjacentAdminLevelQuery(city.relationId);
+    if (await isFresh(alq, "adjacent admin-level")) {
+        console.log(`  ⤼ adjacent admin-level already cached — skipping`);
+        const cached = await fetchCached(alq);
+        adminLevel = cached?.elements?.[0]?.tags?.admin_level ?? null;
+    } else {
+        const res = await fetchOverpass(alq, "adjacent admin-level");
+        if (res) {
+            adminLevel =
+                safeJSON(res.text)?.elements?.[0]?.tags?.admin_level ?? null;
+            try {
+                await uploadToWorker({
+                    query: alq,
+                    bodyText: res.text,
+                    kind: "adjacent-admin-level",
+                    sourceName: city.name,
+                    sourceRelationId: String(city.relationId),
+                });
+                console.log(
+                    `  ✓ adjacent admin-level stored (level ${adminLevel ?? "?"}, ${res.ms} ms)`,
+                );
+            } catch (e) {
+                console.warn(`  ✗ adjacent admin-level upload: ${e.message}`);
+            }
+            await sleep(DELAY_MS);
+        }
+    }
+
+    // 2. Adjacent admin band — same-level peers within radius.
+    if (adminLevel) {
+        await warm(
+            adjacentAdminBandQuery(adminLevel, lat, lng, radius),
+            "adjacent band",
+            "adjacent-admin",
+        );
+    }
+
+    // 3. Adjacent transit stations (all modes, 25 km).
+    await warm(
+        adjacentStationsQuery(lat, lng, radius),
+        "adjacent stations",
+        "adjacent-stations",
+    );
+
+    // 4. Megacity sub-units (boroughs) — admin_level ≤ 5 only, matching
+    //    the client gate in findExtensionCandidates.
+    if (adminLevel) {
+        const lvl = parseInt(adminLevel, 10);
+        if (Number.isFinite(lvl) && lvl <= 5) {
+            await warm(
+                adjacentSubUnitsQuery(city.relationId, lvl),
+                "adjacent sub-units",
+                "adjacent-subunits",
+            );
+        }
+    }
 }
 
 /* ───────────────────── Elevation prewarm (v342) ─────────────────────── *

@@ -9,6 +9,9 @@ city:
 - **references** — all 15 question-reference families (hospitals,
   museums, parks, train stations, …)
 - **transit** — subway / bus / ferry route overlays (v247)
+- **adjacent** — the wizard's "extend play area" picker queries:
+  topological adjacency, admin-level, adjacent band, transit stations,
+  and megacity sub-units (v440)
 
 and once per run, **HSR** (high-speed rail) per country.
 
@@ -41,7 +44,8 @@ limits); subsequent passes are fast because almost everything's warm.
 Useful flags:
 - `--max 50` — only the first 50 cities (quick smoke test).
 - `--skip-transit` / `--skip-references` / `--skip-hsr` /
-  `--skip-boundaries` / `--skip-discover` — drop a phase.
+  `--skip-boundaries` / `--skip-discover` / `--skip-adjacent` — drop a
+  phase.
 - `--delay-ms 3000` — slower pacing if you see lots of 429s.
 
 ## Run on a loop (overnight / indefinitely)
