@@ -209,13 +209,35 @@ export function PlayAreaPreviewMap({
     // a cross-line municipality) would have their "+/✓" pill parked
     // off-screen until the user manually zoomed out.
     const $adjacent = useStore(adjacentCandidatePreview);
+    // v441: the COMMITTED extensions (areas the user already added).
+    // Drawn always (CommittedAreasOverlay below) and folded into the
+    // camera fit, so the assembled play area matches the seeker map even
+    // after the extend panel collapses / on later wizard steps.
+    const $committed = useStore(additionalMapGeoLocations);
+    const committedExtents = useMemo(
+        () =>
+            $committed
+                .map(
+                    (e) =>
+                        (
+                            e.location?.properties as
+                                | { extent?: number[] }
+                                | undefined
+                        )?.extent,
+                )
+                .filter(
+                    (x): x is [number, number, number, number] =>
+                        Array.isArray(x) && x.length === 4,
+                ),
+        [$committed],
+    );
 
     // Once the real polygon lands, re-fit the camera to its actual
     // extent (the bbox extent was an over-approximation for irregular
     // shapes — Dalarna's bbox included parts of Norway and Uppsala).
-    // When adjacent candidates are present we widen the fit to also
-    // include each candidate's bbox so every pill is reachable on the
-    // first paint. Depends on both inputs so whichever lands last wins.
+    // When adjacent candidates OR committed extensions are present we
+    // widen the fit to include their bboxes too, so every pill / added
+    // area stays on-screen. Depends on all inputs so the last one wins.
     useEffect(() => {
         const base = realPolygon
             ? (turf.bbox({
@@ -233,9 +255,12 @@ export function PlayAreaPreviewMap({
               : null;
         if (!base) return;
         let [minX, minY, maxX, maxY] = base;
-        for (const c of $adjacent?.candidates ?? []) {
-            // candidate bbox is [maxLat, minLng, minLat, maxLng].
-            const [cMaxLat, cMinLng, cMinLat, cMaxLng] = c.bbox;
+        // candidate + committed bboxes are [maxLat, minLng, minLat, maxLng].
+        const extraBoxes = [
+            ...($adjacent?.candidates ?? []).map((c) => c.bbox),
+            ...committedExtents,
+        ];
+        for (const [cMaxLat, cMinLng, cMinLat, cMaxLng] of extraBoxes) {
             minX = Math.min(minX, cMinLng);
             maxX = Math.max(maxX, cMaxLng);
             minY = Math.min(minY, cMinLat);
@@ -255,7 +280,7 @@ export function PlayAreaPreviewMap({
             /* ignore */
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [realPolygon, $adjacent]);
+    }, [realPolygon, $adjacent, committedExtents]);
 
     // Fit the map to the bbox. Called both from the bbox-change effect
     // (parent swaps `value` without unmounting) AND from the map's
@@ -397,10 +422,128 @@ export function PlayAreaPreviewMap({
                         />
                     </Source>
                 )}
+                <CommittedAreasOverlay />
                 <AdjacentCandidatesOverlay mapRef={mapRef} />
             </MapGL>
             <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
         </div>
+    );
+}
+
+/**
+ * Paints the COMMITTED play-area extensions (everything in
+ * `additionalMapGeoLocations`) in the same red as the primary boundary,
+ * so the assembled play area on the wizard preview matches what the
+ * seeker map will show. Distinct from `AdjacentCandidatesOverlay`, which
+ * only renders the +/✓ picker overlay WHILE the extend panel is open —
+ * this one is always on, so added areas don't vanish when the panel
+ * collapses or the user moves to a later wizard step (the bug this
+ * fixes). Fetches each added area's real boundary lazily (shared
+ * `candidatePolygonCache`), falling back to the extent rectangle until
+ * it lands.
+ */
+function CommittedAreasOverlay() {
+    const $additional = useStore(additionalMapGeoLocations);
+    const [polys, setPolys] = useState<
+        Map<number, GeoJSON.Polygon | GeoJSON.MultiPolygon>
+    >(new Map());
+
+    const ids = $additional
+        .map(
+            (e) =>
+                (e.location?.properties as { osm_id?: number } | undefined)
+                    ?.osm_id,
+        )
+        .filter((v): v is number => typeof v === "number");
+    const idsKey = ids.join(",");
+
+    useEffect(() => {
+        if (ids.length === 0) return;
+        let cancelled = false;
+        const ctrl = new AbortController();
+        setPolys((prev) => {
+            let next = prev;
+            for (const id of ids) {
+                const cached = candidatePolygonCache.get(id);
+                if (cached && !next.has(id)) {
+                    if (next === prev) next = new Map(prev);
+                    next.set(id, cached);
+                }
+            }
+            return next;
+        });
+        for (const id of ids) {
+            if (candidatePolygonCache.has(id)) continue;
+            fetchRawBoundaryPolygon(id, ctrl.signal)
+                .then((geom) => {
+                    if (cancelled) return;
+                    candidatePolygonCache.set(id, geom);
+                    if (geom) setPolys((prev) => new Map(prev).set(id, geom));
+                })
+                .catch(() => {
+                    /* swallowed — extent fallback stays */
+                });
+        }
+        return () => {
+            cancelled = true;
+            ctrl.abort();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [idsKey]);
+
+    if ($additional.length === 0) return null;
+
+    const fc: GeoJSON.FeatureCollection = {
+        type: "FeatureCollection",
+        features: $additional.flatMap((e) => {
+            const locProps = e.location?.properties as
+                | { osm_id?: number; extent?: number[] }
+                | undefined;
+            const id = locProps?.osm_id;
+            const geom = typeof id === "number" ? polys.get(id) : undefined;
+            let geometry: GeoJSON.Geometry | null = geom ?? null;
+            if (!geometry) {
+                const extent = locProps?.extent;
+                if (Array.isArray(extent) && extent.length === 4) {
+                    const [maxLat, minLng, minLat, maxLng] = extent;
+                    geometry = {
+                        type: "Polygon",
+                        coordinates: [
+                            [
+                                [minLng, minLat],
+                                [maxLng, minLat],
+                                [maxLng, maxLat],
+                                [minLng, maxLat],
+                                [minLng, minLat],
+                            ],
+                        ],
+                    };
+                }
+            }
+            if (!geometry) return [];
+            return [{ type: "Feature", properties: {}, geometry }];
+        }),
+    };
+
+    return (
+        <Source id="committed-areas" type="geojson" data={fc}>
+            <Layer
+                id="committed-areas-fill"
+                type="fill"
+                paint={{
+                    "fill-color": "hsl(2, 70%, 54%)",
+                    "fill-opacity": 0.15,
+                }}
+            />
+            <Layer
+                id="committed-areas-line"
+                type="line"
+                paint={{
+                    "line-color": "hsl(2, 70%, 54%)",
+                    "line-width": 2,
+                }}
+            />
+        </Source>
     );
 }
 
