@@ -737,14 +737,14 @@ function AdjacentCandidatesOverlay({
         }),
     };
 
-    // Shared colour ramp: added (red) → transit-connected (green) →
+    // Shared colour ramp: added (red) → transit-connected (off-white) →
     // neither (grey). Reused by the fill and both line layers.
     const colorExpr: ExpressionSpecification = [
         "case",
         ["==", ["get", "added"], true],
         "hsl(2, 70%, 54%)",
         ["==", ["get", "transit"], true],
-        "hsl(142, 60%, 55%)",
+        "hsl(45, 23%, 92%)",
         "hsl(220, 8%, 60%)",
     ];
 
@@ -833,7 +833,7 @@ function AdjacentCandidatesOverlay({
                                 isAdded
                                     ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
                                     : c.hasMatchingTransit
-                                      ? "bg-background border-emerald-500/70 text-foreground hover:bg-emerald-500/15"
+                                      ? "bg-background border-[hsl(45,23%,92%)]/70 text-foreground hover:bg-[hsl(45,23%,92%)]/10"
                                       : "bg-background/90 border-muted-foreground/50 text-muted-foreground hover:bg-accent",
                             )}
                         >
