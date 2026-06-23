@@ -7,12 +7,12 @@ import { ClosingInWatcher } from "@/components/ClosingInWatcher";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderReachOverlay } from "@/components/HiderReachOverlay";
-import { LocationPauseBanner } from "@/components/LocationPauseBanner";
-import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
-import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
-import { StationTransitCard } from "@/components/StationTransitCard";
 import { HiderView } from "@/components/HiderView";
+import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
+import { LocationPauseBanner } from "@/components/LocationPauseBanner";
+import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
+import { StationTransitCard } from "@/components/StationTransitCard";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
@@ -50,9 +50,6 @@ const SeekingStartWatcher = lazyWithRetry(() =>
         default: m.SeekingStartWatcher,
     })),
 );
-const RolePicker = lazyWithRetry(() =>
-    import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
-);
 const StaleSessionPrompt = lazyWithRetry(() =>
     import("@/components/StaleSessionPrompt").then((m) => ({
         default: m.StaleSessionPrompt,
@@ -83,7 +80,6 @@ export function HiderPage() {
                 <Suspense fallback={null}>
                     <GameLobbyDialog />
                     <GameSetupDialog />
-                    <RolePicker />
                     <DebugPhaseControls />
                     <StaleSessionPrompt />
                 </Suspense>
@@ -125,7 +121,6 @@ export function HiderPage() {
                 {/* Role picker — mounted here so the "Switch role"
                     button in the lobby has a dialog to consume
                     rolePickerOpen on /h too. */}
-                <RolePicker />
                 {/* Mid-game lobby reopen — drawer variant of the
                     same component. Triggered by the Lobby slot in
                     the bottom nav. */}

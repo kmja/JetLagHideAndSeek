@@ -6,6 +6,9 @@ import { AppPromptHost } from "@/components/AppPromptHost";
 import { BottomNav } from "@/components/BottomNav";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
+import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
+import { LocationPauseBanner } from "@/components/LocationPauseBanner";
+import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 // Eager-import the map itself. It's a ~880 KB chunk on its own
 // (maplibre-gl) and was historically wrapped in React.lazy +
 // MapErrorBoundary + lazyWithRetry to handle the deploy-race
@@ -25,14 +28,11 @@ import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
-import { LocationPauseBanner } from "@/components/LocationPauseBanner";
-import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
-import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
-import { StationTransitCard } from "@/components/StationTransitCard";
 import { SeekerTopBar } from "@/components/SeekerTopBar";
 import { SeekerTripPlannerLauncher } from "@/components/SeekerTripPlannerLauncher";
 import { SeekerTripPlannerSheet } from "@/components/SeekerTripPlannerSheet";
+import { StationTransitCard } from "@/components/StationTransitCard";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import { TravelTimesOverlay } from "@/components/TravelTimesOverlay";
 import {
@@ -89,9 +89,6 @@ const SeekingStartWatcher = lazyWithRetry(() =>
     import("@/components/SeekingStartOverlay").then((m) => ({
         default: m.SeekingStartWatcher,
     })),
-);
-const RolePicker = lazyWithRetry(() =>
-    import("@/components/RolePicker").then((m) => ({ default: m.RolePicker })),
 );
 const StaleSessionPrompt = lazyWithRetry(() =>
     import("@/components/StaleSessionPrompt").then((m) => ({
@@ -152,7 +149,6 @@ export function SeekerPage() {
                 <Suspense fallback={null}>
                     <GameLobbyDialog />
                     <GameSetupDialog />
-                    <RolePicker />
                     <DebugPhaseControls />
                     <StaleSessionPrompt />
                 </Suspense>
@@ -253,7 +249,6 @@ export function SeekerPage() {
                         <GameSetupDialog />
                         <GameLobbyDialog />
                         <AnswerLinkReader />
-                        <RolePicker />
                         <CurseInbox />
                         <DebugPhaseControls />
                         <StaleSessionPrompt />

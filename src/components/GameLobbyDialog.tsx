@@ -1,6 +1,5 @@
 import { useStore } from "@nanostores/react";
 import {
-    ArrowRight,
     Bus,
     Check,
     ChevronDown,
@@ -53,7 +52,6 @@ import {
 } from "@/lib/gameSetup";
 import {
     playerRole,
-    rolePickerOpen,
     roundFoundAt,
     roundLog,
 } from "@/lib/hiderRole";
@@ -74,6 +72,7 @@ import {
     joinAsHost,
     leaveGame,
     promoteCoHider,
+    setOnlineRole,
 } from "@/lib/multiplayer/store";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
@@ -139,13 +138,13 @@ export function GameLobbyDialog() {
     //      from the seeker's bottom-nav or the hider's home toolbar
     //      to revisit the roster, re-share the join code, or rotate
     //      roles. The manual flag wins regardless of $hidingEndsAt.
+    // v447: no longer gated on a role being picked — the lobby is now
+    // where the host (and anyone role-less) picks their team via the
+    // roster zero-state, so it must render with $playerRole === null.
     const open =
         !$setupOpen &&
         ($manualOpen ||
-            ($welcomeSeen &&
-                $setupCompleted &&
-                $hidingEndsAt === null &&
-                $playerRole !== null));
+            ($welcomeSeen && $setupCompleted && $hidingEndsAt === null));
 
     const isHiderRole =
         $playerRole === "hider" || $playerRole === "coHider";
@@ -274,6 +273,22 @@ export function GameLobbyDialog() {
         // opens the setup dialog focused on the area step (edit mode).
         lobbyManualOpen.set(false);
         setupDialogOpen.set(true);
+    };
+
+    // v447: pick / switch team from the lobby roster zero-state. Mirrors
+    // Welcome.handlePickRole — sets the local role, pushes it to the
+    // server (coHider is client-only), and routes hiders to /h, seekers
+    // back to / if they were on the hider page.
+    const joinTeam = (role: "seeker" | "hider" | "coHider") => {
+        playerRole.set(role);
+        if (role !== "coHider") setOnlineRole(role);
+        if (typeof window === "undefined") return;
+        const onHiderPage = window.location.pathname.startsWith("/h");
+        if (role === "hider" || role === "coHider") {
+            if (!onHiderPage) window.location.assign("/h");
+        } else if (onHiderPage) {
+            window.location.assign("/");
+        }
     };
 
     // Preload (moved from the wizard, v444). On an unmetered link we just
@@ -854,8 +869,12 @@ export function GameLobbyDialog() {
                             </div>
                         ))}
 
-                    {/* Players roster */}
-                    {$mp && $participants.length > 0 && (
+                    {/* Players roster + team zero-state. v447: each card
+                        carries a "join this team" button (unless the
+                        local player is already on it) so picking / switching
+                        a role happens here instead of a popup. Hidden
+                        mid-game (no role-swapping once the clock runs). */}
+                    {$mp && ($participants.length > 0 || !isMidGame) && (
                         <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
                             <RosterCard
                                 label={`Seekers · ${seekers.length}`}
@@ -863,10 +882,12 @@ export function GameLobbyDialog() {
                                 participants={seekers}
                                 selfId={$self}
                                 hostId={hostId}
-                                selfRole={$playerRole}
-                                onSwitchRole={() =>
-                                    rolePickerOpen.set(true)
+                                onJoin={
+                                    !isMidGame && $playerRole !== "seeker"
+                                        ? () => joinTeam("seeker")
+                                        : undefined
                                 }
+                                joinLabel="Join seekers"
                             />
                             <RosterCard
                                 label={`Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
@@ -878,9 +899,27 @@ export function GameLobbyDialog() {
                                 mainHiderId={hider?.id ?? null}
                                 selfId={$self}
                                 hostId={hostId}
-                                selfRole={$playerRole}
-                                onSwitchRole={() =>
-                                    rolePickerOpen.set(true)
+                                onJoin={(() => {
+                                    if (isMidGame) return undefined;
+                                    const seatOpen =
+                                        !hider || hider.id === $self;
+                                    if (seatOpen) {
+                                        // No main hider yet (or it's me) →
+                                        // take the seat. Already main hider
+                                        // → no join button.
+                                        return $playerRole === "hider"
+                                            ? undefined
+                                            : () => joinTeam("hider");
+                                    }
+                                    // Seat held by someone else → co-hide.
+                                    return $playerRole === "coHider"
+                                        ? undefined
+                                        : () => joinTeam("coHider");
+                                })()}
+                                joinLabel={
+                                    !hider || hider.id === $self
+                                        ? "Join hiders"
+                                        : "Join as co-hider"
                                 }
                                 showPromote={
                                     $playerRole === "hider" &&
@@ -891,13 +930,24 @@ export function GameLobbyDialog() {
                             />
                         </div>
                     )}
-                    {$mp && !hasRoleBalance && $participants.length > 0 && !isMidGame && (
-                        <p className="text-[11px] text-muted-foreground leading-snug animate-in fade-in duration-200">
-                            Need at least one <b>seeker</b> and one{" "}
-                            <b>hider</b> before the game can start.
-                            Share the invite to bring more in.
-                        </p>
-                    )}
+                    {$mp &&
+                        !isMidGame &&
+                        ($playerRole === null || !hasRoleBalance) && (
+                            <p className="text-[11px] text-muted-foreground leading-snug animate-in fade-in duration-200">
+                                {$playerRole === null ? (
+                                    <>
+                                        Pick your team above to continue.
+                                    </>
+                                ) : (
+                                    <>
+                                        Need at least one <b>seeker</b> and
+                                        one <b>hider</b> before the game can
+                                        start. Share the invite to bring
+                                        more in.
+                                    </>
+                                )}
+                            </p>
+                        )}
 
                     {/* Preload opt-in — only on a metered link. On wifi
                         the lobby preloads silently (see the effect), so
@@ -1057,8 +1107,8 @@ function RosterCard({
     selfId,
     hostId,
     mainHiderId,
-    selfRole,
-    onSwitchRole,
+    onJoin,
+    joinLabel,
     showPromote = false,
     onPromote,
 }: {
@@ -1074,13 +1124,11 @@ function RosterCard({
     hostId: string | null;
     /** When set, the row matching this id wears the MAIN badge. */
     mainHiderId?: string | null;
-    /** The local player's current role — used by the inline
-     *  switch-role affordance to decide what the button means
-     *  (only shown on the row that IS the local player). */
-    selfRole?: "seeker" | "hider" | "coHider" | null;
-    /** Open the role picker. Wired so the switch-role button can
-     *  live inline next to the local player's own name. */
-    onSwitchRole?: () => void;
+    /** When set, render a "join this team" button (zero-state pick +
+     *  inline switch). The parent decides whether to pass it based on
+     *  the local player's current role + seat availability. */
+    onJoin?: () => void;
+    joinLabel?: string;
     /** Show a "Promote" button next to co-hiders (gated on the
      *  caller already confirming the local player can act). */
     showPromote?: boolean;
@@ -1176,41 +1224,6 @@ function RosterCard({
                                             (you)
                                         </span>
                                     )}
-                                    {/* Inline switch-role affordance.
-                                        Only on the local player's
-                                        row. The label hints the
-                                        destination team, the arrow
-                                        sells it as 'jump across'. */}
-                                    {isMe &&
-                                        onSwitchRole &&
-                                        (() => {
-                                            const goingToHider =
-                                                selfRole === "seeker";
-                                            const DestIcon = goingToHider
-                                                ? VenetianMask
-                                                : Footprints;
-                                            const destLabel = goingToHider
-                                                ? "Hiders"
-                                                : "Seekers";
-                                            return (
-                                                <button
-                                                    type="button"
-                                                    onClick={onSwitchRole}
-                                                    className={cn(
-                                                        "ml-1 inline-flex items-center gap-1 rounded-[3px]",
-                                                        "px-1.5 py-[1px] text-[10px] uppercase tracking-[0.1em]",
-                                                        "font-display font-extrabold leading-none",
-                                                        "text-muted-foreground hover:text-white",
-                                                        "border border-border/60 hover:border-border",
-                                                        "transition-colors",
-                                                    )}
-                                                    title={`Switch to ${destLabel}`}
-                                                >
-                                                    <ArrowRight className="w-2.5 h-2.5" />
-                                                    <DestIcon className="w-2.5 h-2.5" />
-                                                </button>
-                                            );
-                                        })()}
                                 </span>
                                 {showPromote &&
                                     isCoHider &&
@@ -1236,6 +1249,23 @@ function RosterCard({
                         );
                     })}
                 </ul>
+            )}
+            {onJoin && (
+                <button
+                    type="button"
+                    onClick={onJoin}
+                    className={cn(
+                        "mt-1 w-full inline-flex items-center justify-center gap-1.5",
+                        "rounded-sm px-2 py-1.5",
+                        "text-[11px] uppercase tracking-[0.08em] font-display font-extrabold",
+                        "border border-dashed border-border text-foreground/80",
+                        "hover:bg-accent hover:text-foreground hover:border-solid",
+                        "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                >
+                    <Plus className="w-3.5 h-3.5" />
+                    {joinLabel}
+                </button>
             )}
         </div>
     );
