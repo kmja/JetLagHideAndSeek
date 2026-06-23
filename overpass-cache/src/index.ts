@@ -780,6 +780,16 @@ async function handleRequest(
             });
         }
 
+        // Public, no-secret prewarm progress page. Returns aggregate
+        // cache counts + a breakdown by `kind` (boundary, references,
+        // adjacent-*, …) so you can watch the prewarm fill from a
+        // browser. Only non-sensitive aggregates — no secrets, keys, or
+        // per-query data. Memoised ~60 s so it can't be hammered into a
+        // pile of R2 list calls.
+        if (url.pathname === "/status" || url.pathname === "/prewarm-status") {
+            return handlePublicStatus(env, cors);
+        }
+
         if (url.pathname === "/admin/prewarm") {
             return handleAdminPrewarm(request, env, ctx, cors);
         }
@@ -5222,13 +5232,29 @@ async function handleTiles(
     });
 }
 
-async function handleAdminStatus(
-    request: Request,
-    env: Env,
-    cors: HeadersInit,
-): Promise<Response> {
-    if (!checkAdminAuth(request, env)) {
-        return new Response("Unauthorized", { status: 401, headers: cors });
+interface CacheStats {
+    cachedEntries: number;
+    totalBytes: number;
+    prewarmedEntries: number;
+    tooManyToCountExactly: boolean;
+    /** Entry counts keyed by the `kind` customMetadata tag
+     *  (boundary, references, transit, adjacent-topological, …).
+     *  Entries written without a kind (on-demand caches) bucket under
+     *  "(unlabelled)". Lets you watch a specific prewarm phase fill. */
+    byKind: Record<string, number>;
+    computedAt: number;
+}
+
+/** ~60 s memo so the public /status route can't be turned into a flood
+ *  of R2 list operations. Shared by the admin + public handlers. */
+let cacheStatsMemo: CacheStats | null = null;
+const CACHE_STATS_TTL_MS = 60_000;
+
+/** Walk the `overpass/` prefix (up to ~10k entries) and tally counts,
+ *  bytes, prewarmed count, and a per-`kind` breakdown. Memoised. */
+async function computeCacheStats(env: Env): Promise<CacheStats> {
+    if (cacheStatsMemo && Date.now() - cacheStatsMemo.computedAt < CACHE_STATS_TTL_MS) {
+        return cacheStatsMemo;
     }
     // R2 doesn't surface a cheap "count + total size" without
     // listing every key. Page through up to ~10k entries — fine
@@ -5237,31 +5263,14 @@ async function handleAdminStatus(
     let count = 0;
     let totalBytes = 0;
     let prewarmedCount = 0;
+    const byKind: Record<string, number> = {};
     do {
-        let page: R2Objects;
-        try {
-            page = await env.CACHE.list({
-                prefix: "overpass/",
-                cursor,
-                limit: 1000,
-                include: ["customMetadata"],
-            });
-        } catch (e) {
-            return new Response(
-                JSON.stringify(
-                    {
-                        error: "R2 list failed — bucket may not exist yet.",
-                        details: e instanceof Error ? e.message : String(e),
-                    },
-                    null,
-                    2,
-                ),
-                {
-                    status: 503,
-                    headers: { ...cors, "Content-Type": "application/json" },
-                },
-            );
-        }
+        const page: R2Objects = await env.CACHE.list({
+            prefix: "overpass/",
+            cursor,
+            limit: 1000,
+            include: ["customMetadata"],
+        });
         for (const obj of page.objects) {
             count++;
             const sb = parseInt(
@@ -5270,26 +5279,74 @@ async function handleAdminStatus(
             );
             if (!isNaN(sb)) totalBytes += sb;
             if (obj.customMetadata?.prewarmed === "true") prewarmedCount++;
+            const kind = obj.customMetadata?.kind ?? "(unlabelled)";
+            byKind[kind] = (byKind[kind] ?? 0) + 1;
         }
         cursor = page.truncated ? page.cursor : undefined;
         if (count >= 10_000) break;
     } while (cursor);
-    return new Response(
-        JSON.stringify(
+    cacheStatsMemo = {
+        cachedEntries: count,
+        totalBytes,
+        prewarmedEntries: prewarmedCount,
+        tooManyToCountExactly: count >= 10_000,
+        byKind,
+        computedAt: Date.now(),
+    };
+    return cacheStatsMemo;
+}
+
+async function handleAdminStatus(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    try {
+        const stats = await computeCacheStats(env);
+        return jsonResponse(stats, 200, cors);
+    } catch (e) {
+        return jsonResponse(
             {
-                cachedEntries: count,
-                totalBytes,
-                prewarmedEntries: prewarmedCount,
-                tooManyToCountExactly: count >= 10_000,
+                error: "R2 list failed — bucket may not exist yet.",
+                details: e instanceof Error ? e.message : String(e),
             },
-            null,
-            2,
-        ),
-        {
+            503,
+            cors,
+        );
+    }
+}
+
+/** Public (no-secret) prewarm progress. Same aggregates as
+ *  handleAdminStatus — non-sensitive — so it's safe to open in a
+ *  browser and bookmark. */
+async function handlePublicStatus(
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    try {
+        const stats = await computeCacheStats(env);
+        return new Response(JSON.stringify(stats, null, 2), {
             status: 200,
-            headers: { ...cors, "Content-Type": "application/json" },
-        },
-    );
+            headers: {
+                ...cors,
+                "Content-Type": "application/json",
+                // Let the browser/CDN hold it briefly too.
+                "Cache-Control": "public, max-age=60",
+            },
+        });
+    } catch (e) {
+        return jsonResponse(
+            {
+                error: "R2 list failed — bucket may not exist yet.",
+                details: e instanceof Error ? e.message : String(e),
+            },
+            503,
+            cors,
+        );
+    }
 }
 
 /** Local lightweight jsonResponse — journey.ts has a similar helper
