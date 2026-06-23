@@ -183,18 +183,14 @@ export function SeekerPage() {
                                 >
                                     <SidebarTriggerL />
                                 </div>
-                                {/* Persistent hider timer — bottom-right
-                                    (v270, moved from top-left). Wrapper
-                                    pins the BOTTOM of the timer card just
-                                    above the bottom nav (mobile) /
-                                    OptionDrawers cluster (desktop). The
-                                    endgame action buttons stack ABOVE the
-                                    timer inside HiderTimer (v272 swap),
-                                    so this offset doesn't need to absorb
-                                    the action stack's variable height. */}
-                                <div className="absolute bottom-[80px] md:bottom-[64px] right-2 md:right-4 z-[1030] group-[.fullscreen]:hidden">
-                                    <HiderTimer />
-                                </div>
+                                {/* Persistent hider timer. v457: the card
+                                    positions itself — bottom-LEFT during
+                                    the hiding period (yellow "hiding time
+                                    remaining" box) and bottom-RIGHT once
+                                    seeking starts (white clock + gold
+                                    "time to beat" strip), matching the
+                                    Jet Lag show. */}
+                                <HiderTimer />
                                 {/* Top-right cluster: zones trigger +
                                     satellite + transit-lines toggles.
                                     Visible on both desktop and mobile —

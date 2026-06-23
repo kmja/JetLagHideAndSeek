@@ -7,10 +7,10 @@ import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { appConfirm } from "@/lib/confirm";
 import { shareFoundLink } from "@/lib/foundShare";
 import {
+    effectiveHiddenDebitMs,
     endgameStartedAt,
     formatTimeRemaining,
     hiddenCreditMs,
-    effectiveHiddenDebitMs,
     hidingPeriodEndsAt,
     setupCompleted,
 } from "@/lib/gameSetup";
@@ -114,13 +114,23 @@ export function HiderTimer() {
     }
 
     return (
-        // v272: order swapped — endgame action UI on TOP, timer at
-        // BOTTOM — so the wrapper's `bottom-[Npx]` offset pins the
-        // timer card flush against the bottom nav rather than
-        // floating it high above by the variable-height action
-        // stack. With `items-end`, the column grows upward from the
-        // timer's bottom edge.
-        <div className="flex flex-col items-end gap-1.5">
+        // v457: Jet-Lag-show styling. The card positions ITSELF (the
+        // SeekerPage wrapper no longer pins it) so it can sit bottom-LEFT
+        // during the hiding period (yellow "hiding time remaining" box,
+        // like the show) and bottom-RIGHT once seeking starts (white
+        // round-timer box with a red accent + a gold "time to beat"
+        // leaderboard row). The endgame action buttons stack ABOVE the
+        // timer, right-aligned, in the seeking phase only.
+        <div
+            className={cn(
+                "absolute z-[1030] group-[.fullscreen]:hidden",
+                "bottom-[80px] md:bottom-[64px]",
+                "flex flex-col gap-2",
+                inHidingPeriod
+                    ? "left-2 md:left-4 items-start"
+                    : "right-2 md:right-4 items-end",
+            )}
+        >
             {/* Round-end action surface. Three exclusive states once
                 the hiding period is over (and only then — seekers
                 can't trigger the endgame or mark the hider found
@@ -192,35 +202,77 @@ export function HiderTimer() {
                 </div>
             )}
 
-            <div
-                role="status"
-                aria-live="polite"
-                aria-label={`${phaseLabel}: ${display}`}
-                title={`${phaseLabel}: ${display}`}
-                className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-md",
-                    "bg-background/95 backdrop-blur-md border-2 border-primary",
-                    "shadow-md",
-                )}
-            >
-                <Timer className="w-4 h-4 text-primary shrink-0" />
-                <div className="flex flex-col items-start leading-none gap-0.5">
-                    <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.15em] text-muted-foreground">
-                        {phaseLabel}
-                    </span>
-                    <span className="font-inter-tight italic font-black tabular-nums text-base text-primary leading-none">
-                        {display}
-                    </span>
-                    {!inHidingPeriod && timeToBeatMs !== null && (
-                        <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.1em] text-muted-foreground mt-0.5">
-                            To beat:{" "}
-                            <span className="tabular-nums text-foreground/80">
-                                {formatTtb(timeToBeatMs)}
-                            </span>
+            {inHidingPeriod ? (
+                // Yellow "HIDING TIME REMAINING" box — the show's
+                // hiding-phase clock. Dark navy stopwatch + label over
+                // big navy digits on a golden field.
+                <div
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`${phaseLabel}: ${display}`}
+                    title={`${phaseLabel}: ${display}`}
+                    className="flex items-center gap-3 rounded-xl pl-3 pr-5 py-2 shadow-lg bg-[#F2C63C]"
+                >
+                    <Timer
+                        className="w-8 h-8 shrink-0 text-[#1F2F3F]"
+                        strokeWidth={2.5}
+                    />
+                    <div className="flex flex-col leading-none gap-1">
+                        <span className="text-[10px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]">
+                            Hiding time remaining
                         </span>
-                    )}
+                        <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-[#1F2F3F]">
+                            {display}
+                        </span>
+                    </div>
                 </div>
-            </div>
+            ) : (
+                <>
+                    {/* White round-timer box with a red accent down the
+                        right edge — the show's running clock. */}
+                    <div
+                        role="status"
+                        aria-live="polite"
+                        aria-label={`${phaseLabel}: ${display}`}
+                        title={`${phaseLabel}: ${display}`}
+                        className="relative overflow-hidden rounded-xl shadow-lg bg-white pl-4 pr-7 py-2"
+                    >
+                        <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
+                            Hidden for
+                        </span>
+                        <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-[#1F2F3F]">
+                            {display}
+                        </span>
+                        <span
+                            className="absolute inset-y-0 right-0 w-2.5 bg-[#E4322B]"
+                            aria-hidden
+                        />
+                    </div>
+
+                    {/* Gold "1st / time to beat" leaderboard row — the
+                        show's best-time strip under the clock. */}
+                    {timeToBeatMs !== null && (
+                        <div
+                            className="flex items-stretch rounded-xl overflow-hidden shadow-lg"
+                            title={`Time to beat: ${formatTtb(timeToBeatMs)}`}
+                        >
+                            <div className="flex items-center px-2.5 bg-[#D6A92B]">
+                                <span className="font-inter-tight font-black text-sm leading-none text-[#1F2F3F]">
+                                    1
+                                    <span className="text-[9px] align-super">
+                                        st
+                                    </span>
+                                </span>
+                            </div>
+                            <div className="flex items-center px-3 py-1.5 bg-[#F2C63C]">
+                                <span className="font-inter-tight font-black tabular-nums text-xl leading-none text-[#1F2F3F]">
+                                    {formatTtb(timeToBeatMs)}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check, Dice5, X, Zap } from "lucide-react";
+import { Check, Skull, X, Zap } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { receivedCurses, type ReceivedCurse } from "@/lib/seekerInbound";
+import { type ReceivedCurse,receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 
 import { DiceRoller } from "./DiceRoller";
@@ -69,6 +69,49 @@ export function CurseInbox() {
 
     return (
         <>
+            {/* ── Active curses — top-right stack of purple pills, like
+                the Jet Lag show. Each pill is its own curse (no longer
+                collapsed into a count); tapping opens the dice dialog.
+                Shown independently of any pending notification banner. */}
+            {active.length > 0 && (
+                <div
+                    className={cn(
+                        "fixed right-2 md:right-4 z-[1042]",
+                        // Clear the top-right map-controls cluster
+                        // (MapDisplayControls + trip launcher) below the
+                        // mobile top bar / desktop top edge.
+                        "top-[124px] md:top-[80px]",
+                        "flex flex-col items-end gap-2",
+                    )}
+                    role="status"
+                    aria-live="polite"
+                >
+                    {active.map((curse) => (
+                        <button
+                            key={curse.receivedAt}
+                            type="button"
+                            onClick={() => setDialogCurse(curse)}
+                            aria-label={`Active curse: ${curse.name}. Tap to roll dice.`}
+                            title={`${curse.name} — tap to roll dice`}
+                            className={cn(
+                                "flex items-center gap-2.5 max-w-[200px]",
+                                "rounded-lg pl-3 pr-2.5 py-2 shadow-lg",
+                                "bg-[#5b4f96] hover:bg-[#6a5dab] transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+                            )}
+                        >
+                            <span className="min-w-0 font-inter-tight font-black uppercase tracking-tight text-xs leading-tight text-white text-left">
+                                {curse.name}
+                            </span>
+                            <Skull
+                                className="w-5 h-5 text-white shrink-0"
+                                strokeWidth={2.25}
+                            />
+                        </button>
+                    ))}
+                </div>
+            )}
+
             <div
                 className={cn(
                     "fixed inset-x-2 z-[1042]",
@@ -157,47 +200,6 @@ export function CurseInbox() {
                         </div>
                     </button>
                 ))}
-
-                {/* ── Compact active-curse pill (acknowledged, not dismissed) ── */}
-                {unack.length === 0 && active.length > 0 && (
-                    <button
-                        type="button"
-                        onClick={() => setDialogCurse(active[0])}
-                        className={cn(
-                            "w-full flex items-center gap-2.5",
-                            "rounded-md border border-purple-500/40 bg-background/90 backdrop-blur-md shadow-lg",
-                            "px-3 py-2",
-                            "hover:border-purple-400 transition-colors",
-                        )}
-                        aria-label={
-                            active.length === 1
-                                ? `Active curse: ${active[0].name}. Tap to roll dice.`
-                                : `${active.length} active curses. Tap to roll dice.`
-                        }
-                    >
-                        <span
-                            className="inline-flex items-center justify-center w-6 h-6 rounded-sm shrink-0"
-                            style={{ background: "rgb(126 34 206)" }}
-                            aria-hidden="true"
-                        >
-                            <Zap
-                                className="w-3 h-3 text-white"
-                                strokeWidth={2.5}
-                            />
-                        </span>
-                        <div className="min-w-0 flex-1 text-left">
-                            <div className="text-[11px] font-poppins font-semibold text-purple-300 truncate">
-                                {active.length === 1
-                                    ? active[0].name
-                                    : `${active.length} active curses`}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                                Tap to roll dice
-                            </div>
-                        </div>
-                        <Dice5 className="w-4 h-4 text-purple-400 shrink-0" />
-                    </button>
-                )}
             </div>
 
             {/* ── Dice dialog (shared between banners and compact pill) ── */}
