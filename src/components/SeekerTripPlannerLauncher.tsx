@@ -24,6 +24,8 @@ export function SeekerTripPlannerLauncher() {
                 "h-9 px-3 gap-1.5 flex items-center justify-center transition-colors",
                 "hover:bg-accent",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                // v446: fade in with the rest of the in-game top cluster.
+                "animate-in fade-in duration-200",
             )}
         >
             <Search className="w-4 h-4" />

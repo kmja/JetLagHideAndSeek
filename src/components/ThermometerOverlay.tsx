@@ -133,6 +133,8 @@ export function ThermometerOverlay() {
                     "bg-background/95 backdrop-blur-md shadow-lg",
                     "border border-primary/40",
                     "space-y-2",
+                    // v446: fade + rise in instead of popping onto the map.
+                    "animate-in fade-in slide-in-from-bottom-2 duration-200",
                 )}
             >
                 <div className="flex items-center gap-2">
