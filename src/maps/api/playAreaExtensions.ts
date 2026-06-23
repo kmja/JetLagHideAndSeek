@@ -254,6 +254,35 @@ export async function findExtensionCandidates(
                     );
                 }
             }
+        } else {
+            // No admin_level on the primary. This happens when the
+            // play-area search lands on a `place=` relation rather than
+            // an `boundary=administrative` one (the geocode filter keeps
+            // both): e.g. some "New York City" / big-city results are
+            // place relations with no admin_level, so the level-matched
+            // band + sub-units passes above can't run and — with the
+            // topological pass timing out on a huge boundary — we'd
+            // otherwise return ZERO. Fall back to a broad local-admin
+            // proximity sweep (levels 6-8: counties/boroughs,
+            // municipalities, towns; excludes state/country at ≤5). With
+            // `primaryLevel` null the window gate is a no-op, so these
+            // are kept; the distance sort + limit below trim to the
+            // nearest, which for a city centroid are its own boroughs /
+            // neighbouring municipalities.
+            const fallbackQuery = buildLocalAdminBandQuery(
+                primaryLat,
+                primaryLng,
+                radiusKm,
+            );
+            const fallbackData = await getOverpassData(
+                fallbackQuery,
+                undefined,
+                CacheType.ZONE_CACHE,
+                90_000,
+            );
+            const fallbackElements = ((fallbackData as { elements?: unknown[] })
+                .elements ?? []) as OverpassRelationStub[];
+            for (const el of fallbackElements) consider(el);
         }
     } catch (e) {
         console.warn(
@@ -526,6 +555,27 @@ export function buildMunicipalityBandQuery(
     return `
 [out:json][timeout:60];
 relation["admin_level"~"^[78]$"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
+out tags bb;
+`;
+}
+
+/**
+ * Broad "local administrative" proximity sweep — every admin boundary at
+ * level 6, 7, or 8 within `radiusKm` of (lat, lng). Used ONLY as the
+ * fallback when the primary relation has no `admin_level` (a `place=`
+ * relation the play-area search landed on), so we can still surface
+ * nearby boroughs / counties / municipalities / towns. Levels ≤5
+ * (state/country) are deliberately excluded — they engulf the primary
+ * and are never a reasonable play-area expansion.
+ */
+export function buildLocalAdminBandQuery(
+    lat: number,
+    lng: number,
+    radiusKm: number,
+): string {
+    return `
+[out:json][timeout:60];
+relation["admin_level"~"^[678]$"]["type"="boundary"]["boundary"="administrative"](around:${radiusKm * 1000},${lat},${lng});
 out tags bb;
 `;
 }
