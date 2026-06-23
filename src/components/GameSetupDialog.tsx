@@ -193,7 +193,7 @@ function placeTypeLabel(feature: OpenStreetMap): string {
  * derived from the bbox-adjusted polygon estimate. Returns null if
  * the feature has no usable extent.
  */
-function formatAreaLabel(feature: OpenStreetMap): string | null {
+export function formatAreaLabel(feature: OpenStreetMap): string | null {
     const km2 = estimateAreaKm2(feature);
     if (km2 === null) return null;
     // Round to a sensible precision for the size bucket.

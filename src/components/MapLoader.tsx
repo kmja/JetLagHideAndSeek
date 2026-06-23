@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import { cn } from "@/lib/utils";
 
 /**
@@ -56,21 +58,28 @@ const TILES: ReadonlyArray<readonly [number, number, number, number]> = [
     [260, 138, 60, 42],
 ];
 
-/** Duration of one comet trip around a rect's perimeter (s). All
- *  three layers share this period so their phase offset stays
- *  constant after the first cycle. */
-const CYCLE_S = 5.5;
-/** Per-rect delay band in seconds — spread out so the comets on
- *  different tiles don't share a phase. Hashed off the index for
- *  stable variety (no Math.random — keeps SSR / hydration happy). */
-const DELAY_SPREAD_S = CYCLE_S;
+/** Comet travel speed in viewBox units per second. Each tile's cycle
+ *  duration is its OWN perimeter ÷ this speed, so:
+ *    1. every comet moves at the SAME visual pace regardless of tile
+ *       size, and
+ *    2. the dash period equals the exact perimeter — so a single comet
+ *       circulates the closed rect with no pattern/seam mismatch. The
+ *       old fixed 200-unit period didn't divide the real perimeter, so
+ *       the comet "jumped" at the path seam each lap (read as a stop /
+ *       stutter). Perimeter-locked = perfectly continuous motion. */
+const SPEED = 38;
 
-/** Seconds of additional delay applied to the mid-tail layer
- *  relative to its tile's head. The head travels at 200/CYCLE_S
- *  units per second along the perimeter, so a delay of D s places
- *  the mid-tail's leading edge D × (200/CYCLE_S) units behind the
- *  head — sized below so the body's right end meets the head's
- *  left end with a small overlap for the blurs to dissolve into. */
+/** Wall-clock epoch (set once when this module loads). Comet delays are
+ *  computed relative to it, so a freshly-mounted MapLoader picks up the
+ *  animation at the phase it would have been at had it been running the
+ *  whole time. That keeps the motion continuous across a remount — e.g.
+ *  the locate-phase loader handing off to the preview-map loader no
+ *  longer "jerks" back to the start of the cycle. */
+const LOADER_EPOCH = Date.now();
+
+/** Seconds the mid-tail trails the head. With constant SPEED a fixed
+ *  time delay is a fixed DISTANCE behind, so the trio stays welded into
+ *  one comet on every tile. */
 const TAIL_BODY_DELAY_S = 0.4;
 /** Same idea, further back: the wisp lags behind the body. */
 const TAIL_WISP_DELAY_S = 1.15;
@@ -164,78 +173,103 @@ export function MapLoader({
                     dasharray summing to 200 so the cycle period
                     matches the keyframe's -200 dashoffset travel
                     exactly. */}
-                {TILES.map(([x, y, w, h], i) => {
-                    // Hash the index into the delay band so adjacent
-                    // tiles don't share a phase. Cheap deterministic
-                    // sprinkle — keeps SSR / hydration happy.
-                    const baseDelay =
-                        ((i * 7) % 11) * (DELAY_SPREAD_S / 11);
-                    return (
-                        <g key={`comet-${i}`}>
-                            {/* Wisp — long, faint, heavily blurred. */}
-                            <rect
-                                x={x}
-                                y={y}
-                                width={w}
-                                height={h}
-                                fill="none"
-                                stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-wisp-opacity))"
-                                strokeWidth="1"
-                                strokeLinecap="round"
-                                strokeDasharray="30 170"
-                                vectorEffect="non-scaling-stroke"
-                                filter="url(#jl-comet-wisp)"
-                                className="jl-tile-pulse"
-                                style={{
-                                    animationDelay: `${(
-                                        baseDelay + TAIL_WISP_DELAY_S
-                                    ).toFixed(2)}s`,
-                                }}
-                            />
-                            {/* Body — mid-length, softer. */}
-                            <rect
-                                x={x}
-                                y={y}
-                                width={w}
-                                height={h}
-                                fill="none"
-                                stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-body-opacity))"
-                                strokeWidth="1"
-                                strokeLinecap="round"
-                                strokeDasharray="16 184"
-                                vectorEffect="non-scaling-stroke"
-                                filter="url(#jl-comet-body)"
-                                className="jl-tile-pulse"
-                                style={{
-                                    animationDelay: `${(
-                                        baseDelay + TAIL_BODY_DELAY_S
-                                    ).toFixed(2)}s`,
-                                }}
-                            />
-                            {/* Head — short, bright, tight blur.
-                                Painted last so it reads as the
-                                comet's point of light on top of the
-                                fading tail layers. */}
-                            <rect
-                                x={x}
-                                y={y}
-                                width={w}
-                                height={h}
-                                fill="none"
-                                stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-head-opacity))"
-                                strokeWidth="1"
-                                strokeLinecap="round"
-                                strokeDasharray="4 196"
-                                vectorEffect="non-scaling-stroke"
-                                filter="url(#jl-comet-head)"
-                                className="jl-tile-pulse"
-                                style={{
-                                    animationDelay: `${baseDelay.toFixed(2)}s`,
-                                }}
-                            />
-                        </g>
-                    );
-                })}
+                {(() => {
+                    // Seconds elapsed since the module loaded — folded
+                    // into every comet's delay so a fresh mount resumes
+                    // the cycle in-phase (no jerk on the locate→preview
+                    // handoff). Read once per render.
+                    const elapsed = (Date.now() - LOADER_EPOCH) / 1000;
+                    return TILES.map(([x, y, w, h], i) => {
+                        // Per-tile perimeter → its own cycle duration and
+                        // dash period, so the comet laps the rect with no
+                        // seam jump and at the same pace as every other.
+                        const perim = 2 * (w + h);
+                        const dur = perim / SPEED;
+                        // Hash the index into the tile's own cycle so
+                        // adjacent tiles don't share a phase. Deterministic
+                        // (no Math.random).
+                        const baseDelay = ((i * 7) % 11) * (dur / 11);
+                        // animation-delay = base phase offset MINUS the
+                        // wall-clock elapsed, so every instance lands on
+                        // the same phase at the same instant.
+                        const delayFor = (extra: number) =>
+                            (baseDelay + extra - elapsed).toFixed(2);
+                        const travel = {
+                            "--jl-dash-travel": `-${perim}`,
+                        } as CSSProperties;
+                        return (
+                            <g key={`comet-${i}`}>
+                                {/* Wisp — long, faint, heavily blurred. */}
+                                <rect
+                                    x={x}
+                                    y={y}
+                                    width={w}
+                                    height={h}
+                                    fill="none"
+                                    stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-wisp-opacity))"
+                                    strokeWidth="1"
+                                    strokeLinecap="round"
+                                    strokeDasharray={`30 ${perim - 30}`}
+                                    vectorEffect="non-scaling-stroke"
+                                    filter="url(#jl-comet-wisp)"
+                                    className="jl-tile-pulse"
+                                    style={{
+                                        ...travel,
+                                        animationDuration: `${dur.toFixed(2)}s`,
+                                        animationDelay: `${delayFor(
+                                            TAIL_WISP_DELAY_S,
+                                        )}s`,
+                                    }}
+                                />
+                                {/* Body — mid-length, softer. */}
+                                <rect
+                                    x={x}
+                                    y={y}
+                                    width={w}
+                                    height={h}
+                                    fill="none"
+                                    stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-body-opacity))"
+                                    strokeWidth="1"
+                                    strokeLinecap="round"
+                                    strokeDasharray={`16 ${perim - 16}`}
+                                    vectorEffect="non-scaling-stroke"
+                                    filter="url(#jl-comet-body)"
+                                    className="jl-tile-pulse"
+                                    style={{
+                                        ...travel,
+                                        animationDuration: `${dur.toFixed(2)}s`,
+                                        animationDelay: `${delayFor(
+                                            TAIL_BODY_DELAY_S,
+                                        )}s`,
+                                    }}
+                                />
+                                {/* Head — short, bright, tight blur.
+                                    Painted last so it reads as the
+                                    comet's point of light on top of the
+                                    fading tail layers. */}
+                                <rect
+                                    x={x}
+                                    y={y}
+                                    width={w}
+                                    height={h}
+                                    fill="none"
+                                    stroke="hsl(var(--jl-loader-comet) / var(--jl-loader-head-opacity))"
+                                    strokeWidth="1"
+                                    strokeLinecap="round"
+                                    strokeDasharray={`4 ${perim - 4}`}
+                                    vectorEffect="non-scaling-stroke"
+                                    filter="url(#jl-comet-head)"
+                                    className="jl-tile-pulse"
+                                    style={{
+                                        ...travel,
+                                        animationDuration: `${dur.toFixed(2)}s`,
+                                        animationDelay: `${delayFor(0)}s`,
+                                    }}
+                                />
+                            </g>
+                        );
+                    });
+                })()}
             </svg>
         </div>
     );

@@ -14,6 +14,8 @@ import {
 } from "@/maps/api/playAreaExtensions";
 import type { OpenStreetMap } from "@/maps/api/types";
 
+import { formatAreaLabel } from "./GameSetupDialog";
+
 /**
  * Adjacent-area controller for step 1 of the setup wizard.
  *
@@ -143,33 +145,48 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
             <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground px-0.5">
                 Added areas
             </div>
-            {added.map((e) => {
-                const locProps = e.location?.properties as
-                    | { osm_id?: number; name?: string }
-                    | undefined;
-                const id = locProps?.osm_id;
-                const name = locProps?.name || "Neighbouring area";
-                return (
-                    <div
-                        key={id ?? name}
-                        className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2"
-                    >
-                        <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
-                        <span className="flex-1 truncate text-sm">{name}</span>
-                        {typeof id === "number" && (
-                            <button
-                                type="button"
-                                onClick={() => toggleAdjacentArea(id)}
-                                aria-label={`Remove ${name}`}
-                                title={`Remove ${name}`}
-                                className="rounded-sm p-1 text-muted-foreground hover:bg-background/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <X className="w-3.5 h-3.5" />
-                            </button>
-                        )}
-                    </div>
-                );
-            })}
+            {/* v458: only THIS list scrolls when it grows long — the
+                preview map + Change-area button stay put above/below it.
+                Capped so the dialog itself doesn't have to scroll. */}
+            <div className="max-h-[40vh] overflow-y-auto space-y-1.5 -mr-1 pr-1">
+                {added.map((e) => {
+                    const locProps = e.location?.properties as
+                        | { osm_id?: number; name?: string }
+                        | undefined;
+                    const id = locProps?.osm_id;
+                    const name = locProps?.name || "Neighbouring area";
+                    const sizeLabel = e.location
+                        ? formatAreaLabel(e.location)
+                        : null;
+                    return (
+                        <div
+                            key={id ?? name}
+                            className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2"
+                        >
+                            <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
+                            <span className="min-w-0 flex-1 truncate text-sm">
+                                {name}
+                            </span>
+                            {sizeLabel && (
+                                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                                    {sizeLabel}
+                                </span>
+                            )}
+                            {typeof id === "number" && (
+                                <button
+                                    type="button"
+                                    onClick={() => toggleAdjacentArea(id)}
+                                    aria-label={`Remove ${name}`}
+                                    title={`Remove ${name}`}
+                                    className="shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-background/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }

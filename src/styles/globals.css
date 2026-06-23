@@ -287,11 +287,19 @@ div.leaflet-control-attribution.leaflet-control {
         stroke-dashoffset: 0;
     }
     to {
-        stroke-dashoffset: -200;
+        /* Per-tile perimeter (set inline as `--jl-dash-travel`), so one
+         * full keyframe cycle moves the comet exactly once around the
+         * rect — no pattern/perimeter seam, hence no stop/stutter. */
+        stroke-dashoffset: var(--jl-dash-travel, -200);
     }
 }
 .jl-tile-pulse {
-    animation: jl-tile-pulse-travel 5.5s linear infinite;
+    /* Duration + delay are set inline per tile (perimeter ÷ speed, and a
+     * wall-clock-aligned phase). Only the name/timing/iteration live
+     * here so the inline longhands compose cleanly. */
+    animation-name: jl-tile-pulse-travel;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
 }
 
 /* v379: theme-aware loader colors. Originally every stroke was

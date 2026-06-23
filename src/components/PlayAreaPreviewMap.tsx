@@ -484,7 +484,7 @@ function CommittedAreasOverlay() {
                     if (geom) setPolys((prev) => new Map(prev).set(id, geom));
                 })
                 .catch(() => {
-                    /* swallowed — extent fallback stays */
+                    /* swallowed */
                 });
         }
         return () => {
@@ -494,59 +494,109 @@ function CommittedAreasOverlay() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [idsKey]);
 
+    // v458: fade the NEWLY-added area in. The most-recent id ($additional
+    // appends on add) renders in a separate "fade" layer that ramps
+    // 0 → target via a paint transition; every earlier area renders in a
+    // "stable" layer at constant opacity. That way adding an area fades
+    // ONLY the new boundary — the ones already placed don't blink.
+    const lastId = ids.length ? ids[ids.length - 1] : null;
+    const [lit, setLit] = useState(true);
+    const prevCount = useRef(0);
+    useEffect(() => {
+        const grew = ids.length > prevCount.current;
+        prevCount.current = ids.length;
+        if (grew && lastId !== null) {
+            setLit(false);
+            const raf = requestAnimationFrame(() => setLit(true));
+            return () => cancelAnimationFrame(raf);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [idsKey]);
+
     if ($additional.length === 0) return null;
 
-    const fc: GeoJSON.FeatureCollection = {
+    // Real OSM boundary only — NO bbox-rectangle fallback. The bbox
+    // over-approximates wildly, so drawing it first and swapping to the
+    // real polygon a beat later made an added area "start too big then
+    // shrink". Candidates are pre-fetched into `candidatePolygonCache`,
+    // so by the time one is added its real polygon is almost always in
+    // hand and paints immediately; on the rare miss the area simply
+    // isn't drawn for the moment it takes to resolve (no shrink).
+    const featureFor = (
+        e: (typeof $additional)[number],
+    ): GeoJSON.Feature | null => {
+        const id = (e.location?.properties as { osm_id?: number } | undefined)
+            ?.osm_id;
+        const geom =
+            typeof id === "number"
+                ? (polys.get(id) ?? candidatePolygonCache.get(id))
+                : undefined;
+        if (!geom) return null;
+        return { type: "Feature", properties: {}, geometry: geom };
+    };
+    const idOf = (e: (typeof $additional)[number]) =>
+        (e.location?.properties as { osm_id?: number } | undefined)?.osm_id;
+
+    const stableFC: GeoJSON.FeatureCollection = {
         type: "FeatureCollection",
-        features: $additional.flatMap((e) => {
-            const locProps = e.location?.properties as
-                | { osm_id?: number; extent?: number[] }
-                | undefined;
-            const id = locProps?.osm_id;
-            const geom = typeof id === "number" ? polys.get(id) : undefined;
-            let geometry: GeoJSON.Geometry | null = geom ?? null;
-            if (!geometry) {
-                const extent = locProps?.extent;
-                if (Array.isArray(extent) && extent.length === 4) {
-                    const [maxLat, minLng, minLat, maxLng] = extent;
-                    geometry = {
-                        type: "Polygon",
-                        coordinates: [
-                            [
-                                [minLng, minLat],
-                                [maxLng, minLat],
-                                [maxLng, maxLat],
-                                [minLng, maxLat],
-                                [minLng, minLat],
-                            ],
-                        ],
-                    };
-                }
-            }
-            if (!geometry) return [];
-            return [{ type: "Feature", properties: {}, geometry }];
-        }),
+        features: $additional
+            .filter((e) => idOf(e) !== lastId)
+            .flatMap((e) => {
+                const f = featureFor(e);
+                return f ? [f] : [];
+            }),
+    };
+    const fadeFeature = $additional.find((e) => idOf(e) === lastId);
+    const fadeFC: GeoJSON.FeatureCollection = {
+        type: "FeatureCollection",
+        features: fadeFeature
+            ? (() => {
+                  const f = featureFor(fadeFeature);
+                  return f ? [f] : [];
+              })()
+            : [],
     };
 
+    const RED = "hsl(2, 70%, 54%)";
+
     return (
-        <Source id="committed-areas" type="geojson" data={fc}>
-            <Layer
-                id="committed-areas-fill"
-                type="fill"
-                paint={{
-                    "fill-color": "hsl(2, 70%, 54%)",
-                    "fill-opacity": 0.15,
-                }}
-            />
-            <Layer
-                id="committed-areas-line"
-                type="line"
-                paint={{
-                    "line-color": "hsl(2, 70%, 54%)",
-                    "line-width": 2,
-                }}
-            />
-        </Source>
+        <>
+            {/* Already-placed areas — steady, no transition (no blink). */}
+            <Source id="committed-areas" type="geojson" data={stableFC}>
+                <Layer
+                    id="committed-areas-fill"
+                    type="fill"
+                    paint={{ "fill-color": RED, "fill-opacity": 0.15 }}
+                />
+                <Layer
+                    id="committed-areas-line"
+                    type="line"
+                    paint={{ "line-color": RED, "line-width": 2 }}
+                />
+            </Source>
+            {/* Just-added area — fades 0 → target via paint transition. */}
+            <Source id="committed-areas-fade" type="geojson" data={fadeFC}>
+                <Layer
+                    id="committed-areas-fade-fill"
+                    type="fill"
+                    paint={{
+                        "fill-color": RED,
+                        "fill-opacity": lit ? 0.15 : 0,
+                        "fill-opacity-transition": { duration: 280, delay: 0 },
+                    }}
+                />
+                <Layer
+                    id="committed-areas-fade-line"
+                    type="line"
+                    paint={{
+                        "line-color": RED,
+                        "line-width": 2,
+                        "line-opacity": lit ? 1 : 0,
+                        "line-opacity-transition": { duration: 280, delay: 0 },
+                    }}
+                />
+            </Source>
+        </>
     );
 }
 
@@ -751,11 +801,14 @@ function AdjacentCandidatesOverlay({
     return (
         <>
             <Source id="adjacent-candidates" type="geojson" data={fc}>
-                {/* Fill across EVERY candidate (real polygon or bbox
-                    fallback) — this is the click target, so the whole
-                    area toggles, not just a pill. Non-real (still
-                    loading) fills stay faint-but-nonzero so they remain
-                    hit-testable. */}
+                {/* Fill across EVERY candidate — the unselected fill AND
+                    the whole-area click target. Selected (added) areas
+                    drop their candidate fill to 0 so the COMMITTED red
+                    (drawn underneath) is what shows: that's how a
+                    selected adjacent area ends up with the exact same
+                    fill + stroke as the main play area. Opacity-0 fills
+                    are still hit-testable, so tapping an added area
+                    toggles it back off. */}
                 <Layer
                     id="adjacent-candidates-fill"
                     type="fill"
@@ -764,13 +817,15 @@ function AdjacentCandidatesOverlay({
                         "fill-opacity": [
                             "case",
                             ["==", ["get", "added"], true],
-                            0.22,
-                            ["==", ["get", "real"], true],
-                            0.08,
-                            0.05,
+                            0,
+                            ["==", ["get", "transit"], true],
+                            0.2,
+                            0.14,
                         ],
                     }}
                 />
+                {/* Solid outline for resolved boundaries — unselected
+                    only; added areas wear the committed red stroke. */}
                 <Layer
                     id="adjacent-candidates-line"
                     type="line"
@@ -778,7 +833,12 @@ function AdjacentCandidatesOverlay({
                     paint={{
                         "line-color": colorExpr,
                         "line-width": 1.5,
-                        "line-opacity": 0.85,
+                        "line-opacity": [
+                            "case",
+                            ["==", ["get", "added"], true],
+                            0,
+                            0.9,
+                        ],
                     }}
                 />
                 {/* Bbox fallback (still loading): dashed rectangle. */}
@@ -789,7 +849,12 @@ function AdjacentCandidatesOverlay({
                     paint={{
                         "line-color": colorExpr,
                         "line-width": 1.5,
-                        "line-opacity": 0.5,
+                        "line-opacity": [
+                            "case",
+                            ["==", ["get", "added"], true],
+                            0,
+                            0.5,
+                        ],
                         "line-dasharray": [3, 3],
                     }}
                 />
