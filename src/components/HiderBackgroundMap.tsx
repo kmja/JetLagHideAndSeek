@@ -551,13 +551,15 @@ export function HiderBackgroundMap() {
                 ))}
             </Map>
             {/* Classic map controls — follow-me toggle + reset
-                rotation/tilt. Stacked above the hand-fan/bottom-nav. */}
-            <MapNavControls mapRef={mapRef} className="right-3 bottom-44" />
+                rotation/tilt. v462: the map is now a flex-1 area between
+                the flow header and nav, so this anchors to the map edge
+                (bottom-3) instead of dodging the nav/fan (bottom-44). */}
+            <MapNavControls mapRef={mapRef} className="right-3 bottom-3" />
 
-            {/* Top-right cluster — basemap + transit toggles. Sits
-                below the HiderTimeHeader (which ends near 8.5rem
-                after v292 trimmed the top-bar). */}
-            <div className="absolute top-[calc(8.5rem+env(safe-area-inset-top))] right-2 z-[1030]">
+            {/* Top-right cluster — basemap + transit toggles. v462:
+                anchors to the top of the map area (which now sits below
+                the time header), so a plain top-2 is correct. */}
+            <div className="absolute top-2 right-2 z-[1030]">
                 <HiderMapDisplayControls />
             </div>
         </div>

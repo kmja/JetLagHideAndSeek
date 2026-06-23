@@ -182,11 +182,9 @@ export function HiderTimeHeader() {
     return (
         <header
             className={cn(
-                // Sits below HiderTopBar. v292 trimmed the top-bar
-                // height from 3.5rem to 3rem (the fixed h-14 was
-                // squashing on Dynamic Island devices), so this
-                // offset follows.
-                "fixed top-[calc(3rem+env(safe-area-inset-top))] inset-x-0 z-[1040]",
+                // v462: flow row directly below HiderTopBar (was a
+                // `fixed` overlay positioned by a magic top offset).
+                "shrink-0 z-[1040]",
                 "bg-background/95 backdrop-blur-sm border-b border-border",
             )}
         >

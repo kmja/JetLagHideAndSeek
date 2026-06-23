@@ -18,7 +18,9 @@ export function HiderTopBar() {
     return (
         <header
             className={cn(
-                "fixed top-0 inset-x-0 z-[1041]",
+                // v462: flow row at the top of the hider column (was
+                // `fixed top-0`), so it sits ABOVE the map.
+                "shrink-0 z-[1041]",
                 "px-3 pb-2",
                 // v292: drop the rigid `h-14` (which fixed-height
                 // squashed the wordmark on Dynamic Island devices

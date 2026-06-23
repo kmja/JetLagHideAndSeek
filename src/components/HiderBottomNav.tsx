@@ -7,7 +7,7 @@ import { AppSettingsDrawer } from "@/components/AppSettingsDrawer";
 import { HiderHomeContent } from "@/components/HiderHome";
 import { HiderQuestionLog } from "@/components/HiderQuestionLog";
 import { moreSheetOpen } from "@/lib/gameSetup";
-import { hiderHand, hiderInbox } from "@/lib/hiderRole";
+import { hiderInbox } from "@/lib/hiderRole";
 import {
     lobbyManualOpen,
     participants,
@@ -36,24 +36,17 @@ import { cn } from "@/lib/utils";
  *     preferences). Drawer is mounted at the bottom of this file.
  *
  * All slots use Vaul drawers (bottom-sliding), matching the Lobby
- * pattern. Sits *above* the HiderHandFan — both are fixed, the nav
- * at `FAN_HEIGHT_PX` so the peek strip stays visible.
+ * pattern. v462: a flow row at the bottom of the hider column; the
+ * shell reserves the HiderHandFan's peek-strip height as padding so
+ * this nav lands directly above the (still fixed) fan.
  */
-// HiderHandFan strip height. Cards peek (top half only); container
-// is PEEK_OFFSET (53 = CARD_H/2 with v289's poker-card 76×106) + 16
-// chrome = 69px (z-40). When the fan is visible the nav shifts up
-// to sit directly above it.
-const FAN_HEIGHT_PX = 69;
-
 export function HiderBottomNav() {
     const $inbox = useStore(hiderInbox);
-    const $hand = useStore(hiderHand);
     const $participants = useStore(participants);
     const [questionsOpen, setQuestionsOpen] = useState(false);
     const [zoneOpen, setZoneOpen] = useState(false);
 
     const inboxCount = $inbox.length;
-    const hasCards = $hand.length > 0;
     const onlineCount = $participants.filter((p) => p.online).length;
 
     const navBtnClass = cn(
@@ -70,15 +63,13 @@ export function HiderBottomNav() {
         <>
             <div
                 className={cn(
-                    "fixed inset-x-0 z-[1040]",
+                    // v462: flow row at the bottom of the hider column
+                    // (was `fixed`, shifted up by the fan height). The
+                    // column now reserves the fan's peek-strip space as
+                    // padding, so the nav lands directly above the fan.
+                    "shrink-0 z-[1040]",
                     "bg-background/95 backdrop-blur-md border-t border-border",
-                    "transition-[bottom] duration-200",
                 )}
-                style={{
-                    bottom: hasCards
-                        ? `${FAN_HEIGHT_PX}px`
-                        : "env(safe-area-inset-bottom, 0px)",
-                }}
             >
                 <div className="flex items-stretch px-2 py-2 gap-1">
                     <button

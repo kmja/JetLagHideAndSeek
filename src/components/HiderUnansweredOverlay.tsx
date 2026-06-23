@@ -80,11 +80,11 @@ export function HiderUnansweredOverlay() {
     return (
         <div
             className={cn(
-                "pointer-events-none fixed left-1/2 -translate-x-1/2 z-[1035]",
-                // Sits below the time header (top bar 48 + safe-area
-                // + time header ~72 ≈ 120) with a small gap. v292
-                // shaved 0.5rem off the top-bar height.
-                "top-[calc(8rem+env(safe-area-inset-top))]",
+                // v462: floats over the TOP of the map area (the shell
+                // renders it inside that relative box), so it anchors
+                // with a plain top-2 instead of a magic header offset.
+                "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1035]",
+                "top-2",
                 "max-w-[92vw] w-[min(92vw,420px)]",
             )}
             data-testid="hider-unanswered-overlay"
