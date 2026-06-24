@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import CustomInitDialog from "@/components/CustomInitDialog";
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import NearestReferencePreview, {
+    type NearestRefState,
     useNearestReference,
 } from "@/components/NearestReferencePreview";
 import PresetsDialog from "@/components/PresetsDialog";
@@ -73,6 +74,20 @@ export const MatchingQuestionComponent = ({
     // play area's country changes (e.g. switching from a Germany game
     // to a Japan game without a reload).
     const $mapGeo = useStore(mapGeoLocation);
+    // v477: ONE nearest-reference lookup, shared by the "Your nearest
+    // reference" header and the configure-dialog map below, so they can
+    // never disagree (header showing the resolved park while the map
+    // still says "locating the nearest reference"). Same gating the two
+    // used independently before: only in the configure dialog, only while
+    // drafting, only once a real coordinate exists.
+    const matchRefActive = Boolean(
+        forceExpanded && data.drag && (data.lat !== 0 || data.lng !== 0),
+    );
+    const sharedNearestRef = useNearestReference(
+        matchRefActive ? data.lat : 0,
+        matchRefActive ? data.lng : 0,
+        matchRefActive ? data.type : "",
+    );
     const [customDialogOpen, setCustomDialogOpen] = React.useState(false);
     const [pendingCustomType, setPendingCustomType] = React.useState<
         "custom-zone" | "custom-points" | null
@@ -454,6 +469,7 @@ export const MatchingQuestionComponent = ({
                     lng={data.lng}
                     type={data.type}
                     mode="matching"
+                    state={sharedNearestRef}
                 />
             )}
 
@@ -466,6 +482,7 @@ export const MatchingQuestionComponent = ({
                     disabled={!isQuestionEditable(data) || $isLoading}
                     forceExpanded={forceExpanded}
                     dragLive={data.drag}
+                    refState={sharedNearestRef}
                     onChange={(lat, lng) => {
                         // Immutable once sent — drop writes (incl. the
                         // picker's GPS auto-seed) for committed questions.
@@ -593,6 +610,7 @@ function MatchingMeasuringLocation({
     forceExpanded,
     dragLive,
     onChange,
+    refState,
 }: {
     lat: number;
     lng: number;
@@ -602,16 +620,23 @@ function MatchingMeasuringLocation({
     forceExpanded?: boolean;
     dragLive?: boolean;
     onChange: (lat: number | null, lng: number | null) => void;
+    /** v477: shared nearest-reference state from the parent card, so this
+     *  map and the header agree on one lookup. When provided the internal
+     *  hook is neutralised. */
+    refState?: NearestRefState;
 }) {
-    // Always call the hook (no conditional hooks). When the type isn't
-    // resolvable, useNearestReference returns { status: "none" } and we
-    // pass no referencePoint to the picker. Skip the lookup at the 0,0
-    // sentinel (runAddMatching's "not set yet" value) — firing on null
-    // island wastes a request and would surface a confusing "Your
-    // nearest reference" 10000 km away.
+    // When the parent shares its lookup (refState) we reuse it; otherwise
+    // run our own. Skip the lookup at the 0,0 sentinel (runAddMatching's
+    // "not set yet" value) — firing on null island wastes a request and
+    // would surface a confusing "Your nearest reference" 10000 km away.
     const coordsSet = lat !== 0 || lng !== 0;
     const showRef = Boolean(forceExpanded && dragLive && coordsSet);
-    const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
+    const ownRef = useNearestReference(
+        refState ? 0 : showRef ? lat : 0,
+        refState ? 0 : showRef ? lng : 0,
+        refState ? "" : showRef ? type : "",
+    );
+    const ref = refState ?? ownRef;
 
     // v276: stash the last "ok" reference so the configure-dialog map
     // doesn't unmount when a follow-up Overpass lookup flickers (GPS

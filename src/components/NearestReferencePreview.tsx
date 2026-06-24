@@ -206,13 +206,24 @@ export function NearestReferencePreview({
     lng,
     type,
     mode,
+    state: sharedState,
 }: {
     lat: number;
     lng: number;
     type: string;
     mode: "matching" | "measuring";
+    /** v477: when the parent already runs `useNearestReference` (so the
+     *  card map and this header share ONE lookup and can't disagree),
+     *  pass its result here. The internal hook is then neutralised
+     *  (called with empty args → no fetch) to keep hook order stable. */
+    state?: NearestRefState;
 }) {
-    const state = useNearestReference(lat, lng, type);
+    const ownState = useNearestReference(
+        sharedState ? 0 : lat,
+        sharedState ? 0 : lng,
+        sharedState ? "" : type,
+    );
+    const state = sharedState ?? ownState;
     if (state.status === "none") return null;
 
     return (

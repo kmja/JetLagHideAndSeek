@@ -451,6 +451,17 @@ export const LatitudeLongitude = ({
 }) => {
     const $isLoading = useStore(isLoading);
 
+    // v477: do we have a usable seeker position? In lock-to-GPS mode the
+    // coords are seeded synchronously from the last GPS fix at question
+    // creation, so a missing coordinate means GPS is unavailable (the
+    // picker's own GPS pass only runs once the map mounts, which needs a
+    // coordinate) — that's the only time the manual place-search should
+    // appear. With a fix present, the position is locked to GPS.
+    const coordsSet =
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        !(latitude === 0 && longitude === 0);
+
     // Resolve the coordinates to a friendly "near X" label via Nominatim.
     // Debounced + cached inside reverseGeocode itself, so dragging a marker
     // around won't fire a request per pixel.
@@ -537,14 +548,23 @@ export const LatitudeLongitude = ({
                             </Suspense>
                         ) : (
                             <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground px-4 text-center">
-                                Locating you and the nearest reference…
+                                {/* v477: one accurate loading message, no
+                                    contradiction with the resolved "Your
+                                    nearest reference" header. If we have a
+                                    position we're only waiting on the
+                                    reference; if we don't, GPS is
+                                    unavailable and the search below is the
+                                    way forward. */}
+                                {coordsSet
+                                    ? "Finding the nearest reference…"
+                                    : "GPS unavailable — search for a place below to set your location."}
                             </div>
                         )}
-                        {/* Manual entry path. In lock-to-GPS mode the map
-                            is display-only, so a place search is the
-                            only way to set a location when GPS is denied
-                            (or to override an inaccurate fix). */}
-                        {lockToGps && (
+                        {/* Manual entry path. Only when GPS gave us no
+                            position (lock-to-GPS mode): the place search is
+                            then the only way to set a location. With a GPS
+                            fix the position is locked and not editable. */}
+                        {lockToGps && !coordsSet && (
                             <PlaceSearchInput
                                 onPick={(la, ln) => onChange(la, ln)}
                                 disabled={disabled}

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import CustomInitDialog from "@/components/CustomInitDialog";
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import NearestReferencePreview, {
+    type NearestRefState,
     useNearestReference,
 } from "@/components/NearestReferencePreview";
 import PresetsDialog from "@/components/PresetsDialog";
@@ -62,6 +63,16 @@ export const MeasuringQuestionComponent = ({
     const $displayHidingZones = useStore(displayHidingZones);
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $isLoading = useStore(isLoading);
+    // v477: one shared nearest-reference lookup for the header + the
+    // configure map, so they never show contradictory loading states.
+    const measRefActive = Boolean(
+        forceExpanded && data.drag && (data.lat !== 0 || data.lng !== 0),
+    );
+    const sharedNearestRef = useNearestReference(
+        measRefActive ? data.lat : 0,
+        measRefActive ? data.lng : 0,
+        measRefActive ? data.type : "",
+    );
     const $gameSize = useStore(gameSize);
     const $customInitPref = useStore(customInitPreference);
     const [customDialogOpen, setCustomDialogOpen] = React.useState(false);
@@ -319,6 +330,7 @@ export const MeasuringQuestionComponent = ({
                     lng={data.lng}
                     type={data.type}
                     mode="measuring"
+                    state={sharedNearestRef}
                 />
             )}
 
@@ -331,6 +343,7 @@ export const MeasuringQuestionComponent = ({
                 forceExpanded={forceExpanded}
                 dragLive={data.drag}
                 manualReference={data.manualReference}
+                refState={sharedNearestRef}
                 onChange={(lat, lng) => {
                     // Immutable once sent — drop writes (incl. the
                     // picker's GPS auto-seed) for committed questions.
@@ -419,6 +432,7 @@ function MeasuringLocation({
     dragLive,
     manualReference,
     onChange,
+    refState,
 }: {
     lat: number;
     lng: number;
@@ -432,13 +446,21 @@ function MeasuringLocation({
      *  if the auto lookup failed. */
     manualReference?: { lat: number; lng: number };
     onChange: (lat: number | null, lng: number | null) => void;
+    /** v477: shared nearest-reference state from the parent card so the
+     *  header + map agree on one lookup. Neutralises the internal hook. */
+    refState?: NearestRefState;
 }) {
     // Guard the lookup on real coords. 0,0 is the "not set yet"
     // sentinel from runAddMeasuring; firing the Overpass call against
     // null island would waste a request and confuse the UI.
     const coordsSet = lat !== 0 || lng !== 0;
     const showRef = Boolean(forceExpanded && dragLive && coordsSet);
-    const ref = useNearestReference(showRef ? lat : 0, showRef ? lng : 0, showRef ? type : "");
+    const ownRef = useNearestReference(
+        refState ? 0 : showRef ? lat : 0,
+        refState ? 0 : showRef ? lng : 0,
+        refState ? "" : showRef ? type : "",
+    );
+    const ref = refState ?? ownRef;
 
     // v276: keep the last-known reference visible while a subsequent
     // lookup is in flight (e.g. the seeker pin nudged by 1 m by GPS,
