@@ -38,6 +38,11 @@ const DebugCardsPage = lazyWithRetry(() =>
         default: m.DebugCardsPage,
     })),
 );
+const DebugOverlaysPage = lazyWithRetry(() =>
+    import("@/pages/DebugOverlaysPage").then((m) => ({
+        default: m.DebugOverlaysPage,
+    })),
+);
 // First-time / new-game wizard route (v252). Was a dialog overlay
 // on the seeker view; now its own page. Reached via the Welcome
 // screen's "Start new game" or the route-level redirect when
@@ -162,6 +167,10 @@ const router = createBrowserRouter([
     {
         path: "/debug/cards",
         element: <RouteWrapper element={<DebugCardsPage />} />,
+    },
+    {
+        path: "/debug/overlays",
+        element: <RouteWrapper element={<DebugOverlaysPage />} />,
     },
     // Catch-all — anything else lands on the seeker shell (which the
     // gate then redirects from if welcome / setup haven't been done,
