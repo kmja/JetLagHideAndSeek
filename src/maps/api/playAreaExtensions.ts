@@ -40,9 +40,13 @@
  * returns a list ready to render in a checkable picker.
  */
 
+import { booleanPointInPolygon } from "@turf/turf";
+import type { Feature } from "geojson";
+
 import type { TransitMode } from "@/lib/gameSetup";
 
 import { getOverpassData } from "./overpass";
+import { fetchRawBoundaryPolygon } from "./polygonsOsmFr";
 import type { OpenStreetMap } from "./types";
 import { CacheType } from "./types";
 
@@ -291,8 +295,56 @@ export async function findExtensionCandidates(
         );
     }
 
-    candidates.sort((a, b) => a.distanceKm - b.distanceKm);
-    return candidates.slice(0, limit);
+    // v484: drop candidates whose centroid sits INSIDE the primary's own
+    // boundary — those are sub-areas of the play area, not neighbours, so
+    // offering them as "adjacent" is wrong (they're already in). This bites
+    // when the primary is a `place/city` relation with NO admin_level
+    // (e.g. "Paris" → relation 71525): the level-window gate no-ops, so the
+    // broad local-admin sweep + topological pass surface Paris's own
+    // arrondissements / quartiers. A geometric containment test catches
+    // them regardless of admin_level.
+    //
+    // SKIPPED for megacity primaries (admin_level ≤ 5): their intentional
+    // sub-units (NYC's boroughs) ARE contained and ARE the wanted
+    // extensions — the sub-units pass added them on purpose.
+    const isMegacity =
+        primaryLevel !== null &&
+        Number.isFinite(primaryLevel) &&
+        primaryLevel <= MEGACITY_MAX_LEVEL;
+    let result = candidates;
+    if (!isMegacity && candidates.length > 0) {
+        const primaryPolygon = await fetchRawBoundaryPolygon(
+            primaryOsmId,
+        ).catch(() => null);
+        if (primaryPolygon) {
+            const poly = {
+                type: "Feature",
+                properties: {},
+                geometry: primaryPolygon,
+            } as Feature;
+            result = candidates.filter((c) => {
+                const ext = c.feature.properties.extent as
+                    | number[]
+                    | undefined;
+                if (!ext || ext.length < 4) return true; // can't test → keep
+                // extent is [maxLat, minLng, minLat, maxLng].
+                const center: [number, number] = [
+                    (ext[1] + ext[3]) / 2,
+                    (ext[0] + ext[2]) / 2,
+                ];
+                try {
+                    // Keep only candidates whose centre is OUTSIDE the
+                    // primary (true neighbours); drop the contained ones.
+                    return !booleanPointInPolygon(center, poly as never);
+                } catch {
+                    return true;
+                }
+            });
+        }
+    }
+
+    result.sort((a, b) => a.distanceKm - b.distanceKm);
+    return result.slice(0, limit);
 }
 
 /** Sub-units pass for the consolidated-city case: every admin boundary
