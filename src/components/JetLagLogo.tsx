@@ -112,18 +112,28 @@ export function HideSeekMark({
             className={className}
         >
             <defs>
-                {/* White = the circle MINUS the wedge bite, so the wedge
-                    reads as the surface colour (transparent) between the
-                    circle and the pyramid below it. */}
+                {/* White = the circle MINUS the pyramid, where the pyramid
+                    is the SAME shape drawn below, dilated by a uniform
+                    ~2.5px (stroke = 2×gap, round joins). That makes the
+                    circle and the pyramid meet along a clean, even-width
+                    navy gap — a true boolean DIFFERENCE — instead of the
+                    old mismatched notch (which cut a different, wider
+                    triangle than the red one and left an uneven wedge). */}
                 <mask id={maskId}>
                     <rect width="64" height="64" fill="black" />
                     <circle cx="32" cy="27" r="19" fill="white" />
-                    <path d="M32 24 L8 60 L56 60 Z" fill="black" />
+                    <path
+                        d="M32 31 L12 58 L52 58 Z"
+                        fill="black"
+                        stroke="black"
+                        strokeWidth="5"
+                        strokeLinejoin="round"
+                    />
                 </mask>
             </defs>
-            {/* White circle with the wedge cut out. */}
+            {/* White circle with the pyramid difference cut out. */}
             <rect width="64" height="64" fill="white" mask={`url(#${maskId})`} />
-            {/* Red pyramid rising from below, apex just under the wedge. */}
+            {/* Red pyramid rising from below, into the circle's bite. */}
             <path d="M32 31 L12 58 L52 58 Z" fill="hsl(2 70% 54%)" />
         </svg>
     );

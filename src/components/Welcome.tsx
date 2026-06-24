@@ -187,14 +187,6 @@ export function Welcome() {
                                 The Game's Hide+Seek in your own city — on your
                                 phones, across your local transit network.
                             </p>
-                            <p>
-                                One player uses public transit to get to a
-                                hiding spot. The other players work together to
-                                find them by asking questions about their
-                                location. Once the hider is found by the
-                                seekers, another player hides. At the end,
-                                whoever hid the longest wins.
-                            </p>
                         </div>
 
                         <div className="px-6 pb-7 flex flex-col gap-2">
@@ -483,8 +475,12 @@ export function Welcome() {
                     </>
                 )}
 
-                {/* Footer — support the real game + unofficial disclaimer. */}
-                <div className="mt-auto px-6 pt-4 pb-8 text-center space-y-2.5">
+                {/* Footer — support the real game + unofficial disclaimer.
+                    v477: sticky to the bottom of the scroll viewport so the
+                    purchase link + disclaimer stay visible while the panel
+                    above scrolls. Opaque background + top border so content
+                    scrolls cleanly behind it. */}
+                <div className="mt-auto sticky bottom-0 z-10 px-6 pt-4 pb-8 text-center space-y-2.5 bg-[hsl(var(--sidebar-background))] border-t border-border/40">
                     <a
                         href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
                         target="_blank"
