@@ -34,8 +34,14 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 
 const DrawerContent = React.forwardRef<
     React.ElementRef<typeof DrawerPrimitive.Content>,
-    React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+    React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & {
+        /** Extra classes for the dimming overlay. Use to raise the
+         *  overlay's z-index in lockstep with the content when a drawer
+         *  must stack above another open drawer (e.g. AddQuestionDialog
+         *  opening on top of the mobile Questions drawer). */
+        overlayClassName?: string;
+    }
+>(({ className, overlayClassName, children, ...props }, ref) => (
     <DrawerPortal
         container={
             typeof document !== "undefined"
@@ -43,7 +49,7 @@ const DrawerContent = React.forwardRef<
                 : null
         }
     >
-        <DrawerOverlay />
+        <DrawerOverlay className={overlayClassName} />
         <DrawerPrimitive.Content
             ref={ref}
             className={cn(

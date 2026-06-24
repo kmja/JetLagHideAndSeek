@@ -699,7 +699,15 @@ export const AddQuestionDialog = ({
                 shouldScaleBackground={false}
             >
                 <DrawerTrigger asChild>{children}</DrawerTrigger>
-                <DrawerContent>
+                {/* z-[1048]: this drawer is often opened from INSIDE the
+                    mobile Questions drawer (content z-[1045]); raise both
+                    overlay and content above it so the category picker
+                    stacks on top instead of behind. Stays below the
+                    Sheet/Dialog tier (z-[1050]). */}
+                <DrawerContent
+                    className="z-[1048]"
+                    overlayClassName="z-[1048]"
+                >
                     <div className="overflow-y-auto px-6 pt-2 pb-6 max-h-[82vh]">
                         <DrawerTitle>Add Question</DrawerTitle>
                         <DrawerDescription>Pick a category.</DrawerDescription>
@@ -897,7 +905,9 @@ export const AddQuestionDialog = ({
                 shouldScaleBackground={false}
             >
                 <DrawerContent
+                    overlayClassName="z-[1048]"
                     className={cn(
+                        "z-[1048]",
                         "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                         "flex flex-col p-0 gap-0 max-h-[88vh]",
                     )}
