@@ -1107,6 +1107,14 @@ export function Map({ className }: MapProps) {
         for (const q of $questions) {
             if (q.id !== "radius") continue;
             if (!q.data?.drag) continue;
+            // v475: nothing is drawn on the main map for a question until
+            // it has actually been SENT. A radius question is created in a
+            // drafting state (drag:true, no createdAt) the moment the
+            // seeker taps Radar — before the configure dialog even opens —
+            // and `createdAt` is stamped only on "Send question". Skipping
+            // un-sent drafts here keeps the radar circle (and its sweep)
+            // off the map until the seeker confirms.
+            if (!(q.data as { createdAt?: number }).createdAt) continue;
             const data = q.data as {
                 lat?: number;
                 lng?: number;
