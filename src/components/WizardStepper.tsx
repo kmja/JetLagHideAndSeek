@@ -1,88 +1,63 @@
+import type { LucideIcon } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 /**
- * Numbered wizard stepper — the connected-circles header for multi-step
- * flows (the setup wizard). Adapted to the app's style: coral primary for
- * reached steps, muted outline for upcoming ones, the current step's
- * label bold. Display-only (navigation is via the wizard's Back/Next).
- *
- *   (1)──(2)──(3)
- *  Area  Transit  Size
+ * Wizard step indicator, styled to match the app's segmented control
+ * (see `EditTabs` in GameSetupDialog — same rounded container, same coral
+ * active segment). It reads as a non-interactive progress bar: the
+ * current step is the solid coral segment, completed steps are a lighter
+ * coral tint, upcoming steps are muted. Navigation stays on the wizard's
+ * Back/Next buttons.
  */
+export interface WizardStep {
+    label: string;
+    icon?: LucideIcon;
+}
+
 export function WizardStepper({
     steps,
     current,
     className,
 }: {
-    /** Short labels, one per step. */
-    steps: string[];
+    steps: WizardStep[];
     /** 1-based index of the active step. */
     current: number;
     className?: string;
 }) {
     return (
-        <div className={cn("flex items-start", className)} aria-hidden>
-            {steps.map((label, i) => {
+        <div
+            role="list"
+            aria-label="Setup progress"
+            className={cn(
+                "flex gap-1 p-1 rounded-md",
+                "bg-secondary/40 border border-border",
+                className,
+            )}
+        >
+            {steps.map((s, i) => {
                 const n = i + 1;
                 const state =
                     n < current ? "done" : n === current ? "active" : "todo";
-                const isFirst = i === 0;
-                const isLast = i === steps.length - 1;
-                const reached = state !== "todo"; // done or active
+                const Icon = s.icon;
                 return (
                     <div
-                        key={label}
-                        className="flex-1 flex flex-col items-center min-w-0"
+                        key={s.label}
+                        role="listitem"
+                        aria-current={state === "active" ? "step" : undefined}
+                        className={cn(
+                            "flex-1 min-w-0 flex items-center justify-center gap-1.5",
+                            "px-2 py-1.5 rounded-sm transition-colors",
+                            "text-[11px] font-poppins font-bold uppercase tracking-[0.10em]",
+                            state === "active"
+                                ? "bg-primary text-primary-foreground shadow-sm"
+                                : state === "done"
+                                  ? "bg-primary/15 text-primary"
+                                  : "text-muted-foreground",
+                        )}
                     >
-                        <div className="flex items-center w-full">
-                            {/* connector into this circle */}
-                            <div
-                                className={cn(
-                                    "h-0.5 flex-1",
-                                    isFirst
-                                        ? "opacity-0"
-                                        : reached
-                                          ? "bg-primary"
-                                          : "bg-border",
-                                )}
-                            />
-                            <div
-                                className={cn(
-                                    "flex items-center justify-center shrink-0",
-                                    "w-7 h-7 rounded-full border-2 text-xs font-poppins font-bold",
-                                    "transition-colors",
-                                    reached
-                                        ? "border-primary bg-primary text-primary-foreground"
-                                        : "border-border bg-transparent text-muted-foreground",
-                                )}
-                            >
-                                {n}
-                            </div>
-                            {/* connector out of this circle */}
-                            <div
-                                className={cn(
-                                    "h-0.5 flex-1",
-                                    isLast
-                                        ? "opacity-0"
-                                        : n < current
-                                          ? "bg-primary"
-                                          : "bg-border",
-                                )}
-                            />
-                        </div>
-                        <span
-                            className={cn(
-                                "mt-1.5 px-1 text-center leading-tight truncate max-w-full",
-                                "text-[11px] font-poppins uppercase tracking-wide",
-                                state === "active"
-                                    ? "font-bold text-foreground"
-                                    : state === "done"
-                                      ? "font-semibold text-foreground/70"
-                                      : "text-muted-foreground",
-                            )}
-                        >
-                            {label}
-                        </span>
+                        {Icon && <Icon className="w-3.5 h-3.5 shrink-0" />}
+                        <span className="truncate">{s.label}</span>
                     </div>
                 );
             })}
