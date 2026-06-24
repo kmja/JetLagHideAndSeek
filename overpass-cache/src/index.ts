@@ -808,6 +808,9 @@ async function handleRequest(
         if (url.pathname === "/admin/list-cities") {
             return handleAdminListCities(request, env, cors);
         }
+        if (url.pathname === "/admin/prewarmed-cities") {
+            return handleAdminPrewarmedCities(request, env, cors);
+        }
         if (url.pathname === "/admin/store-prewarmed") {
             return handleAdminStorePrewarmed(request, env, cors);
         }
@@ -5499,6 +5502,117 @@ async function handleAdminListCities(
         200,
         cors,
     );
+}
+
+/**
+ * `GET /admin/prewarmed-cities?secret=<…>` — the cities that are
+ * ACTUALLY warmed in R2 right now (vs. `/admin/list-cities`, which is the
+ * candidate table of what COULD be warmed). The R2 keys are opaque
+ * hashes, so this reads each object's `customMetadata` and dedupes by
+ * `sourceRelationId`, returning one row per city with its name, the set
+ * of warmed `kind`s present (boundary / references / hsr / transit-shard
+ * …), and how many cache entries it owns. Memoised ~60 s, bounded by the
+ * same scan ceiling as `/admin/status` so it can't flood R2 list ops.
+ */
+interface PrewarmedCity {
+    relationId: string;
+    name: string | null;
+    kinds: string[];
+    entries: number;
+}
+let prewarmedCitiesMemo: {
+    cities: PrewarmedCity[];
+    scanned: number;
+    truncated: boolean;
+    computedAt: number;
+} | null = null;
+
+async function handleAdminPrewarmedCities(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    try {
+        if (
+            prewarmedCitiesMemo &&
+            Date.now() - prewarmedCitiesMemo.computedAt < CACHE_STATS_TTL_MS
+        ) {
+            const { cities, scanned, truncated } = prewarmedCitiesMemo;
+            return jsonResponse(
+                { count: cities.length, scanned, truncated, cities },
+                200,
+                cors,
+            );
+        }
+        const byRel = new Map<
+            string,
+            { name: string | null; kinds: Set<string>; entries: number }
+        >();
+        let cursor: string | undefined = undefined;
+        let scanned = 0;
+        do {
+            const page: R2Objects = await env.CACHE.list({
+                prefix: "overpass/",
+                cursor,
+                limit: 1000,
+                include: ["customMetadata"],
+            });
+            for (const obj of page.objects) {
+                scanned++;
+                const md = obj.customMetadata ?? {};
+                // Only entries tagged with a city relation id are
+                // "cities" — country-shard references / transit shards key
+                // on ISO, not a relation, so they're skipped here.
+                const rel = md.sourceRelationId;
+                if (!rel) continue;
+                const cur = byRel.get(rel) ?? {
+                    name: null,
+                    kinds: new Set<string>(),
+                    entries: 0,
+                };
+                if (md.sourceName && !cur.name) cur.name = md.sourceName;
+                if (md.kind) cur.kinds.add(md.kind);
+                cur.entries++;
+                byRel.set(rel, cur);
+            }
+            cursor = page.truncated ? page.cursor : undefined;
+            if (scanned >= CACHE_STATS_MAX_SCAN) break;
+        } while (cursor);
+
+        const cities: PrewarmedCity[] = [...byRel.entries()]
+            .map(([relationId, v]) => ({
+                relationId,
+                name: v.name,
+                kinds: [...v.kinds].sort(),
+                entries: v.entries,
+            }))
+            .sort(
+                (a, b) =>
+                    (a.name ?? "~").localeCompare(b.name ?? "~") ||
+                    a.relationId.localeCompare(b.relationId),
+            );
+        const truncated = scanned >= CACHE_STATS_MAX_SCAN;
+        prewarmedCitiesMemo = {
+            cities,
+            scanned,
+            truncated,
+            computedAt: Date.now(),
+        };
+        return jsonResponse(
+            { count: cities.length, scanned, truncated, cities },
+            200,
+            cors,
+        );
+    } catch (e) {
+        return jsonResponse(
+            { error: e instanceof Error ? e.message : String(e) },
+            500,
+            cors,
+        );
+    }
 }
 
 /**
