@@ -1705,14 +1705,12 @@ export function Map({ className }: MapProps) {
                     </Source>
                 )}
 
-                {/* Hiding-zones overlay — mirrored from
-                    ZoneSidebar's showGeoJSON via the
-                    hidingZonesGeoJSON atom. Renders the same
-                    red-dashed polygon outline + low-opacity
-                    fill that the Leaflet path uses, plus
-                    circle markers for any Point features
-                    (stations) so both styles surface on
-                    Map. */}
+                {/* Hiding-zones overlay — mirrored from ZoneSidebar's
+                    showGeoJSON via the hidingZonesGeoJSON atom. The default
+                    "stations" style emits Point features, painted as the
+                    zoom-scaled dots below; the "zones"/"no-overlap" styles
+                    emit polygons, painted as the fill + dashed outline. The
+                    style picker in the zone sidebar switches between them. */}
                 {$hidingZones && $hidingZones.features.length > 0 && (
                     <Source
                         id="hiding-zones"
@@ -1766,10 +1764,23 @@ export function Map({ className }: MapProps) {
                             type="circle"
                             filter={["==", ["geometry-type"], "Point"]}
                             paint={{
-                                "circle-radius": 5,
+                                // Zoom-scaled station dots — small enough that
+                                // a dense network (Stockholm-scale) reads as a
+                                // tidy field of points rather than a solid mass.
+                                "circle-radius": [
+                                    "interpolate",
+                                    ["linear"],
+                                    ["zoom"],
+                                    8,
+                                    2,
+                                    13,
+                                    3.5,
+                                    16,
+                                    5,
+                                ],
                                 "circle-color": "hsl(2, 70%, 54%)",
-                                "circle-stroke-color": "white",
-                                "circle-stroke-width": 1.5,
+                                "circle-stroke-color": "#ffffff",
+                                "circle-stroke-width": 1,
                             }}
                         />
                     </Source>

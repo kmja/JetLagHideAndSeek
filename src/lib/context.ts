@@ -365,7 +365,7 @@ export const hidingZonesAutoFromTransit = persistentAtom<boolean>(
 );
 export const displayHidingZonesStyle = persistentAtom<
     "zones" | "stations" | "no-overlap" | "no-display"
->("displayHidingZonesStyle", "zones");
+>("displayHidingZonesStyle", "stations");
 export const questionFinishedMapData = atom<any>(null);
 
 export const trainStations = atom<StationCircle[]>([]);
