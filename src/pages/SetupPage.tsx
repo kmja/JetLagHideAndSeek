@@ -247,10 +247,21 @@ export function SetupPage() {
             <div className="px-6 py-4 shrink-0 border-t border-border flex items-center justify-between gap-2">
                 <Button
                     variant="outline"
-                    onClick={() =>
-                        setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))
-                    }
-                    disabled={step === 1}
+                    onClick={() => {
+                        if (step > 1) {
+                            setStep((s) => ((s - 1) as 1 | 2 | 3));
+                            return;
+                        }
+                        // Step 1 Back = leave the wizard back to the
+                        // Welcome screen. Without this the user was
+                        // trapped: step 1 is the first step (nothing to go
+                        // back to) and the wizard is a full-screen route
+                        // with no other exit. Clearing welcomeSeen makes
+                        // /welcome render (it bounces to "/" while seen);
+                        // the route guards converge on /welcome either way.
+                        welcomeSeen.set(false);
+                        navigate("/welcome", { replace: true });
+                    }}
                     className="gap-1"
                 >
                     <ChevronLeft className="w-4 h-4" />
