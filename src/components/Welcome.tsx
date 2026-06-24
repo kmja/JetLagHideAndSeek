@@ -151,6 +151,11 @@ export function Welcome() {
     return (
         <div
             className={cn(
+                // v472: force dark on the landing regardless of the app
+                // theme — the box / rulebook art is dark navy, so the
+                // first screen should always match it. `dark` scopes the
+                // dark CSS vars to this subtree (Tailwind darkMode:class).
+                "dark",
                 "fixed inset-0 z-0 flex justify-center",
                 "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
                 "overflow-y-auto",
@@ -183,15 +188,12 @@ export function Welcome() {
                                 phones, across your local transit network.
                             </p>
                             <p>
-                                One player hides; the seekers ask questions to
-                                narrow down the search and rule the map out
-                                region by region. The app runs the whole game:
-                                the live map, the hider's card deck and curses,
-                                the timers, and the scoring.
-                            </p>
-                            <p className="text-current/60">
-                                Pick a play area, share a code with your group,
-                                and whoever stays hidden longest wins.
+                                One player uses public transit to get to a
+                                hiding spot. The other players work together to
+                                find them by asking questions about their
+                                location. Once the hider is found by the
+                                seekers, another player hides. At the end,
+                                whoever hid the longest wins.
                             </p>
                         </div>
 

@@ -33,6 +33,9 @@ export function BetaGate({ children }: { children: React.ReactNode }) {
     return (
         <div
             className={cn(
+                // v472: force dark so the gate matches the dark landing /
+                // box art, regardless of the app theme.
+                "dark",
                 "fixed inset-0 z-[2000] flex justify-center overflow-y-auto",
                 "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
                 "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
