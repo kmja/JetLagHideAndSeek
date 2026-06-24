@@ -192,12 +192,11 @@ export function Welcome() {
                                 phones, across your local transit network.
                             </p>
                             <p>
-                                One player hides; the seekers ask questions —
-                                Radar, Thermometer, Matching, Measuring,
-                                Tentacles, Photo — to rule the map out region by
-                                region. The app runs the whole game: the live
-                                map, the hider's card deck and curses, the
-                                timers, and the scoring.
+                                One player hides; the seekers ask questions to
+                                narrow down the search and rule the map out
+                                region by region. The app runs the whole game:
+                                the live map, the hider's card deck and curses,
+                                the timers, and the scoring.
                             </p>
                             <p className="text-current/60">
                                 Pick a play area, share a code with your group,

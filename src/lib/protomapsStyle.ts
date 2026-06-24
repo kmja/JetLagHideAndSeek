@@ -38,15 +38,15 @@ import { atom } from "nanostores";
 import { Protocol } from "pmtiles";
 
 import {
-    MAP_ASSET_BASE,
-    PMTILES_URL,
-    PMTILES_URL_FALLBACK,
-} from "@/maps/api/constants";
-import {
     activeTilePackId,
     MERGE_SCHEME,
     registerMergeProtocol,
 } from "@/lib/tilePack";
+import {
+    MAP_ASSET_BASE,
+    PMTILES_URL,
+    PMTILES_URL_FALLBACK,
+} from "@/maps/api/constants";
 
 /**
  * Resolved PMTiles source URL — a nanostore so map components can
@@ -96,49 +96,39 @@ function probePmtilesAvailability(): void {
     tryHead(1);
 }
 
-// v363: error-burst gate. A SINGLE error used to flip the session to
-// the demo bucket, but the soft triggers (HEAD probe failure, MapLibre
-// error events) all fire on real-but-recoverable conditions —
-// backgrounded tabs, slow first range read, service-worker activation
-// after a deploy. With the healthy R2 file we actually have, one flake
-// stranded the rest of the session on the (occasionally-broken) demo
-// bucket. We now require N errors within WINDOW to flip; a healthy load
-// drains the buffer naturally. HARD signals (the v260 tilesTimedOut and
-// the v321 watchdog's "no tiles within 10 s" verdict) still flip
-// immediately — those are settled diagnoses, not transient.
-const ERROR_BURST_THRESHOLD = 3;
-const ERROR_BURST_WINDOW_MS = 30_000;
-let recentErrors: number[] = [];
-
 /**
- * Flip to the Protomaps public demo bucket and warn loudly. v363:
- * requires ERROR_BURST_THRESHOLD errors within ERROR_BURST_WINDOW_MS
- * before flipping, unless `hard: true` is passed (used for verdicts
- * like the watchdog timeout that we trust outright). Idempotent —
- * after the first fallback further errors are silently absorbed.
+ * Record a basemap tile-load problem.
+ *
+ * v470: this NO LONGER flips the live source to `PMTILES_URL_FALLBACK`.
+ * That fallback (the worker's `/tiles/protomaps-fallback` demo-bucket
+ * route) is currently a 404, so swapping to it never recovered a
+ * struggling basemap — it GUARANTEED a blank map. That was the
+ * "loads fine, then the tiles disappear after a few seconds" bug: the
+ * basemap painted, then a spurious watchdog verdict (e.g. the tile
+ * preload flood briefly aborting a hidden map's archive fetch) flipped
+ * the shared `pmtilesUrl` atom to the 404 and every map blanked at once.
+ *
+ * The self-hosted R2 primary is the only working source, so we stay on
+ * it and let MapLibre re-request tiles on its own (idle / pan / zoom).
+ * We still log so the diagnostic trail survives. To restore an actual
+ * fallback later: re-upload basemap.pmtiles to R2 AND make the
+ * `/tiles/protomaps-fallback` route serve a real archive (see
+ * overpass-cache/scripts/upload-pmtiles.md), then re-add the
+ * `pmtilesUrl.set(PMTILES_URL_FALLBACK)` flip here.
  */
 export function recordPmtilesError(
     reason: string,
+    // Retained for call-site compatibility (callers still pass
+    // `{ hard: true }`); no longer consulted now the flip is disabled.
     opts: { hard?: boolean } = {},
 ): void {
+    void opts;
     if (pmtilesUrl.get() === PMTILES_URL_FALLBACK) return;
-    const now = Date.now();
-    recentErrors = recentErrors.filter(
-        (t) => now - t < ERROR_BURST_WINDOW_MS,
-    );
-    recentErrors.push(now);
-    if (!opts.hard && recentErrors.length < ERROR_BURST_THRESHOLD) {
-        console.info(
-            `[protomaps] transient tile load issue (${reason}); ` +
-                `${recentErrors.length}/${ERROR_BURST_THRESHOLD} errors in the last 30 s — not flipping yet.`,
-        );
-        return;
-    }
     console.warn(
-        `[protomaps] tile load failure (${reason}); falling back to proxied demo bucket. ` +
-            "Re-upload basemap.pmtiles to R2 (see overpass-cache/scripts/upload-pmtiles.md) to restore self-hosting.",
+        `[protomaps] tile load issue (${reason}). Staying on the self-hosted ` +
+            "basemap — the demo-bucket fallback route is disabled (it 404s). " +
+            "If the basemap is genuinely down, re-upload basemap.pmtiles to R2.",
     );
-    pmtilesUrl.set(PMTILES_URL_FALLBACK);
 }
 
 /** Source id used inside the maplibre style. The basemap layer
@@ -176,7 +166,7 @@ export type ProtomapsTheme =
  * that rebuild on `useStore(pmtilesUrl)` change pick up the fallback
  * URL without a page reload.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
     registerPMTilesProtocol();
     registerMergeProtocol();
@@ -227,7 +217,7 @@ export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
  * fallback bucket if it sees one. Safe to call on every error event
  * — non-pmtiles errors are ignored.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export function handleMapLibreError(evt: any): void {
     const msg =
         (evt && (evt.error?.message ?? evt.message ?? String(evt))) || "";
@@ -268,7 +258,7 @@ export function handleMapLibreError(evt: any): void {
  */
 const DROPPED_LAYER_IDS = new Set<string>(["pois", "roads_rail"]);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function curatedBasemapLayers(stock: any[]): any[] {
     return stock.filter((layer) => !DROPPED_LAYER_IDS.has(layer.id));
 }

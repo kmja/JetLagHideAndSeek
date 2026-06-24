@@ -68,7 +68,16 @@ const MAX_TILES_PER_ZOOM = 8000;
  *  preload wall-clock on a fast connection, no benefit from pushing
  *  higher in my testing. Past ~64 measurements stop improving
  *  altogether. */
-const CONCURRENCY = 32;
+// v470: dropped 32 → 6. At 32-way concurrency the preload saturated the
+// connection to the PMTiles archive and starved the LIVE map's own range
+// requests for the same archive — they'd abort (NS_BINDING_ABORTED),
+// the basemap watchdog saw "no tiles in the grace window", and (before
+// v470's fallback fix) flipped every map to the 404 demo bucket. Even
+// with that flip gone, a flood of aborted live fetches makes the visible
+// map paint late. 6 leaves comfortable headroom for the live map while
+// still preloading in the background; the preload just takes a bit
+// longer, which is invisible (it runs during the lobby / hiding period).
+const CONCURRENCY = 6;
 
 /** Web Mercator: lng/lat → tile XY at a given integer zoom. */
 function lngLatToTile(
