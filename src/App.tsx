@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 
+import { BetaGate } from "@/components/BetaGate";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { installGpsSpoof } from "@/lib/debugGpsSpoof";
@@ -182,7 +183,9 @@ const router = createBrowserRouter([
 export function App() {
     return (
         <>
-            <RouterProvider router={router} />
+            <BetaGate>
+                <RouterProvider router={router} />
+            </BetaGate>
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to

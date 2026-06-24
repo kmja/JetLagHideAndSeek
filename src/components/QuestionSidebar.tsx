@@ -196,7 +196,7 @@ export const QuestionSidebar = () => {
                                 )}
                             >
                                 <div className="opacity-60">
-                                    <HideSeekMark size={56} onDark />
+                                    <HideSeekMark size={56} />
                                 </div>
                                 <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
                                     No questions yet

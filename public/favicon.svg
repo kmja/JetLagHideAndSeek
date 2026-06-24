@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Hide+Seek">
+  <defs>
+    <mask id="hsfavmask">
+      <rect width="64" height="64" fill="black"/>
+      <circle cx="32" cy="27" r="19" fill="white"/>
+      <path d="M32 24 L8 60 L56 60 Z" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="#1F2F3F"/>
+  <rect width="64" height="64" fill="white" mask="url(#hsfavmask)"/>
+  <path d="M32 31 L12 58 L52 58 Z" fill="#DC3D38"/>
+</svg>

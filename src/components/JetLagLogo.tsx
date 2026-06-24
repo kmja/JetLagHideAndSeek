@@ -19,6 +19,8 @@
  *   <SizeBadge size />   The S/M/L pill — yellow / orange / red rounded
  *                        rectangle with bold uppercase white text.
  */
+import { useId } from "react";
+
 import type { GameSize } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 
@@ -79,22 +81,25 @@ export function JetLagLogo({
 /* ────────────────── HIDE+SEEK mountain peak mark ────────────────── */
 
 /**
- * The hide-and-seek logomark: a white circle with a dark navy mountain peak
- * rising from below and cutting into the circle. On a red background this
- * gives the box-cover look exactly; on a dark background it reads as a
- * white silhouette.
+ * The Hide+Seek logomark, matched to the rulebook / box cover: a white
+ * circle with a red pyramid (triangle) rising through it, and a small
+ * dark wedge where they meet. v469: was a white-circle + navy mountain
+ * peak ("keyhole"-ish); now the red-pyramid-over-circle from the box.
+ *
+ * The wedge between the circle and the pyramid is a transparent cutout
+ * (the surface shows through), so the mark reads correctly on the navy
+ * app chrome, on red, or anywhere else.
  */
 export function HideSeekMark({
     size = 40,
-    /** Background color of where the mark sits. Affects the bottom triangle
-     *  treatment so the peak reads correctly against light or dark surfaces. */
-    onDark = false,
     className,
 }: {
     size?: number;
-    onDark?: boolean;
     className?: string;
 }) {
+    // Unique mask id per instance — multiple marks can mount at once
+    // (welcome hero + sidebar), and a shared id would cross-wire them.
+    const maskId = `hsmark-${useId().replace(/:/g, "")}`;
     return (
         <svg
             width={size}
@@ -106,15 +111,20 @@ export function HideSeekMark({
             aria-label="Hide+Seek"
             className={className}
         >
-            {/* White circle — the "moon" / clean field behind the peak */}
-            <circle cx="32" cy="28" r="22" fill="white" />
-            {/* Dark navy triangular peak rising from below, clipped to the
-             * circle's footprint by drawing on top of the circle. The peak
-             * extends down past the circle to anchor it on the box edge. */}
-            <path
-                d="M10 64 L32 18 L54 64 Z"
-                fill={onDark ? "white" : "hsl(210 30% 14%)"}
-            />
+            <defs>
+                {/* White = the circle MINUS the wedge bite, so the wedge
+                    reads as the surface colour (transparent) between the
+                    circle and the pyramid below it. */}
+                <mask id={maskId}>
+                    <rect width="64" height="64" fill="black" />
+                    <circle cx="32" cy="27" r="19" fill="white" />
+                    <path d="M32 24 L8 60 L56 60 Z" fill="black" />
+                </mask>
+            </defs>
+            {/* White circle with the wedge cut out. */}
+            <rect width="64" height="64" fill="white" mask={`url(#${maskId})`} />
+            {/* Red pyramid rising from below, apex just under the wedge. */}
+            <path d="M32 31 L12 58 L52 58 Z" fill="hsl(2 70% 54%)" />
         </svg>
     );
 }

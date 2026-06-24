@@ -23,7 +23,7 @@ import {
 } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
-import { HideSeekMark, HideSeekWordmark } from "./JetLagLogo";
+import { HideSeekMark, HideSeekWordmark, JetLagLogo } from "./JetLagLogo";
 
 /**
  * First-load welcome screen. v267: was a dialog overlaid on the
@@ -161,9 +161,25 @@ export function Welcome() {
             aria-label="Welcome to Hide+Seek"
         >
             <div className="w-full sm:max-w-md flex flex-col p-0 gap-0">
-                {/* Hero — echoes the box-face cover */}
+                {/* Hero — echoes the box-face cover. Jet Lag: The Game
+                    lockup sits above the Hide+Seek mark + wordmark. */}
                 <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
-                    <HideSeekMark size={72} onDark />
+                    <div className="flex items-center gap-2 text-white">
+                        <JetLagLogo size={34} />
+                        <div className="flex flex-col items-start leading-none">
+                            <span
+                                className="font-inter-tight italic font-black uppercase tracking-tight text-xl"
+                                style={{ letterSpacing: "-0.02em" }}
+                            >
+                                Jet
+                                <span className="text-jetlag-yellow">Lag</span>
+                            </span>
+                            <span className="mt-1 rounded-[2px] bg-jetlag-yellow px-1.5 py-[1px] text-[8px] font-inter-tight font-black uppercase tracking-[0.18em] text-[hsl(210_30%_14%)]">
+                                The Game
+                            </span>
+                        </div>
+                    </div>
+                    <HideSeekMark size={72} />
                     <HideSeekWordmark boxLayout size="xl" />
                 </div>
 
@@ -171,18 +187,21 @@ export function Welcome() {
                     <>
                         <div className="px-6 pb-5 text-sm leading-relaxed text-current/85 space-y-2">
                             <p>
-                                A seeker's map-elimination companion for the
-                                Jet Lag: The Game board game.
+                                A real-time companion app for playing Jet Lag:
+                                The Game's Hide+Seek in your own city — on your
+                                phones, across your local transit network.
                             </p>
                             <p>
-                                One player hides on public transit. The rest
-                                ask questions to narrow them down — radius,
-                                thermometer, matching, measuring, tentacles —
-                                and rule the map out region by region until
-                                only the hider's spot is left.
+                                One player hides; the seekers ask questions —
+                                Radar, Thermometer, Matching, Measuring,
+                                Tentacles, Photo — to rule the map out region by
+                                region. The app runs the whole game: the live
+                                map, the hider's card deck and curses, the
+                                timers, and the scoring.
                             </p>
                             <p className="text-current/60">
-                                Whoever hides the longest wins.
+                                Pick a play area, share a code with your group,
+                                and whoever stays hidden longest wins.
                             </p>
                         </div>
 
@@ -471,6 +490,24 @@ export function Welcome() {
                         </div>
                     </>
                 )}
+
+                {/* Footer — support the real game + unofficial disclaimer. */}
+                <div className="mt-auto px-6 pt-4 pb-8 text-center space-y-2.5">
+                    <a
+                        href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block text-xs font-semibold text-jetlag-yellow hover:underline"
+                    >
+                        Love it? Buy the official Hide+Seek box from Nebula →
+                    </a>
+                    <p className="text-[10px] leading-snug text-current/40">
+                        This is a free, unofficial fan-made companion. Not
+                        affiliated with or endorsed by Jet Lag: The Game or
+                        Nebula. Please support the creators by buying the
+                        physical game.
+                    </p>
+                </div>
             </div>
         </div>
     );
