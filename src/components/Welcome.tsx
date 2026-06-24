@@ -157,7 +157,7 @@ export function Welcome() {
                 // dark CSS vars to this subtree (Tailwind darkMode:class).
                 "dark",
                 "fixed inset-0 z-0 flex justify-center",
-                "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
+                "bg-jetlag text-[hsl(var(--sidebar-foreground))]",
                 "overflow-y-auto",
                 "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
             )}
@@ -173,7 +173,12 @@ export function Welcome() {
                     <img
                         src="/jetlag-logo.svg"
                         alt="Jet Lag: The Game"
-                        className="h-12 w-auto max-w-[70%]"
+                        /* The plane badge sits ~1.4% left of the SVG's
+                           geometric centre because the "THE GAME" tag adds
+                           width on the right. Nudge right so the plane —
+                           not the bounding box — is centred over the
+                           Hide+Seek mark below it. */
+                        className="h-12 w-auto max-w-[70%] translate-x-[1.4%]"
                     />
                     <HideSeekMark size={72} />
                     <HideSeekWordmark boxLayout size="xl" />
@@ -480,7 +485,7 @@ export function Welcome() {
                     purchase link + disclaimer stay visible while the panel
                     above scrolls. Opaque background + top border so content
                     scrolls cleanly behind it. */}
-                <div className="mt-auto sticky bottom-0 z-10 px-6 pt-4 pb-8 text-center space-y-2.5 bg-[hsl(var(--sidebar-background))] border-t border-border/40">
+                <div className="mt-auto sticky bottom-0 z-10 px-6 pt-4 pb-8 text-center space-y-2.5 bg-jetlag border-t border-border/40">
                     <a
                         href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
                         target="_blank"
