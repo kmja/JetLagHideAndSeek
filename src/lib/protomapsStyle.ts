@@ -269,8 +269,9 @@ export function installMissingImageHandler(map: maplibregl.Map): void {
  *     confusing). The overpass-cached reference data is the source
  *     of truth for those.
  *   - Rail (`roads_rail`): transit lines are surfaced by the app's
- *     dedicated map-overlay toggle (OpenRailwayMap raster), so baking
- *     them into the base is redundant and can't be turned off.
+ *     dedicated per-mode line overlays (train / tram / subway from
+ *     Overpass), so baking raw track into the base is redundant and
+ *     can't be turned off.
  *
  * Everything else — roads with casings, labels, buildings, landcover,
  * landuse, water — renders at full Protomaps detail. (v240 walked

@@ -6,7 +6,6 @@ import {
     Map as MapIcon,
     Radar,
     Satellite,
-    TrainTrack,
 } from "lucide-react";
 
 import {
@@ -22,7 +21,6 @@ import {
     showSubwayRoutes,
     showTrainRoutes,
     showTramRoutes,
-    showTransitLines,
     TRANSIT_ICONS,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
@@ -45,7 +43,6 @@ import { cn } from "@/lib/utils";
 
 export function HiderMapDisplayControls() {
     const $satellite = useStore(satelliteView);
-    const $rail = useStore(showTransitLines);
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
     const $ferry = useStore(showFerryRoutes);
@@ -55,15 +52,12 @@ export function HiderMapDisplayControls() {
     const $transitLoading = useStore(transitRoutesLoading);
     const $reach = useStore(showHiderReach);
 
-    const showRailBtn =
-        $allowedTransit.includes("train") || $allowedTransit.includes("tram");
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
     const showFerryBtn = $allowedTransit.includes("ferry");
     const showTrainBtn = $allowedTransit.includes("train");
     const showTramBtn = $allowedTransit.includes("tram");
     const hasAnyTransitBtn =
-        showRailBtn ||
         showSubwayBtn ||
         showBusBtn ||
         showFerryBtn ||
@@ -73,7 +67,6 @@ export function HiderMapDisplayControls() {
     const activeCount =
         (Number($satellite) || 0) +
         (Number($reach) || 0) +
-        (Number($rail && showRailBtn) || 0) +
         (Number($subway && showSubwayBtn) || 0) +
         (Number($bus && showBusBtn) || 0) +
         (Number($ferry && showFerryBtn) || 0) +
@@ -214,20 +207,6 @@ export function HiderMapDisplayControls() {
                         >
                             {(() => {
                                 const buttons: React.ReactNode[] = [];
-                                if (showRailBtn) {
-                                    buttons.push(
-                                        <TransitIconToggle
-                                            key="rail"
-                                            icon={TrainTrack}
-                                            label="Rail (train/tram)"
-                                            on={$rail}
-                                            onToggle={() =>
-                                                showTransitLines.set(!$rail)
-                                            }
-                                            borderLeft={buttons.length > 0}
-                                        />,
-                                    );
-                                }
                                 if (showSubwayBtn) {
                                     buttons.push(
                                         <TransitIconToggle
@@ -273,11 +252,9 @@ export function HiderMapDisplayControls() {
                                         />,
                                     );
                                 }
-                                // v334: train + tram colored overlays
-                                // sit alongside the rail RASTER toggle
-                                // (showTransitLines) — the raster shows
-                                // raw track, these show named services.
-                                // Both can be on simultaneously.
+                                // Colored, named-service line overlays per
+                                // rail mode (train / tram). v488 dropped the
+                                // old all-rail OpenRailwayMap raster toggle.
                                 if (showTrainBtn) {
                                     buttons.push(
                                         <TransitIconToggle

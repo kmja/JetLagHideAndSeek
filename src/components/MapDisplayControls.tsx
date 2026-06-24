@@ -8,7 +8,6 @@ import {
     Map as MapIcon,
     Satellite,
     Target,
-    TrainTrack,
 } from "lucide-react";
 
 import {
@@ -25,7 +24,6 @@ import {
     showSubwayRoutes,
     showTrainRoutes,
     showTramRoutes,
-    showTransitLines,
     TRANSIT_ICONS,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
@@ -48,7 +46,6 @@ import { cn } from "@/lib/utils";
 
 export function MapDisplayControls() {
     const $satellite = useStore(satelliteView);
-    const $rail = useStore(showTransitLines);
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
     const $ferry = useStore(showFerryRoutes);
@@ -63,15 +60,12 @@ export function MapDisplayControls() {
     // Only render transit buttons for modes that are actually
     // allowed in this session's game settings — no point cluttering
     // the popover with a Ferry toggle for a landlocked play area.
-    const showRailBtn =
-        $allowedTransit.includes("train") || $allowedTransit.includes("tram");
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
     const showFerryBtn = $allowedTransit.includes("ferry");
     const showTrainBtn = $allowedTransit.includes("train");
     const showTramBtn = $allowedTransit.includes("tram");
     const hasAnyTransitBtn =
-        showRailBtn ||
         showSubwayBtn ||
         showBusBtn ||
         showFerryBtn ||
@@ -84,7 +78,6 @@ export function MapDisplayControls() {
     const activeCount =
         (Number($satellite) || 0) +
         (Number($hidingZones) || 0) +
-        (Number($rail && showRailBtn) || 0) +
         (Number($subway && showSubwayBtn) || 0) +
         (Number($bus && showBusBtn) || 0) +
         (Number($ferry && showFerryBtn) || 0) +
@@ -291,22 +284,6 @@ export function MapDisplayControls() {
                             >
                                 {(() => {
                                     const buttons: React.ReactNode[] = [];
-                                    if (showRailBtn) {
-                                        buttons.push(
-                                            <TransitIconToggle
-                                                key="rail"
-                                                icon={TrainTrack}
-                                                label="Rail (train/tram — bundled OpenRailwayMap layer)"
-                                                on={$rail}
-                                                onToggle={() =>
-                                                    showTransitLines.set(
-                                                        !$rail,
-                                                    )
-                                                }
-                                                borderLeft={buttons.length > 0}
-                                            />,
-                                        );
-                                    }
                                     if (showSubwayBtn) {
                                         buttons.push(
                                             <TransitIconToggle
@@ -360,10 +337,11 @@ export function MapDisplayControls() {
                                             />,
                                         );
                                     }
-                                    // v334: colored train + tram
-                                    // overlays separate from the rail
-                                    // raster above. Raster = raw
-                                    // track, colored = named services.
+                                    // Colored, named-service line overlays
+                                    // per rail mode (train / tram). v488
+                                    // dropped the old all-rail OpenRailwayMap
+                                    // raster toggle — the per-mode overlays
+                                    // cover it.
                                     if (showTrainBtn) {
                                         buttons.push(
                                             <TransitIconToggle

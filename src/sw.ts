@@ -67,18 +67,6 @@ registerRoute(
 
 registerRoute(
     ({ url }: { url: URL }) =>
-        /^https:\/\/(tiles|[a-d]\.tiles)\.openrailwaymap\.org\//i.test(url.href),
-    new CacheFirst({
-        cacheName: "tiles-railway",
-        plugins: [
-            new ExpirationPlugin({ maxEntries: 3000, maxAgeSeconds: 60 * 24 * 60 * 60, purgeOnQuotaError: true }),
-            new CacheableResponsePlugin({ statuses: [0, 200] }),
-        ],
-    }),
-);
-
-registerRoute(
-    ({ url }: { url: URL }) =>
         /^https:\/\/(tile|[a-c]\.tile)\.openstreetmap\.org\//i.test(url.href),
     new CacheFirst({
         cacheName: "tiles-osm",

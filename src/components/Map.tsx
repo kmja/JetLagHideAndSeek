@@ -57,7 +57,6 @@ import {
     showSubwayRoutes,
     showTrainRoutes,
     showTramRoutes,
-    showTransitLines,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
@@ -81,7 +80,6 @@ import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { clearCache, determineMapBoundaries } from "@/maps/api";
-import { RAIL_TILE_BASE } from "@/maps/api/constants";
 import {
     fetchTransitRoutesFeatures,
     type TransitMode,
@@ -191,16 +189,6 @@ const SATELLITE_SOURCE = {
     attribution: "Imagery &copy; Esri",
 };
 
-const RAIL_OVERLAY_SOURCE = {
-    // v351: proxied + R2-cached through our worker (was the three
-    // a/b/c.tiles.openrailwaymap.org hosts directly). OpenRailwayMap's
-    // servers 503 constantly; the proxy serves cached tiles from R2 even
-    // during their outages, and removes the external dependency.
-    tiles: [`${RAIL_TILE_BASE}/{z}/{x}/{y}.png`],
-    attribution:
-        '&copy; <a href="https://www.openrailwaymap.org/">OpenRailwayMap</a>',
-};
-
 function thunderforestSource(
     flavor: "transport" | "neighbourhood",
     key: string,
@@ -217,7 +205,6 @@ function thunderforestSource(
 function buildStyle(
     baseKey: string,
     withSatellite: boolean,
-    withRail: boolean,
     thunderforestKey: string,
     resolvedThemeMode: "light" | "dark" = "dark",
 ): maplibregl.StyleSpecification {
@@ -255,8 +242,8 @@ function buildStyle(
         };
     } else {
         // Protomaps vector basemap. The style ships a flat sources +
-        // layers shape that we can extend with satellite/rail
-        // overlays below — they just go on top.
+        // layers shape that we can extend with the satellite overlay
+        // below — it just goes on top.
         base = protomapsMapLibreStyle(
             effectiveKey === "dark" ? "dark" : "light",
         ) as maplibregl.StyleSpecification;
@@ -279,21 +266,6 @@ function buildStyle(
             type: "raster",
             source: "satellite",
             paint: { "raster-opacity": 0.7 },
-        });
-    }
-
-    if (withRail) {
-        sources.rail = {
-            type: "raster",
-            tiles: RAIL_OVERLAY_SOURCE.tiles,
-            tileSize: 256,
-            attribution: RAIL_OVERLAY_SOURCE.attribution,
-        };
-        layers.push({
-            id: "rail",
-            type: "raster",
-            source: "rail",
-            paint: { "raster-opacity": 0.85 },
         });
     }
 
@@ -392,7 +364,6 @@ export function Map({ className }: MapProps) {
     const $tram = useStore(showTramRoutes);
     const $tileKey = useStore(baseTileLayer);
     const $satellite = useStore(satelliteView);
-    const $rail = useStore(showTransitLines);
     const $tfKey = useStore(thunderforestApiKey);
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $mapGeoJSON = useStore(mapGeoJSON);
@@ -418,9 +389,9 @@ export function Map({ className }: MapProps) {
     // basemap source flips to the merge scheme (pack-first rendering).
     const $tilePackId = useStore(activeTilePackId);
     const style = useMemo(
-        () => buildStyle($tileKey, $satellite, $rail, $tfKey ?? "", $theme),
+        () => buildStyle($tileKey, $satellite, $tfKey ?? "", $theme),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [$tileKey, $satellite, $rail, $tfKey, $theme, $pmtilesUrl, $tilePackId],
+        [$tileKey, $satellite, $tfKey, $theme, $pmtilesUrl, $tilePackId],
     );
 
     // Initial view priority: persisted viewport > OSM extent of
@@ -1694,12 +1665,11 @@ export function Map({ className }: MapProps) {
                         />
                     </Source>
                 )}
-                {/* v334: colored train + tram overlays. Train uses a
-                    saturated green so it reads distinctly from the
-                    OpenRailwayMap raster's brown track; tram uses a
-                    pink so it doesn't collide with subway purple in
-                    cities that have both. Same width/opacity as the
-                    other modes for visual parity. */}
+                {/* Colored train + tram line overlays. Train uses a
+                    saturated green; tram uses a pink so it doesn't
+                    collide with subway purple in cities that have both.
+                    Same width/opacity as the other modes for visual
+                    parity. */}
                 {transitFC.train && (
                     <Source
                         id="transit-train"

@@ -61,10 +61,6 @@ const BUCKET_LABELS: Record<string, { label: string; description: string }> = {
         label: "Satellite tiles",
         description: "Cached Esri World Imagery tiles when satellite mode is on.",
     },
-    "tiles-railway": {
-        label: "Railway-line tiles",
-        description: "OpenRailwayMap overlay tiles.",
-    },
     "tiles-osm": {
         label: "OpenStreetMap tiles",
         description: "Plain OSM Carto tiles, if used as the base.",

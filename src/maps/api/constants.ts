@@ -113,10 +113,6 @@ export const TRANSIT_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/transit`;
  *  The MapLibre style's `glyphs` and `sprite` URLs point here so the
  *  basemap has no external dependency at game time. */
 export const MAP_ASSET_BASE = `${JLHS_WORKER_BASE}/api/mapasset`;
-/** Base URL for the self-hosted OpenRailwayMap raster proxy (v351),
- *  R2-cached by the worker so the "Transit lines" overlay survives
- *  OpenRailwayMap's frequent 503s. */
-export const RAIL_TILE_BASE = `${JLHS_WORKER_BASE}/api/railtile`;
 export const OVERPASS_API_TERTIARY = readOverride(
     "jlhs:overpassApiTertiary",
     DEFAULT_OVERPASS_API_TERTIARY,

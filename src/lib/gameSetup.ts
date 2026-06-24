@@ -81,24 +81,9 @@ export const satelliteView = persistentAtom<boolean>("satelliteView", false, {
     decode: JSON.parse,
 });
 /**
- * Rail-lines overlay. Drives a single OpenRailwayMap raster tile layer
- * which renders *all* rail modes (subway, tram, train, light rail,
- * narrow gauge, monorail, funicular) bundled into one image — the tile
- * server doesn't expose a per-mode filter, so all rail modes share this
- * toggle. The original atom name is preserved for localStorage backward
- * compatibility.
- */
-export const showTransitLines = persistentAtom<boolean>(
-    "showTransitLines",
-    false,
-    { encode: JSON.stringify, decode: JSON.parse },
-);
-
-/**
  * Bus-routes overlay. Rendered via an Overpass GeoJSON fetch
- * (`route=bus` relations within the play area) — OpenRailwayMap doesn't
- * cover buses. Off by default because bus networks can be dense and the
- * fetch is slow on first run.
+ * (`route=bus` relations within the play area). Off by default because
+ * bus networks can be dense and the fetch is slow on first run.
  */
 export const showBusRoutes = persistentAtom<boolean>(
     "showBusRoutes",
@@ -117,12 +102,9 @@ export const showFerryRoutes = persistentAtom<boolean>(
 );
 
 /**
- * Subway-routes overlay. Independent of the general rail layer
- * (OpenRailwayMap), which bundles all rail modes into one image and
- * can't be filtered. This Overpass-fetched layer pulls
- * `route=subway` relations so you can see subway lines on their own —
- * useful in cities where the rail layer is dense with mainline tracks
- * obscuring the metro.
+ * Subway-routes overlay. An Overpass-fetched layer that pulls
+ * `route=subway` relations so you can see metro lines on their own,
+ * distinct from the train/tram line overlays.
  */
 export const showSubwayRoutes = persistentAtom<boolean>(
     "showSubwayRoutes",
@@ -132,11 +114,10 @@ export const showSubwayRoutes = persistentAtom<boolean>(
 
 /**
  * Train-routes overlay (v334). `route=train` relations: regional
- * commuter + intercity services. Complements the OpenRailwayMap
- * raster — that one shows raw track, this one shows named services —
- * and gives train/tram users the same colored-overlay treatment
- * subway/bus/ferry already had. Default off because train networks
- * can be dense on first fetch in well-mapped countries.
+ * commuter + intercity named services, giving train/tram users the
+ * same colored-overlay treatment subway/bus/ferry already had.
+ * Default off because train networks can be dense on first fetch in
+ * well-mapped countries.
  */
 export const showTrainRoutes = persistentAtom<boolean>(
     "showTrainRoutes",
@@ -181,9 +162,9 @@ export const showTramRoutes = persistentAtom<boolean>(
  *                  — a dense city like London is 1-5 MB depending
  *                  on POI density. Default ON because every
  *                  matching/measuring question depends on it.
- *   `transit`    — the OpenRailwayMap raster overlay + HSR country
- *                  data + transit arrival times via the journey
- *                  worker. Bundled together because they're all
+ *   `transit`    — per-mode route-line overlays + HSR country data +
+ *                  transit arrival times via the journey worker.
+ *                  Bundled together because they're all
  *                  "transit-related extras" that some games don't
  *                  use. Default ON since most games answer at least
  *                  one HSR/transit question.
@@ -371,7 +352,6 @@ export const preloadTransitProgress = atom<TransitPreloadProgress | null>(
  */
 export function resetMapOverlays() {
     satelliteView.set(false);
-    showTransitLines.set(false);
     showBusRoutes.set(false);
     showSubwayRoutes.set(false);
     showFerryRoutes.set(false);
@@ -765,8 +745,8 @@ export const TRANSIT_LABELS: Record<TransitMode, string> = {
  * mode always looks the same. The rail family is front-view for a
  * coherent, distinct set: plain front = train, front-in-tunnel =
  * subway, tram-front = tram. (`TrainTrack` — literal rails — is
- * deliberately NOT here; it's reserved for the map's raw-track raster
- * overlay, which represents track, not a service.)
+ * deliberately NOT here; it represents track/rail in the abstract
+ * (e.g. the setup wizard's Transit step), not a specific service.)
  */
 export const TRANSIT_ICONS: Record<TransitMode, LucideIcon> = {
     bus: Bus,
