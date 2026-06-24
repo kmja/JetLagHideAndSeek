@@ -9,7 +9,7 @@ import {
     SizeStep,
     TransitStep,
 } from "@/components/GameSetupDialog";
-import { SectionPill } from "@/components/JetLagLogo";
+import { WizardStepper } from "@/components/WizardStepper";
 import { Button } from "@/components/ui/button";
 import {
     additionalMapGeoLocations,
@@ -191,26 +191,29 @@ export function SetupPage() {
                 "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
             )}
         >
-            <div className="px-4 pt-3 pb-3 shrink-0 border-b border-border">
-                <div className="flex items-center gap-3 mb-1.5">
+            <div className="px-4 pt-4 pb-3 shrink-0 border-b border-border space-y-3">
+                <WizardStepper
+                    steps={["Play area", "Transit", "Size"]}
+                    current={step}
+                />
+                <div>
                     <h1
-                        className="font-display font-black uppercase text-xl leading-tight flex-1"
+                        className="font-display font-black uppercase text-xl leading-tight"
                         style={{ letterSpacing: "-0.02em" }}
                     >
                         {step === 1 && "Play area"}
                         {step === 2 && "Transit modes"}
                         {step === 3 && "Game size"}
                     </h1>
-                    <SectionPill>Step {step} / 3</SectionPill>
+                    <p className="text-xs leading-snug text-muted-foreground mt-0.5">
+                        {step === 1 &&
+                            "Pick the city or region you'll be seeking in. Add neighbouring municipalities if they should count as one play area."}
+                        {step === 2 &&
+                            "Which public transit modes the hider can use."}
+                        {step === 3 &&
+                            "Larger games span more ground and last longer."}
+                    </p>
                 </div>
-                <p className="text-xs leading-snug text-muted-foreground">
-                    {step === 1 &&
-                        "Pick the city or region you'll be seeking in. Add neighbouring municipalities if they should count as one play area."}
-                    {step === 2 &&
-                        "Which public transit modes the hider can use."}
-                    {step === 3 &&
-                        "Larger games span more ground and last longer."}
-                </p>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 overflow-x-hidden">
