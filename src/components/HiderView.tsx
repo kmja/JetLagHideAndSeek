@@ -232,28 +232,58 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
 
     return (
         <div className="flex flex-col min-h-0 flex-1 px-5 pt-4 pb-5 gap-4 overflow-y-auto">
-            <header>
-                <div className="flex items-center gap-2 mb-2">
-                    {CategoryIcon && (
-                        <span
-                            className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
-                            style={{ backgroundColor: categoryMeta.color }}
-                            aria-hidden="true"
-                        >
-                            <CategoryIcon
-                                size={16}
-                                strokeWidth={2.5}
-                                className="text-white"
-                            />
-                        </span>
-                    )}
-                    <DialogDescription className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold">
-                        {categoryMeta?.label ?? question.id} question
+            {/* Jet Lag show-style question banner: a frosted, category-
+                tinted panel with the bold uppercase prompt in the
+                category colour on the left, and a solid category-colour
+                chip (icon + compact value, e.g. "5 km" / "Museum" /
+                camera) on the right. Inspired by the show's "50 MILE
+                RADAR" / "STRAVA MAP OF ½ MILE WALK" answer cards. */}
+            <header
+                className="flex items-stretch rounded-xl overflow-hidden border shadow-sm"
+                style={{
+                    borderColor: categoryMeta
+                        ? hexToRgba(categoryMeta.color, 0.35)
+                        : undefined,
+                    backgroundColor: categoryMeta
+                        ? hexToRgba(categoryMeta.color, 0.12)
+                        : undefined,
+                }}
+            >
+                <div className="flex-1 min-w-0 px-4 py-3">
+                    <DialogDescription
+                        className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold mb-1"
+                        style={{
+                            color: categoryMeta
+                                ? hexToRgba(categoryMeta.color, 0.95)
+                                : undefined,
+                        }}
+                    >
+                        {categoryMeta?.label ?? question.id} · answer needed
                     </DialogDescription>
+                    <DialogTitle
+                        className="font-display font-extrabold uppercase leading-[1.05] text-lg sm:text-xl"
+                        style={{
+                            color: categoryMeta?.color,
+                            letterSpacing: "-0.01em",
+                        }}
+                    >
+                        {questionPrompt(question)}
+                    </DialogTitle>
                 </div>
-                <DialogTitle className="font-poppins text-lg font-semibold leading-tight">
-                    {questionPrompt(question)}
-                </DialogTitle>
+                {CategoryIcon && (
+                    <div
+                        className="flex flex-col items-center justify-center gap-1 px-4 py-3 shrink-0 text-white text-center"
+                        style={{ backgroundColor: categoryMeta?.color }}
+                        aria-hidden="true"
+                    >
+                        <CategoryIcon size={24} strokeWidth={2.5} />
+                        {bannerChip(question) && (
+                            <span className="text-[11px] font-poppins font-bold uppercase tracking-wide leading-tight max-w-[5.5rem] break-words">
+                                {bannerChip(question)}
+                            </span>
+                        )}
+                    </div>
+                )}
             </header>
 
             <div className="relative">
@@ -348,13 +378,16 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     );
 }
 
+/** Title-cases a hyphenated subtype slug ("same-street" → "Same Street"). */
+function niceSubtype(raw: unknown): string {
+    return String(raw ?? "")
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /** Human-readable question prompt, varies by type. */
 function questionPrompt(question: Question): string {
     const d = question.data as any;
-    const niceSubtype = (raw: unknown): string =>
-        String(raw ?? "")
-            .replace(/-/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase());
     switch (question.id) {
         case "radius":
             return `Are you within ${question.data.radius} ${unitLabel(
@@ -372,10 +405,64 @@ function questionPrompt(question: Question): string {
                 : `Are you closer or further than the seeker from this feature?`;
         case "tentacles":
             return `What is the closest ${niceSubtype(d.locationType) || "location"} to you?`;
+        case "photo":
+            return d.type
+                ? `Send a photo of ${niceSubtype(d.type)}`
+                : `Send the requested photo`;
         default:
             return "Answer this question";
     }
 }
+
+/** Short unit suffix for the banner chip ("miles" → "mi"). */
+function unitShort(unit: string): string {
+    switch (unit) {
+        case "miles":
+            return "mi";
+        case "meters":
+            return "m";
+        case "kilometers":
+        default:
+            return "km";
+    }
+}
+
+/**
+ * Compact value for the banner's right-hand chip — the show's "50 mi",
+ * "½ mile", etc. Distance for radius/thermometer, the subject for
+ * matching/measuring/tentacles/photo, or null (icon-only chip) when
+ * there's nothing punchy to show.
+ */
+function bannerChip(question: Question): string | null {
+    const d = question.data as any;
+    switch (question.id) {
+        case "radius":
+            return `${d.radius} ${unitShort(d.unit)}`;
+        case "thermometer":
+            return d.targetSig ?? d.distance ?? null;
+        case "measuring":
+        case "matching":
+            return d.type ? niceSubtype(d.type) : null;
+        case "tentacles":
+            return d.locationType ? niceSubtype(d.locationType) : null;
+        case "photo":
+            return d.type ? niceSubtype(d.type) : null;
+        default:
+            return null;
+    }
+}
+
+/** hex (#rrggbb) → rgba() string, for tinted banner backgrounds. */
+function hexToRgba(hex: string, alpha: number): string {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+
 
 function unitLabel(unit: string): string {
     switch (unit) {
