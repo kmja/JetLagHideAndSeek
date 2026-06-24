@@ -23,7 +23,7 @@ import {
 } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
-import { HideSeekMark, HideSeekWordmark, JetLagLogo } from "./JetLagLogo";
+import { HideSeekMark, HideSeekWordmark } from "./JetLagLogo";
 
 /**
  * First-load welcome screen. v267: was a dialog overlaid on the
@@ -161,24 +161,15 @@ export function Welcome() {
             aria-label="Welcome to Hide+Seek"
         >
             <div className="w-full sm:max-w-md flex flex-col p-0 gap-0">
-                {/* Hero — echoes the box-face cover. Jet Lag: The Game
-                    lockup sits above the Hide+Seek mark + wordmark. */}
+                {/* Hero — echoes the box-face cover. Official Jet Lag:
+                    The Game lockup sits above the Hide+Seek mark +
+                    wordmark. */}
                 <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
-                    <div className="flex items-center gap-2 text-white">
-                        <JetLagLogo size={34} />
-                        <div className="flex flex-col items-start leading-none">
-                            <span
-                                className="font-inter-tight italic font-black uppercase tracking-tight text-xl"
-                                style={{ letterSpacing: "-0.02em" }}
-                            >
-                                Jet
-                                <span className="text-jetlag-yellow">Lag</span>
-                            </span>
-                            <span className="mt-1 rounded-[2px] bg-jetlag-yellow px-1.5 py-[1px] text-[8px] font-inter-tight font-black uppercase tracking-[0.18em] text-[hsl(210_30%_14%)]">
-                                The Game
-                            </span>
-                        </div>
-                    </div>
+                    <img
+                        src="/jetlag-logo.svg"
+                        alt="Jet Lag: The Game"
+                        className="h-12 w-auto max-w-[70%]"
+                    />
                     <HideSeekMark size={72} />
                     <HideSeekWordmark boxLayout size="xl" />
                 </div>

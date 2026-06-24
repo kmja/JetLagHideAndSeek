@@ -6354,10 +6354,17 @@ function corsHeaders(request: Request, env: Env): HeadersInit {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+    // v470: an origin that ISN'T in the allowlist now falls back to "*"
+    // — NOT to `allowed[0]`. Echoing a different allowed origin back as
+    // Access-Control-Allow-Origin guarantees a CORS failure for the
+    // actual requester (the browser requires ACAO to match the request
+    // origin or be "*"), so an unlisted-but-legit origin (e.g. a new
+    // deploy domain like hideandseek.game before it's added to
+    // ALLOWED_ORIGINS) got blocked on EVERY response. This is a
+    // read-only cache with no credentials, so "*" is safe; a matched
+    // origin is still echoed verbatim.
     const allow =
-        origin && originMatches(origin, allowed)
-            ? origin
-            : allowed[0] ?? "*";
+        origin && originMatches(origin, allowed) ? origin : "*";
     return {
         "Access-Control-Allow-Origin": allow,
         "Vary": "Origin",
