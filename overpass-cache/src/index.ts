@@ -4081,10 +4081,101 @@ async function bboxFromRelation(
 }
 
 /**
- * Resolve a "City, Country" string to an OSM relation ID via Photon.
- * Picks the first feature with `osm_type === "R"` — that's the
- * relation-shaped result, which is what every play-area boundary
- * fetch needs. Returns null when no relation result is found.
+ * Coarse place-type ranking — MIRROR of src/maps/api/geocode.ts's
+ * PLACE_TYPE_SCORE. Keep in sync. Used so the discovery resolver picks
+ * the SAME relation the client's play-area search would.
+ */
+const DISCOVERY_PLACE_TYPE_SCORE: Record<string, number> = {
+    country: 1200,
+    city: 1000,
+    town: 900,
+    municipality: 850,
+    village: 800,
+    suburb: 600,
+    hamlet: 500,
+    borough: 450,
+    district: 400,
+    neighbourhood: 300,
+    quarter: 300,
+    locality: 200,
+    state: 500,
+    region: 400,
+    province: 300,
+    county: 200,
+    administrative: 100,
+};
+
+function discoveryStripSuffix(s: string): string {
+    return s.replace(
+        /\s+(kommun|län|municipality|county|district|prefecture|province|borough)$/i,
+        "",
+    );
+}
+
+interface PhotonProps {
+    osm_type?: string;
+    osm_id?: number;
+    osm_key?: string;
+    osm_value?: string;
+    type?: string;
+    name?: string;
+    country?: string;
+    extent?: number[];
+}
+
+/**
+ * Score a Photon relation result for play-area relevance — a faithful
+ * port of scorePlayAreaResult() in src/maps/api/geocode.ts. `index` is
+ * the position within the FILTERED+DEDUPED relation list (matches the
+ * client). Area math uses absolute diffs so it's order-independent w.r.t.
+ * the raw [minLng,maxLat,maxLng,minLat] extent.
+ */
+function discoveryScore(p: PhotonProps, index: number, query: string): number {
+    const name = (p.name ?? "").toLowerCase();
+    const q = query.toLowerCase().trim();
+    const photonRankBonus = 80 / Math.sqrt(index + 1);
+    const typeFromValue =
+        DISCOVERY_PLACE_TYPE_SCORE[(p.osm_value ?? "").toLowerCase()] ?? 0;
+    const typeFromType =
+        DISCOVERY_PLACE_TYPE_SCORE[(p.type ?? "").toLowerCase()] ?? 0;
+    const typeBonus = Math.max(typeFromValue, typeFromType);
+
+    let areaBonus = 0;
+    const e = p.extent;
+    if (Array.isArray(e) && e.length >= 4) {
+        const latA = e[1];
+        const latB = e[3];
+        const lngA = e[0];
+        const lngB = e[2];
+        if ([latA, latB, lngA, lngB].every((v) => Number.isFinite(v))) {
+            const midLat = (latA + latB) / 2;
+            const km2 =
+                Math.abs(latA - latB) *
+                111 *
+                Math.abs(lngA - lngB) *
+                111 *
+                Math.cos((midLat * Math.PI) / 180);
+            if (km2 > 0) areaBonus = Math.min(600, Math.log10(km2) * 100);
+        }
+    }
+
+    const strippedName = discoveryStripSuffix(name);
+    const strippedQ = discoveryStripSuffix(q);
+    let exactNameBonus = 0;
+    if (strippedName === strippedQ) exactNameBonus = 500;
+    else if (strippedName.startsWith(strippedQ + " ")) exactNameBonus = 300;
+
+    return photonRankBonus + typeBonus + areaBonus + exactNameBonus;
+}
+
+/**
+ * Resolve a "City, Country" string to the OSM relation ID the CLIENT
+ * would fetch. v: previously picked the FIRST place/boundary relation in
+ * Photon's raw order, but the client RE-RANKS results (place-type + area
+ * + exact-name + famous-country) and fetches the top of THAT order — so
+ * the discovered id drifted from the client's for ~31% of cities (the
+ * drift audit). Now mirrors geocode.ts: same query shape, same
+ * place/boundary filter, same dedupe, same re-rank, return the top.
  */
 async function resolveNameViaPhoton(
     name: string,
@@ -4096,62 +4187,73 @@ async function resolveNameViaPhoton(
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
+        // Match the client's query exactly (lang=en, no limit → Photon
+        // default), so the candidate set — and thus the re-rank — agrees.
         const resp = await ufetch(
-            `${PHOTON_API}?q=${encodeURIComponent(name)}&limit=5`,
+            `${PHOTON_API}?lang=en&q=${encodeURIComponent(name)}`,
             { signal: ctrl.signal },
         );
         if (!resp.ok) return null;
         const data = (await resp.json()) as {
-            features?: Array<{
-                properties?: {
-                    osm_type?: string;
-                    osm_id?: number;
-                    osm_key?: string;
-                    extent?: number[];
-                };
-            }>;
+            features?: Array<{ properties?: PhotonProps }>;
         };
-        for (const f of data.features ?? []) {
+        const features = data.features ?? [];
+
+        // famousCountry = country of Photon's RAW #1 result (pre-filter),
+        // same signal the client uses to pull the famous-city relation up.
+        const famousCountry =
+            features[0]?.properties?.country?.toLowerCase() ?? null;
+
+        // Filter to place/boundary relations, dedupe by osm_id (first wins).
+        const seen = new Set<number>();
+        const cands: PhotonProps[] = [];
+        for (const f of features) {
+            const p = f.properties;
             if (
-                f.properties?.osm_type === "R" &&
-                typeof f.properties.osm_id === "number" &&
-                f.properties.osm_id > 0 &&
-                // Only accept place / boundary relations — a bare
-                // first-R-result picks up route relations, building
-                // complexes, etc. whose `relation(N);out geom;` comes
-                // back with no usable boundary geometry. The overnight
-                // log showed ~23 discovered cities (Aarhus, Adelaide,
-                // Bergen…) stored with such ids, then failing their
-                // boundary fetch as "empty / unparseable" every run.
-                // This mirrors the client-side geocode.ts filter
-                // (osm_key === "place" || "boundary").
-                (f.properties.osm_key === "place" ||
-                    f.properties.osm_key === "boundary")
+                !p ||
+                p.osm_type !== "R" ||
+                typeof p.osm_id !== "number" ||
+                p.osm_id <= 0
             ) {
-                // Photon's raw `extent` is [minLng, maxLat, maxLng, minLat]
-                // (lng-major, NW corner first). The client side normalises
-                // this on receipt to lat-major [maxLat, minLng, minLat, maxLng]
-                // in src/maps/api/geocode.ts; we mirror that normalisation
-                // here so a CityEntry's `extent` is bit-identical to what
-                // the client carries on `mapGeoLocation.properties.extent`.
-                let extent:
-                    | [number, number, number, number]
-                    | undefined;
-                const raw = f.properties.extent;
-                if (Array.isArray(raw) && raw.length === 4) {
-                    const [minLng, maxLat, maxLng, minLat] = raw;
-                    if (
-                        [minLng, maxLat, maxLng, minLat].every((v) =>
-                            Number.isFinite(v),
-                        )
-                    ) {
-                        extent = [maxLat, minLng, minLat, maxLng];
-                    }
-                }
-                return { relationId: f.properties.osm_id, extent };
+                continue;
+            }
+            if (p.osm_key !== "place" && p.osm_key !== "boundary") continue;
+            if (seen.has(p.osm_id)) continue;
+            seen.add(p.osm_id);
+            cands.push(p);
+        }
+        if (cands.length === 0) return null;
+
+        const bareQuery = name.split(",")[0].trim();
+        let bestIdx = -1;
+        let bestScore = -Infinity;
+        for (let i = 0; i < cands.length; i++) {
+            const p = cands[i];
+            const country = (p.country ?? "").toLowerCase();
+            const famousBonus =
+                famousCountry && country === famousCountry ? 700 : 0;
+            const score = discoveryScore(p, i, bareQuery) + famousBonus;
+            if (score > bestScore) {
+                bestScore = score;
+                bestIdx = i;
             }
         }
-        return null;
+        if (bestIdx < 0) return null;
+        const best = cands[bestIdx];
+        if (typeof best.osm_id !== "number") return null;
+
+        // Photon's raw `extent` is [minLng, maxLat, maxLng, minLat]; the
+        // client normalises to [maxLat, minLng, minLat, maxLng] — mirror
+        // that so a CityEntry's extent matches mapGeoLocation's.
+        let extent: [number, number, number, number] | undefined;
+        const raw = best.extent;
+        if (Array.isArray(raw) && raw.length === 4) {
+            const [minLng, maxLat, maxLng, minLat] = raw;
+            if ([minLng, maxLat, maxLng, minLat].every((v) => Number.isFinite(v))) {
+                extent = [maxLat, minLng, minLat, maxLng];
+            }
+        }
+        return { relationId: best.osm_id, extent };
     } catch {
         return null;
     } finally {

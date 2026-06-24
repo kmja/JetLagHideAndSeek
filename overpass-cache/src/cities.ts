@@ -57,16 +57,16 @@ const HAND_CURATED: CityEntry[] = [
     { name: "San Francisco", relationId: 111968 },
     { name: "Toronto", relationId: 324211 },
     { name: "Vancouver", relationId: 1852574 },
-    { name: "Montreal", relationId: 8508732 },
-    { name: "Mexico City", relationId: 1376330 },
+    { name: "Montreal", relationId: 1634158 },
+    { name: "Mexico City", relationId: 17483459 },
 
     // Europe — Nordic
     { name: "Stockholm", relationId: 398021 },
     { name: "Copenhagen", relationId: 2192363 },
     { name: "Oslo", relationId: 406091 },
     { name: "Helsinki", relationId: 34914 },
-    { name: "Gothenburg", relationId: 935611 },
-    { name: "Malmö", relationId: 935619 },
+    { name: "Gothenburg", relationId: 169270 },
+    { name: "Malmö", relationId: 935416 },
 
     // Europe — UK + Ireland
     // v: 175342 (Greater London, admin_level 5) is what Photon's
@@ -76,7 +76,7 @@ const HAND_CURATED: CityEntry[] = [
     // curated-id / Photon-id drift that left London cold. Prewarm must
     // track the client's resolution, not a hand-picked id.
     { name: "London", relationId: 175342 },
-    { name: "Manchester", relationId: 88084 },
+    { name: "Manchester", relationId: 146656 },
     { name: "Edinburgh", relationId: 1920901 },
     { name: "Dublin", relationId: 1109531 },
 
@@ -87,10 +87,10 @@ const HAND_CURATED: CityEntry[] = [
     { name: "Frankfurt", relationId: 62400 },
     { name: "Vienna", relationId: 109166 },
     { name: "Zurich", relationId: 1682248 },
-    { name: "Amsterdam", relationId: 47811 },
-    { name: "Brussels", relationId: 54094 },
-    { name: "Paris", relationId: 7444 },
-    { name: "Lyon", relationId: 120965 },
+    { name: "Amsterdam", relationId: 271110 },
+    { name: "Brussels", relationId: 58274 },
+    { name: "Paris", relationId: 71525 },
+    { name: "Lyon", relationId: 1663048 },
 
     // Europe — South + East
     { name: "Madrid", relationId: 5326784 },
@@ -100,31 +100,31 @@ const HAND_CURATED: CityEntry[] = [
     { name: "Lisbon", relationId: 5400890 },
     { name: "Warsaw", relationId: 336075 },
     { name: "Prague", relationId: 435514 },
-    { name: "Budapest", relationId: 37244 },
-    { name: "Athens", relationId: 8261138 },
+    { name: "Budapest", relationId: 1244004 },
+    { name: "Athens", relationId: 119353 },
 
     // Asia
     { name: "Tokyo", relationId: 1543125 },
     { name: "Osaka", relationId: 357794 },
     { name: "Seoul", relationId: 2297418 },
-    { name: "Hong Kong", relationId: 913110 },
+    { name: "Hong Kong", relationId: 20044132 },
     { name: "Singapore", relationId: 536780 },
     { name: "Bangkok", relationId: 92277 },
     { name: "Taipei", relationId: 1293250 },
 
     // Middle East
     { name: "Istanbul", relationId: 223474 },
-    { name: "Dubai", relationId: 4479752 },
+    { name: "Dubai", relationId: 3766483 },
 
     // Oceania
     { name: "Sydney", relationId: 5750005 },
-    { name: "Melbourne", relationId: 4246124 },
-    { name: "Auckland", relationId: 9220551 },
+    { name: "Melbourne", relationId: 2383266 },
+    { name: "Auckland", relationId: 2094141 },
 
     // South America
     { name: "São Paulo", relationId: 298285 },
     { name: "Buenos Aires", relationId: 1224652 },
-    { name: "Santiago", relationId: 3287969 },
+    { name: "Santiago", relationId: 242308 },
 ];
 
 /**
