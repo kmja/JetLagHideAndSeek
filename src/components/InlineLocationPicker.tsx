@@ -1,7 +1,15 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
-import { booleanPointInPolygon, circle as turfCircle } from "@turf/turf";
+import {
+    bbox as turfBbox,
+    booleanIntersects,
+    booleanPointInPolygon,
+    circle as turfCircle,
+    featureCollection,
+    point as turfPoint,
+    voronoi,
+} from "@turf/turf";
 import type maplibregl from "maplibre-gl";
 import { Circle as CircleIcon, LocateOff } from "lucide-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -139,15 +147,25 @@ export function InlineLocationPicker({
     }, [impactType]);
     const candidatePoints = impact?.candidates ?? null;
 
-    // Optimization: only PLOT reference dots that fall inside the
-    // remaining possible hiding area ($maskData = play area minus every
-    // already-eliminated region). As questions narrow the map this drops
-    // the marker count — and the matching DOM-node count — sharply, and
-    // focuses the seeker on the references that can still matter. The
+    // Which reference dots to PLOT. The baseline is "references whose
+    // point falls inside the remaining possible hiding area" ($maskData =
+    // play area minus every already-eliminated region) — as questions
+    // narrow the map this drops the marker (and DOM-node) count sharply
+    // and focuses the seeker on references that can still matter. The
     // impact MATH in useQuestionImpact deliberately keeps the FULL
-    // play-area candidate set (the seeker's nearest reference, voronoi
-    // cell and measuring buffer all depend on neighbours that may sit in
-    // already-eliminated land), so this filter is display-only.
+    // play-area candidate set (nearest reference, voronoi cell and
+    // measuring buffer all depend on neighbours that may sit in
+    // already-eliminated land), so this is display-only.
+    //
+    // v475: matching also surfaces references whose VORONOI CELL overlaps
+    // the remaining area even when the reference point itself sits just
+    // outside it. Those are exactly the references that flip the =/≠
+    // shading near the area's edge (the "park just outside the right edge
+    // owns part of the remaining area" case) — leaving them unmarked made
+    // the shading look like it changed for no visible reason. We build the
+    // Voronoi over the full candidate set and keep any cell that
+    // intersects the remaining-area polygons.
+    //
     // Graceful-degrades to the full set while the remaining-area polygon
     // is still resolving, or if it can't be reduced to polygons.
     const visibleCandidates = useMemo(() => {
@@ -165,17 +183,80 @@ export function InlineLocationPicker({
         };
         collect($maskData as GeoJSON.GeoJSON);
         if (polys.length === 0) return candidatePoints;
-        return candidatePoints.filter((c) => {
+
+        const keep = new Set<number>();
+        candidatePoints.forEach((c, i) => {
             const pt: [number, number] = [c.lng, c.lat];
-            return polys.some((p) => {
-                try {
-                    return booleanPointInPolygon(pt, p as never);
-                } catch {
-                    return false;
-                }
-            });
+            if (
+                polys.some((p) => {
+                    try {
+                        return booleanPointInPolygon(pt, p as never);
+                    } catch {
+                        return false;
+                    }
+                })
+            ) {
+                keep.add(i);
+            }
         });
-    }, [candidatePoints, $maskData]);
+
+        // Voronoi-influence pass (matching only). A cell that intersects
+        // the remaining area but whose site is OUTSIDE it means that
+        // outside reference is the nearest one for part of the area — mark
+        // it. Matched by point-in-cell rather than array index so it's
+        // robust to turf's cell ordering.
+        if (impactMode === "matching" && candidatePoints.length >= 2) {
+            try {
+                const fc = featureCollection(
+                    candidatePoints.map((c) => turfPoint([c.lng, c.lat])),
+                );
+                const bb = turfBbox(fc);
+                const padX = (bb[2] - bb[0]) * 0.5 + 0.02;
+                const padY = (bb[3] - bb[1]) * 0.5 + 0.02;
+                const cells =
+                    voronoi(fc, {
+                        bbox: [
+                            bb[0] - padX,
+                            bb[1] - padY,
+                            bb[2] + padX,
+                            bb[3] + padY,
+                        ],
+                    })?.features ?? [];
+                for (const cell of cells) {
+                    if (!cell?.geometry) continue;
+                    const hits = polys.some((p) => {
+                        try {
+                            return booleanIntersects(cell, p as never);
+                        } catch {
+                            return false;
+                        }
+                    });
+                    if (!hits) continue;
+                    for (let i = 0; i < candidatePoints.length; i++) {
+                        if (keep.has(i)) continue;
+                        const c = candidatePoints[i];
+                        try {
+                            if (
+                                booleanPointInPolygon(
+                                    [c.lng, c.lat],
+                                    cell as never,
+                                )
+                            ) {
+                                keep.add(i);
+                                break;
+                            }
+                        } catch {
+                            /* skip */
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("[impact] voronoi visibility pass failed:", e);
+            }
+        }
+
+        return candidatePoints.filter((_, i) => keep.has(i));
+    }, [candidatePoints, $maskData, impactMode]);
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",
