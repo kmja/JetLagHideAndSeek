@@ -24,10 +24,13 @@ import { pmtilesUrl } from "@/lib/protomapsStyle";
  *
  * The fix is to do that fetch up front: walk every tile inside the
  * play-area bbox at z11..z14 (and z15 for smaller areas) and issue the
- * same range request the live map would later. The worker serves tiles
- * `Cache-Control: immutable, max-age=1y`, so once a range lands in the
- * browser HTTP cache, every subsequent zoom paints from disk with zero
- * network round-trips.
+ * same range request the live map would later. The service worker's
+ * PMTiles range cache (see `sw.ts`) persists each `bytes=…` response
+ * under a synthetic key, so once a range is walked it's stored durably
+ * and every subsequent zoom paints from Cache Storage with zero network
+ * round-trips. (We used to lean on the browser's native HTTP cache for
+ * this, but it persists 206 partial responses unreliably — mobile Chrome
+ * especially — so "preloaded" tiles kept getting re-fetched.)
  *
  * Wire-byte honesty: we wrap pmtiles' FetchSource in a counting shim
  * so the bandwidth meter (and the "Downloaded — XX MB" label on the

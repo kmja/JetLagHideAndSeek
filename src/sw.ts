@@ -41,6 +41,100 @@ registerRoute(new NavigationRoute(createHandlerBoundToURL("/index.html")));
 
 /* ────────────────── Runtime caching ────────────────── */
 
+/* PMTiles basemap range cache (v493).
+ *
+ * The vector basemap is one large PMTiles file on R2, read via HTTP
+ * byte-range requests (the `pmtiles://` protocol + the map-preload tile
+ * walk both issue them). The old design leaned on the browser's NATIVE
+ * HTTP cache to persist those `206 Partial Content` responses — but
+ * browsers (mobile Chrome especially) cache partial responses into a
+ * huge resource unreliably, so "preloaded" ranges kept getting
+ * re-fetched and every pan/zoom paid seconds of network latency.
+ *
+ * Here we persist each range EXPLICITLY in a dedicated Cache Storage
+ * bucket. The Cache API can't store a 206, so we stash the body as a
+ * 200 with the original `Content-Range` in a side header and rebuild the
+ * 206 on a hit. The synthetic key is `URL + ?__range=<header>`, which is
+ * deterministic per tile (the PMTiles directory maps each tile to a
+ * fixed byte range), so the live map and the preload walk share entries.
+ *
+ * Only single byte-range GETs are handled; whole-file GETs (the city
+ * tile pack) and HEAD probes pass straight through to the network (the
+ * browser caches the immutable whole-file response well on its own).
+ * Any network failure rethrows so the catch handler emits its 503 —
+ * we never synthesize a body for a failed fetch. */
+const PMTILES_RANGE_CACHE = "tiles-pmtiles-ranges";
+/* ~a handful of cities' worth of z11-15 tiles + directories. FIFO-trimmed
+ * so the bucket can't grow without bound and trip the quota. */
+const PMTILES_RANGE_MAX_ENTRIES = 8000;
+let pmtilesPutsSinceTrim = 0;
+
+async function trimPmtilesRangeCache(): Promise<void> {
+    // Amortise: only sweep occasionally, not on every tile write.
+    if (++pmtilesPutsSinceTrim < 250) return;
+    pmtilesPutsSinceTrim = 0;
+    const cache = await caches.open(PMTILES_RANGE_CACHE);
+    const keys = await cache.keys();
+    const over = keys.length - PMTILES_RANGE_MAX_ENTRIES;
+    if (over <= 0) return;
+    // cache.keys() preserves insertion order → delete the oldest first.
+    for (let i = 0; i < over; i++) await cache.delete(keys[i]);
+}
+
+registerRoute(
+    ({ url, request }: { url: URL; request: Request }) =>
+        request.method === "GET" && /\/tiles\/.+\.pmtiles$/i.test(url.pathname),
+    async ({ request, event }: { request: Request; event: ExtendableEvent }) => {
+        const range = request.headers.get("range");
+        // Whole-file GET (tile pack) → let the browser's HTTP cache handle
+        // the complete immutable response; nothing range-specific to do.
+        if (!range) return fetch(request);
+
+        const cache = await caches.open(PMTILES_RANGE_CACHE);
+        const keyUrl = new URL(request.url);
+        keyUrl.searchParams.set("__range", range);
+        const cacheKey = keyUrl.toString();
+
+        const hit = await cache.match(cacheKey);
+        if (hit) {
+            const buf = await hit.arrayBuffer();
+            const headers = new Headers({
+                "Content-Type": "application/octet-stream",
+                "Accept-Ranges": "bytes",
+                "Content-Length": String(buf.byteLength),
+            });
+            const cr = hit.headers.get("X-Orig-Content-Range");
+            if (cr) headers.set("Content-Range", cr);
+            return new Response(buf, { status: cr ? 206 : 200, headers });
+        }
+
+        // Miss → network (forwards the Range header). A throw here
+        // propagates to the catch handler, which returns a clean 503.
+        const resp = await fetch(request);
+        if (resp.status !== 206 && resp.status !== 200) return resp;
+
+        const buf = await resp.arrayBuffer();
+        const cr = resp.headers.get("Content-Range");
+        const storeHeaders = new Headers({
+            "Content-Type": "application/octet-stream",
+        });
+        if (cr) storeHeaders.set("X-Orig-Content-Range", cr);
+        event.waitUntil(
+            cache
+                .put(cacheKey, new Response(buf, { status: 200, headers: storeHeaders }))
+                .then(() => trimPmtilesRangeCache())
+                .catch(() => {}),
+        );
+        const headers = new Headers({
+            "Content-Type": "application/octet-stream",
+            "Accept-Ranges": "bytes",
+            "Content-Length": String(buf.byteLength),
+        });
+        if (cr) headers.set("Content-Range", cr);
+        return new Response(buf, { status: resp.status, headers });
+    },
+);
+
 registerRoute(
     ({ url }: { url: URL }) =>
         /^https:\/\/[a-d]\.basemaps\.cartocdn\.com\/.*\.png/i.test(url.href),
