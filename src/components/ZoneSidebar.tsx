@@ -292,7 +292,22 @@ export const ZoneSidebar = () => {
                     return circle;
                 })
                 .filter((circle) => {
-                    return !turf.booleanWithin(circle, unionized);
+                    // Keep a station if its hiding zone still overlaps the
+                    // remaining valid area (interior OR boundary-straddling).
+                    // `unionized` is the play area MINUS every eliminated
+                    // region (questionFinishedMapData), so a station is a
+                    // live candidate iff its circle intersects it.
+                    //
+                    // The old test `!booleanWithin(circle, unionized)` was
+                    // inverted: booleanWithin is true only when the circle
+                    // sits ENTIRELY inside the area, so negating it DROPPED
+                    // every fully-interior zone and kept only the ones poking
+                    // out past the boundary. Early-game (whole area still
+                    // valid) that painted a ring of stations around the edge
+                    // with an empty middle. Guard against a failed union so a
+                    // null polygon never silently drops every candidate.
+                    if (!unionized) return true;
+                    return turf.booleanIntersects(circle, unionized);
                 });
 
             for (const question of questions.get()) {
