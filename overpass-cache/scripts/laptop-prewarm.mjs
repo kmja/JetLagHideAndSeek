@@ -13,6 +13,7 @@
  *     --worker https://jlhs-overpass-cache.<sub>.workers.dev \
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
+ *     [--only-city <relationId|name>] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
  *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
@@ -120,6 +121,13 @@ if (!args.worker || !args.secret) {
 const WORKER = args.worker.replace(/\/+$/, "");
 const SECRET = args.secret;
 const MAX_CITIES = args.max ? parseInt(args.max, 10) : Infinity;
+// v473: build/warm a SINGLE city on demand instead of the whole list.
+// Accepts an OSM relation id (numeric) or a case-insensitive name
+// substring. When a numeric id matches no bundled city, we synthesise a
+// bare {relationId,name} — processCity fetches its boundary to derive
+// the extent, so a one-off tile-pack build needs nothing else. Combine
+// with --tile-packs + the --skip-* flags to build just one city's pack.
+const ONLY_CITY = args["only-city"] ? String(args["only-city"]) : null;
 const DELAY_MS = args["delay-ms"] ? parseInt(args["delay-ms"], 10) : 2000;
 const DO_BOUNDARIES = !args["skip-boundaries"];
 const DO_REFS = !args["skip-references"];
@@ -1981,7 +1989,7 @@ async function main() {
         }
     }
 
-    if (DO_DISCOVER) {
+    if (DO_DISCOVER && !ONLY_CITY) {
         try {
             await drainDiscovery();
         } catch (e) {
@@ -1992,7 +2000,35 @@ async function main() {
     const cities = await listCities();
     console.log(`fetched ${cities.length} cities; processing up to ${MAX_CITIES}`);
 
-    const todo = cities.slice(0, MAX_CITIES);
+    let todo = cities.slice(0, MAX_CITIES);
+    if (ONLY_CITY) {
+        const isId = /^\d+$/.test(ONLY_CITY);
+        const needle = ONLY_CITY.toLowerCase();
+        let matches = cities.filter((c) =>
+            isId
+                ? String(c.relationId) === ONLY_CITY
+                : (c.name ?? "").toLowerCase().includes(needle),
+        );
+        // Numeric id not in the bundled list: synthesise it. processCity
+        // derives the extent from the boundary query, so this is enough
+        // to build a tile pack for any OSM relation.
+        if (matches.length === 0 && isId) {
+            matches = [{ relationId: Number(ONLY_CITY), name: `r${ONLY_CITY}` }];
+        }
+        if (matches.length === 0) {
+            console.error(
+                `--only-city "${ONLY_CITY}" matched no city (by name). ` +
+                    `Pass the OSM relation id instead to build it directly.`,
+            );
+            process.exit(1);
+        }
+        todo = matches;
+        console.log(
+            `--only-city "${ONLY_CITY}" → ${todo.length} match(es): ${todo
+                .map((c) => `${c.name} (r${c.relationId})`)
+                .join(", ")}`,
+        );
+    }
     for (let i = 0; i < todo.length; i++) {
         try {
             await processCity(todo[i]);
@@ -2008,7 +2044,7 @@ async function main() {
     // the main loop so the top cities' boundaries are already cached for
     // the centroid/admin_level lookups in findNeighbors, then processes
     // each neighbour as a full play area.
-    if (DO_ONE_RING) {
+    if (DO_ONE_RING && !ONLY_CITY) {
         try {
             await processOneRing(cities);
         } catch (e) {
@@ -2019,7 +2055,7 @@ async function main() {
     // HSR runs once after the city loop — it's keyed by country, not
     // city, so iterating it per-city would just re-fetch the same ~25
     // national networks hundreds of times.
-    if (DO_HSR) {
+    if (DO_HSR && !ONLY_CITY) {
         try {
             await processHsrCountries();
         } catch (e) {
