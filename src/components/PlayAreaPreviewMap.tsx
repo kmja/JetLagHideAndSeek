@@ -237,6 +237,11 @@ export function PlayAreaPreviewMap({
     // a cross-line municipality) would have their boundary parked
     // off-screen until the user manually zoomed out.
     const $adjacent = useStore(adjacentCandidatePreview);
+    // v483: true once every adjacent candidate's boundary polygon has
+    // settled (reported by AdjacentCandidatesOverlay). Folds into the
+    // reveal gate so the preview waits for the neighbour boundaries to
+    // paint before dropping the veil — one load, not list-then-polygons.
+    const [candPolysReady, setCandPolysReady] = useState(false);
 
     // v473: the camera moves in at most two beats, never the jarring
     // three-stage frame→tighten→zoom-out the user reported:
@@ -391,20 +396,26 @@ export function PlayAreaPreviewMap({
     // polygon; Way/Node results never do, so they only wait on tiles.
     const boundaryExpected = osmType === "R";
     // v474: when `awaitAdjacent`, also wait for the adjacency lookup to
-    // RESOLVE (status "ready"; a null atom = controller not mounted/not
-    // published yet = still waiting). This keeps the veil up through the
-    // candidate-widen so the map reveals once, already framed on the
-    // primary + every neighbour — no post-reveal zoom-out.
-    const adjacentReady = !awaitAdjacent || $adjacent?.status === "ready";
+    // RESOLVE (status "ready").
+    // v483: AND wait for every candidate's BOUNDARY POLYGON to land —
+    // `candPolysReady`, reported by AdjacentCandidatesOverlay once all its
+    // per-candidate boundary fetches have settled. Without this the veil
+    // dropped after the candidate LIST resolved, then the precise
+    // boundaries streamed in afterwards (bbox rectangle → real polygon
+    // swap) — the visible "second load" of the adjacent areas. Now the
+    // map reveals once, with the primary + every neighbour boundary
+    // already painted. (candPolysReady is only set true once the list is
+    // "ready", so it subsumes the status check.)
+    const adjacentReady = !awaitAdjacent || candPolysReady;
     const dataReady =
         (!boundaryExpected || polygon !== null) && adjacentReady;
-    // Re-arm the idle latch whenever the data that drives the camera
-    // changes (boundary lands, candidates resolve), so the reveal waits
-    // for the tiles of the FINAL framed viewport — not a settle on an
-    // intermediate frame from before the widen.
+    // Re-arm the idle latch whenever the data that drives the camera /
+    // overlay changes (boundary lands, candidates resolve, candidate
+    // polygons paint), so the reveal waits for the tiles + final paint of
+    // the FULLY-built viewport — not an intermediate frame.
     const resetKey = `${osmId ?? "-"}:${polygon ? "p" : "-"}:${
         $adjacent?.status ?? "none"
-    }:${$adjacent?.candidates.length ?? 0}`;
+    }:${$adjacent?.candidates.length ?? 0}:${candPolysReady ? "cp" : "-"}`;
     const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
         dataReady,
         resetKey,
@@ -493,7 +504,10 @@ export function PlayAreaPreviewMap({
                     </Source>
                 )}
                 <CommittedAreasOverlay />
-                <AdjacentCandidatesOverlay mapRef={mapRef} />
+                <AdjacentCandidatesOverlay
+                    mapRef={mapRef}
+                    onPolysReady={setCandPolysReady}
+                />
             </MapGL>
             <MapTilesVeil
                 visible={showVeil}
@@ -701,8 +715,15 @@ const LABEL_MIN_GAP_PX = 110;
 
 function AdjacentCandidatesOverlay({
     mapRef,
+    onPolysReady,
 }: {
     mapRef: React.RefObject<MapRef | null>;
+    /** v483: reports the preview's reveal gate whether every candidate
+     *  boundary polygon has settled (fetched or failed → bbox fallback),
+     *  so the veil only drops once neighbours are painted. `false` while
+     *  the list is still loading; `true` when ready (incl. zero
+     *  candidates). */
+    onPolysReady?: (ready: boolean) => void;
 }) {
     const preview = useStore(adjacentCandidatePreview);
     const $additional = useStore(additionalMapGeoLocations);
@@ -721,7 +742,19 @@ function AdjacentCandidatesOverlay({
     const candidates = preview?.candidates;
 
     useEffect(() => {
-        if (!candidates || candidates.length === 0) return;
+        // v483: also drive the preview's reveal gate. Not ready until the
+        // candidate LIST has resolved; ready immediately when there are
+        // none; otherwise ready once every candidate's boundary fetch
+        // settles (success OR failure → bbox fallback), so a single dead
+        // candidate can't strand the veil.
+        if (!preview || preview.status !== "ready") {
+            onPolysReady?.(false);
+            return;
+        }
+        if (!candidates || candidates.length === 0) {
+            onPolysReady?.(true);
+            return;
+        }
         let cancelled = false;
         const ctrl = new AbortController();
         // Apply any cache hits synchronously so they paint immediately.
@@ -736,8 +769,18 @@ function AdjacentCandidatesOverlay({
             }
             return next;
         });
+        let settled = 0;
+        const markSettled = () => {
+            settled++;
+            if (!cancelled && settled >= candidates.length) {
+                onPolysReady?.(true);
+            }
+        };
         for (const c of candidates) {
-            if (candidatePolygonCache.has(c.osmId)) continue;
+            if (candidatePolygonCache.has(c.osmId)) {
+                markSettled();
+                continue;
+            }
             fetchRawBoundaryPolygon(c.osmId, ctrl.signal)
                 .then((geom) => {
                     if (cancelled) return;
@@ -747,13 +790,15 @@ function AdjacentCandidatesOverlay({
                 })
                 .catch(() => {
                     /* swallowed — bbox fallback stays */
-                });
+                })
+                .finally(markSettled);
         }
         return () => {
             cancelled = true;
             ctrl.abort();
         };
-    }, [candidates]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [preview, onPolysReady]);
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!map || !candidates || candidates.length === 0) {
