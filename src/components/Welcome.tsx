@@ -173,12 +173,12 @@ export function Welcome() {
                     <img
                         src="/jetlag-logo.svg"
                         alt="Jet Lag: The Game"
-                        /* The plane badge sits ~1.4% left of the SVG's
+                        /* The plane badge sits left of the SVG's
                            geometric centre because the "THE GAME" tag adds
-                           width on the right. Nudge right so the plane —
-                           not the bounding box — is centred over the
-                           Hide+Seek mark below it. */
-                        className="h-12 w-auto max-w-[70%] translate-x-[1.4%]"
+                           width on the right. Nudge right (3% — tuned by
+                           eye) so the plane — not the bounding box — is
+                           centred over the Hide+Seek mark below it. */
+                        className="h-12 w-auto max-w-[70%] translate-x-[3%]"
                     />
                     <HideSeekMark size={72} />
                     <HideSeekWordmark boxLayout size="xl" />
