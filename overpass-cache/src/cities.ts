@@ -246,6 +246,23 @@ export async function appendDiscoveredCities(
  * HAND_CURATED / BULK_CITIES entries are never evicted (they're not
  * in this doc).
  */
+/**
+ * Overwrite the whole discovered-cities R2 doc. Used by the
+ * `/admin/rediscover` re-resolve pass, which rewrites existing entries'
+ * relation ids in place after the resolver's re-rank fix. Keeps the
+ * module cache in sync so the next read sees the update.
+ */
+export async function setDiscoveredCities(
+    env: Env,
+    list: CityEntry[],
+): Promise<void> {
+    await env.CACHE.put(DISCOVERED_R2_KEY, JSON.stringify(list), {
+        httpMetadata: { contentType: "application/json" },
+    });
+    _discoveredCache = list;
+    _discoveredCacheLoadedFor = env.CACHE;
+}
+
 export async function removeDiscoveredByRelationId(
     env: Env,
     relationId: number,

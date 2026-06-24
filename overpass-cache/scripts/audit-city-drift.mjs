@@ -64,11 +64,22 @@ const LANG = args.lang || "en";
 const DELAY_MS = Number(args["delay-ms"] ?? 1100);
 const LIMIT = args.limit ? Number(args.limit) : Infinity;
 const AS_JSON = Boolean(args.json);
+// --explain "Paris,Amsterdam" : diagnose WHY those names resolve the way
+// they do (full candidate list + score breakdown). Doesn't need the
+// worker/secret — it only hits Photon.
+const EXPLAIN =
+    typeof args.explain === "string"
+        ? args.explain
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+        : null;
 
-if (!WORKER || !SECRET) {
+if (!EXPLAIN && (!WORKER || !SECRET)) {
     console.error(
         "Missing --worker and/or --secret.\n" +
-            "Usage: node scripts/audit-city-drift.mjs --worker <url> --secret <ADMIN_SECRET>",
+            "Usage: node scripts/audit-city-drift.mjs --worker <url> --secret <ADMIN_SECRET>\n" +
+            'Or diagnose specific cities: --explain "Paris,Amsterdam"',
     );
     process.exit(2);
 }
@@ -229,7 +240,74 @@ function queryFromName(name) {
     return (comma === -1 ? name : name.slice(0, comma)).trim();
 }
 
+/**
+ * Diagnostic: print the full candidate list + score breakdown for a
+ * query, so we can see WHY the winner won (e.g. a larger same-named
+ * relation beating the canonical city on area). Mirrors resolveLikeClient
+ * but exposes every candidate and its score components.
+ */
+async function explainQuery(rawName) {
+    const query = queryFromName(rawName);
+    const url = `${PHOTON}?lang=${encodeURIComponent(LANG)}&q=${encodeURIComponent(query)}`;
+    console.log(`\n=== "${rawName}"  (query="${query}") ===`);
+    let res;
+    try {
+        res = await fetch(url, { headers: { Accept: "application/json" } });
+    } catch (e) {
+        console.log(`  fetch failed: ${e.message ?? e}`);
+        return;
+    }
+    if (!res.ok) {
+        console.log(`  photon ${res.status}`);
+        return;
+    }
+    const features = (await res.json()).features ?? [];
+    const famousCountry = features[0]?.properties?.country ?? null;
+    console.log(
+        `  raw #1 country (famous-bonus anchor): ${famousCountry ?? "(none)"}`,
+    );
+    const seen = new Set();
+    const cands = [];
+    for (const f of features) {
+        const p = f.properties ?? {};
+        if (p.osm_type !== "R") continue;
+        const key = (p.osm_key ?? "").toLowerCase();
+        if (key !== "place" && key !== "boundary") continue;
+        if (seen.has(p.osm_id)) continue;
+        seen.add(p.osm_id);
+        cands.push(p);
+    }
+    if (cands.length === 0) {
+        console.log("  no place/boundary relations");
+        return;
+    }
+    const rows = cands.map((p, i) => {
+        const base = scorePlayAreaResult(p, i, query);
+        const country = (p.country ?? "").toLowerCase();
+        const famous =
+            famousCountry && country === famousCountry.toLowerCase() ? 700 : 0;
+        return { p, i, base, famous, score: base + famous };
+    });
+    rows.sort((a, b) => b.score - a.score || a.i - b.i);
+    for (const r of rows) {
+        const p = r.p;
+        console.log(
+            `  ${String(Math.round(r.score)).padStart(5)}  id=${String(p.osm_id).padEnd(9)} ` +
+                `${(p.name ?? "?").padEnd(22)} key=${p.osm_key}/${p.osm_value ?? "-"} type=${p.type ?? "-"} ` +
+                `country=${p.country ?? "-"} famous=${r.famous}`,
+        );
+    }
+    console.log(`  -> winner: ${rows[0].p.osm_id} (${rows[0].p.name})`);
+}
+
 async function main() {
+    if (EXPLAIN) {
+        for (let i = 0; i < EXPLAIN.length; i++) {
+            await explainQuery(EXPLAIN[i]);
+            if (i < EXPLAIN.length - 1) await sleep(DELAY_MS);
+        }
+        return;
+    }
     const listUrl = `${WORKER}/admin/list-cities?secret=${encodeURIComponent(SECRET)}`;
     let cities;
     try {

@@ -32,11 +32,13 @@ import {
     appendDiscoveredCities,
     type CityEntry,
     getPopularCities,
+    loadDiscoveredCities,
     missingExtentRelations,
     parkNames,
     recordFailedResolves,
     removeDiscoveredByRelationId,
     repairBogusDiscoveredEntries,
+    setDiscoveredCities,
     unresolvedCandidates,
     upsertDiscoveredCity,
 } from "./cities";
@@ -810,6 +812,9 @@ async function handleRequest(
         }
         if (url.pathname === "/admin/prewarmed-cities") {
             return handleAdminPrewarmedCities(request, env, cors);
+        }
+        if (url.pathname === "/admin/rediscover") {
+            return handleAdminRediscover(request, env, cors);
         }
         if (url.pathname === "/admin/store-prewarmed") {
             return handleAdminStorePrewarmed(request, env, cors);
@@ -5705,6 +5710,107 @@ async function handleAdminPrewarmedCities(
         };
         return jsonResponse(
             { count: cities.length, scanned, truncated, cities },
+            200,
+            cors,
+        );
+    } catch (e) {
+        return jsonResponse(
+            { error: e instanceof Error ? e.message : String(e) },
+            500,
+            cors,
+        );
+    }
+}
+
+/**
+ * `GET /admin/rediscover?secret=<…>&offset=<N>&limit=<M>` — re-resolve a
+ * batch of EXISTING discovered cities through the re-rank-fixed
+ * resolveNameViaPhoton and rewrite any whose relation id drifted. The old
+ * resolver picked Photon's raw first place/boundary relation; discovered
+ * entries stored under that logic point at relations the client never
+ * fetches (~750 per the drift audit). This walks the discovered doc in
+ * batches — Photon is ~1 req/s, so a batch of 20 ≈ 20 s, under the
+ * worker's wall-clock budget — and corrects them in place. Loop with the
+ * returned `nextOffset` until `done` is true.
+ */
+async function handleAdminRediscover(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    try {
+        const url = new URL(request.url);
+        const offset = Math.max(
+            0,
+            parseInt(url.searchParams.get("offset") ?? "0", 10) || 0,
+        );
+        const limit = Math.min(
+            25,
+            Math.max(
+                1,
+                parseInt(url.searchParams.get("limit") ?? "20", 10) || 20,
+            ),
+        );
+        const discovered = await loadDiscoveredCities(env);
+        const total = discovered.length;
+        const updated = discovered.slice();
+        const end = Math.min(offset + limit, total);
+        let changed = 0;
+        let unchanged = 0;
+        let failed = 0;
+        let dirty = false;
+        const changes: Array<{ name: string; from: number; to: number }> = [];
+        for (let i = offset; i < end; i++) {
+            const entry = discovered[i];
+            const r = await resolveNameViaPhoton(entry.name);
+            if (!r) {
+                failed++;
+            } else if (r.relationId !== entry.relationId) {
+                updated[i] = {
+                    name: entry.name,
+                    relationId: r.relationId,
+                    extent: r.extent ?? entry.extent,
+                };
+                changed++;
+                dirty = true;
+                if (changes.length < 100) {
+                    changes.push({
+                        name: entry.name,
+                        from: entry.relationId,
+                        to: r.relationId,
+                    });
+                }
+            } else {
+                unchanged++;
+                if (r.extent && !entry.extent) {
+                    updated[i] = { ...entry, extent: r.extent };
+                    dirty = true;
+                }
+            }
+            // Photon courtesy delay; skip after the last item in the batch.
+            if (i < end - 1) {
+                await new Promise((res) => setTimeout(res, 1000));
+            }
+        }
+        if (dirty) await setDiscoveredCities(env, updated);
+        const nextOffset = end;
+        const done = nextOffset >= total;
+        return jsonResponse(
+            {
+                total,
+                offset,
+                limit,
+                processed: end - offset,
+                changed,
+                unchanged,
+                failed,
+                done,
+                nextOffset: done ? null : nextOffset,
+                changes,
+            },
             200,
             cors,
         );
