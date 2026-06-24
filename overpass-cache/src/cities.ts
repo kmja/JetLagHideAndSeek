@@ -69,7 +69,13 @@ const HAND_CURATED: CityEntry[] = [
     { name: "Malmö", relationId: 935619 },
 
     // Europe — UK + Ireland
-    { name: "London", relationId: 65606 },
+    // v: 175342 (Greater London, admin_level 5) is what Photon's
+    // re-ranked top result resolves "London" to in the play-area search,
+    // so it's the boundary the CLIENT actually fetches. The old 65606
+    // ("London" admin_level 6) was prewarmed but never requested — a
+    // curated-id / Photon-id drift that left London cold. Prewarm must
+    // track the client's resolution, not a hand-picked id.
+    { name: "London", relationId: 175342 },
     { name: "Manchester", relationId: 88084 },
     { name: "Edinburgh", relationId: 1920901 },
     { name: "Dublin", relationId: 1109531 },
