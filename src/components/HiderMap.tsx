@@ -13,6 +13,7 @@ import Map, {
 import { buildMarkerHtml, type CategoryId } from "@/lib/categories";
 import {
     handleMapLibreError,
+    installMissingImageHandler,
     pmtilesUrl,
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
@@ -218,7 +219,10 @@ export function HiderMap({
                    that is just magnified vector data with no new
                    detail. */
                 maxZoom={16}
-                onLoad={() => setStyleLoaded(true)}
+                onLoad={(e) => {
+                    installMissingImageHandler(e.target);
+                    setStyleLoaded(true);
+                }}
                 onIdle={() => setIdledOnce(true)}
                 onError={handleMapLibreError}
             >

@@ -37,6 +37,7 @@ import maplibregl from "maplibre-gl";
 import { atom } from "nanostores";
 import { Protocol } from "pmtiles";
 
+import { devInfo } from "@/lib/devLog";
 import {
     activeTilePackId,
     MERGE_SCHEME,
@@ -73,7 +74,7 @@ function probePmtilesAvailability(): void {
         fetch(PMTILES_URL, { method: "HEAD" })
             .then((r) => {
                 if (r.ok) {
-                    console.info(
+                    devInfo(
                         `[protomaps] using self-hosted basemap at ${PMTILES_URL}`,
                     );
                     return;
@@ -230,6 +231,31 @@ export function handleMapLibreError(evt: any): void {
     ) {
         recordPmtilesError(msg);
     }
+}
+
+/**
+ * Silence MapLibre's `styleimagemissing` warnings. The Protomaps basemap
+ * layers reference highway-shield sprites (`generic_shield-{N}char`) that
+ * aren't present in every sprite sheet; when one is missing MapLibre logs
+ * a warning per id and falls back to rendering the road number as plain
+ * text. We supply a 1×1 transparent placeholder for any missing image —
+ * identical visual result (plain-text road numbers), zero console noise.
+ * Idempotent; call once per map inside its `load` handler.
+ */
+export function installMissingImageHandler(map: maplibregl.Map): void {
+    map.on("styleimagemissing", (e: { id?: string }) => {
+        const id = e?.id;
+        if (!id || map.hasImage(id)) return;
+        try {
+            map.addImage(id, {
+                width: 1,
+                height: 1,
+                data: new Uint8Array(4),
+            });
+        } catch {
+            /* concurrent add / already registered — ignore */
+        }
+    });
 }
 
 /* ─────────────────── Basemap style curation ─────────────────── *

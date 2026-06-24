@@ -30,6 +30,7 @@ import {
 } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import {
+    installMissingImageHandler,
     pmtilesUrl,
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
@@ -532,6 +533,7 @@ export function InlineLocationPicker({
                     attributionControl={false}
                     onClick={handleClick}
                     onLoad={(e) => {
+                        installMissingImageHandler(e.target);
                         onLoad();
                         registerImpactPatterns(e.target);
                     }}

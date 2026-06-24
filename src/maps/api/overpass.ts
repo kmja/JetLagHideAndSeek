@@ -9,6 +9,7 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import { devLog, devWarn } from "@/lib/devLog";
 import { playArea } from "@/lib/gameSetup";
 import {
     finishLoading,
@@ -122,12 +123,13 @@ export const getOverpassData = async (
             );
             const ms = Date.now() - t0;
             if (r && r.ok) {
-                console.log(
-                    `[overpass] ${shortName} OK (${ms}ms)`,
-                );
+                devLog(`[overpass] ${shortName} OK (${ms}ms)`);
                 return r;
             }
-            console.warn(
+            // Per-attempt non-OK in a multi-mirror race is expected (a
+            // mirror 502s, we fall through to the next). Dev-only so the
+            // production console isn't flooded with fallback breadcrumbs.
+            devWarn(
                 `[overpass] ${shortName} returned`,
                 r ? `${r.status} ${r.statusText}` : "no response",
                 `(${ms}ms)`,
@@ -136,15 +138,11 @@ export const getOverpassData = async (
         } catch (e) {
             const ms = Date.now() - t0;
             // Aborts are expected and noisy: every mirror race cancels
-            // its losers, and slow mirrors hit the fetch timeout. Those
-            // aren't failures worth a warning — only log genuine errors
-            // (network, DNS, CORS) at warn level; aborts go to debug.
-            const isAbort =
-                e instanceof Error &&
-                (e.name === "AbortError" ||
-                    /aborted/i.test(e.message));
-            const log = isAbort ? console.debug : console.warn;
-            log(
+            // its losers, and slow mirrors hit the fetch timeout. Neither
+            // a cancelled loser nor a single mirror failing is a
+            // user-facing error (another mirror still wins), so all
+            // per-attempt throws are dev-only breadcrumbs.
+            devWarn(
                 `[overpass] ${shortName} threw (${ms}ms):`,
                 e instanceof Error ? e.message : e,
             );
@@ -205,12 +203,10 @@ export const getOverpassData = async (
                 );
                 const ms = Date.now() - t0;
                 if (!json) {
-                    console.warn(
-                        `[overpass] polygons.osm.fr no-data (${ms}ms)`,
-                    );
+                    devWarn(`[overpass] polygons.osm.fr no-data (${ms}ms)`);
                     return null;
                 }
-                console.log(`[overpass] polygons.osm.fr OK (${ms}ms)`);
+                devLog(`[overpass] polygons.osm.fr OK (${ms}ms)`);
                 return new Response(JSON.stringify(json), {
                     status: 200,
                     headers: { "Content-Type": "application/json" },

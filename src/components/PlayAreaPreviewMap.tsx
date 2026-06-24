@@ -30,6 +30,7 @@ import {
 } from "@/lib/playAreaStyle";
 import {
     handleMapLibreError,
+    installMissingImageHandler,
     pmtilesUrl,
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
@@ -462,7 +463,8 @@ export function PlayAreaPreviewMap({
                 dragRotate={false}
                 pitchWithRotate={false}
                 touchPitch={false}
-                onLoad={() => {
+                onLoad={(e) => {
+                    installMissingImageHandler(e.target);
                     fitToBbox(false);
                     onLoad();
                 }}

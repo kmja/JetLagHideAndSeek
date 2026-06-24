@@ -71,6 +71,7 @@ import {
 } from "@/lib/playAreaStyle";
 import {
     handleMapLibreError,
+    installMissingImageHandler,
     pmtilesUrl,
     protomapsMapLibreStyle,
     recordPmtilesError,
@@ -509,7 +510,10 @@ export function Map({ className }: MapProps) {
         if (!mapRef.current) return;
         mapLibreContext.set(mapRef.current);
         const inner = mapRef.current.getMap();
-        if (inner) mapContext.set(createMapShim(inner));
+        if (inner) {
+            mapContext.set(createMapShim(inner));
+            installMissingImageHandler(inner);
+        }
         setMapLoaded(true);
         onTilesLoad();
     };

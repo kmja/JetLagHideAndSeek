@@ -1,5 +1,6 @@
 import { recordBytes, startMeter, stopMeter } from "@/lib/bandwidthMeter";
 import { mapGeoLocation, polyGeoJSON, polyGeoJSONHydrated } from "@/lib/context";
+import { devLog } from "@/lib/devLog";
 import { gameStartPosition } from "@/lib/gameSetup";
 import {
     gameSize,
@@ -123,8 +124,9 @@ export function preloadDuringHidingPeriod(): void {
     if (!playArea.get()) return;
     const choices = preloadChoices.get();
 
-    // Diagnostic (v220) for the cache-pill stall.
-    console.warn("[cache-pill] preloadDuringHidingPeriod fired", {
+    // Diagnostic (v220) for the cache-pill stall — dev-only so it
+    // doesn't clutter the production console.
+    devLog("[cache-pill] preloadDuringHidingPeriod fired", {
         playArea: playArea.get(),
         size: gameSize.get(),
         choices,

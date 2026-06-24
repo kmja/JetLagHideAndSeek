@@ -29,6 +29,7 @@ import {
 } from "@/lib/playAreaStyle";
 import {
     handleMapLibreError,
+    installMissingImageHandler,
     pmtilesUrl,
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
@@ -322,6 +323,7 @@ export function HiderBackgroundMap() {
                    archive caps at z15, so z16 is one level of
                    overzoom freedom and that's all. */
                 maxZoom={16}
+                onLoad={(e) => installMissingImageHandler(e.target)}
                 onError={handleMapLibreError}
                 cursor={stationHover ? "pointer" : undefined}
                 onMouseEnter={() => setStationHover(true)}
