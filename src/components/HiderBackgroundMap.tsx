@@ -18,10 +18,15 @@ import {
 } from "@/lib/context";
 import { hidingPeriodEndsAt, satelliteView } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
-import { findNearestStation } from "@/lib/journey/stations";
 import { hiderReachFC, selectedMapStation } from "@/lib/journey/state";
+import { findNearestStation } from "@/lib/journey/stations";
 import { clipPolygonToLand } from "@/lib/landClip";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
+import {
+    PLAY_AREA_COLOR,
+    PLAY_AREA_LINE_OPACITY,
+    PLAY_AREA_LINE_WIDTH,
+} from "@/lib/playAreaStyle";
 import {
     handleMapLibreError,
     pmtilesUrl,
@@ -385,9 +390,11 @@ export function HiderBackgroundMap() {
                 )}
 
                 {/* Play-area boundary — outline only (no fill) so the
-                    basemap stays legible inside the city. Same brand red
-                    as the zone circle but thinner, dashed and lower
-                    opacity so the two are visually distinct. */}
+                    basemap stays legible inside the city. v468: uses the
+                    canonical play-area stroke (shared with the seeker map
+                    + wizard preview) so the boundary looks identical in
+                    every view. The hider's committed zone is a filled
+                    circle, so it stays distinct without a dashed line. */}
                 {$polyGeoJSON && (
                     <Source
                         id="hider-playarea"
@@ -398,10 +405,9 @@ export function HiderBackgroundMap() {
                             id="hider-playarea-line"
                             type="line"
                             paint={{
-                                "line-color": "hsl(2, 70%, 54%)",
-                                "line-width": 2.5,
-                                "line-opacity": 0.85,
-                                "line-dasharray": [2, 2],
+                                "line-color": PLAY_AREA_COLOR,
+                                "line-width": PLAY_AREA_LINE_WIDTH,
+                                "line-opacity": PLAY_AREA_LINE_OPACITY,
                             }}
                         />
                     </Source>

@@ -17,11 +17,11 @@ import MapGL, {
 } from "react-map-gl/maplibre";
 import { toast } from "react-toastify";
 
+import { MapNavControls } from "@/components/MapNavControls";
 import {
     Dialog,
     DialogContent,
 } from "@/components/ui/dialog";
-import { MapNavControls } from "@/components/MapNavControls";
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
@@ -65,6 +65,11 @@ import { clipPolygonToLand } from "@/lib/landClip";
 import { createMapShim } from "@/lib/mapShim";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
 import {
+    PLAY_AREA_COLOR,
+    PLAY_AREA_LINE_OPACITY,
+    PLAY_AREA_LINE_WIDTH,
+} from "@/lib/playAreaStyle";
+import {
     handleMapLibreError,
     pmtilesUrl,
     protomapsMapLibreStyle,
@@ -83,7 +88,6 @@ import {
 import { CacheType } from "@/maps/api/types";
 
 import { MapTilesVeil } from "./MapTilesVeil";
-import { SelfPositionMarker } from "./SelfPositionMarker";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -91,6 +95,7 @@ import {
     TentacleQuestionComponent,
     ThermometerQuestionComponent,
 } from "./QuestionCards";
+import { SelfPositionMarker } from "./SelfPositionMarker";
 
 /**
  * The seeker's map. MapLibre GL renderer.
@@ -570,7 +575,7 @@ export function Map({ className }: MapProps) {
         // that hole: the watchdog only ever fires on a genuine cold load
         // that never painted a single tile (the Houston case it's for).
         let healthy = everPaintedTileRef.current;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const onSourceData = (e: any) => {
             // A `sourcedata` event carrying an actual tile for the
             // protomaps source means the archive responded and at least
@@ -1856,9 +1861,13 @@ export function Map({ className }: MapProps) {
                                 id="play-area-outline"
                                 type="line"
                                 paint={{
-                                    "line-color": "hsl(5, 69%, 55%)",
-                                    "line-width": 2,
-                                    "line-opacity": 0.9,
+                                    // v468: canonical play-area stroke
+                                    // (shared with the wizard preview +
+                                    // adjacent areas), so the boundary
+                                    // looks the same in every map view.
+                                    "line-color": PLAY_AREA_COLOR,
+                                    "line-width": PLAY_AREA_LINE_WIDTH,
+                                    "line-opacity": PLAY_AREA_LINE_OPACITY,
                                 }}
                             />
                         </Source>

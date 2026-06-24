@@ -23,6 +23,12 @@ import {
 } from "@/lib/context";
 import { clipPolygonToLand } from "@/lib/landClip";
 import {
+    PLAY_AREA_COLOR,
+    PLAY_AREA_FILL_OPACITY,
+    PLAY_AREA_LINE_OPACITY,
+    PLAY_AREA_LINE_WIDTH,
+} from "@/lib/playAreaStyle";
+import {
     handleMapLibreError,
     pmtilesUrl,
     protomapsMapLibreStyle,
@@ -405,16 +411,17 @@ export function PlayAreaPreviewMap({
                             id="bbox-fill"
                             type="fill"
                             paint={{
-                                "fill-color": "hsl(2, 70%, 54%)",
-                                "fill-opacity": 0.15,
+                                "fill-color": PLAY_AREA_COLOR,
+                                "fill-opacity": PLAY_AREA_FILL_OPACITY,
                             }}
                         />
                         <Layer
                             id="bbox-line"
                             type="line"
                             paint={{
-                                "line-color": "hsl(2, 70%, 54%)",
-                                "line-width": 2,
+                                "line-color": PLAY_AREA_COLOR,
+                                "line-width": PLAY_AREA_LINE_WIDTH,
+                                "line-opacity": PLAY_AREA_LINE_OPACITY,
                             }}
                         />
                     </Source>
@@ -557,8 +564,6 @@ function CommittedAreasOverlay() {
             : [],
     };
 
-    const RED = "hsl(2, 70%, 54%)";
-
     return (
         <>
             {/* Already-placed areas — steady, no transition (no blink). */}
@@ -566,12 +571,19 @@ function CommittedAreasOverlay() {
                 <Layer
                     id="committed-areas-fill"
                     type="fill"
-                    paint={{ "fill-color": RED, "fill-opacity": 0.15 }}
+                    paint={{
+                        "fill-color": PLAY_AREA_COLOR,
+                        "fill-opacity": PLAY_AREA_FILL_OPACITY,
+                    }}
                 />
                 <Layer
                     id="committed-areas-line"
                     type="line"
-                    paint={{ "line-color": RED, "line-width": 2 }}
+                    paint={{
+                        "line-color": PLAY_AREA_COLOR,
+                        "line-width": PLAY_AREA_LINE_WIDTH,
+                        "line-opacity": PLAY_AREA_LINE_OPACITY,
+                    }}
                 />
             </Source>
             {/* Just-added area — fades 0 → target via paint transition. */}
@@ -580,8 +592,8 @@ function CommittedAreasOverlay() {
                     id="committed-areas-fade-fill"
                     type="fill"
                     paint={{
-                        "fill-color": RED,
-                        "fill-opacity": lit ? 0.15 : 0,
+                        "fill-color": PLAY_AREA_COLOR,
+                        "fill-opacity": lit ? PLAY_AREA_FILL_OPACITY : 0,
                         "fill-opacity-transition": { duration: 280, delay: 0 },
                     }}
                 />
@@ -589,9 +601,9 @@ function CommittedAreasOverlay() {
                     id="committed-areas-fade-line"
                     type="line"
                     paint={{
-                        "line-color": RED,
-                        "line-width": 2,
-                        "line-opacity": lit ? 1 : 0,
+                        "line-color": PLAY_AREA_COLOR,
+                        "line-width": PLAY_AREA_LINE_WIDTH,
+                        "line-opacity": lit ? PLAY_AREA_LINE_OPACITY : 0,
                         "line-opacity-transition": { duration: 280, delay: 0 },
                     }}
                 />
