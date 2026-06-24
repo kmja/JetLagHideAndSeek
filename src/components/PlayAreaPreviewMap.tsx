@@ -227,20 +227,54 @@ export function PlayAreaPreviewMap({
     // off-screen until the user manually zoomed out.
     const $adjacent = useStore(adjacentCandidatePreview);
 
-    // Once the real polygon lands, re-fit the camera to its actual
-    // extent (the bbox extent was an over-approximation for irregular
-    // shapes — Dalarna's bbox included parts of Norway and Uppsala).
-    // When adjacent candidates are present we widen the fit ONCE to
-    // include their bboxes too, so every candidate boundary starts
-    // on-screen.
-    //
-    // v456: deliberately does NOT depend on the committed extensions
-    // (`additionalMapGeoLocations`). Adding/removing an area used to
-    // re-fit the camera here, which read as a jarring zoom-out on every
-    // add — the user asked for that to stop. The camera now settles once
-    // (main polygon + candidate bboxes) and stays put while areas are
-    // toggled.
+    // v473: the camera moves in at most two beats, never the jarring
+    // three-stage frame→tighten→zoom-out the user reported:
+    //   1. an initial bbox frame (fitToBbox, below — runs on select),
+    //   2. EITHER a tighten to the accurate boundary (no candidates yet)
+    //      OR a single smooth widen that includes every candidate bbox.
+    // The widen is one-shot per area (guarded by `widenedRef`), so the
+    // camera settles once and stays put while areas are toggled, and the
+    // boundary-tighten is suppressed once we've widened so the two never
+    // fight each other. `widenedRef` resets when a new area is chosen
+    // (see the bbox effect below).
+    const widenedRef = useRef(false);
+
+    // Tighten to the accurate boundary once it lands — but only while we
+    // haven't already widened to candidates (the widen supersedes this).
+    // The bbox extent was an over-approximation for irregular shapes
+    // (Dalarna's bbox swallowed parts of Norway + Uppsala).
     useEffect(() => {
+        if (!realPolygon || widenedRef.current) return;
+        try {
+            const map = mapRef.current?.getMap();
+            if (!map) return;
+            const [minX, minY, maxX, maxY] = turf.bbox({
+                type: "Feature",
+                properties: {},
+                geometry: realPolygon,
+            } as GeoJSON.Feature) as [number, number, number, number];
+            map.fitBounds(
+                [
+                    [minX, minY],
+                    [maxX, maxY],
+                ],
+                { padding: 24, duration: 400, maxZoom: 12 },
+            );
+        } catch {
+            /* ignore */
+        }
+    }, [realPolygon]);
+
+    // One smooth, one-time widen to include every adjacent-candidate
+    // bbox, the first time candidates are available for this area. A
+    // single deliberate motion (longer eased duration) rather than a
+    // sudden snap — and guarded so later candidate updates / area toggles
+    // never re-fit. v438 added the widen so off-screen neighbours start
+    // visible; v473 makes it a single smooth beat instead of a late jump.
+    useEffect(() => {
+        if (widenedRef.current) return;
+        const candidates = $adjacent?.candidates ?? [];
+        if (candidates.length === 0) return;
         const base = realPolygon
             ? (turf.bbox({
                   type: "Feature",
@@ -258,12 +292,9 @@ export function PlayAreaPreviewMap({
         if (!base) return;
         let [minX, minY, maxX, maxY] = base;
         // candidate bboxes are [maxLat, minLng, minLat, maxLng].
-        for (const [
-            cMaxLat,
-            cMinLng,
-            cMinLat,
-            cMaxLng,
-        ] of ($adjacent?.candidates ?? []).map((c) => c.bbox)) {
+        for (const [cMaxLat, cMinLng, cMinLat, cMaxLng] of candidates.map(
+            (c) => c.bbox,
+        )) {
             minX = Math.min(minX, cMinLng);
             maxX = Math.max(maxX, cMaxLng);
             minY = Math.min(minY, cMinLat);
@@ -272,18 +303,19 @@ export function PlayAreaPreviewMap({
         try {
             const map = mapRef.current?.getMap();
             if (!map) return;
+            widenedRef.current = true;
             map.fitBounds(
                 [
                     [minX, minY],
                     [maxX, maxY],
                 ],
-                { padding: 24, duration: 500, maxZoom: 12 },
+                { padding: 24, duration: 800, maxZoom: 12, essential: true },
             );
         } catch {
             /* ignore */
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [realPolygon, $adjacent]);
+    }, [$adjacent, realPolygon, bbox]);
 
     // Fit the map to the bbox. Called both from the bbox-change effect
     // (parent swaps `value` without unmounting) AND from the map's
@@ -309,6 +341,8 @@ export function PlayAreaPreviewMap({
     };
 
     useEffect(() => {
+        // New area chosen → allow exactly one fresh widen for it.
+        widenedRef.current = false;
         fitToBbox(true);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [bbox]);

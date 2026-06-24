@@ -355,6 +355,47 @@ export async function safeJsonFromCachedResponse(resp: Response): Promise<any> {
     return JSON.parse(new TextDecoder().decode(buf));
 }
 
+/**
+ * `cache.put` that survives a full origin storage quota. When the put
+ * throws `QuotaExceededError`, we evict the oldest ~25% of this cache's
+ * entries (CacheStorage.keys() preserves insertion order, so the head is
+ * oldest) and retry once. Without this, the FIRST write that overflows
+ * the quota leaves the cache permanently full — every subsequent write
+ * then fails too, which is the "Cache write failed: QuotaExceededError"
+ * cascade seen when warming a big play area (Toronto, London). Mirrors
+ * the Workbox SW's `purgeOnQuotaError`, but for our own namespaces.
+ */
+async function putWithQuotaRetry(
+    cache: Cache,
+    url: string,
+    response: Response,
+): Promise<void> {
+    try {
+        await cache.put(url, response.clone());
+        return;
+    } catch (e) {
+        if (!(e instanceof DOMException) || e.name !== "QuotaExceededError") {
+            throw e;
+        }
+    }
+    // Quota hit — reclaim space and retry once.
+    try {
+        const keys = await cache.keys();
+        const evictCount = Math.max(1, Math.ceil(keys.length * 0.25));
+        for (let i = 0; i < evictCount && i < keys.length; i++) {
+            await cache.delete(keys[i]);
+        }
+        console.warn(
+            `Cache quota exceeded — evicted ${evictCount}/${keys.length} oldest entries and retrying.`,
+        );
+        await cache.put(url, response.clone());
+    } catch (e) {
+        // Eviction or the retry still failed — give up on caching this
+        // entry (the caller still gets the live response).
+        console.warn("Cache write failed after quota eviction:", e);
+    }
+}
+
 export const cacheFetch = async (
     url: string,
     loadingText?: string,
@@ -435,14 +476,11 @@ export const cacheFetch = async (
                     url,
                     progressLabel,
                 );
-                try {
-                    await cache.put(
-                        url,
-                        responseFromBuffer(bytes, rawResponse),
-                    );
-                } catch (e) {
-                    console.warn("Cache write failed:", e);
-                }
+                await putWithQuotaRetry(
+                    cache,
+                    url,
+                    responseFromBuffer(bytes, rawResponse),
+                );
                 return responseFromBuffer(bytes, rawResponse);
             }
             // Non-progress path: read the DECODED body once, then build
@@ -456,11 +494,11 @@ export const cacheFetch = async (
             // bytes are plain JSON and `responseFromBuffer` drops the
             // stale encoding headers.
             const decoded = new Uint8Array(await rawResponse.arrayBuffer());
-            try {
-                await cache.put(url, responseFromBuffer(decoded, rawResponse));
-            } catch (e) {
-                console.warn("Cache write failed:", e);
-            }
+            await putWithQuotaRetry(
+                cache,
+                url,
+                responseFromBuffer(decoded, rawResponse),
+            );
             return responseFromBuffer(decoded, rawResponse);
         };
 

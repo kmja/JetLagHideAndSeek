@@ -47,7 +47,7 @@ registerRoute(
     new CacheFirst({
         cacheName: "tiles-carto",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 6000, maxAgeSeconds: 60 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 6000, maxAgeSeconds: 60 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
@@ -59,7 +59,7 @@ registerRoute(
     new CacheFirst({
         cacheName: "tiles-satellite",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 4000, maxAgeSeconds: 60 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 4000, maxAgeSeconds: 60 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
@@ -71,7 +71,7 @@ registerRoute(
     new CacheFirst({
         cacheName: "tiles-railway",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 3000, maxAgeSeconds: 60 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 3000, maxAgeSeconds: 60 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
@@ -83,7 +83,7 @@ registerRoute(
     new CacheFirst({
         cacheName: "tiles-osm",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 3000, maxAgeSeconds: 60 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 3000, maxAgeSeconds: 60 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
@@ -94,7 +94,7 @@ registerRoute(
     new CacheFirst({
         cacheName: "tiles-thunderforest",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 3000, maxAgeSeconds: 60 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 3000, maxAgeSeconds: 60 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
@@ -105,7 +105,7 @@ registerRoute(
     new StaleWhileRevalidate({
         cacheName: "api-geocode",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
@@ -116,7 +116,7 @@ registerRoute(
     new CacheFirst({
         cacheName: "asset-coastline",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 1, maxAgeSeconds: 365 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 1, maxAgeSeconds: 365 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
@@ -134,7 +134,7 @@ registerRoute(
     new CacheFirst({
         cacheName: "protomaps-glyphs",
         plugins: [
-            new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 365 * 24 * 60 * 60 }),
+            new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 365 * 24 * 60 * 60, purgeOnQuotaError: true }),
             new CacheableResponsePlugin({ statuses: [0, 200] }),
         ],
     }),
