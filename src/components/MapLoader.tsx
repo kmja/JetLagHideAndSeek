@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -93,6 +94,16 @@ export function MapLoader({
 }) {
     const fillCls = fill ? "absolute inset-0 w-full h-full" : "";
 
+    // Capture the epoch offset ONCE at mount. Computing it on every
+    // render (the old `Date.now()` in the JSX) meant each parent
+    // re-render — the loading overlay ticks its elapsed/ETA every second
+    // — recomputed every comet's `animationDelay`, which RESTARTS the CSS
+    // animation at the new phase: the comets visibly jumped once a second.
+    // A ref keeps the value stable so the inline styles never change after
+    // mount and the animation runs continuously. The in-phase-on-mount
+    // resume is preserved (it's read at mount, which is all it needs).
+    const elapsedAtMountRef = useRef((Date.now() - LOADER_EPOCH) / 1000);
+
     return (
         <div
             // v379: per-theme loader palette via `jl-loader`'s CSS
@@ -174,11 +185,10 @@ export function MapLoader({
                     matches the keyframe's -200 dashoffset travel
                     exactly. */}
                 {(() => {
-                    // Seconds elapsed since the module loaded — folded
-                    // into every comet's delay so a fresh mount resumes
-                    // the cycle in-phase (no jerk on the locate→preview
-                    // handoff). Read once per render.
-                    const elapsed = (Date.now() - LOADER_EPOCH) / 1000;
+                    // Seconds elapsed since the module loaded, captured
+                    // ONCE at mount (see elapsedAtMountRef) so re-renders
+                    // don't recompute the delays and restart the anim.
+                    const elapsed = elapsedAtMountRef.current;
                     return TILES.map(([x, y, w, h], i) => {
                         // Per-tile perimeter → its own cycle duration and
                         // dash period, so the comet laps the rect with no

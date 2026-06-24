@@ -1322,27 +1322,31 @@ export function Map({ className }: MapProps) {
         const handler = () => {
             const map = mapRef.current?.getMap();
             if (!map) return;
-            try {
-                // Force a synchronous repaint so the screenshot
-                // reflects the latest state (otherwise we get the
-                // previous frame's buffer).
-                map.triggerRepaint();
-                const dataUrl = map
-                    .getCanvas()
-                    .toDataURL("image/png");
-                const a = document.createElement("a");
-                a.href = dataUrl;
-                a.download = `jetlag-map-${new Date()
-                    .toISOString()
-                    .replace(/[:.]/g, "-")}.png`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                toast.success("Map image saved");
-            } catch (e) {
-                console.error("Map screenshot failed:", e);
-                toast.error("Couldn't save map image");
-            }
+            // v487: the map no longer runs with `preserveDrawingBuffer`
+            // (that flag tanks render perf — see the MapGL props). Without
+            // it the WebGL backbuffer is cleared after compositing, so a
+            // bare toDataURL() would come back blank. Capture INSIDE a
+            // `render` callback — the buffer is valid for that synchronous
+            // frame — then force one with triggerRepaint().
+            const capture = () => {
+                try {
+                    const dataUrl = map.getCanvas().toDataURL("image/png");
+                    const a = document.createElement("a");
+                    a.href = dataUrl;
+                    a.download = `jetlag-map-${new Date()
+                        .toISOString()
+                        .replace(/[:.]/g, "-")}.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    toast.success("Map image saved");
+                } catch (e) {
+                    console.error("Map screenshot failed:", e);
+                    toast.error("Couldn't save map image");
+                }
+            };
+            map.once("render", capture);
+            map.triggerRepaint();
         };
         window.addEventListener("jlhs:save-map-image", handler);
         return () =>
@@ -1593,10 +1597,12 @@ export function Map({ className }: MapProps) {
                    the preload to higher zooms — the source has
                    nothing more to give. */
                 maxZoom={16}
-                /* Required so map.getCanvas().toDataURL() works
-                   for the Save-image action (otherwise the WebGL
-                   buffer is cleared before we can read it). */
-                preserveDrawingBuffer
+                /* v487: preserveDrawingBuffer REMOVED — it forces the GL
+                   backbuffer to be retained every frame, which MapLibre
+                   warns "leads to poorer performance" (the choppy
+                   pan/zoom). The Save-image action now reads the canvas
+                   inside a `render` event instead (see the
+                   jlhs:save-map-image handler), so we don't need it. */
                 onLoad={handleLoad}
                 onIdle={onTilesIdle}
                 onMoveEnd={handleMoveEnd}
