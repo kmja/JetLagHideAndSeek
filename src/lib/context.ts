@@ -70,6 +70,12 @@ export const additionalMapGeoLocations = persistentAtom<
  * surfaces stay in sync without an extra ping-pong.
  */
 export interface AdjacentCandidatePreview {
+    /** v474: lifecycle so a gated preview can wait for candidates to
+     *  resolve before revealing the map. "loading" = the adjacency fetch
+     *  is in flight; "ready" = resolved (possibly with zero candidates).
+     *  A `null` atom means no controller is active (e.g. the lobby
+     *  preview, which has no PlayAreaExtensions sibling). */
+    status: "loading" | "ready";
     /** Per-candidate render data. `bbox` is `[maxLat, minLng, minLat, maxLng]`
      *  (the Overpass `extent` order the upstream uses). `osmId` is the
      *  stable id the dialog + map both key on. `feature` is what gets

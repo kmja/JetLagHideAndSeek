@@ -60,6 +60,13 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     const [candidates, setCandidates] = useState<AdjacentAreaCandidate[]>(
         () => candidateCache.get(cacheKey) ?? [],
     );
+    // v474: expose the fetch lifecycle so the preview map can wait for
+    // the adjacency lookup to RESOLVE before it reveals (a cache hit is
+    // "ready" immediately). Without this the preview can't tell "still
+    // loading" from "loaded, zero neighbours".
+    const [status, setStatus] = useState<"loading" | "ready">(() =>
+        candidateCache.has(cacheKey) ? "ready" : "loading",
+    );
 
     useEffect(() => {
         const primaryId = primary.properties.osm_id;
@@ -74,9 +81,11 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         const cached = candidateCache.get(cacheKey);
         if (cached) {
             setCandidates(cached);
+            setStatus("ready");
             return;
         }
         setCandidates([]);
+        setStatus("loading");
 
         let cancelled = false;
         findExtensionCandidates(primary, $allowedTransit, {
@@ -90,6 +99,9 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
             })
             .catch((e) => {
                 if (!cancelled) console.warn("Extension lookup failed", e);
+            })
+            .finally(() => {
+                if (!cancelled) setStatus("ready");
             });
 
         return () => {
@@ -98,15 +110,13 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cacheKey]);
 
-    // Publish candidates for the preview map's tappable-boundary overlay
-    // the moment they land — no reveal gate. Cleared on unmount / when
-    // there are none.
+    // Publish candidates + status for the preview map's tappable-boundary
+    // overlay AND its reveal gate. We always publish a non-null value
+    // (even with zero candidates) so the preview can distinguish "still
+    // loading" from "resolved, nothing to add". Cleared on unmount.
     useEffect(() => {
-        if (candidates.length === 0) {
-            adjacentCandidatePreview.set(null);
-            return;
-        }
         adjacentCandidatePreview.set({
+            status,
             candidates: candidates.map((c) => ({
                 osmId: c.feature.properties.osm_id,
                 name: c.feature.properties.name as string,
@@ -123,7 +133,7 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         return () => {
             adjacentCandidatePreview.set(null);
         };
-    }, [candidates]);
+    }, [candidates, status]);
 
     const added = $additional.filter((e) => e.location);
 

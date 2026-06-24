@@ -1150,6 +1150,7 @@ export function PlayAreaStep({
                     veilSublabel={
                         fromGpsSuggest ? LOCATING_SUBLABEL : undefined
                     }
+                    awaitAdjacent
                 />
 
                 <div

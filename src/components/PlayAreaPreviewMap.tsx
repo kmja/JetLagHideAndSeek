@@ -86,6 +86,7 @@ export function PlayAreaPreviewMap({
     onReady,
     veilLabel,
     veilSublabel,
+    awaitAdjacent = false,
 }: {
     value: OpenStreetMap;
     height?: string;
@@ -100,6 +101,15 @@ export function PlayAreaPreviewMap({
      *  instead of the label jumping to a second "Loading map" phase. */
     veilLabel?: string;
     veilSublabel?: string;
+    /** v474: hold the loading veil up until the adjacent-area candidates
+     *  have also resolved (not just the boundary + tiles), so the camera's
+     *  widen-to-include-neighbours happens UNDER the veil and the user
+     *  sees the map reveal exactly once, fully settled — never a load
+     *  followed by a late zoom-out. Only the wizard's step-1 preview sets
+     *  this (it's the one with a PlayAreaExtensions sibling publishing
+     *  candidates); the lobby + summary previews leave it false so they
+     *  don't wait on a controller that never mounts. */
+    awaitAdjacent?: boolean;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     // v228: opt into the dark-tile CSS filter only when the resolved
@@ -379,10 +389,30 @@ export function PlayAreaPreviewMap({
     // tiles painting. A relation result is expected to produce a
     // polygon; Way/Node results never do, so they only wait on tiles.
     const boundaryExpected = osmType === "R";
+    // v474: when `awaitAdjacent`, also wait for the adjacency lookup to
+    // RESOLVE (status "ready"; a null atom = controller not mounted/not
+    // published yet = still waiting). This keeps the veil up through the
+    // candidate-widen so the map reveals once, already framed on the
+    // primary + every neighbour — no post-reveal zoom-out.
+    const adjacentReady = !awaitAdjacent || $adjacent?.status === "ready";
+    const dataReady =
+        (!boundaryExpected || polygon !== null) && adjacentReady;
+    // Re-arm the idle latch whenever the data that drives the camera
+    // changes (boundary lands, candidates resolve), so the reveal waits
+    // for the tiles of the FINAL framed viewport — not a settle on an
+    // intermediate frame from before the widen.
+    const resetKey = `${osmId ?? "-"}:${polygon ? "p" : "-"}:${
+        $adjacent?.status ?? "none"
+    }:${$adjacent?.candidates.length ?? 0}`;
     const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
-        dataReady: !boundaryExpected || polygon !== null,
-        resetKey: polygon,
-        initialRevealed: cacheHitAtMount.current,
+        dataReady,
+        resetKey,
+        // The cache-hit fast path (start already revealed) is skipped when
+        // we're waiting on adjacency: candidate readiness isn't knowable
+        // at mount, so honour the full gate instead of flashing the map
+        // and then widening. On a full cache hit the gate still clears in
+        // well under a second (cached boundary + HTTP-cached tiles).
+        initialRevealed: cacheHitAtMount.current && !awaitAdjacent,
     });
 
     // v382: surface the reveal moment to the wizard so it can fade in
