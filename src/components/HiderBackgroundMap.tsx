@@ -82,6 +82,33 @@ export function HiderBackgroundMap() {
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
 
+    // Live "you are here" fix for the hider. The blue GPS dot below
+    // (and the hider's trip-plan / reach features) read `lastKnownPosition`,
+    // but only the SEEKER's Map.tsx ever wrote it — the hider had no watch,
+    // so the atom stayed null and the hider's own dot never appeared.
+    // Mirror Map.tsx's seeker watch: run for the whole session, write each
+    // fix to the shared atom, stay silent on error (a denied/unavailable
+    // fix just means no dot — no toast spam). Same mechanism the v394
+    // boundary-fetch fix added for the hider's missing boundary load.
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            return;
+        }
+        const id = navigator.geolocation.watchPosition(
+            (pos) => {
+                lastKnownPosition.set({
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                });
+            },
+            () => {
+                // Quiet — no dot is the correct degraded state.
+            },
+            { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
+        );
+        return () => navigator.geolocation.clearWatch(id);
+    }, []);
+
     // v394: fetch the play-area boundary on the hider side. The seeker's
     // Map.tsx has its own boundary-fetch effect; the hider previously had
     // none, so polyGeoJSON stayed null on a fresh join. Symptoms: no
