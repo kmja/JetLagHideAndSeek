@@ -880,6 +880,10 @@ export function PlayAreaStep({
     const [busy, setBusy] = useState(false);
     const [results, setResults] = useState<OpenStreetMap[]>([]);
     const [searched, setSearched] = useState(false);
+    // v503: while the search box is focused the on-screen keyboard eats
+    // ~half the viewport, so we shrink the map to keep the input +
+    // results in view. Tracks focus as a keyboard-open proxy.
+    const [inputFocused, setInputFocused] = useState(false);
     const debouncedQuery = useDebounce(query, 350);
     // Token tracks the latest search so a slow earlier response can't
     // clobber a newer result list.
@@ -1159,6 +1163,23 @@ export function PlayAreaStep({
     const fromGpsSuggest =
         gpsState === "done" && !userInitiatedSearch.current;
     const topResultId = results[0]?.properties.osm_id ?? null;
+    const currentAreaLabel = value
+        ? (value.properties.name ?? determineName(value).split(",")[0])
+        : null;
+    // Map height morphs with mode: a big near-square in preview, and a
+    // shorter strip in search — shrinking further once the keyboard is up
+    // (input focused) so the field + results stay visible above it. The
+    // height transition (on the persistent, osm_id-keyed map) IS the
+    // "area morphs into a search" animation. MapLibre's trackResize keeps
+    // the canvas in step as the container animates.
+    const mapHeightClass = cn(
+        "transition-[height] duration-300 ease-out",
+        inPreview
+            ? "h-[min(78vw,340px)]"
+            : inputFocused
+              ? "h-[120px]"
+              : "h-[200px]",
+    );
 
     return (
         <div className="space-y-3">
@@ -1166,7 +1187,7 @@ export function PlayAreaStep({
                 <PlayAreaPreviewMap
                     key={value.properties.osm_id}
                     value={value}
-                    height="aspect-square"
+                    height={mapHeightClass}
                     veilLabel={
                         inPreview && fromGpsSuggest ? LOCATING_LABEL : undefined
                     }
@@ -1225,6 +1246,11 @@ export function PlayAreaStep({
                                 onClick={() => {
                                     userInitiatedSearch.current = true;
                                     pendingSearchFocus.current = true;
+                                    // Optimistically mark focused so the map
+                                    // shrinks in ONE smooth step (not
+                                    // preview→tall-search→short-search) — the
+                                    // input auto-focuses right after.
+                                    setInputFocused(true);
                                     setMode("search");
                                     setQuery("");
                                     setResults([]);
@@ -1240,12 +1266,42 @@ export function PlayAreaStep({
                 })()
             ) : (
                 <>
+                    {/* "Keep <area>" sits ABOVE the search field so the
+                        escape-back-to-current affordance reads as a header
+                        for the edit, names the area you'd keep, and doesn't
+                        get buried under the keyboard. */}
+                    {value && currentAreaLabel && (
+                        <Button
+                            variant="ghost"
+                            onClick={() => {
+                                // Keep the ORIGINAL committed area. We no
+                                // longer auto-commit search results, so
+                                // `value` is still the original — just drop
+                                // back to preview. The map is keyed on
+                                // osm_id and unchanged, so it does NOT
+                                // reload.
+                                setQuery("");
+                                setResults([]);
+                                setSearched(false);
+                                userInitiatedSearch.current = false;
+                                setMode("preview");
+                            }}
+                            className="w-full justify-start gap-1.5"
+                        >
+                            <ChevronLeft className="w-4 h-4 shrink-0" />
+                            <span className="truncate">
+                                Keep {currentAreaLabel}
+                            </span>
+                        </Button>
+                    )}
                     <div className="space-y-2">
                         <div className="relative">
                             <Input
                                 ref={searchInputRef}
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
+                                onFocus={() => setInputFocused(true)}
+                                onBlur={() => setInputFocused(false)}
                                 onKeyDown={(e) => {
                                     if (e.key !== "Enter") return;
                                     e.preventDefault();
@@ -1377,28 +1433,6 @@ export function PlayAreaStep({
                         <p className="text-xs text-muted-foreground italic">
                             No regions match. Try a broader name (city, country).
                         </p>
-                    )}
-
-                    {value && (
-                        <Button
-                            variant="ghost"
-                            onClick={() => {
-                                // Keep the ORIGINAL committed area. Since we
-                                // no longer auto-commit search results,
-                                // `value` is still the original — just drop
-                                // back to preview. The map is keyed on osm_id
-                                // and unchanged, so it does NOT reload.
-                                setQuery("");
-                                setResults([]);
-                                setSearched(false);
-                                userInitiatedSearch.current = false;
-                                setMode("preview");
-                            }}
-                            className="w-full gap-1.5"
-                        >
-                            <ChevronLeft className="w-4 h-4" />
-                            Keep current area
-                        </Button>
                     )}
                 </>
             )}
