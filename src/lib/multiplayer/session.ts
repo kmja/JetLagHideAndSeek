@@ -109,6 +109,28 @@ export const selfParticipantId = persistentAtom<string | null>(
     { encode: JSON.stringify, decode: JSON.parse },
 );
 
+/**
+ * Did THIS device host (create) the current room? Set true by
+ * `joinAsHost`, false by `joinAsGuest` / `leaveGame`. Persistent so a
+ * reload of the host's tab still knows it owns the room.
+ *
+ * Why this exists: settings-edit authority was gated solely on
+ * `hostId === selfParticipantId`, where `hostId` is inferred as the
+ * earliest-joined participant. A reconnect / re-host path on the server
+ * can mint a fresh participant id for the host (leaving the original
+ * host entry as `sorted[0]` and the new self as an invisible role:null
+ * ghost), so the host's live `selfParticipantId` stops matching
+ * `hostId` and the real host loses the ability to edit settings. The
+ * room's host/creator is the permanent settings authority (only the
+ * *hider* role rotates), so a device-local "I host this room" flag is a
+ * stable, correct grant that survives that server-side id desync.
+ */
+export const localIsHost = persistentAtom<boolean>(
+    "jlhs:localIsHost",
+    false,
+    { encode: JSON.stringify, decode: JSON.parse },
+);
+
 /* ────────────────── Runtime-only atoms ────────────────── */
 
 /**

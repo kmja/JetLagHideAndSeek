@@ -61,6 +61,7 @@ import {
     demoMode,
     displayName,
     getDeviceId,
+    localIsHost,
     multiplayerEnabled,
     multiplayerError,
     participants,
@@ -161,6 +162,9 @@ export function joinAsHost(code: string, name: string) {
     multiplayerError.set(null);
     currentGameCode.set(code);
     multiplayerEnabled.set(true);
+    // This device owns the room — the settings-edit authority. Survives
+    // a server-side participant-id desync (see localIsHost docs).
+    localIsHost.set(true);
     const transport = getTransport();
     transport.connect(wsUrlForCode(code));
     transport.send({
@@ -177,6 +181,8 @@ export function joinAsGuest(code: string, name: string) {
     multiplayerError.set(null);
     currentGameCode.set(code);
     multiplayerEnabled.set(true);
+    // Guests are not the settings authority.
+    localIsHost.set(false);
     const transport = getTransport();
     transport.connect(wsUrlForCode(code));
     transport.send({
@@ -206,6 +212,7 @@ export function tryResumeFromPersistent() {
         currentGameCode.set(null);
         sessionToken.set(null);
         selfParticipantId.set(null);
+        localIsHost.set(false);
         return;
     }
     const transport = getTransport();
@@ -233,6 +240,7 @@ export function leaveGame() {
     currentGameCode.set(null);
     sessionToken.set(null);
     selfParticipantId.set(null);
+    localIsHost.set(false);
     transportStatus.set("closed");
     participants.set([]);
 }

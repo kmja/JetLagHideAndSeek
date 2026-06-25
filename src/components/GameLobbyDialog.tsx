@@ -54,6 +54,7 @@ import {
 import {
     currentGameCode,
     displayName as displayNameAtom,
+    localIsHost,
     lobbyManualOpen,
     multiplayerEnabled,
     multiplayerError,
@@ -113,6 +114,7 @@ export function GameLobbyDialog() {
     const $code = useStore(currentGameCode);
     const $participants = useStore(participants);
     const $self = useStore(selfParticipantId);
+    const $localIsHost = useStore(localIsHost);
     const $mp = useStore(multiplayerEnabled);
     const $transportStatus = useStore(transportStatus);
     const $mapGeoLocation = useStore(mapGeoLocation);
@@ -240,7 +242,14 @@ export function GameLobbyDialog() {
         (a, b) => a.joinedAt - b.joinedAt,
     );
     const hostId = sorted[0]?.id ?? null;
-    const isHost = !$mp || hostId === null || hostId === $self;
+    // Settings-edit authority. Grant on EITHER signal: the roster
+    // inference (earliest-joined participant is me) OR the device-local
+    // "I hosted this room" flag. The flag is the robust fallback for
+    // when a server-side reconnect/re-host mints a fresh participant id
+    // for the host — `$self` then stops matching `hostId` and the real
+    // host would otherwise lose editing entirely. See `localIsHost`.
+    const isHost =
+        !$mp || $localIsHost || hostId === null || hostId === $self;
 
     // Inline settings editing (host only). Writes the same atoms the
     // setup wizard's edit mode does and pushes to peers via the same
