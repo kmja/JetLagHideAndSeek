@@ -851,6 +851,16 @@ export function DebugPhaseControls() {
                         </span>
                     </DebugButton>
                     <DebugButton
+                        onClick={() => {
+                            window.location.assign("/debug/overlays");
+                        }}
+                    >
+                        <span className="inline-flex items-center gap-1.5">
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            Overlay gallery (timers, banners, status)
+                        </span>
+                    </DebugButton>
+                    <DebugButton
                         variant="danger"
                         onClick={async () => {
                             const ok = await appConfirm({
