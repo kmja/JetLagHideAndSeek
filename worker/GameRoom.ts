@@ -86,6 +86,20 @@ export class GameRoom {
     private conns: Map<string, ConnInfo> = new Map();
 
     /**
+     * Device → participant identity map. The authoritative key for
+     * reclaiming identity across reconnect / re-host / re-join: a
+     * returning device (same `deviceId`) is re-bound to its EXISTING
+     * participant rather than minting a duplicate.
+     *
+     * Shares the in-memory lifetime of `participants` (cleared together
+     * on room teardown), so it never holds a binding to a participant
+     * that's no longer in the roster — individual participants are never
+     * removed, only the whole room. Held server-side only; deviceIds are
+     * NEVER broadcast in the participant snapshot.
+     */
+    private deviceToParticipant: Map<string, string> = new Map();
+
+    /**
      * The hider's committed hiding zone. Held OUTSIDE `this.game` on
      * purpose — it's a secret from seekers, so it must never enter the
      * wholesale snapshot. Delivered only to hide-team connections
@@ -171,6 +185,7 @@ export class GameRoom {
             // reclaim the instance when the request queue empties.
             this.game.participants = [];
             this.tokens.clear();
+            this.deviceToParticipant.clear();
         } else {
             // A new connection arrived in the meantime; re-arm.
             await this.armEviction();
@@ -270,6 +285,7 @@ export class GameRoom {
         }
         this.conns.clear();
         this.tokens.clear();
+        this.deviceToParticipant.clear();
         this.game.participants = [];
         this.game.questions = [];
     }
@@ -371,11 +387,11 @@ export class GameRoom {
             });
         }
         // Host is always the first participant in the room (server
-        // accepted them by creating the DO). Same-device "rehost"
-        // case: replace any existing record with this device id.
-        const existing = this.game.participants.find(
-            (p) => this.tokens.get(this.findTokenForParticipant(p.id) ?? "")?.deviceId === deviceId,
-        );
+        // accepted them by creating the DO). Same-device "rehost" case:
+        // reclaim this device's EXISTING participant (preserving its id +
+        // joinedAt) rather than minting a duplicate that would orphan the
+        // original host entry. Keyed off the authoritative device map.
+        const existing = this.participantForDevice(deviceId);
         const participantId = existing?.id ?? crypto.randomUUID();
         const sessionToken = makeSessionToken();
 
@@ -428,26 +444,23 @@ export class GameRoom {
             });
         }
 
-        // Reconnect-shaped flow: same deviceId already a member? Replace
-        // their session token, keep the participantId.
-        const existingByDevice = [...this.tokens.entries()].find(
-            ([, v]) => v.deviceId === deviceId,
-        );
+        // Reconnect-shaped flow: same deviceId already a member? Reclaim
+        // their existing participant (keep the id), just refresh the
+        // session token. Keyed off the authoritative device map so a
+        // returning device never spawns a duplicate.
+        const existingP = this.participantForDevice(deviceId);
         let participantId: string;
-        if (existingByDevice) {
-            participantId = existingByDevice[1].participantId;
-            const existingP = this.game.participants.find((p) => p.id === participantId);
-            if (existingP) {
-                // Keep their existing name on reconnect unless they sent
-                // a new non-empty one; either way ensure it's unique
-                // against the rest of the room.
-                const requested = displayName.trim() || existingP.displayName;
-                existingP.displayName = this.uniqueDisplayName(
-                    requested,
-                    participantId,
-                );
-                existingP.online = true;
-            }
+        if (existingP) {
+            participantId = existingP.id;
+            // Keep their existing name on reconnect unless they sent
+            // a new non-empty one; either way ensure it's unique
+            // against the rest of the room.
+            const requested = displayName.trim() || existingP.displayName;
+            existingP.displayName = this.uniqueDisplayName(
+                requested,
+                participantId,
+            );
+            existingP.online = true;
         } else {
             if (this.game.participants.length >= MAX_PARTICIPANTS) {
                 return this.sendTo(socket, {
@@ -499,17 +512,39 @@ export class GameRoom {
                 message: "Game code doesn't match this room.",
             });
         }
+        // Resolve identity. Fast path: the session token is known and
+        // belongs to this device. Fallback: the token is unknown (e.g.
+        // issued by an isolate that has since been recycled, or simply
+        // stale) — recover by DEVICE instead of erroring, so a returning
+        // device reclaims its existing participant rather than being
+        // bounced to the lobby and (worse) re-joining as a duplicate.
+        // Only when the device has no participant at all do we reject.
         const entry = this.tokens.get(sessionToken);
-        if (!entry || entry.deviceId !== deviceId) {
-            return this.sendTo(socket, {
-                t: "error",
-                code: "session_invalid",
-                message: "Resume token unrecognized; rejoin with code.",
-            });
+        let participantId: string;
+        if (entry && entry.deviceId === deviceId) {
+            participantId = entry.participantId;
+        } else {
+            const byDevice = this.participantForDevice(deviceId);
+            if (!byDevice) {
+                return this.sendTo(socket, {
+                    t: "error",
+                    code: "session_invalid",
+                    message: "Resume token unrecognized; rejoin with code.",
+                });
+            }
+            participantId = byDevice.id;
         }
+        // Always issue a fresh token on resume — the presented one may be
+        // stale (recovered-by-device path) and a new one keeps the
+        // tokens map authoritative for this live connection. Drop the
+        // presented token so the map doesn't accumulate dead entries
+        // across a long string of reconnects.
+        this.tokens.delete(sessionToken);
+        const freshToken = makeSessionToken();
+        this.tokens.set(freshToken, { participantId, deviceId });
         // Drop any prior connection for this participant — only one
         // socket per participant at a time.
-        const prior = this.conns.get(entry.participantId);
+        const prior = this.conns.get(participantId);
         if (prior && prior.socket !== socket) {
             try {
                 prior.socket.close(1000, "superseded");
@@ -518,19 +553,19 @@ export class GameRoom {
             }
         }
         const existing = this.game.participants.find(
-            (p) => p.id === entry.participantId,
+            (p) => p.id === participantId,
         );
         if (existing) existing.online = true;
 
         this.attachConnection(socket, {
-            participantId: entry.participantId,
-            sessionToken,
+            participantId,
+            sessionToken: freshToken,
             deviceId,
         });
         this.sendTo(socket, {
             t: "welcome",
-            sessionToken,
-            self: { id: entry.participantId },
+            sessionToken: freshToken,
+            self: { id: participantId },
             state: this.game,
         });
         // The hiding zone lives outside GameState (it's secret from
@@ -945,6 +980,21 @@ export class GameRoom {
         (socket as unknown as { __participantId: string }).__participantId =
             conn.participantId;
         this.conns.set(conn.participantId, { socket, ...conn });
+        // Authoritative device→participant binding for identity recovery.
+        // Centralised here so every attach path (host/join/resume) keeps
+        // it current without each remembering to.
+        this.deviceToParticipant.set(conn.deviceId, conn.participantId);
+    }
+
+    /**
+     * The live participant currently bound to a device, if any. Validated
+     * against the roster so a stale binding (shouldn't happen — see the
+     * map's docs) resolves to undefined rather than a dangling id.
+     */
+    private participantForDevice(deviceId: string): Participant | undefined {
+        const pid = this.deviceToParticipant.get(deviceId);
+        if (!pid) return undefined;
+        return this.game.participants.find((p) => p.id === pid);
     }
 
     private lookupConn(socket: WebSocket): ConnInfo | undefined {
@@ -952,13 +1002,6 @@ export class GameRoom {
             .__participantId;
         if (!pid) return undefined;
         return this.conns.get(pid);
-    }
-
-    private findTokenForParticipant(pid: string): string | null {
-        for (const [token, v] of this.tokens.entries()) {
-            if (v.participantId === pid) return token;
-        }
-        return null;
     }
 
     /* ────────────────── Broadcast helpers ────────────────── */
