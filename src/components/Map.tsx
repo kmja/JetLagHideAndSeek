@@ -1568,6 +1568,18 @@ export function Map({ className }: MapProps) {
                    the preload to higher zooms — the source has
                    nothing more to give. */
                 maxZoom={16}
+                /* v495: snappier tile updates. fadeDuration=0 drops the
+                   300ms cross-fade so a freshly-decoded tile replaces the
+                   overzoomed parent placeholder the instant it's ready,
+                   instead of lingering blurry while it fades in — the
+                   "enlarged low-zoom tile hangs around" symptom. A large
+                   maxTileCacheSize keeps recently-seen tiles resident in
+                   GPU/RAM so panning or zooming BACK over them repaints
+                   with zero fetch (faster than even the SW disk cache).
+                   Neither helps a genuinely-uncached first visit — that's
+                   bounded by the network round-trip + the z15 source cap. */
+                fadeDuration={0}
+                maxTileCacheSize={512}
                 /* v487: preserveDrawingBuffer REMOVED — it forces the GL
                    backbuffer to be retained every frame, which MapLibre
                    warns "leads to poorer performance" (the choppy
