@@ -1154,9 +1154,16 @@ export const determineMapBoundaries = async () => {
         if (turf.coordAll(mapGeoData).length > 10000) {
             setPhase("Simplifying geometry…");
             await new Promise((r) => requestAnimationFrame(r));
+            // highQuality Douglas-Peucker is O(n^2)-ish and on a
+            // pathologically large boundary (e.g. the "Tokyo Metropolis"
+            // relation, which legally spans ~1000 km to the Ogasawara
+            // Islands) it can run for many seconds — long enough to FREEZE
+            // the main thread (frozen loading animation + dead UI). The
+            // fast (non-highQuality) pass is plenty for a play-area
+            // outline and is dramatically cheaper on huge inputs.
             turf.simplify(mapGeoData, {
                 tolerance: 0.0005,
-                highQuality: true,
+                highQuality: false,
                 mutate: true,
             });
         }
