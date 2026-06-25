@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/sidebar-l";
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
+import { useReleaseStuckBodyLock } from "@/hooks/useReleaseStuckBodyLock";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
@@ -123,6 +124,13 @@ export function SeekerPage() {
     // finally takes over.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const gameStarted = $hidingEndsAt !== null;
+
+    // Safety net for the lobby→in-game branch swap below: if the lobby
+    // drawer was still open when the game started (e.g. a guest getting
+    // the host's setupChanged push), it unmounts without closing and can
+    // leave `body { pointer-events: none }` stuck — freezing this shell
+    // while the hiding clock keeps ticking. Clear any such leftover.
+    useReleaseStuckBodyLock(gameStarted);
 
     if (!gameStarted) {
         return (

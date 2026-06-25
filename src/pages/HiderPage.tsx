@@ -13,6 +13,7 @@ import { LocationPauseBanner } from "@/components/LocationPauseBanner";
 import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { StationTransitCard } from "@/components/StationTransitCard";
+import { useReleaseStuckBodyLock } from "@/hooks/useReleaseStuckBodyLock";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
@@ -73,6 +74,11 @@ export function HiderPage() {
     // their shell takes over.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const gameStarted = $hidingEndsAt !== null;
+
+    // See SeekerPage: the lobby→in-game branch swap can unmount an open
+    // lobby drawer without closing it, leaving body pointer-events stuck
+    // and freezing this shell. Clear any such leftover on transition.
+    useReleaseStuckBodyLock(gameStarted);
 
     if (!gameStarted) {
         return (
