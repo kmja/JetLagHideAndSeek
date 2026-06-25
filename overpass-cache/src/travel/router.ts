@@ -37,7 +37,35 @@ import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
 import * as transitous from "./adapters/transitous";
 import { walkingJourney } from "./adapters/walking";
-import type { Journey, PlanRequest } from "./types";
+import type { Journey, PlanRequest, TravelMode } from "./types";
+
+/**
+ * True if every transit leg in `journey` uses a mode the request allows.
+ *
+ * Walking is always allowed; a generic `"transit"` leg (mode couldn't be
+ * determined upstream) is allowed too — we can't prove it violates the
+ * constraint, and dropping otherwise-fine multimodal journeys on an
+ * unknown leg would be over-eager. Only a CONCRETE disallowed mode
+ * (bus / tram / train / subway / ferry absent from the allow-set) makes a
+ * journey infeasible.
+ *
+ * `modes` is always populated by `normaliseModes` (it defaults to the
+ * full set when the client sends none), so an unconstrained request
+ * contains every mode and this returns true for any journey — a no-op.
+ * Only when the player has actually banned a mode does it bite.
+ */
+export function journeyModesAllowed(
+    journey: Journey,
+    modes: TravelMode[] | undefined,
+): boolean {
+    if (!modes || modes.length === 0) return true;
+    const allowed = new Set<string>(modes);
+    for (const leg of journey.legs) {
+        if (leg.mode === "walk" || leg.mode === "transit") continue;
+        if (!allowed.has(leg.mode)) return false;
+    }
+    return true;
+}
 
 export interface TravelAdapter {
     /** Stable id, surfaced to the client as `PlanResponse.source` and
@@ -391,6 +419,16 @@ export async function dispatchPlan(
             journey = await adapter.plan(req, departAt, env, signal);
         } catch (e) {
             console.warn(`travel adapter ${adapter.id} threw:`, e);
+            journey = null;
+        }
+        // Reject a journey that rides a mode the player has banned and
+        // fall through to the next adapter. Most regional planners can't
+        // be told to avoid a mode, so we filter their output instead; the
+        // unconditional walking backstop always satisfies the constraint,
+        // so this can only downgrade an illegal transit route to walking,
+        // never blank the plan. Without this the planner happily suggested
+        // e.g. a bus even when bus wasn't an allowed transit mode.
+        if (journey && !journeyModesAllowed(journey, req.modes)) {
             journey = null;
         }
         if (journey) return { source: adapter.id, journey };

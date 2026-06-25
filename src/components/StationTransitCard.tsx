@@ -5,6 +5,7 @@ import { Drawer as VaulDrawer } from "vaul";
 
 import { JourneyCard } from "@/components/JourneyCard";
 import { lastKnownPosition } from "@/lib/context";
+import { allowedTransit } from "@/lib/gameSetup";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
 import { selectedMapStation } from "@/lib/journey/state";
 
@@ -24,6 +25,7 @@ import { selectedMapStation } from "@/lib/journey/state";
 export function StationTransitCard() {
     const station = useStore(selectedMapStation);
     const $gps = useStore(lastKnownPosition);
+    const $allowed = useStore(allowedTransit);
 
     const [planning, setPlanning] = useState(false);
     const [journey, setJourney] = useState<Journey | null>(null);
@@ -57,6 +59,7 @@ export function StationTransitCard() {
                         name: station.name,
                     },
                     departAt: Date.now(),
+                    modes: $allowed,
                 },
                 controller.signal,
             );
@@ -73,7 +76,8 @@ export function StationTransitCard() {
             cancelled = true;
             controller.abort();
         };
-    }, [station?.lat, station?.lng, $gps?.lat, $gps?.lng]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [station?.lat, station?.lng, $gps?.lat, $gps?.lng, $allowed.join(",")]);
 
     const close = () => selectedMapStation.set(null);
 

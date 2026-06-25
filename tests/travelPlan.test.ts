@@ -24,9 +24,11 @@ import { parseOdsayPath } from "../overpass-cache/src/travel/adapters/korea";
 import { parseNsTrip } from "../overpass-cache/src/travel/adapters/netherlands";
 import {
     dispatchPlan,
+    journeyModesAllowed,
     selectAdapters,
 } from "../overpass-cache/src/travel/router";
 import type {
+    Journey,
     PlanRequest,
     TravelPlace,
 } from "../overpass-cache/src/travel/types";
@@ -1269,5 +1271,62 @@ describe("parseNsTrip (Netherlands / NS)", () => {
     test("returns null on empty trips", () => {
         expect(parseNsTrip({ trips: [] }, dest)).toBeNull();
         expect(parseNsTrip({}, dest)).toBeNull();
+    });
+});
+
+describe("journeyModesAllowed (banned-mode gate)", () => {
+    const leg = (mode: Journey["legs"][number]["mode"]) => ({
+        mode,
+        from: { lat: 0, lng: 0 },
+        to: { lat: 1, lng: 1 },
+        departAt: 0,
+        arriveAt: 60_000,
+    });
+    const journey = (
+        ...modes: Journey["legs"][number]["mode"][]
+    ): Journey => ({
+        departAt: 0,
+        arriveAt: 60_000,
+        durationMin: 1,
+        transfers: Math.max(0, modes.length - 1),
+        legs: modes.map(leg),
+    });
+
+    test("undefined / empty modes = unconstrained (always allowed)", () => {
+        expect(journeyModesAllowed(journey("bus"), undefined)).toBe(true);
+        expect(journeyModesAllowed(journey("bus"), [])).toBe(true);
+    });
+
+    test("rejects a journey that rides a banned concrete mode", () => {
+        // Bus banned (allow-set without bus) → a bus leg is infeasible.
+        const allowed = ["tram", "train", "subway", "ferry"] as const;
+        expect(journeyModesAllowed(journey("bus"), [...allowed])).toBe(false);
+        expect(
+            journeyModesAllowed(journey("walk", "train", "bus"), [...allowed]),
+        ).toBe(false);
+    });
+
+    test("accepts a journey whose transit legs are all allowed", () => {
+        const allowed = ["tram", "train", "subway", "ferry"] as const;
+        expect(
+            journeyModesAllowed(journey("walk", "train", "walk"), [...allowed]),
+        ).toBe(true);
+    });
+
+    test("walking-only and unknown 'transit' legs are always allowed", () => {
+        const allowed = ["train"] as const;
+        expect(journeyModesAllowed(journey("walk"), [...allowed])).toBe(true);
+        // A generic 'transit' leg (mode undetermined upstream) is not
+        // proven to violate the constraint, so it passes.
+        expect(journeyModesAllowed(journey("transit"), [...allowed])).toBe(
+            true,
+        );
+    });
+
+    test("full allow-set is a no-op (every mode permitted)", () => {
+        const all = ["bus", "tram", "train", "subway", "ferry"] as const;
+        expect(journeyModesAllowed(journey("bus", "tram"), [...all])).toBe(
+            true,
+        );
     });
 });
