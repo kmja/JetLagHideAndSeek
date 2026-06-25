@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { LocateFixed, MapPin, Search } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { JourneyCard } from "@/components/JourneyCard";
@@ -13,7 +13,8 @@ import {
     type PlanResponse,
     type TravelPlace,
 } from "@/lib/journey/plan";
-import { seekerTripPlannerOpen } from "@/lib/journey/state";
+import { seekerTripPlannerOpen, tripRouteFC } from "@/lib/journey/state";
+import { journeyToRouteFC } from "@/lib/journey/route";
 import { cn } from "@/lib/utils";
 import { forwardGeocodeOne } from "@/maps/api/geocode";
 
@@ -48,23 +49,40 @@ export function SeekerTripPlannerSheet() {
     const [source, setSource] = useState<string | undefined>(undefined);
     const [planError, setPlanError] = useState<string | null>(null);
     const [nonce, setNonce] = useState(0);
+    // Last-planned input signature (destination + modes + refresh nonce).
+    // GPS is excluded so position jitter doesn't re-plan; see the effect.
+    const lastSigRef = useRef<string | null>(null);
 
-    // Reset state when drawer closes — keeps the next open fresh.
+    // Mirror the planned journey onto the map route overlay; clear it
+    // when there's no journey or the planner unmounts.
+    useEffect(() => {
+        tripRouteFC.set(journey ? journeyToRouteFC(journey) : null);
+    }, [journey]);
+    useEffect(() => () => tripRouteFC.set(null), []);
+
+    // On close, only clear the transient search-input state. The
+    // destination + planned journey PERSIST so (a) the route overlay
+    // stays visible on the map once the drawer is out of the way — the
+    // whole point of drawing it — and (b) reopening resumes the last
+    // trip. "Change" (clearDestination) is the explicit way to drop it.
     useEffect(() => {
         if (!open) {
             setQuery("");
-            setDestination(null);
             setSearchError(null);
-            setJourney(null);
-            setSource(undefined);
-            setPlanError(null);
-            setNonce(0);
         }
     }, [open]);
 
-    // Re-plan whenever destination or GPS or nonce changes.
+    // Re-plan when the destination, allowed modes, or a manual Refresh
+    // change — NOT on GPS drift. The origin is read from the live GPS at
+    // plan time, but a few metres of jitter every few seconds must not
+    // trigger a fresh round-trip (it made the route flicker + reload
+    // constantly). `$gps` stays in the deps only so the FIRST plan fires
+    // once a fix arrives; the signature guard skips drift-only re-runs.
     useEffect(() => {
         if (!open || !destination || !$gps) return;
+        const sig = `${destination.lat},${destination.lng}|${$allowed.join(",")}|${nonce}`;
+        if (lastSigRef.current === sig) return;
+        lastSigRef.current = sig;
         let cancelled = false;
         const controller = new AbortController();
         setPlanning(true);
@@ -148,6 +166,7 @@ export function SeekerTripPlannerSheet() {
         setJourney(null);
         setSource(undefined);
         setPlanError(null);
+        lastSigRef.current = null;
     };
 
     return (

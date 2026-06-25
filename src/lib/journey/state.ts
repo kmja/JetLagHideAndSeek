@@ -96,6 +96,16 @@ export const hiderReachFC = atom<GeoJSON.FeatureCollection<
  *  Not persisted — closing the app resets it. */
 export const seekerTripPlannerOpen = atom<boolean>(false);
 
+/**
+ * Shadow FC for the active planned trip's route, drawn on the map as a
+ * coloured per-leg line + labelled step points. Written by whichever
+ * trip planner is active (seeker drawer or hider trip-plan card) from
+ * `journeyToRouteFC`, cleared when no plan is showing. Same shadow-atom
+ * pattern the other overlays use; the seeker `Map` and hider
+ * `HiderBackgroundMap` render it via `TripRouteLayers`.
+ */
+export const tripRouteFC = atom<GeoJSON.FeatureCollection | null>(null);
+
 /* ─────────────────── Map-first station selection ─────────────────── */
 
 /**

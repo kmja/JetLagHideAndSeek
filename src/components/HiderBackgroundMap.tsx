@@ -10,6 +10,7 @@ import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
 import { MapNavControls } from "@/components/MapNavControls";
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
+import { TripRouteLayers } from "@/components/TripRouteLayers";
 import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
 import { useSelfPositionWatch } from "@/hooks/useSelfPositionWatch";
 import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
@@ -443,6 +444,7 @@ export function HiderBackgroundMap() {
                     Above the zone/boundary fills, below the point markers
                     (GPS, seeker pins) added after this. */}
                 <TransitRouteLayers transitFC={transitFC} />
+                <TripRouteLayers />
 
                 {/* Hider's own GPS pin — pulsing accuracy ring + a
                     "You" label so it's obvious at a glance which dot
