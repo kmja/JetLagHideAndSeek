@@ -159,6 +159,13 @@ export async function createGame(): Promise<string> {
 
 /** Connect as the host of an already-created game code. */
 export function joinAsHost(code: string, name: string) {
+    // The bridge must be wired BEFORE we open the socket, otherwise the
+    // transport's status/message events have no listener and the UI
+    // never learns we connected. MultiplayerBoot installs it on the
+    // seeker/hider routes, but the host/join flows can fire from the
+    // /welcome route too (no MultiplayerBoot there) — so self-install
+    // defensively. Idempotent.
+    installMultiplayerBridge();
     displayName.set(name);
     multiplayerError.set(null);
     currentGameCode.set(code);
@@ -178,6 +185,12 @@ export function joinAsHost(code: string, name: string) {
 
 /** Connect as a guest joining an existing room. */
 export function joinAsGuest(code: string, name: string) {
+    // Self-install the bridge first — the guest join flow lives on the
+    // /welcome route, which doesn't mount MultiplayerBoot. Without this
+    // the transport connects but its status/message events go nowhere:
+    // the role-picker spinner sticks on "Working…" forever and the
+    // server's welcome/snapshot/presence are all dropped. Idempotent.
+    installMultiplayerBridge();
     displayName.set(name);
     multiplayerError.set(null);
     currentGameCode.set(code);
@@ -204,6 +217,10 @@ export function tryResumeFromPersistent() {
     const token = sessionToken.get();
     if (!code || !token) return;
     if (!multiplayerEnabled.get()) return;
+    // Ensure the bridge is wired before reconnecting (it normally is —
+    // MultiplayerBoot calls this AFTER installMultiplayerBridge — but
+    // self-install keeps the invariant local to the connect verbs).
+    installMultiplayerBridge();
     // Demo mode is runtime-only; a refreshed tab has no live broker to
     // resume against. Wipe the stale persistent atoms so the user lands
     // on the offline screen instead of bouncing off the real worker
