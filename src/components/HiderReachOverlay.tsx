@@ -57,14 +57,22 @@ export function HiderReachOverlay() {
     const lastAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
 
     useEffect(() => {
-        // Off → clear and bail.
+        // Off → clear and bail. Also drop the anchor memo so the NEXT
+        // enable always re-fetches: without this, toggling the overlay
+        // off (which clears the FC) and back on while standing still hit
+        // the <100 m deadband below and returned early WITHOUT
+        // re-painting — leaving the overlay permanently blank until GPS
+        // happened to move 100 m. (The reported "shows nothing".)
         if (!enabled) {
             hiderReachFC.set(null);
+            lastAnchorRef.current = null;
             return;
         }
-        // No GPS, no clock → nothing to compute.
+        // No GPS, no clock → nothing to compute. Reset the anchor too so
+        // the fetch fires the moment a fix arrives (deps include $gps).
         if (!$gps || !$hidingEndsAt) {
             hiderReachFC.set(null);
+            lastAnchorRef.current = null;
             return;
         }
         // Auto-disable once the hider has locked their zone — at
@@ -83,8 +91,12 @@ export function HiderReachOverlay() {
             return;
         }
 
-        // GPS deadband — skip re-fetch if the hider hasn't moved.
-        if (lastAnchorRef.current) {
+        // GPS deadband — skip re-fetch if the hider hasn't moved AND we
+        // already have a painted result to keep. The `getFC` guard
+        // matters: if the previous pass produced nothing yet (or was
+        // cleared), a sub-100 m jitter must NOT short-circuit us into
+        // leaving the overlay blank — we re-fetch instead.
+        if (lastAnchorRef.current && hiderReachFC.get()) {
             const m = haversineMeters(
                 $gps.lat,
                 $gps.lng,
@@ -173,11 +185,18 @@ export function HiderReachOverlay() {
                 lat: s.lat,
                 lng: s.lng,
             }));
-            const arrivals = await provider.fetchArrivals(
-                { lat: $gps.lat, lng: $gps.lng, departAt: now },
-                stops,
-                controller.signal,
-            );
+            const arrivals = await provider
+                .fetchArrivals(
+                    { lat: $gps.lat, lng: $gps.lng, departAt: now },
+                    stops,
+                    controller.signal,
+                )
+                .catch((e) => {
+                    console.warn("HiderReachOverlay: arrivals fetch failed", e);
+                    return [] as Awaited<
+                        ReturnType<typeof provider.fetchArrivals>
+                    >;
+                });
             if (cancelled) return;
 
             const arrivalMap = new Map<string, number>();
@@ -186,6 +205,14 @@ export function HiderReachOverlay() {
                     arrivalMap.set(r.stopId, r.arrivalAt);
                 }
             }
+            // If the provider couldn't return a single usable arrival
+            // (region not covered, upstream hiccup, every stop unmatched),
+            // DON'T blank the overlay — that's the "shows nothing" bug.
+            // Keep the optimistic all-candidates view (dots, no labels) so
+            // the hider still sees every plausible zone; arrival times are
+            // a bonus when the provider can compute them. We only switch
+            // to the reachable-only filter once we actually have times.
+            if (arrivalMap.size === 0) return;
             hiderReachFC.set(
                 buildFC(plausible, arrivalMap, $hidingEndsAt, false),
             );
