@@ -113,10 +113,22 @@ export function SetupPage() {
         else setDraftSize("large");
     }, [draftFeature, sizeManuallySet]);
 
-    // Wipe any adjacent picks the moment the primary area changes —
-    // stale neighbours from a different country would otherwise
-    // bleed across.
+    // Wipe any adjacent picks when the primary area genuinely CHANGES
+    // to a different area — stale neighbours from a different region
+    // would otherwise bleed across. Crucially, do NOT wipe on the
+    // initial seed / reopen: the persisted adjacents belong to the
+    // currently-committed primary (`mapGeoLocation`), so when the draft
+    // still points at THAT area (fresh open, edit-settings reopen) they
+    // must survive. Only a move to a different osm_id clears them. (The
+    // old effect fired on every null→area transition — including the
+    // edit-dialog seed — which silently wiped already-saved neighbours.)
     useEffect(() => {
+        const id = draftFeature?.properties?.osm_id ?? null;
+        if (id === null) return;
+        const committedId =
+            (mapGeoLocation.get()?.properties as { osm_id?: number } | undefined)
+                ?.osm_id ?? null;
+        if (id === committedId) return;
         additionalMapGeoLocations.set([]);
     }, [draftFeature?.properties.osm_id]);
 

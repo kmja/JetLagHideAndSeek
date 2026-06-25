@@ -297,13 +297,21 @@ export function GameSetupDialog() {
         if (inferred) setDraftSize(inferred);
     }, [draftFeature, sizeManuallySet]);
 
-    // Clear any picked neighbours when the primary play area changes.
-    // The PlayAreaExtensions picker also resets itself when its
-    // `primary` prop changes, but that doesn't cover the case where
-    // the user picked a few neighbours, then changed the primary
-    // without re-opening the picker — stale selections would
-    // carry over to a different country.
+    // Clear picked neighbours only when the primary play area genuinely
+    // CHANGES to a DIFFERENT area than the one the saved neighbours
+    // belong to (the committed `mapGeoLocation`). The previous version
+    // fired on every null→area transition, so opening this dialog in
+    // edit mode — which seeds `draftFeature` with the current area —
+    // wiped the already-saved adjacents on open (they "weren't saved").
+    // Gating on the committed primary makes the seed/reopen a no-op and
+    // only a real area change resets the list.
     useEffect(() => {
+        const id = draftFeature?.properties?.osm_id ?? null;
+        if (id === null) return;
+        const committedId =
+            (mapGeoLocation.get()?.properties as { osm_id?: number } | undefined)
+                ?.osm_id ?? null;
+        if (id === committedId) return;
         additionalMapGeoLocations.set([]);
     }, [draftFeature?.properties.osm_id]);
 

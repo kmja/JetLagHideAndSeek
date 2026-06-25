@@ -39,14 +39,6 @@ import { formatAreaLabel } from "./GameSetupDialog";
  * `additionalMapGeoLocations`, mutated by the map (tap-to-add) and the
  * remove buttons here, so both surfaces stay in sync.
  */
-/**
- * Module-level so it survives PlayAreaStep unmounting (step 1 only
- * mounts while `step === 1`). Without this, returning to step 1 would
- * remount this controller and wipe every area the user added. We only
- * reset the added-area list when the primary GENUINELY changes.
- */
-let lastResetPrimaryId: number | null = null;
-
 /** Module-level candidate cache (by primary + transit) so re-entering
  *  step 1 repaints the tappable neighbours instantly instead of
  *  re-hitting Overpass. */
@@ -69,15 +61,11 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     );
 
     useEffect(() => {
-        const primaryId = primary.properties.osm_id;
-        // Reset added areas ONLY when the primary actually changes —
-        // not on a back-nav remount for the same primary, and not on a
-        // transit-mode tweak (which keeps the same neighbours).
-        if (lastResetPrimaryId !== primaryId) {
-            lastResetPrimaryId = primaryId;
-            additionalMapGeoLocations.set([]);
-        }
-
+        // NOTE: clearing the added-area list on a primary change is owned
+        // by the parent step (SetupPage / GameSetupDialog), which gates it
+        // on the committed `mapGeoLocation` so an edit-mode reopen doesn't
+        // wipe already-saved neighbours. This controller only fetches the
+        // candidate set for the current primary.
         const cached = candidateCache.get(cacheKey);
         if (cached) {
             setCandidates(cached);
