@@ -9,20 +9,18 @@ import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
 import { MapNavControls } from "@/components/MapNavControls";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
+import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
+import { useSelfPositionWatch } from "@/hooks/useSelfPositionWatch";
 import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import {
-    isLoading,
     lastKnownPosition,
-    mapGeoJSON,
     mapGeoLocation,
     polyGeoJSON,
-    polyGeoJSONHydrated,
 } from "@/lib/context";
 import { hidingPeriodEndsAt, satelliteView } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
 import { hiderReachFC, selectedMapStation } from "@/lib/journey/state";
 import { findNearestStation } from "@/lib/journey/stations";
-import { clipPolygonToLand } from "@/lib/landClip";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import {
     PLAY_AREA_COLOR,
@@ -37,7 +35,6 @@ import {
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { determineMapBoundaries } from "@/maps/api";
 
 import { SelfPositionMarker } from "./SelfPositionMarker";
 
@@ -88,106 +85,15 @@ export function HiderBackgroundMap() {
     // (previously they were dead on the hider map).
     const transitFC = useTransitRouteOverlays();
 
-    // Live "you are here" fix for the hider. The blue GPS dot below
-    // (and the hider's trip-plan / reach features) read `lastKnownPosition`,
-    // but only the SEEKER's Map.tsx ever wrote it — the hider had no watch,
-    // so the atom stayed null and the hider's own dot never appeared.
-    // Mirror Map.tsx's seeker watch: run for the whole session, write each
-    // fix to the shared atom, stay silent on error (a denied/unavailable
-    // fix just means no dot — no toast spam). Same mechanism the v394
-    // boundary-fetch fix added for the hider's missing boundary load.
-    useEffect(() => {
-        if (typeof navigator === "undefined" || !navigator.geolocation) {
-            return;
-        }
-        const id = navigator.geolocation.watchPosition(
-            (pos) => {
-                lastKnownPosition.set({
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                });
-            },
-            () => {
-                // Quiet — no dot is the correct degraded state.
-            },
-            { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
-        );
-        return () => navigator.geolocation.clearWatch(id);
-    }, []);
+    // Live "you are here" fix for the hider. Shared watch (with the seeker
+    // map) writes lastKnownPosition; the blue GPS dot below reads it via
+    // $gps, and the hider's trip-plan / reach features read it too.
+    useSelfPositionWatch();
 
-    // v394: fetch the play-area boundary on the hider side. The seeker's
-    // Map.tsx has its own boundary-fetch effect; the hider previously had
-    // none, so polyGeoJSON stayed null on a fresh join. Symptoms: no
-    // boundary line on the map, AND `spoofRandomInPlayArea` falling back
-    // to the Photon bbox (a country-sized rectangle for "Calgary"), so
-    // spoofed positions could land well outside the city.
-    //
-    // We mirror Map.tsx's gates exactly: wait for Cache hydration so we
-    // don't re-fetch a polygon we already have on disk; skip when a
-    // polygon is already loaded; skip when another fetch is in flight.
-    // Single attempt, best-effort — the seeker's path owns the
-    // user-facing "couldn't load" toast; the hider just shows no outline
-    // if it fails, and we'll retry on the next mapGeoLocation change.
-    useEffect(() => {
-        const props = $playArea?.properties as { osm_id?: number } | undefined;
-        if (!($playArea && (props?.osm_id ?? 0) > 0)) return;
-        if (polyGeoJSON.get() || mapGeoJSON.get()) return;
-        let cancelled = false;
-        (async () => {
-            if (!polyGeoJSONHydrated.get()) {
-                await Promise.race([
-                    new Promise<void>((resolve) => {
-                        const unsub = polyGeoJSONHydrated.subscribe((v) => {
-                            if (v) {
-                                unsub();
-                                resolve();
-                            }
-                        });
-                    }),
-                    new Promise<void>((resolve) => setTimeout(resolve, 3000)),
-                ]);
-                if (cancelled) return;
-                if (polyGeoJSON.get() || mapGeoJSON.get()) return;
-            }
-            if (isLoading.get()) return;
-            isLoading.set(true);
-            try {
-                let boundary = await determineMapBoundaries();
-                if (cancelled) return;
-                if (!boundary?.features?.length) return;
-                const f = (boundary.features?.[0] as any) ?? null;
-                if (f?.geometry) {
-                    try {
-                        const c = await clipPolygonToLand(f);
-                        if (c) {
-                            boundary = {
-                                type: "FeatureCollection",
-                                features: [c],
-                            } as any;
-                        }
-                    } catch (e) {
-                        console.warn(
-                            "[HiderBackgroundMap] clipPolygonToLand failed; using raw boundary",
-                            e,
-                        );
-                    }
-                }
-                if (cancelled) return;
-                mapGeoJSON.set(boundary);
-                polyGeoJSON.set(boundary);
-            } catch (e) {
-                console.warn(
-                    "[HiderBackgroundMap] determineMapBoundaries failed:",
-                    e,
-                );
-            } finally {
-                isLoading.set(false);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [$playArea]);
+    // Play-area boundary fetch — shared with the seeker map via
+    // usePlayAreaBoundary (was a thinner single-attempt copy here,
+    // v394; now identical 2-attempt + clip + toast behaviour).
+    usePlayAreaBoundary();
 
     const seekerPins = useMemo(
         () =>

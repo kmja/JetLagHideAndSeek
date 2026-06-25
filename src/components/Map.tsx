@@ -24,6 +24,8 @@ import {
     DialogContent,
 } from "@/components/ui/dialog";
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
+import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
+import { useSelfPositionWatch } from "@/hooks/useSelfPositionWatch";
 import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
@@ -32,14 +34,11 @@ import {
     followMe,
     hiderMode,
     hidingZonesGeoJSON,
-    isLoading,
-    lastKnownPosition,
     mapContext,
     mapGeoJSON,
     mapGeoLocation,
     planningModeEnabled,
     polyGeoJSON,
-    polyGeoJSONHydrated,
     questionFinishedMapData,
     questionModified,
     questions,
@@ -53,7 +52,6 @@ import {
 import { playArea } from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
-import { clipPolygonToLand } from "@/lib/landClip";
 import { createMapShim } from "@/lib/mapShim";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
 import {
@@ -72,7 +70,7 @@ import { resolvedTheme } from "@/lib/theme";
 import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
-import { clearCache, determineMapBoundaries } from "@/maps/api";
+import { clearCache } from "@/maps/api";
 import { CacheType } from "@/maps/api/types";
 
 import { MapTilesVeil } from "./MapTilesVeil";
@@ -668,178 +666,10 @@ export function Map({ className }: MapProps) {
         }
     }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON, $playArea]);
 
-    // Boundary fetch trigger. The old Leaflet Map.tsx owned this
-    // flow inside a `refreshQuestions()` helper; when v80 retired
-    // that file the call site was lost and the seeker would land
-    // on a play area with no one actually fetching the boundary
-    // GeoJSON — the MapLoadingOverlay sat on 'Fetching boundary…'
-    // forever (v85 user report). Restored as a focused effect
-    // here. Gates:
-    //   - playArea !== null: the user has explicitly picked an
-    //     area. mapGeoLocation defaults to Japan on a fresh load
-    //     (persistent atom seed); gating on playArea (which
-    //     defaults to null) means we only fetch once the wizard
-    //     has actually committed something — and we fetch as
-    //     soon as it does, not waiting for the user to finish
-    //     the rest of the wizard.
-    //   - polyGeoJSONHydrated: the polyGeoJSON atom is
-    //     async-hydrated from Cache API on boot; reading too
-    //     early gives null and we mistakenly re-fetch a boundary
-    //     we already have on disk. Wait for the hydration flag.
-    //   - mapGeoJSON / polyGeoJSON: skip when we already have
-    //     a boundary loaded.
-    //   - isLoading: skip when another fetch is in flight.
-    useEffect(() => {
-        const props = $mapGeoLocation?.properties as
-            | { osm_id?: number }
-            | undefined;
-        if (!($mapGeoLocation && (props?.osm_id ?? 0) > 0)) return;
-        if ($mapGeoJSON || $polyGeoJSON) return;
-        if (!$playArea) return;
-
-        let cancelled = false;
-        (async () => {
-            // Wait for the persistent-cache hydration before
-            // deciding we have no boundary on disk. Race against a
-            // 3 s wall-clock timeout so a stuck Cache API (iOS
-            // PWA bug) doesn't block the boundary fetch forever.
-            if (!polyGeoJSONHydrated.get()) {
-                await Promise.race([
-                    new Promise<void>((resolve) => {
-                        const unsub = polyGeoJSONHydrated.subscribe(
-                            (v) => {
-                                if (v) {
-                                    unsub();
-                                    resolve();
-                                }
-                            },
-                        );
-                    }),
-                    new Promise<void>((resolve) =>
-                        setTimeout(resolve, 3000),
-                    ),
-                ]);
-                if (cancelled) return;
-                // Re-check after hydration — Cache API may have
-                // produced a value we should use as-is.
-                if (mapGeoJSON.get() || polyGeoJSON.get()) return;
-            }
-            if (isLoading.get()) return;
-            isLoading.set(true);
-            // One silent retry pass. A first-time-ever play area
-            // often misses every fast path (R2 cold + polygons.osm.fr
-            // returning "None") and lands on the rate-limited public
-            // mirrors. The first attempt is the slowest, but it
-            // (a) writes the polygons.osm.fr build trigger, (b) warms
-            // the cache worker's R2, and (c) gives the public mirrors'
-            // rate window time to relax. The second attempt — 8 s
-            // later — usually hits something warm and resolves
-            // quickly. Total cap: two passes, so we never loop
-            // forever. The user-facing failure toast only fires after
-            // BOTH attempts come back empty.
-            let boundary:
-                | Awaited<ReturnType<typeof determineMapBoundaries>>
-                | null = null;
-            for (let attempt = 1; attempt <= 2; attempt++) {
-                try {
-                    boundary = await determineMapBoundaries();
-                } catch (e) {
-                    console.warn(
-                        `determineMapBoundaries attempt ${attempt} failed:`,
-                        e,
-                    );
-                    boundary = null;
-                }
-                if (cancelled) return;
-                const hasFeatures = Boolean(
-                    boundary?.features?.length,
-                );
-                if (hasFeatures) break;
-                if (attempt < 2) {
-                    console.debug(
-                        "[map] boundary attempt 1 returned nothing — retrying in 8 s",
-                    );
-                    await new Promise((r) => setTimeout(r, 8000));
-                    if (cancelled) return;
-                }
-            }
-            try {
-                const hadFeatures = Boolean(boundary?.features?.length);
-                if (!hadFeatures && !cancelled) {
-                    // Both attempts came back empty. Surface a single
-                    // user-facing toast (the per-fetch silent path
-                    // suppresses any sub-toasts so we're the only
-                    // voice). The wording avoids blaming the user —
-                    // boundary fetches fail mostly when the public
-                    // mirrors are rate-limited or the relation hasn't
-                    // been built at polygons.osm.fr yet.
-                    toast.error(
-                        "Couldn't load the play-area boundary. The mirrors are busy — try again in a minute.",
-                        { toastId: "boundary-load-error" },
-                    );
-                }
-                if (boundary) {
-                    // Trim the legal-boundary polygon to actual land
-                    // before we publish it. OSM admin boundaries
-                    // include coastal waters (Nagasaki Prefecture
-                    // sweeps ~50 km out to sea), which made ~half the
-                    // visible play area look playable when it's
-                    // open ocean. Best-effort: if the clip fails for
-                    // any reason we publish the original polygon so a
-                    // bad clip can never break the game.
-                    const f =
-                        (boundary.features?.[0] as any) ?? null;
-                    let clipped = boundary;
-                    if (f && f.geometry) {
-                        try {
-                            const c = await clipPolygonToLand(f);
-                            if (c) {
-                                clipped = {
-                                    type: "FeatureCollection",
-                                    features: [c],
-                                } as any;
-                            }
-                        } catch (e) {
-                            console.warn(
-                                "clipPolygonToLand failed; using raw boundary",
-                                e,
-                            );
-                        }
-                    }
-                    if (cancelled) return;
-                    mapGeoJSON.set(clipped);
-                    // Mirror to polyGeoJSON so the persistent-
-                    // cache layer in context.ts picks up the
-                    // value and stashes it for next session.
-                    polyGeoJSON.set(clipped);
-                }
-            } catch (e) {
-                console.warn("determineMapBoundaries failed:", e);
-            } finally {
-                if (!cancelled) isLoading.set(false);
-            }
-        })();
-
-        return () => {
-            cancelled = true;
-            // Clear the gate so the next effect run (triggered by
-            // deps changing) isn't silently skipped. Without this,
-            // isLoading stays true when we cancel a mid-flight fetch,
-            // and every subsequent run hits the early-return and
-            // never fetches (the lobby "Fetching boundary…" hang).
-            isLoading.set(false);
-        };
-        // $playArea is in the deps so the wizard's set-then-set
-        // write order wakes the effect on the playArea-commit
-        // tick rather than the mapGeoLocation-commit tick. Same
-        // logic as v87's $setupCompleted dep, just on the new
-        // gate.
-    }, [
-        $mapGeoLocation?.properties,
-        $mapGeoJSON,
-        $polyGeoJSON,
-        $playArea,
-    ]);
+    // Play-area boundary fetch — shared with the hider map via
+    // usePlayAreaBoundary (fetch + 2-attempt retry + land-clip +
+    // failure toast). Was a large inline effect here.
+    usePlayAreaBoundary();
 
     // Pending-question dashed outlines + post-elimination mask.
     // applyQuestionsToMapGeoData walks each question and either
@@ -1161,47 +991,12 @@ export function Map({ className }: MapProps) {
         if (station) selectedMapStation.set(station);
     };
 
-    // Live blue "you are here" dot, always shown on the seeker map
-    // (like every other mapping app). Decoupled from the Follow Me
-    // toggle — that now only controls auto-centering below. The watch
-    // runs for the whole session; errors are silent (a denied or
-    // unavailable fix just means no dot, no toast spam on every load).
-    // The marker is rendered in JSX below; we keep just the position
-    // in state here.
-    const [selfPosition, setSelfPosition] = useState<
-        | {
-              lat: number;
-              lng: number;
-          }
-        | null
-    >(null);
-    useEffect(() => {
-        if (
-            typeof navigator === "undefined" ||
-            !navigator.geolocation
-        ) {
-            return;
-        }
-        const id = navigator.geolocation.watchPosition(
-            (pos) => {
-                const next = {
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                };
-                setSelfPosition(next);
-                // Share the fix so question pickers can default to the
-                // player's real position instead of the play-area centroid.
-                lastKnownPosition.set(next);
-            },
-            () => {
-                // Stay quiet — no dot is the correct degraded state.
-            },
-            { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
-        );
-        return () => {
-            navigator.geolocation.clearWatch(id);
-        };
-    }, []);
+    // Live blue "you are here" dot, always shown on the seeker map (like
+    // every other mapping app). Decoupled from the Follow Me toggle —
+    // that only controls auto-centering below. The watch (shared with the
+    // hider map) writes lastKnownPosition and returns the latest fix for
+    // the marker + follow-me. The marker is rendered in JSX below.
+    const selfPosition = useSelfPositionWatch();
 
     // Follow Me: when enabled, recenter the map on each new GPS fix so
     // the seeker's dot stays in view as they move. Off by default so it
