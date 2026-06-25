@@ -10,13 +10,13 @@ import {
     polyGeoJSON,
 } from "@/lib/context";
 import { devLog, devWarn } from "@/lib/devLog";
+import { combineBoundary } from "@/lib/geometry/client";
 import { playArea } from "@/lib/gameSetup";
 import {
     finishLoading,
     setPhase,
     startLoading,
 } from "@/lib/loadingProgress";
-import { safeUnion } from "@/maps/geo-utils";
 
 import {
     cacheFetch,
@@ -1094,83 +1094,38 @@ export const determineMapBoundaries = async () => {
 
         // Parse phase. osmtogeojson already ran inside
         // determineGeoJSON; what's expensive next is the union /
-        // difference / simplify steps over the combined polygon.
+        // difference / simplify steps over the combined polygon. Those
+        // turf ops run in the geometry Web Worker (off the main thread)
+        // so even a pathologically large boundary — the "Tokyo
+        // Metropolis" relation legally spans ~1000 km to the Ogasawara
+        // Islands — can no longer FREEZE the UI. `combineBoundary`
+        // falls back to the synchronous main-thread core if the worker
+        // is unavailable. The worker reports its own phase labels
+        // ("Subtracting excluded areas…", "Simplifying geometry…") via
+        // the onPhase callback so the loading overlay stays live.
         setPhase("Combining boundary polygons…");
-        // Give the browser a frame to paint the new phase label
-        // before we hit the heavy turf work, otherwise the UI
-        // freezes mid-phase and the user thinks we've stalled.
         await new Promise((r) => requestAnimationFrame(r));
 
-        // Skip anything that isn't a closed polygon/multipolygon
-        // before the union — a single unclosed way (rare but it
-        // happens on OSM relations with missing role tags) would
-        // otherwise crash turf.union with "Input geometry is not
-        // a valid Polygon or MultiPolygon".
-        const isPolygonal = (f: any) =>
-            f?.geometry?.type === "Polygon" ||
-            f?.geometry?.type === "MultiPolygon";
+        // `combineBoundary` filters out anything that isn't a closed
+        // polygon/multipolygon before the union (a stray unclosed way on
+        // an OSM relation would otherwise crash turf) and throws if no
+        // usable added feature survives.
         const addedFeatures = mapGeoDatum
             .filter((x) => x.added)
-            .flatMap((x) => x.data.features)
-            .filter(isPolygonal);
-        if (addedFeatures.length === 0) {
-            throw new Error(
-                "Boundary fetch returned no usable polygon features.",
-            );
-        }
-        let mapGeoData = turf.featureCollection([
-            safeUnion(
-                turf.featureCollection(addedFeatures) as any,
-            ),
-        ]);
-
-        const differences = mapGeoDatum
+            .flatMap((x) => x.data.features) as any;
+        const subtractFeatures = mapGeoDatum
             .filter((x) => !x.added)
-            .map((x) => x.data);
+            .flatMap((x) => x.data.features) as any;
 
-        if (differences.length > 0) {
-            setPhase("Subtracting excluded areas…");
-            await new Promise((r) => requestAnimationFrame(r));
-            const subtractFeatures = differences
-                .flatMap((x) => x.features)
-                .filter(isPolygonal);
-            if (subtractFeatures.length > 0) {
-                const diff = turf.difference(
-                    turf.featureCollection([
-                        mapGeoData.features[0],
-                        ...subtractFeatures,
-                    ]),
-                );
-                // turf.difference returns null when the result
-                // is empty (subtractions covered the whole base).
-                // Preserve the original boundary in that case
-                // rather than throwing.
-                if (diff) {
-                    mapGeoData = turf.featureCollection([diff]);
-                }
-            }
-        }
-
-        if (turf.coordAll(mapGeoData).length > 10000) {
-            setPhase("Simplifying geometry…");
-            await new Promise((r) => requestAnimationFrame(r));
-            // highQuality Douglas-Peucker is O(n^2)-ish and on a
-            // pathologically large boundary (e.g. the "Tokyo Metropolis"
-            // relation, which legally spans ~1000 km to the Ogasawara
-            // Islands) it can run for many seconds — long enough to FREEZE
-            // the main thread (frozen loading animation + dead UI). The
-            // fast (non-highQuality) pass is plenty for a play-area
-            // outline and is dramatically cheaper on huge inputs.
-            turf.simplify(mapGeoData, {
-                tolerance: 0.0005,
-                highQuality: false,
-                mutate: true,
-            });
-        }
+        const combined = await combineBoundary(
+            addedFeatures,
+            subtractFeatures,
+            setPhase,
+        );
 
         setPhase("Rendering…");
         await new Promise((r) => requestAnimationFrame(r));
-        return turf.combine(mapGeoData) as FeatureCollection<MultiPolygon>;
+        return combined as FeatureCollection<MultiPolygon>;
     } finally {
         finishLoading();
     }

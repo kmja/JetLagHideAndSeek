@@ -11,7 +11,7 @@ import {
     polyGeoJSONHydrated,
 } from "@/lib/context";
 import { playArea } from "@/lib/gameSetup";
-import { clipPolygonToLand } from "@/lib/landClip";
+import { clipPolygonToLand } from "@/lib/geometry/client";
 import { determineMapBoundaries } from "@/maps/api";
 
 /**

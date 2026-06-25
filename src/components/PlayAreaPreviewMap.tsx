@@ -21,7 +21,7 @@ import {
     adjacentCandidatePreview,
     toggleAdjacentArea,
 } from "@/lib/context";
-import { clipPolygonToLand } from "@/lib/landClip";
+import { clipPolygonToLand } from "@/lib/geometry/client";
 import {
     PLAY_AREA_COLOR,
     PLAY_AREA_FILL_OPACITY,
