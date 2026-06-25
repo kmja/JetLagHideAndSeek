@@ -20,6 +20,7 @@
  *                        rectangle with bold uppercase white text.
  */
 import { useId } from "react";
+import type { ReactNode } from "react";
 
 import type { GameSize } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
@@ -307,16 +308,20 @@ export function SizeBadge({
     size,
     abbreviated = false,
     className,
+    trailing,
 }: {
     size: GameSize;
     abbreviated?: boolean;
     className?: string;
+    /** Optional node rendered INSIDE the coloured pill, after the label
+     *  (e.g. a dropdown chevron so it reads as part of the same pill). */
+    trailing?: ReactNode;
 }) {
     const meta = SIZE_BADGE[size];
     return (
         <span
             className={cn(
-                "inline-flex items-center justify-center rounded-md px-2 py-0.5",
+                "inline-flex items-center justify-center gap-1 rounded-md px-2 py-0.5",
                 "font-inter-tight font-black uppercase tracking-[0.08em] text-[11px] leading-none text-white",
                 "shadow-[0_1px_0_rgba(0,0,0,0.25)]",
                 className,
@@ -324,6 +329,7 @@ export function SizeBadge({
             style={{ background: meta.bg }}
         >
             {abbreviated ? meta.label.charAt(0) : meta.label}
+            {trailing}
         </span>
     );
 }
