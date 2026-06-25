@@ -1,5 +1,6 @@
 import { Layer, Source } from "react-map-gl/maplibre";
 
+import { FadeOverlay } from "@/components/FadeOverlay";
 import type { TransitFC } from "@/hooks/useTransitRouteOverlays";
 
 /**
@@ -12,88 +13,75 @@ import type { TransitFC } from "@/hooks/useTransitRouteOverlays";
  * dashed, train green, tram pink) so a tram doesn't collide with subway
  * purple in cities that have both. Pass the per-mode FeatureCollections
  * from `useTransitRouteOverlays`.
+ *
+ * Each mode fades in / out (via `FadeOverlay`) when its overlay is
+ * toggled, instead of popping — the per-mode FC going null IS the
+ * toggle, so `data` presence drives the fade.
  */
+const LINE_OPACITY = 0.8;
+const FADE_MS = 280;
+
+function FadingTransitLine({
+    id,
+    data,
+    color,
+    dash,
+}: {
+    id: string;
+    data: GeoJSON.FeatureCollection | null | undefined;
+    color: string;
+    dash?: [number, number];
+}) {
+    return (
+        <FadeOverlay active data={data} durationMs={FADE_MS}>
+            {(fc, shown) => (
+                <Source id={id} type="geojson" data={fc}>
+                    <Layer
+                        id={`${id}-line`}
+                        type="line"
+                        paint={{
+                            "line-color": color,
+                            "line-width": 2,
+                            "line-opacity": shown ? LINE_OPACITY : 0,
+                            "line-opacity-transition": { duration: FADE_MS },
+                            ...(dash ? { "line-dasharray": dash } : {}),
+                        }}
+                    />
+                </Source>
+            )}
+        </FadeOverlay>
+    );
+}
+
 export function TransitRouteLayers({ transitFC }: { transitFC: TransitFC }) {
     return (
         <>
-            {transitFC.subway && (
-                <Source
-                    id="transit-subway"
-                    type="geojson"
-                    data={transitFC.subway}
-                >
-                    <Layer
-                        id="transit-subway-line"
-                        type="line"
-                        paint={{
-                            "line-color": "hsl(280, 60%, 60%)",
-                            "line-width": 2,
-                            "line-opacity": 0.8,
-                        }}
-                    />
-                </Source>
-            )}
-            {transitFC.bus && (
-                <Source id="transit-bus" type="geojson" data={transitFC.bus}>
-                    <Layer
-                        id="transit-bus-line"
-                        type="line"
-                        paint={{
-                            "line-color": "hsl(35, 90%, 55%)",
-                            "line-width": 2,
-                            "line-opacity": 0.8,
-                        }}
-                    />
-                </Source>
-            )}
-            {transitFC.ferry && (
-                <Source
-                    id="transit-ferry"
-                    type="geojson"
-                    data={transitFC.ferry}
-                >
-                    <Layer
-                        id="transit-ferry-line"
-                        type="line"
-                        paint={{
-                            "line-color": "hsl(200, 85%, 55%)",
-                            "line-width": 2,
-                            "line-opacity": 0.8,
-                            "line-dasharray": [4, 4],
-                        }}
-                    />
-                </Source>
-            )}
-            {transitFC.train && (
-                <Source
-                    id="transit-train"
-                    type="geojson"
-                    data={transitFC.train}
-                >
-                    <Layer
-                        id="transit-train-line"
-                        type="line"
-                        paint={{
-                            "line-color": "hsl(140, 55%, 45%)",
-                            "line-width": 2,
-                            "line-opacity": 0.8,
-                        }}
-                    />
-                </Source>
-            )}
-            {transitFC.tram && (
-                <Source id="transit-tram" type="geojson" data={transitFC.tram}>
-                    <Layer
-                        id="transit-tram-line"
-                        type="line"
-                        paint={{
-                            "line-color": "hsl(330, 75%, 60%)",
-                            "line-width": 2,
-                            "line-opacity": 0.8,
-                        }}
-                    />
-                </Source>
-            )}
+            <FadingTransitLine
+                id="transit-subway"
+                data={transitFC.subway}
+                color="hsl(280, 60%, 60%)"
+            />
+            <FadingTransitLine
+                id="transit-bus"
+                data={transitFC.bus}
+                color="hsl(35, 90%, 55%)"
+            />
+            <FadingTransitLine
+                id="transit-ferry"
+                data={transitFC.ferry}
+                color="hsl(200, 85%, 55%)"
+                dash={[4, 4]}
+            />
+            <FadingTransitLine
+                id="transit-train"
+                data={transitFC.train}
+                color="hsl(140, 55%, 45%)"
+            />
+            <FadingTransitLine
+                id="transit-tram"
+                data={transitFC.tram}
+                color="hsl(330, 75%, 60%)"
+            />
         </>
     );
 }

@@ -8,6 +8,7 @@ import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
 import { MapNavControls } from "@/components/MapNavControls";
+import { FadeOverlay } from "@/components/FadeOverlay";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
 import { useSelfPositionWatch } from "@/hooks/useSelfPositionWatch";
@@ -386,39 +387,57 @@ export function HiderBackgroundMap() {
                     is map-wide; the trip-detail card below the picker
                     handles the *single-zone* trip plan once one is
                     chosen. */}
-                {$reach && $reach.features.length > 0 && (
-                    <Source id="hider-reach" type="geojson" data={$reach}>
-                        <Layer
-                            id="hider-reach-dots"
-                            type="circle"
-                            paint={{
-                                "circle-radius": 4,
-                                "circle-color": "hsl(180, 70%, 55%)",
-                                "circle-opacity": 0.85,
-                                "circle-stroke-color": "rgba(0,0,0,0.6)",
-                                "circle-stroke-width": 1,
-                            }}
-                        />
-                        <Layer
-                            id="hider-reach-labels"
-                            type="symbol"
-                            layout={{
-                                "text-field": ["get", "arrivalLabel"],
-                                "text-size": 11,
-                                "text-font": ["Open Sans Regular"],
-                                "text-anchor": "left",
-                                "text-offset": [0.8, 0],
-                                "text-allow-overlap": false,
-                                "text-ignore-placement": false,
-                            }}
-                            paint={{
-                                "text-color": "white",
-                                "text-halo-color": "rgba(0,0,0,0.85)",
-                                "text-halo-width": 1.5,
-                            }}
-                        />
-                    </Source>
-                )}
+                <FadeOverlay
+                    active={Boolean($reach && $reach.features.length > 0)}
+                    data={
+                        $reach && $reach.features.length > 0 ? $reach : null
+                    }
+                >
+                    {(data, shown) => (
+                        <Source id="hider-reach" type="geojson" data={data}>
+                            <Layer
+                                id="hider-reach-dots"
+                                type="circle"
+                                paint={{
+                                    "circle-radius": 4,
+                                    "circle-color": "hsl(180, 70%, 55%)",
+                                    "circle-opacity": shown ? 0.85 : 0,
+                                    "circle-stroke-color": "rgba(0,0,0,0.6)",
+                                    "circle-stroke-width": 1,
+                                    "circle-stroke-opacity": shown ? 1 : 0,
+                                    "circle-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                    "circle-stroke-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
+                            <Layer
+                                id="hider-reach-labels"
+                                type="symbol"
+                                layout={{
+                                    "text-field": ["get", "arrivalLabel"],
+                                    "text-size": 11,
+                                    "text-font": ["Open Sans Regular"],
+                                    "text-anchor": "left",
+                                    "text-offset": [0.8, 0],
+                                    "text-allow-overlap": false,
+                                    "text-ignore-placement": false,
+                                }}
+                                paint={{
+                                    "text-color": "white",
+                                    "text-halo-color": "rgba(0,0,0,0.85)",
+                                    "text-halo-width": 1.5,
+                                    "text-opacity": shown ? 1 : 0,
+                                    "text-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
+                        </Source>
+                    )}
+                </FadeOverlay>
 
                 {/* Transit-route overlays — shared with the seeker map.
                     Above the zone/boundary fills, below the point markers

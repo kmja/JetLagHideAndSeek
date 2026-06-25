@@ -17,6 +17,7 @@ import MapGL, {
 } from "react-map-gl/maplibre";
 import { toast } from "react-toastify";
 
+import { FadeOverlay } from "@/components/FadeOverlay";
 import { MapNavControls } from "@/components/MapNavControls";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import {
@@ -1366,82 +1367,106 @@ export function Map({ className }: MapProps) {
                     the zones stayed clickable (and the station card opened)
                     while invisible. Tying render + interactivity to the
                     toggle makes "off" mean off. */}
-                {$showHidingZones &&
-                    $hidingZones &&
-                    $hidingZones.features.length > 0 && (
-                    <Source
-                        id="hiding-zones"
-                        type="geojson"
-                        data={$hidingZones}
-                    >
-                        <Layer
-                            id="hiding-zones-fill"
-                            type="fill"
-                            filter={[
-                                "any",
-                                ["==", ["geometry-type"], "Polygon"],
-                                ["==", ["geometry-type"], "MultiPolygon"],
-                            ]}
-                            paint={{
-                                // Light mode: faint red tint over the bright
-                                // basemap reads as "highlighted remaining
-                                // area". Dark mode: a faint red tint over a
-                                // near-black basemap disappears, so the
-                                // overlay paints a brightening near-white
-                                // wash that POSITIVELY lights up the
-                                // remaining hiding circles against the
-                                // (now much darker) eliminated surround.
-                                "fill-color":
-                                    $theme === "dark"
-                                        ? "#f5e7e3"
-                                        : "hsl(2, 70%, 54%)",
-                                "fill-opacity":
-                                    $theme === "dark" ? 0.22 : 0.12,
-                            }}
-                        />
-                        <Layer
-                            id="hiding-zones-line"
-                            type="line"
-                            filter={[
-                                "any",
-                                ["==", ["geometry-type"], "Polygon"],
-                                ["==", ["geometry-type"], "MultiPolygon"],
-                                ["==", ["geometry-type"], "LineString"],
-                                ["==", ["geometry-type"], "MultiLineString"],
-                            ]}
-                            paint={{
-                                "line-color": "hsl(2, 70%, 54%)",
-                                "line-width": 2,
-                                "line-opacity": 0.9,
-                                "line-dasharray": [6, 5],
-                            }}
-                        />
-                        <Layer
-                            id="hiding-zones-points"
-                            type="circle"
-                            filter={["==", ["geometry-type"], "Point"]}
-                            paint={{
-                                // Zoom-scaled station dots — small enough that
-                                // a dense network (Stockholm-scale) reads as a
-                                // tidy field of points rather than a solid mass.
-                                "circle-radius": [
-                                    "interpolate",
-                                    ["linear"],
-                                    ["zoom"],
-                                    8,
-                                    2,
-                                    13,
-                                    3.5,
-                                    16,
-                                    5,
-                                ],
-                                "circle-color": "hsl(2, 70%, 54%)",
-                                "circle-stroke-color": "#ffffff",
-                                "circle-stroke-width": 1,
-                            }}
-                        />
-                    </Source>
-                )}
+                <FadeOverlay
+                    active={$showHidingZones}
+                    data={
+                        $hidingZones && $hidingZones.features.length > 0
+                            ? $hidingZones
+                            : null
+                    }
+                >
+                    {(data, shown) => (
+                        <Source
+                            id="hiding-zones"
+                            type="geojson"
+                            data={data}
+                        >
+                            <Layer
+                                id="hiding-zones-fill"
+                                type="fill"
+                                filter={[
+                                    "any",
+                                    ["==", ["geometry-type"], "Polygon"],
+                                    ["==", ["geometry-type"], "MultiPolygon"],
+                                ]}
+                                paint={{
+                                    // Light mode: faint red tint over the bright
+                                    // basemap reads as "highlighted remaining
+                                    // area". Dark mode: a faint red tint over a
+                                    // near-black basemap disappears, so the
+                                    // overlay paints a brightening near-white
+                                    // wash that POSITIVELY lights up the
+                                    // remaining hiding circles against the
+                                    // (now much darker) eliminated surround.
+                                    "fill-color":
+                                        $theme === "dark"
+                                            ? "#f5e7e3"
+                                            : "hsl(2, 70%, 54%)",
+                                    "fill-opacity": shown
+                                        ? $theme === "dark"
+                                            ? 0.22
+                                            : 0.12
+                                        : 0,
+                                    "fill-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
+                            <Layer
+                                id="hiding-zones-line"
+                                type="line"
+                                filter={[
+                                    "any",
+                                    ["==", ["geometry-type"], "Polygon"],
+                                    ["==", ["geometry-type"], "MultiPolygon"],
+                                    ["==", ["geometry-type"], "LineString"],
+                                    ["==", ["geometry-type"], "MultiLineString"],
+                                ]}
+                                paint={{
+                                    "line-color": "hsl(2, 70%, 54%)",
+                                    "line-width": 2,
+                                    "line-opacity": shown ? 0.9 : 0,
+                                    "line-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                    "line-dasharray": [6, 5],
+                                }}
+                            />
+                            <Layer
+                                id="hiding-zones-points"
+                                type="circle"
+                                filter={["==", ["geometry-type"], "Point"]}
+                                paint={{
+                                    // Zoom-scaled station dots — small enough that
+                                    // a dense network (Stockholm-scale) reads as a
+                                    // tidy field of points rather than a solid mass.
+                                    "circle-radius": [
+                                        "interpolate",
+                                        ["linear"],
+                                        ["zoom"],
+                                        8,
+                                        2,
+                                        13,
+                                        3.5,
+                                        16,
+                                        5,
+                                    ],
+                                    "circle-color": "hsl(2, 70%, 54%)",
+                                    "circle-stroke-color": "#ffffff",
+                                    "circle-stroke-width": 1,
+                                    "circle-opacity": shown ? 1 : 0,
+                                    "circle-stroke-opacity": shown ? 1 : 0,
+                                    "circle-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                    "circle-stroke-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
+                        </Source>
+                    )}
+                </FadeOverlay>
 
                 {/* Travel-times overlay — populated by
                     TravelTimesOverlay (mounted as a sibling in
@@ -1452,60 +1477,84 @@ export function Map({ className }: MapProps) {
                     warning red when the arrival is in the past
                     relative to now — i.e. the hider could already
                     be standing at that stop. */}
-                {$travelTimes && $travelTimes.features.length > 0 && (
-                    <Source
-                        id="travel-times"
-                        type="geojson"
-                        data={$travelTimes}
-                    >
-                        {/* Reachability dot — green = the hider could be
-                            here, red = rule this zone out, neutral grey
-                            while the journey-arrivals API is still
-                            resolving. Drawn above the hiding-zones-points
-                            dot so this verdict overrides it visually. */}
-                        <Layer
-                            id="travel-times-dot"
-                            type="circle"
-                            paint={{
-                                "circle-radius": 6,
-                                "circle-color": [
-                                    "case",
-                                    ["==", ["get", "pending"], true],
-                                    "hsl(220, 10%, 70%)",
-                                    ["==", ["get", "reachable"], true],
-                                    "hsl(142, 70%, 45%)",
-                                    "hsl(0, 75%, 55%)",
-                                ],
-                                "circle-stroke-color": "white",
-                                "circle-stroke-width": 1.5,
-                                "circle-opacity": [
-                                    "case",
-                                    ["==", ["get", "pending"], true],
-                                    0.55,
-                                    0.95,
-                                ],
-                            }}
-                        />
-                        <Layer
-                            id="travel-times-labels"
-                            type="symbol"
-                            layout={{
-                                "text-field": ["get", "arrivalLabel"],
-                                "text-size": 12,
-                                "text-font": ["Open Sans Regular"],
-                                "text-anchor": "left",
-                                "text-offset": [0.8, 0],
-                                "text-allow-overlap": false,
-                                "text-ignore-placement": false,
-                            }}
-                            paint={{
-                                "text-color": "white",
-                                "text-halo-color": "rgba(0,0,0,0.85)",
-                                "text-halo-width": 1.5,
-                            }}
-                        />
-                    </Source>
-                )}
+                <FadeOverlay
+                    active={Boolean(
+                        $travelTimes && $travelTimes.features.length > 0,
+                    )}
+                    data={
+                        $travelTimes && $travelTimes.features.length > 0
+                            ? $travelTimes
+                            : null
+                    }
+                >
+                    {(data, shown) => (
+                        <Source
+                            id="travel-times"
+                            type="geojson"
+                            data={data}
+                        >
+                            {/* Reachability dot — green = the hider could be
+                                here, red = rule this zone out, neutral grey
+                                while the journey-arrivals API is still
+                                resolving. Drawn above the hiding-zones-points
+                                dot so this verdict overrides it visually. */}
+                            <Layer
+                                id="travel-times-dot"
+                                type="circle"
+                                paint={{
+                                    "circle-radius": 6,
+                                    "circle-color": [
+                                        "case",
+                                        ["==", ["get", "pending"], true],
+                                        "hsl(220, 10%, 70%)",
+                                        ["==", ["get", "reachable"], true],
+                                        "hsl(142, 70%, 45%)",
+                                        "hsl(0, 75%, 55%)",
+                                    ],
+                                    "circle-stroke-color": "white",
+                                    "circle-stroke-width": 1.5,
+                                    "circle-opacity": shown
+                                        ? [
+                                              "case",
+                                              ["==", ["get", "pending"], true],
+                                              0.55,
+                                              0.95,
+                                          ]
+                                        : 0,
+                                    "circle-stroke-opacity": shown ? 1 : 0,
+                                    "circle-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                    "circle-stroke-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
+                            <Layer
+                                id="travel-times-labels"
+                                type="symbol"
+                                layout={{
+                                    "text-field": ["get", "arrivalLabel"],
+                                    "text-size": 12,
+                                    "text-font": ["Open Sans Regular"],
+                                    "text-anchor": "left",
+                                    "text-offset": [0.8, 0],
+                                    "text-allow-overlap": false,
+                                    "text-ignore-placement": false,
+                                }}
+                                paint={{
+                                    "text-color": "white",
+                                    "text-halo-color": "rgba(0,0,0,0.85)",
+                                    "text-halo-width": 1.5,
+                                    "text-opacity": shown ? 1 : 0,
+                                    "text-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
+                        </Source>
+                    )}
+                </FadeOverlay>
 
                 {/* Play-area boundary stroke. */}
                 {(() => {
