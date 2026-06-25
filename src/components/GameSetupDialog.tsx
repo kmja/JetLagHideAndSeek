@@ -916,6 +916,13 @@ export function PlayAreaStep({
     /** Whether we've already attempted GPS this mount — guards against
      *  the effect re-running if React Strict Mode or HMR refires it. */
     const gpsAttempted = useRef(false);
+    /** osm_id of the area the GPS auto-suggest committed, if any. Only
+     *  THAT exact area gets the "finding a play area near you" veil copy
+     *  carried into its tile load — a manually-searched/picked area is a
+     *  deliberate choice, not a location guess, so it must not show it.
+     *  (The old `gpsState==="done" && !userInitiatedSearch` proxy leaked:
+     *  handlePickResult reset the flag, so a picked area got the veil.) */
+    const gpsSuggestedOsmId = useRef<number | null>(null);
 
     /** Ref to the search Input so we can focus it imperatively when
      *  the user explicitly opens search mode via "Change area".
@@ -1022,6 +1029,8 @@ export function PlayAreaStep({
                     // React batch. The next render lands in the
                     // preview branch without rendering the search
                     // Input or the search-mode preview map at all.
+                    gpsSuggestedOsmId.current =
+                        winnerMatch.properties.osm_id;
                     onChange(winnerMatch);
                     setMode("preview");
                     setGpsState("done");
@@ -1160,8 +1169,13 @@ export function PlayAreaStep({
     // gate is latched, so the persistent map never re-veils on a mode
     // toggle.)
     const inPreview = mode === "preview" && value !== null;
+    // The GPS-suggest veil copy is for the located area ONLY — match the
+    // committed value against the exact osm_id GPS produced, so a
+    // subsequently searched/picked area never inherits "finding a play
+    // area near you".
     const fromGpsSuggest =
-        gpsState === "done" && !userInitiatedSearch.current;
+        value !== null &&
+        value.properties.osm_id === gpsSuggestedOsmId.current;
     const topResultId = results[0]?.properties.osm_id ?? null;
     const currentAreaLabel = value
         ? (value.properties.name ?? determineName(value).split(",")[0])
