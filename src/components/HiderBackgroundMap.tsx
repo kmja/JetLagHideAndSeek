@@ -8,6 +8,8 @@ import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
 import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
 import { MapNavControls } from "@/components/MapNavControls";
+import { TransitRouteLayers } from "@/components/TransitRouteLayers";
+import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import {
     isLoading,
     lastKnownPosition,
@@ -81,6 +83,10 @@ export function HiderBackgroundMap() {
     const $reach = useStore(hiderReachFC);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
+    // Transit-route overlays — same hook the seeker map uses, so the
+    // hider's identical mode toggles actually fetch + render routes
+    // (previously they were dead on the hider map).
+    const transitFC = useTransitRouteOverlays();
 
     // Live "you are here" fix for the hider. The blue GPS dot below
     // (and the hider's trip-plan / reach features) read `lastKnownPosition`,
@@ -507,6 +513,11 @@ export function HiderBackgroundMap() {
                         />
                     </Source>
                 )}
+
+                {/* Transit-route overlays — shared with the seeker map.
+                    Above the zone/boundary fills, below the point markers
+                    (GPS, seeker pins) added after this. */}
+                <TransitRouteLayers transitFC={transitFC} />
 
                 {/* Hider's own GPS pin — pulsing accuracy ring + a
                     "You" label so it's obvious at a glance which dot

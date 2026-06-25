@@ -18,11 +18,13 @@ import MapGL, {
 import { toast } from "react-toastify";
 
 import { MapNavControls } from "@/components/MapNavControls";
+import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import {
     Dialog,
     DialogContent,
 } from "@/components/ui/dialog";
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
+import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     baseTileLayer,
@@ -49,16 +51,7 @@ import {
     mapLibreViewport,
 } from "@/lib/featureFlags";
 import { playArea } from "@/lib/gameSetup";
-import {
-    allowedTransit,
-    satelliteView,
-    showBusRoutes,
-    showFerryRoutes,
-    showSubwayRoutes,
-    showTrainRoutes,
-    showTramRoutes,
-    transitRoutesLoading,
-} from "@/lib/gameSetup";
+import { satelliteView } from "@/lib/gameSetup";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
 import { clipPolygonToLand } from "@/lib/landClip";
 import { createMapShim } from "@/lib/mapShim";
@@ -80,10 +73,6 @@ import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { clearCache, determineMapBoundaries } from "@/maps/api";
-import {
-    fetchTransitRoutesFeatures,
-    type TransitMode,
-} from "@/maps/api/transitRoutes";
 import { CacheType } from "@/maps/api/types";
 
 import { MapTilesVeil } from "./MapTilesVeil";
@@ -356,12 +345,10 @@ export function Map({ className }: MapProps) {
     const $hiderMode = useStore(hiderMode);
     const $hidingZones = useStore(hidingZonesGeoJSON);
     const $travelTimes = useStore(travelTimesFC);
-    const $allowedTransit = useStore(allowedTransit);
-    const $subway = useStore(showSubwayRoutes);
-    const $bus = useStore(showBusRoutes);
-    const $ferry = useStore(showFerryRoutes);
-    const $train = useStore(showTrainRoutes);
-    const $tram = useStore(showTramRoutes);
+    // Transit-route overlays per mode — shared with HiderBackgroundMap via
+    // the useTransitRouteOverlays hook (fetch) + TransitRouteLayers
+    // (render), so the seeker and hider maps never drift on transit.
+    const transitFC = useTransitRouteOverlays();
     const $tileKey = useStore(baseTileLayer);
     const $satellite = useStore(satelliteView);
     const $tfKey = useStore(thunderforestApiKey);
@@ -1006,63 +993,8 @@ export function Map({ className }: MapProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [$mapGeoJSON, $polyGeoJSON, $questionsSig, mapLoaded]);
 
-    // Transit-route overlays per mode. Each toggle (subway /
-    // bus / ferry) gates an Overpass fetch via
-    // fetchTransitRoutesFeatures. Results live in state as
-    // FeatureCollections; the JSX renders one Source+Layer per
-    // mode. Re-fetch when the play area changes
-    // ($mapGeoLocation) so cached results from a previous area
-    // get replaced. Loading flag mirrored into
-    // transitRoutesLoading so MapDisplayControls' spinner shows
-    // during fetch.
-    const subwayOn = $subway && $allowedTransit.includes("subway");
-    const busOn = $bus && $allowedTransit.includes("bus");
-    const ferryOn = $ferry && $allowedTransit.includes("ferry");
-    const trainOn = $train && $allowedTransit.includes("train");
-    const tramOn = $tram && $allowedTransit.includes("tram");
-    const [transitFC, setTransitFC] = useState<
-        Record<TransitMode, GeoJSON.FeatureCollection | null>
-    >({ subway: null, bus: null, ferry: null, train: null, tram: null });
-    const areaKey =
-        $mapGeoLocation?.properties?.osm_id ??
-        ($polyGeoJSON ? "custom-poly" : "none");
-    useEffect(() => {
-        let cancelled = false;
-        const fetchAndSet = async (mode: TransitMode, on: boolean) => {
-            if (!on) {
-                setTransitFC((curr) => ({ ...curr, [mode]: null }));
-                return;
-            }
-            const curr = transitRoutesLoading.get();
-            transitRoutesLoading.set({ ...curr, [mode]: true });
-            try {
-                const fc = await fetchTransitRoutesFeatures(mode);
-                if (cancelled) return;
-                setTransitFC((c) => ({ ...c, [mode]: fc }));
-            } catch (e) {
-                console.warn(`Map transit (${mode}) fetch failed`, e);
-            } finally {
-                // Don't clobber the loading flag if the effect was
-                // already torn down — we'd be writing into a stale
-                // store after the user toggled away. Skip-with-guard
-                // instead of return-from-finally so we don't swallow
-                // any in-flight exception escape.
-                if (!cancelled) {
-                    const c = transitRoutesLoading.get();
-                    transitRoutesLoading.set({ ...c, [mode]: false });
-                }
-            }
-        };
-        fetchAndSet("subway", subwayOn);
-        fetchAndSet("bus", busOn);
-        fetchAndSet("ferry", ferryOn);
-        fetchAndSet("train", trainOn);
-        fetchAndSet("tram", tramOn);
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [subwayOn, busOn, ferryOn, trainOn, tramOn, areaKey]);
+    // Transit-route overlays: see the useTransitRouteOverlays() call above
+    // (the fetch + state now live in the shared hook).
 
     // Pending-radius circles. The "elimination" pipeline above
     // deliberately skips radius questions so the Leaflet
@@ -1619,103 +1551,10 @@ export function Map({ className }: MapProps) {
                     natively. */}
                 <ScaleControl />
 
-                {/* Transit-route overlays — one Source+Layer per
-                    mode. Colors match the Leaflet
-                    TransitRoutesOverlay's MODE_CONFIG (subway
-                    purple, bus orange, ferry blue dashed) so
-                    operators see consistent visuals across the
-                    two map paths. */}
-                {transitFC.subway && (
-                    <Source
-                        id="transit-subway"
-                        type="geojson"
-                        data={transitFC.subway}
-                    >
-                        <Layer
-                            id="transit-subway-line"
-                            type="line"
-                            paint={{
-                                "line-color": "hsl(280, 60%, 60%)",
-                                "line-width": 2,
-                                "line-opacity": 0.8,
-                            }}
-                        />
-                    </Source>
-                )}
-                {transitFC.bus && (
-                    <Source
-                        id="transit-bus"
-                        type="geojson"
-                        data={transitFC.bus}
-                    >
-                        <Layer
-                            id="transit-bus-line"
-                            type="line"
-                            paint={{
-                                "line-color": "hsl(35, 90%, 55%)",
-                                "line-width": 2,
-                                "line-opacity": 0.8,
-                            }}
-                        />
-                    </Source>
-                )}
-                {transitFC.ferry && (
-                    <Source
-                        id="transit-ferry"
-                        type="geojson"
-                        data={transitFC.ferry}
-                    >
-                        <Layer
-                            id="transit-ferry-line"
-                            type="line"
-                            paint={{
-                                "line-color": "hsl(200, 85%, 55%)",
-                                "line-width": 2,
-                                "line-opacity": 0.8,
-                                "line-dasharray": [4, 4],
-                            }}
-                        />
-                    </Source>
-                )}
-                {/* Colored train + tram line overlays. Train uses a
-                    saturated green; tram uses a pink so it doesn't
-                    collide with subway purple in cities that have both.
-                    Same width/opacity as the other modes for visual
-                    parity. */}
-                {transitFC.train && (
-                    <Source
-                        id="transit-train"
-                        type="geojson"
-                        data={transitFC.train}
-                    >
-                        <Layer
-                            id="transit-train-line"
-                            type="line"
-                            paint={{
-                                "line-color": "hsl(140, 55%, 45%)",
-                                "line-width": 2,
-                                "line-opacity": 0.8,
-                            }}
-                        />
-                    </Source>
-                )}
-                {transitFC.tram && (
-                    <Source
-                        id="transit-tram"
-                        type="geojson"
-                        data={transitFC.tram}
-                    >
-                        <Layer
-                            id="transit-tram-line"
-                            type="line"
-                            paint={{
-                                "line-color": "hsl(330, 75%, 60%)",
-                                "line-width": 2,
-                                "line-opacity": 0.8,
-                            }}
-                        />
-                    </Source>
-                )}
+                {/* Transit-route overlays — shared with the hider map
+                    via TransitRouteLayers so colours + behaviour match
+                    across both map paths. */}
+                <TransitRouteLayers transitFC={transitFC} />
 
                 {/* Hiding-zones overlay — mirrored from ZoneSidebar's
                     showGeoJSON via the hidingZonesGeoJSON atom. The default
