@@ -870,28 +870,12 @@ export function PlayAreaStep({
     // should bounce to the preview by itself — that's the streamlined
     // flow. When true, we let the user finish picking before bouncing.
     const userInitiatedSearch = useRef(false);
-    // v382: gate the preview's play-area card + Change/Adjacent buttons
-    // on the map having actually painted, so they fade in together
-    // instead of leading the map. PlayAreaPreviewMap calls back via
-    // onReady. Reset to false whenever the previewed value's identity
-    // changes (user picked a different area in search → preview switches
-    // and the new map has to re-load).
-    const [previewMapReady, setPreviewMapReady] = useState(false);
-    const previewValueOsmId = value?.properties?.osm_id ?? null;
-    // Reset ONLY when the area genuinely changes mid-mount (search picks a
-    // different area without unmounting PlayAreaStep). We must NOT reset
-    // on the initial mount: on back-navigation the step remounts with the
-    // polygon already cached, so PlayAreaPreviewMap fires onReady
-    // synchronously — and a blind reset here would race in right after
-    // and clobber previewMapReady back to false, leaving the play-area
-    // card / Change / Extend controls stuck invisible (opacity-0). Track
-    // the previous id so a fresh mount (prev === current) is a no-op.
-    const prevPreviewOsmId = useRef(previewValueOsmId);
-    useEffect(() => {
-        if (prevPreviewOsmId.current === previewValueOsmId) return;
-        prevPreviewOsmId.current = previewValueOsmId;
-        setPreviewMapReady(false);
-    }, [previewValueOsmId]);
+    // v502: the play-area map now lives at the TOP of the step in BOTH
+    // preview and search modes, keyed on the area's osm_id, so toggling
+    // preview↔search doesn't remount/reload it (only a genuine area
+    // change does). That made the old `previewMapReady` fade-gate
+    // (and its onReady-vs-reset race) unnecessary — the preview card +
+    // controls just render directly under the persistent map.
     const [query, setQuery] = useState("");
     const [busy, setBusy] = useState(false);
     const [results, setResults] = useState<OpenStreetMap[]>([]);
@@ -1102,7 +1086,12 @@ export function PlayAreaStep({
             .then((found) => {
                 if (myToken !== searchToken.current) return; // stale
                 setResults(found);
-                if (found.length > 0) onChangeRef.current(found[0]);
+                // NOTE: do NOT auto-commit found[0] to `value` here. Doing
+                // so mutated the committed play area as the user typed, so
+                // "Keep current area" kept the SEARCHED area, not the
+                // original. The committed area now only changes when the
+                // user actually picks a result (handlePickResult) or via
+                // the Enter key / GPS suggest.
             })
             .catch(() => {
                 if (myToken !== searchToken.current) return;
@@ -1114,152 +1103,13 @@ export function PlayAreaStep({
             });
     }, [debouncedQuery]);
 
-    const selectedId = value?.properties.osm_id ?? null;
-
-    // ────────────── Preview mode ──────────────
-    // Shown when a play area has been picked. Replaces the search-
-    // first layout the wizard used to default to: now the seeker
-    // sees the area on a map immediately and only opens search if
-    // they want to override the GPS guess.
-    if (mode === "preview" && value) {
-        const label =
-            value.properties.name ?? determineName(value).split(",")[0];
-        const typeLabel = placeTypeLabel(value);
-        const areaLabel = formatAreaLabel(value);
-        const sizeHint = recommendedGameSize(value);
-        // v382: fade in the play-area card + Change/Adjacent buttons in
-        // sync with the map's veil dropping, so the user sees one
-        // unified "this is the area" reveal instead of text + buttons
-        // appearing first while the map is still loading. State lives at
-        // the top of the function (see `previewMapReady`); we set it via
-        // onReady here. opacity-0 + pointer-events-none keep the dialog's
-        // dimensions stable so there's no layout shift on reveal.
-        // v454: did this preview arrive straight from the GPS
-        // auto-suggest (not a manual "Change area" search)? If so, carry
-        // the locate-phase copy into the tile veil so the handoff is
-        // seamless — one continuous load, not a jump to "Loading map".
-        const fromGpsSuggest =
-            gpsState === "done" && !userInitiatedSearch.current;
-        return (
-            <div className="space-y-3">
-                <PlayAreaPreviewMap
-                    value={value}
-                    height="h-[220px]"
-                    onReady={() => setPreviewMapReady(true)}
-                    veilLabel={fromGpsSuggest ? LOCATING_LABEL : undefined}
-                    veilSublabel={
-                        fromGpsSuggest ? LOCATING_SUBLABEL : undefined
-                    }
-                    awaitAdjacent
-                />
-
-                <div
-                    className={cn(
-                        "rounded-md border-2 border-primary bg-primary/10",
-                        "p-3 flex items-start gap-2",
-                        "transition-opacity duration-300 ease-out",
-                        previewMapReady
-                            ? "opacity-100"
-                            : "opacity-0 pointer-events-none",
-                    )}
-                >
-                    <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
-                    <div className="min-w-0 flex-1">
-                        <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
-                            Play area
-                        </div>
-                        <div className="text-base font-bold truncate">
-                            {label}
-                        </div>
-                        <div className="flex items-center flex-wrap gap-1.5 mt-1">
-                            <span
-                                className={cn(
-                                    "inline-flex items-center px-1.5 py-0.5 rounded-sm",
-                                    "text-[10px] uppercase tracking-wider font-poppins font-bold",
-                                    "bg-background/60 border border-border/60 text-muted-foreground",
-                                )}
-                            >
-                                {typeLabel}
-                            </span>
-                            {areaLabel && (
-                                <span className="text-[10px] tabular-nums text-muted-foreground">
-                                    {areaLabel}
-                                </span>
-                            )}
-                            {sizeHint && (
-                                <SizeBadge
-                                    size={sizeHint}
-                                    className="!text-[9px] !px-1.5 !py-0.5"
-                                />
-                            )}
-                        </div>
-                    </div>
-                    <Check className="w-4 h-4 text-primary shrink-0" />
-                </div>
-
-                {/* Adjacent areas. v456: the controller is headless —
-                    it fetches neighbours immediately (in parallel with
-                    the main play area) and publishes them so the preview
-                    map paints each candidate's whole boundary as a
-                    tap-to-add region. The only thing rendered here are
-                    compact rows for the areas already added, sitting
-                    directly below the main play-area card. */}
-                <div
-                    className={cn(
-                        "transition-opacity duration-300 ease-out",
-                        previewMapReady
-                            ? "opacity-100"
-                            : "opacity-0 pointer-events-none",
-                    )}
-                >
-                    <PlayAreaExtensions primary={value} />
-                </div>
-
-                <div
-                    className={cn(
-                        "transition-opacity duration-300 ease-out",
-                        previewMapReady
-                            ? "opacity-100"
-                            : "opacity-0 pointer-events-none",
-                    )}
-                >
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            userInitiatedSearch.current = true;
-                            // v289: focus the search Input ourselves
-                            // once it mounts (effect picks this flag
-                            // up). Avoids autoFocus, which fires on
-                            // every Input remount and caused the
-                            // keyboard pingpong during GPS resolution.
-                            pendingSearchFocus.current = true;
-                            setMode("search");
-                            setQuery("");
-                            setResults([]);
-                            setSearched(false);
-                        }}
-                        className="gap-1.5 w-full"
-                    >
-                        <Pencil className="w-3.5 h-3.5" />
-                        Change area
-                    </Button>
-                </div>
-            </div>
-        );
-    }
-
-    // ────────────── Search mode ──────────────
-    //
     // While GPS is still pending on a fresh first-time entry — no
     // committed value, no typed query, user didn't explicitly tap
-    // "Change area" — hide the search field and show a map-themed
-    // loading placeholder instead. The vast majority of users get
-    // their answer from the auto-suggest, so leading with a "type
-    // here" field is asking them to make a decision before we've
-    // done our job. Once GPS resolves successfully, `value` lands and
-    // the preview branch above takes over (so this placeholder
-    // vanishes on its own); on any failure (denied/unavailable/no-
-    // match), the search field returns as the fallback path.
+    // "Change area" — show a map-themed loading placeholder instead of
+    // the search field. Most users get their answer from the
+    // auto-suggest, so leading with a "type here" field asks them to
+    // decide before we've done our job. On any GPS failure the search
+    // field returns as the fallback.
     const hideSearchWhileLocating =
         gpsState === "pending" &&
         !value &&
@@ -1270,7 +1120,7 @@ export function PlayAreaStep({
         return (
             <div className="space-y-3 animate-in fade-in duration-200">
                 <div
-                    className="relative w-full h-[220px] rounded-md overflow-hidden border border-border"
+                    className="relative w-full aspect-square rounded-md overflow-hidden border border-border"
                     role="status"
                     aria-live="polite"
                     aria-label="Detecting your location"
@@ -1297,161 +1147,260 @@ export function PlayAreaStep({
         );
     }
 
+    // ────────────── Unified layout ──────────────
+    // One persistent map at the TOP (whenever an area is committed),
+    // keyed on the area's osm_id so toggling preview↔search does NOT
+    // remount/reload it — only a genuine area change does. The
+    // mode-specific controls render BELOW it, so the map stays put and
+    // the layout barely shifts when search opens/closes. (The reveal
+    // gate is latched, so the persistent map never re-veils on a mode
+    // toggle.)
+    const inPreview = mode === "preview" && value !== null;
+    const fromGpsSuggest =
+        gpsState === "done" && !userInitiatedSearch.current;
+    const topResultId = results[0]?.properties.osm_id ?? null;
+
     return (
-        <div className="space-y-4">
-            <div className="space-y-2">
-                <div className="relative">
-                    <Input
-                        ref={searchInputRef}
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="e.g. Stockholm, Tokyo, London"
-                        className="text-base pr-10"
-                    />
-                    {busy && (
-                        <span
-                            aria-hidden
-                            className="absolute right-3 top-1/2 -translate-y-1/2 inline-block w-4 h-4 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"
-                        />
-                    )}
-                </div>
-                {busy && (
-                    <p
-                        className="text-xs text-muted-foreground flex items-center gap-1.5"
-                        aria-live="polite"
-                    >
-                        <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
-                        Searching for places matching &quot;{query}&quot;…
-                    </p>
-                )}
-                {(gpsState === "denied" ||
-                    gpsState === "unavailable" ||
-                    gpsState === "no-match") &&
-                    query.length === 0 && (
-                        <div className="rounded-md border border-dashed border-border/60 bg-secondary/30 px-2.5 py-2 flex items-center gap-2 text-xs">
-                            <span className="text-muted-foreground">
-                                {gpsState === "denied"
-                                    ? "Couldn't access your location — search manually below."
-                                    : gpsState === "no-match"
-                                      ? "Couldn't recognise your location — search manually below."
-                                      : "Location unavailable — search manually below."}
-                            </span>
-                            {gpsState !== "denied" && (
-                                <button
-                                    type="button"
-                                    onClick={() => tryGpsSuggest(true)}
-                                    className={cn(
-                                        "ml-auto px-2 py-0.5 rounded-sm",
-                                        "text-[10px] uppercase tracking-wider font-poppins font-bold",
-                                        "bg-primary/15 text-primary border border-primary/40",
-                                        "hover:bg-primary/25 transition-colors",
-                                    )}
-                                >
-                                    Retry
-                                </button>
+        <div className="space-y-3">
+            {value && (
+                <PlayAreaPreviewMap
+                    key={value.properties.osm_id}
+                    value={value}
+                    height="aspect-square"
+                    veilLabel={
+                        inPreview && fromGpsSuggest ? LOCATING_LABEL : undefined
+                    }
+                    veilSublabel={
+                        inPreview && fromGpsSuggest
+                            ? LOCATING_SUBLABEL
+                            : undefined
+                    }
+                    awaitAdjacent={inPreview}
+                />
+            )}
+
+            {inPreview ? (
+                (() => {
+                    const label =
+                        value.properties.name ??
+                        determineName(value).split(",")[0];
+                    const typeLabel = placeTypeLabel(value);
+                    const areaLabel = formatAreaLabel(value);
+                    const sizeHint = recommendedGameSize(value);
+                    return (
+                        <>
+                            <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2">
+                                <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
+                                        Play area
+                                    </div>
+                                    <div className="text-base font-bold truncate">
+                                        {label}
+                                    </div>
+                                    <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
+                                            {typeLabel}
+                                        </span>
+                                        {areaLabel && (
+                                            <span className="text-[10px] tabular-nums text-muted-foreground">
+                                                {areaLabel}
+                                            </span>
+                                        )}
+                                        {sizeHint && (
+                                            <SizeBadge
+                                                size={sizeHint}
+                                                className="!text-[9px] !px-1.5 !py-0.5"
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                                <Check className="w-4 h-4 text-primary shrink-0" />
+                            </div>
+
+                            <PlayAreaExtensions primary={value} />
+
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    userInitiatedSearch.current = true;
+                                    pendingSearchFocus.current = true;
+                                    setMode("search");
+                                    setQuery("");
+                                    setResults([]);
+                                    setSearched(false);
+                                }}
+                                className="gap-1.5 w-full"
+                            >
+                                <Pencil className="w-3.5 h-3.5" />
+                                Change area
+                            </Button>
+                        </>
+                    );
+                })()
+            ) : (
+                <>
+                    <div className="space-y-2">
+                        <div className="relative">
+                            <Input
+                                ref={searchInputRef}
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key !== "Enter") return;
+                                    e.preventDefault();
+                                    // Enter commits the top (suggested)
+                                    // match and dismisses the keyboard.
+                                    // No-op until results land.
+                                    if (results.length > 0) {
+                                        handlePickResult(results[0]);
+                                    }
+                                    searchInputRef.current?.blur();
+                                }}
+                                placeholder="e.g. Stockholm, Tokyo, London"
+                                className="text-base pr-10"
+                            />
+                            {busy && (
+                                <span
+                                    aria-hidden
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 inline-block w-4 h-4 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"
+                                />
                             )}
                         </div>
-                    )}
-            </div>
-
-            {/* Live preview while typing. Highlights what the user is
-                about to commit before they tap Use or pick a different
-                result below. */}
-            {value && results.length > 0 && (
-                <PlayAreaPreviewMap value={value} height="h-[140px]" />
-            )}
-
-            {results.length > 0 && (
-                <div className="space-y-1.5">
-                    <p className="text-xs text-muted-foreground">
-                        Tap a match to use it (top is auto-selected):
-                    </p>
-                    <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                        {results.map((r) => {
-                            const active = r.properties.osm_id === selectedId;
-                            const label = determineName(r);
-                            const typeLabel = placeTypeLabel(r);
-                            const areaLabel = formatAreaLabel(r);
-                            const sizeHint = recommendedGameSize(r);
-                            return (
-                                <button
-                                    key={`${r.properties.osm_id}-${r.properties.osm_type}`}
-                                    type="button"
-                                    onClick={() => handlePickResult(r)}
-                                    className={cn(
-                                        "w-full text-left p-3 rounded-md border-2 transition-all",
-                                        active
-                                            ? "bg-primary/10 border-primary"
-                                            : "bg-secondary border-border hover:bg-accent",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    )}
-                                >
-                                    <div className="flex items-start gap-2">
-                                        <MapPin
+                        {busy && (
+                            <p
+                                className="text-xs text-muted-foreground flex items-center gap-1.5"
+                                aria-live="polite"
+                            >
+                                <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
+                                Searching for places matching &quot;{query}&quot;…
+                            </p>
+                        )}
+                        {(gpsState === "denied" ||
+                            gpsState === "unavailable" ||
+                            gpsState === "no-match") &&
+                            query.length === 0 && (
+                                <div className="rounded-md border border-dashed border-border/60 bg-secondary/30 px-2.5 py-2 flex items-center gap-2 text-xs">
+                                    <span className="text-muted-foreground">
+                                        {gpsState === "denied"
+                                            ? "Couldn't access your location — search manually below."
+                                            : gpsState === "no-match"
+                                              ? "Couldn't recognise your location — search manually below."
+                                              : "Location unavailable — search manually below."}
+                                    </span>
+                                    {gpsState !== "denied" && (
+                                        <button
+                                            type="button"
+                                            onClick={() => tryGpsSuggest(true)}
                                             className={cn(
-                                                "w-4 h-4 mt-0.5 shrink-0",
-                                                active
-                                                    ? "text-primary"
-                                                    : "text-muted-foreground",
+                                                "ml-auto px-2 py-0.5 rounded-sm",
+                                                "text-[10px] uppercase tracking-wider font-poppins font-bold",
+                                                "bg-primary/15 text-primary border border-primary/40",
+                                                "hover:bg-primary/25 transition-colors",
                                             )}
-                                        />
-                                        <div className="min-w-0 flex-1">
-                                            <div className="text-sm font-medium truncate">
-                                                {r.properties.name ??
-                                                    label.split(",")[0]}
-                                            </div>
-                                            <div className="flex items-center flex-wrap gap-1.5 mt-1">
-                                                <span
-                                                    className={cn(
-                                                        "inline-flex items-center px-1.5 py-0.5 rounded-sm",
-                                                        "text-[10px] uppercase tracking-wider font-poppins font-bold",
-                                                        "bg-background/60 border border-border/60 text-muted-foreground",
-                                                    )}
-                                                >
-                                                    {typeLabel}
-                                                </span>
-                                                {areaLabel && (
-                                                    <span className="text-[10px] tabular-nums text-muted-foreground">
-                                                        {areaLabel}
-                                                    </span>
-                                                )}
-                                                {sizeHint && (
-                                                    <SizeBadge
-                                                        size={sizeHint}
-                                                        className="!text-[9px] !px-1.5 !py-0.5"
-                                                    />
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-muted-foreground truncate mt-1">
-                                                {label}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
+                                        >
+                                            Retry
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                     </div>
-                </div>
-            )}
-            {searched && !busy && results.length === 0 && (
-                <p className="text-xs text-muted-foreground italic">
-                    No regions match. Try a broader name (city, country).
-                </p>
-            )}
 
-            {/* Cancel-search escape hatch — only meaningful if there's
-                already a committed area to fall back to. Lets the user
-                tap "Change area" by accident in preview mode without
-                losing their selection. */}
-            {value && (
-                <Button
-                    variant="ghost"
-                    onClick={() => setMode("preview")}
-                    className="w-full gap-1.5"
-                >
-                    <ChevronLeft className="w-4 h-4" />
-                    Keep current area
-                </Button>
+                    {results.length > 0 && (
+                        <div className="space-y-1.5">
+                            <p className="text-xs text-muted-foreground">
+                                Tap a match to use it (Enter picks the top one):
+                            </p>
+                            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                                {results.map((r) => {
+                                    const active =
+                                        r.properties.osm_id === topResultId;
+                                    const label = determineName(r);
+                                    const typeLabel = placeTypeLabel(r);
+                                    const areaLabel = formatAreaLabel(r);
+                                    const sizeHint = recommendedGameSize(r);
+                                    return (
+                                        <button
+                                            key={`${r.properties.osm_id}-${r.properties.osm_type}`}
+                                            type="button"
+                                            onClick={() => handlePickResult(r)}
+                                            className={cn(
+                                                "w-full text-left p-3 rounded-md border-2 transition-all",
+                                                active
+                                                    ? "bg-primary/10 border-primary"
+                                                    : "bg-secondary border-border hover:bg-accent",
+                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                            )}
+                                        >
+                                            <div className="flex items-start gap-2">
+                                                <MapPin
+                                                    className={cn(
+                                                        "w-4 h-4 mt-0.5 shrink-0",
+                                                        active
+                                                            ? "text-primary"
+                                                            : "text-muted-foreground",
+                                                    )}
+                                                />
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-sm font-medium truncate">
+                                                        {r.properties.name ??
+                                                            label.split(",")[0]}
+                                                    </div>
+                                                    <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
+                                                            {typeLabel}
+                                                        </span>
+                                                        {areaLabel && (
+                                                            <span className="text-[10px] tabular-nums text-muted-foreground">
+                                                                {areaLabel}
+                                                            </span>
+                                                        )}
+                                                        {sizeHint && (
+                                                            <SizeBadge
+                                                                size={sizeHint}
+                                                                className="!text-[9px] !px-1.5 !py-0.5"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground truncate mt-1">
+                                                        {label}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                    {searched && !busy && results.length === 0 && (
+                        <p className="text-xs text-muted-foreground italic">
+                            No regions match. Try a broader name (city, country).
+                        </p>
+                    )}
+
+                    {value && (
+                        <Button
+                            variant="ghost"
+                            onClick={() => {
+                                // Keep the ORIGINAL committed area. Since we
+                                // no longer auto-commit search results,
+                                // `value` is still the original — just drop
+                                // back to preview. The map is keyed on osm_id
+                                // and unchanged, so it does NOT reload.
+                                setQuery("");
+                                setResults([]);
+                                setSearched(false);
+                                userInitiatedSearch.current = false;
+                                setMode("preview");
+                            }}
+                            className="w-full gap-1.5"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                            Keep current area
+                        </Button>
+                    )}
+                </>
             )}
         </div>
     );
