@@ -72,6 +72,7 @@ import {
 } from "@/lib/multiplayer/store";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
+import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
 import { TransitStep } from "./GameSetupDialog";
@@ -294,6 +295,26 @@ export function GameLobbyDialog() {
     // checkbox. `metered` is sampled once at mount.
     const $preload = useStore(preloadChoices);
     const [metered] = useState(() => isMeteredConnection());
+    // Real tile-pack size for the current city, fetched (HEAD) only when
+    // the preload checkbox is actually shown (metered link). null while
+    // unknown / no pack → estimatePreloadMB falls back to the area model.
+    const [packBytes, setPackBytes] = useState<number | null>(null);
+    useEffect(() => {
+        if (isMidGame || !metered) return;
+        const props = $mapGeoLocation?.properties as
+            | { osm_id?: number; osm_type?: string }
+            | undefined;
+        if (!props || props.osm_type !== "R" || !props.osm_id) {
+            setPackBytes(null);
+            return;
+        }
+        const ctrl = new AbortController();
+        setPackBytes(null);
+        fetchTilePackBytes(Number(props.osm_id), ctrl.signal).then((b) => {
+            if (!ctrl.signal.aborted) setPackBytes(b);
+        });
+        return () => ctrl.abort();
+    }, [$mapGeoLocation?.properties, isMidGame, metered]);
     const preloadOn = $preload.map || $preload.references || $preload.transit;
     const setPreloadOn = (on: boolean) =>
         preloadChoices.set({ map: on, references: on, transit: on });
@@ -945,7 +966,12 @@ export function GameLobbyDialog() {
                             <span className="flex-1 text-sm font-medium text-foreground">
                                 Preload game data{" "}
                                 <span className="text-muted-foreground tabular-nums">
-                                    (~{estimatePreloadMB($mapGeoLocation, $size)}
+                                    (~
+                                    {estimatePreloadMB(
+                                        $mapGeoLocation,
+                                        $size,
+                                        packBytes,
+                                    )}
                                     MB)
                                 </span>
                             </span>
@@ -1305,7 +1331,20 @@ function isMeteredConnection(): boolean {
 function estimatePreloadMB(
     geo: { properties?: { extent?: number[] } } | null,
     size: GameSize,
+    packBytes: number | null,
 ): number {
+    // Per-size base: the Overpass references + transit warm-up. Small/
+    // medium also pull the heavier "-full" reference sets, large skips
+    // them but covers more ground, so they land in the same ballpark.
+    const base = size === "small" ? 4 : 5;
+
+    // Best case: this city has a curated tile pack, so the map bucket is
+    // exactly that one download. Use its real size + the warm-up base
+    // instead of guessing from area.
+    if (packBytes != null && packBytes > 0) {
+        return Math.max(1, Math.round(packBytes / 1_000_000) + base);
+    }
+
     const ext = geo?.properties?.extent;
     let areaKm2: number | null = null;
     if (Array.isArray(ext) && ext.length === 4) {
@@ -1320,14 +1359,12 @@ function estimatePreloadMB(
         const a = lngKm * latKm;
         if (Number.isFinite(a) && a > 0) areaKm2 = a;
     }
-    // Per-size base: references + transit warm-up. Small/medium also pull
-    // the heavier "-full" reference sets, large skips them.
-    const base = size === "small" ? 4 : size === "large" ? 5 : 5;
     if (areaKm2 === null) {
         // No extent yet — fall back to a size-band guess.
         return size === "small" ? 6 : size === "large" ? 40 : 15;
     }
-    // Vector tiles z11-15 run very roughly ~0.03 MB/km² over the bbox.
+    // No pack: the map warms via a z11-15 range walk, very roughly
+    // ~0.03 MB/km² over the bbox.
     const est = base + areaKm2 * 0.03;
     return Math.max(3, Math.min(150, Math.round(est)));
 }

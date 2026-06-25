@@ -191,6 +191,44 @@ export function tilePackUrl(osmId: number): string {
 }
 
 /**
+ * Look up the on-disk byte size of the city pack for an OSM relation,
+ * WITHOUT downloading it — a HEAD (falling back to a 1-byte range read
+ * of `Content-Range`) so the lobby can show a real "~N MB" preload
+ * estimate. Returns the byte count, or `null` when there's no pack for
+ * this city (404), the size can't be read, or the request fails. Cheap
+ * and abortable; safe to call speculatively.
+ */
+export async function fetchTilePackBytes(
+    osmId: number,
+    signal?: AbortSignal,
+): Promise<number | null> {
+    const url = tilePackUrl(osmId);
+    try {
+        const head = await fetch(url, { method: "HEAD", signal });
+        if (head.status === 404) return null;
+        if (head.ok) {
+            const len = Number(head.headers.get("Content-Length"));
+            if (Number.isFinite(len) && len > 0) return len;
+        }
+        // Some hosts don't answer HEAD with a length — read the total
+        // from a 1-byte range response's `Content-Range: bytes 0-0/<total>`.
+        const range = await fetch(url, {
+            headers: { Range: "bytes=0-0" },
+            signal,
+        });
+        if (range.status === 404) return null;
+        const cr = range.headers.get("Content-Range");
+        if (cr) {
+            const total = Number(cr.split("/")[1]);
+            if (Number.isFinite(total) && total > 0) return total;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Download + activate the city pack for the current play area, if one
  * exists. Returns:
  *   - "skipped"  — play area isn't an OSM relation (custom polygon),
