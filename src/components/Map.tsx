@@ -30,6 +30,7 @@ import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     baseTileLayer,
+    displayHidingZones,
     drawingQuestionKey,
     followMe,
     hiderMode,
@@ -342,6 +343,7 @@ export function Map({ className }: MapProps) {
     const $followMe = useStore(followMe);
     const $hiderMode = useStore(hiderMode);
     const $hidingZones = useStore(hidingZonesGeoJSON);
+    const $showHidingZones = useStore(displayHidingZones);
     const $travelTimes = useStore(travelTimesFC);
     // Transit-route overlays per mode — shared with HiderBackgroundMap via
     // the useTransitRouteOverlays hook (fetch) + TransitRouteLayers
@@ -1356,8 +1358,17 @@ export function Map({ className }: MapProps) {
                     "stations" style emits Point features, painted as the
                     zoom-scaled dots below; the "zones"/"no-overlap" styles
                     emit polygons, painted as the fill + dashed outline. The
-                    style picker in the zone sidebar switches between them. */}
-                {$hidingZones && $hidingZones.features.length > 0 && (
+                    style picker in the zone sidebar switches between them.
+
+                    Gated on the `displayHidingZones` TOGGLE, not just the
+                    data atom: the layers are in `interactiveLayerIds`, so if
+                    the atom held stale features after the toggle flipped off
+                    the zones stayed clickable (and the station card opened)
+                    while invisible. Tying render + interactivity to the
+                    toggle makes "off" mean off. */}
+                {$showHidingZones &&
+                    $hidingZones &&
+                    $hidingZones.features.length > 0 && (
                     <Source
                         id="hiding-zones"
                         type="geojson"

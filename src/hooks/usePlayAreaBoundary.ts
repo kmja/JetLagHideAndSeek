@@ -1,8 +1,9 @@
 import { useStore } from "@nanostores/react";
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "react-toastify";
 
 import {
+    additionalMapGeoLocations,
     isLoading,
     mapGeoJSON,
     mapGeoLocation,
@@ -37,17 +38,53 @@ export function usePlayAreaBoundary(): void {
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $polyGeoJSON = useStore(polyGeoJSON);
     const $playArea = useStore(playArea);
+    const $additional = useStore(additionalMapGeoLocations);
+
+    // Stable signature of the ADDED adjacent areas the current boundary
+    // should be built from. When this changes (the player folds in or
+    // removes a neighbouring area) we must re-fetch so the boundary —
+    // and therefore the playable region + hiding-zone scan — actually
+    // grows to include it. Sorted so click order doesn't matter.
+    const addedKey = useMemo(
+        () =>
+            $additional
+                .filter((e) => e.added && e.location)
+                .map(
+                    (e) =>
+                        (e.location.properties as { osm_id?: number })
+                            ?.osm_id ?? 0,
+                )
+                .filter(Boolean)
+                .sort((a, b) => a - b)
+                .join(","),
+        [$additional],
+    );
+    // The added-set the loaded boundary was built from. Null until we
+    // either fetch once or adopt an already-present (cached) boundary.
+    const builtFromKeyRef = useRef<string | null>(null);
 
     useEffect(() => {
         const props = $mapGeoLocation?.properties as
             | { osm_id?: number }
             | undefined;
         if (!($mapGeoLocation && (props?.osm_id ?? 0) > 0)) return;
-        if ($mapGeoJSON || $polyGeoJSON) return;
         // Gate on the explicitly-picked play area so we never fetch with
         // the persistent-atom's default mapGeoLocation (Japan) during the
         // wizard's set-then-set write order.
         if (!$playArea) return;
+
+        const haveBoundary = Boolean($mapGeoJSON || $polyGeoJSON);
+        // A boundary already exists. Re-fetch ONLY if the added-adjacent
+        // set changed since we built it; otherwise leave it (and adopt
+        // the current set as the baseline on first sight of a persisted
+        // boundary, so a plain reload doesn't needlessly recompute).
+        if (haveBoundary) {
+            if (builtFromKeyRef.current === null) {
+                builtFromKeyRef.current = addedKey;
+                return;
+            }
+            if (builtFromKeyRef.current === addedKey) return;
+        }
 
         let cancelled = false;
         (async () => {
@@ -135,6 +172,9 @@ export function usePlayAreaBoundary(): void {
                         }
                     }
                     if (cancelled) return;
+                    // Record the added-set this boundary was built from so
+                    // we don't re-fetch until it next changes.
+                    builtFromKeyRef.current = addedKey;
                     mapGeoJSON.set(clipped);
                     polyGeoJSON.set(clipped);
                 }
@@ -151,5 +191,5 @@ export function usePlayAreaBoundary(): void {
             // isLoading early-return after a mid-flight cancel.
             isLoading.set(false);
         };
-    }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON, $playArea]);
+    }, [$mapGeoLocation?.properties, $mapGeoJSON, $polyGeoJSON, $playArea, addedKey]);
 }

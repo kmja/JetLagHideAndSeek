@@ -88,6 +88,15 @@ export interface SetupState {
      * already had.
      */
     mapGeoLocation?: unknown;
+    /**
+     * Adjacent areas the host folded into the play area
+     * (`AdditionalMapGeoLocations[]` on the client — each an OSM feature
+     * + `added` flag). Without this the hide team's boundary was always
+     * the primary area only, so a guest saw a smaller play area than the
+     * host. Opaque blob on the wire; the client casts on receipt.
+     * Optional for back-compat.
+     */
+    adjacentLocations?: unknown[];
 }
 
 /**

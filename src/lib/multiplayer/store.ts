@@ -28,6 +28,7 @@ import { getStoredPushSubscription, notify } from "@/lib/notifications";
 import { CATEGORIES } from "@/lib/categories";
 import {
     addQuestion as localAddQuestion,
+    additionalMapGeoLocations,
     disabledStations,
     mapGeoLocation,
     permanentOverlay,
@@ -326,6 +327,9 @@ export function hostPushSetup() {
         // its persisted Japan default. Half a KB on the wire,
         // sent on host-finished and on edit-saves only.
         mapGeoLocation: mapGeoLocation.get(),
+        // Adjacent areas folded into the play area, so the hide team's
+        // boundary matches the host's instead of being primary-only.
+        adjacentLocations: additionalMapGeoLocations.get(),
     };
     getTransport().send({ t: "start", setup });
 }
@@ -582,6 +586,16 @@ function applySnapshot(state: GameState) {
             state.setup.mapGeoLocation as OpenStreetMap,
         );
     }
+    if (Array.isArray(state.setup.adjacentLocations)) {
+        // Mirror the host's folded-in neighbours so the hide team's
+        // boundary covers the same area (not primary-only).
+        additionalMapGeoLocations.set(
+            state.setup
+                .adjacentLocations as ReturnType<
+                typeof additionalMapGeoLocations.get
+            >,
+        );
+    }
     // Questions — merge by key, replacing existing entries.
     const incomingQs: Question[] = [];
     for (const raw of state.questions) {
@@ -745,6 +759,15 @@ function handleServerMessage(msg: ServerMessage) {
             if (msg.setup.mapGeoLocation) {
                 mapGeoLocation.set(
                     msg.setup.mapGeoLocation as OpenStreetMap,
+                );
+            }
+            if (Array.isArray(msg.setup.adjacentLocations)) {
+                // Keep the hide team's folded-in neighbours in sync with
+                // the host so both see the same play-area boundary.
+                additionalMapGeoLocations.set(
+                    msg.setup.adjacentLocations as ReturnType<
+                        typeof additionalMapGeoLocations.get
+                    >,
                 );
             }
             // Endgame just got armed (null → number). Hider needs to
