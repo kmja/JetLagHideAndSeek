@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check, Loader2, MapPin } from "lucide-react";
+import { Ban, Check, Dices, Loader2, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -18,6 +18,8 @@ import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     answeringQuestion,
+    discardCard,
+    hiderHand,
     hiderInbox,
     playerRole,
     presentDraw,
@@ -367,6 +369,12 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 />
             )}
 
+            {/* Cards the hider can play in RESPONSE to this question
+                (rulebook p65). The answer dialog is modal, so without
+                surfacing them here the hand is unreachable at the one
+                moment Veto / Randomize are meant to be used. */}
+            <ResponseCardActions question={question} />
+
             <main>
                 <AnswerControls
                     question={question}
@@ -374,6 +382,88 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                     revealed={revealed}
                 />
             </main>
+        </div>
+    );
+}
+
+/**
+ * Veto / Randomize actions, shown in the answer dialog only when the
+ * hider actually holds the matching card.
+ *
+ *   - Veto: discard the card, mark this question handled WITHOUT an
+ *     answer (so it stops nagging as unanswered) and earn no card. The
+ *     seekers get no answer but may ask their next question.
+ *   - Randomize: discard the card; the hider then answers a different,
+ *     randomly-chosen un-asked question of the same category instead
+ *     (resolved between the players — the app can't auto-pick it). The
+ *     dialog stays open so they can carry on.
+ */
+function ResponseCardActions({ question }: { question: Question }) {
+    const $hand = useStore(hiderHand);
+    const vetoCard = $hand.find(
+        (c) => c.kind === "powerup" && c.powerup === "veto",
+    );
+    const randomizeCard = $hand.find(
+        (c) => c.kind === "powerup" && c.powerup === "randomize",
+    );
+    if (!vetoCard && !randomizeCard) return null;
+
+    const playVeto = () => {
+        if (!vetoCard) return;
+        discardCard(vetoCard.id);
+        // Mark handled with no reply so the unanswered overlay clears;
+        // no presentDraw — veto earns no reward (rulebook).
+        const inbox = hiderInbox.get();
+        hiderInbox.set(
+            inbox.map((e) =>
+                e.key === question.key && !e.repliedAt
+                    ? { ...e, repliedAt: Date.now() }
+                    : e,
+            ),
+        );
+        toast.info(
+            "Veto played. Tell the seeker no answer is coming — you earn no reward, and they can still ask their next question.",
+            { autoClose: 5000 },
+        );
+        answeringQuestion.set(null);
+    };
+
+    const playRandomize = () => {
+        if (!randomizeCard) return;
+        discardCard(randomizeCard.id);
+        toast.info(
+            "Randomize played. Answer a different, randomly-chosen un-asked question from the same category instead — agree it with the seeker.",
+            { autoClose: 6000 },
+        );
+    };
+
+    return (
+        <div className="rounded-lg border border-border bg-secondary/30 p-3 space-y-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                Play a card instead
+            </div>
+            <div className="flex gap-2">
+                {vetoCard && (
+                    <Button
+                        variant="outline"
+                        onClick={playVeto}
+                        className="flex-1 gap-1.5"
+                    >
+                        <Ban className="w-4 h-4" />
+                        Veto
+                    </Button>
+                )}
+                {randomizeCard && (
+                    <Button
+                        variant="outline"
+                        onClick={playRandomize}
+                        className="flex-1 gap-1.5"
+                    >
+                        <Dices className="w-4 h-4" />
+                        Randomize
+                    </Button>
+                )}
+            </div>
         </div>
     );
 }
