@@ -1,10 +1,15 @@
 // Cloudflare Worker config for the JetLag Hide and Seek **frontend**.
 //
-// This is the public site at
-// https://jetlaghideandseek.karl-mj-andersson.workers.dev — it serves
+// This is the public site — primary URL https://hideandseek.game (a
+// custom domain attached to this Worker; also served on the
+// https://jetlaghideandseek.karl-mj-andersson.workers.dev origin, with
+// jetlaghideandseek.com coming up as a second custom domain). It serves
 // the Vite-built static SPA bundle from `dist/` as Worker Static
 // Assets. No server-side code is involved here; the multiplayer
 // backend is a separate Worker (see `worker/wrangler.toml`).
+//
+// NOTE: the custom domains are attached via the Cloudflare dashboard
+// (Workers & Pages → this Worker → Domains & Routes), not declared here.
 //
 // (Historical note: the app used to be Astro and this file guarded
 // against the Cloudflare pipeline auto-adding the `@astrojs/cloudflare`

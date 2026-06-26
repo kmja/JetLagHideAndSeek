@@ -7,7 +7,8 @@
 > a hider-side companion, transit **trip planning**, photo questions,
 > and more.
 >
-> - **Live site:** https://jetlaghideandseek.karl-mj-andersson.workers.dev
+> - **Live site:** https://hideandseek.game (also at
+>   https://jetlaghideandseek.karl-mj-andersson.workers.dev)
 > - **Tech stack:** Vite SPA + React 19 + React Router + TypeScript +
 >   Tailwind + shadcn/ui + nanostores; maps via **MapLibre GL**
 >   (`react-map-gl/maplibre`). (It was originally Astro; it migrated to

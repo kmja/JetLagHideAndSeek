@@ -46,7 +46,7 @@ const NORWAY_MIN_LNG = 4.0;
  *  themselves with a contact/app handle. The header is technically
  *  forbidden in browser fetch, but Workers' fetch can set it freely. */
 const USER_AGENT =
-    "jetlag-hide-and-seek/v1 (https://jetlaghideandseek.karl-mj-andersson.workers.dev)";
+    "jetlag-hide-and-seek/v1 (https://hideandseek.game)";
 
 export function canServe(lat: number, lng: number): boolean {
     if (lng < NORWAY_MIN_LNG) return false;

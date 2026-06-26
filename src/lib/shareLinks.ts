@@ -22,8 +22,9 @@ function getOrigin(): string {
         return window.location.origin;
     }
     // SSR fallback. Should never actually be used since share calls happen
-    // in client event handlers.
-    return "https://jetlaghideandseek.karl-mj-andersson.workers.dev";
+    // in client event handlers — but use the primary custom domain so any
+    // edge case produces a canonical hideandseek.game link.
+    return "https://hideandseek.game";
 }
 
 /**

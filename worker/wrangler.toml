@@ -63,7 +63,7 @@ new_sqlite_classes = ["GameRoom"]
 # localhost during dev. The worker reads this and echoes it back as
 # Access-Control-Allow-Origin.
 [vars]
-ALLOWED_ORIGINS = "https://jetlaghideandseek.karl-mj-andersson.workers.dev,https://*-jetlaghideandseek.karl-mj-andersson.workers.dev,http://localhost:4321,http://localhost:3000,http://localhost:5173"
+ALLOWED_ORIGINS = "https://hideandseek.game,https://www.hideandseek.game,https://jetlaghideandseek.com,https://www.jetlaghideandseek.com,https://jetlaghideandseek.karl-mj-andersson.workers.dev,https://*-jetlaghideandseek.karl-mj-andersson.workers.dev,http://localhost:4321,http://localhost:3000,http://localhost:5173"
 VAPID_PUBLIC_KEY = "BB4E07f7IO8Xv2sAJRdaMiS-PeJFZLxYs3oZJ_F9zfm6VsNl8YTICDdBaI99E5vbElrY_dDUpxfQRk65xS0qQw0"
 
 # Observability — logs in the Cloudflare dashboard. Free tier limits
