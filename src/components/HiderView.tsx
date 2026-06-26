@@ -6,10 +6,6 @@ import { toast } from "react-toastify";
 import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
-import {
-    fetchNearest,
-    resolveFamily,
-} from "@/components/NearestReferencePreview";
 import { HiderShell } from "@/components/HiderShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { hiderMode } from "@/lib/context";
 import {
     answeringQuestion,
     discardCard,
@@ -41,6 +38,7 @@ import {
     decodeQuestionFromUrl,
 } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import { hiderifyQuestion } from "@/maps";
 import { forwardGeocodeOne } from "@/maps/api";
 import type { Question } from "@/maps/schema";
 
@@ -399,10 +397,11 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
  *   - Veto: discard the card, mark this question handled WITHOUT an
  *     answer (so it stops nagging as unanswered) and earn no card. The
  *     seekers get no answer but may ask their next question.
- *   - Randomize: discard the card; the hider then answers a different,
- *     randomly-chosen un-asked question of the same category instead
- *     (resolved between the players — the app can't auto-pick it). The
- *     dialog stays open so they can carry on.
+ *   - Randomize: discard the card; the app picks a random different
+ *     substitute question of the same category, auto-grades it through
+ *     the universal `hiderifyQuestion` engine (the same code the seeker
+ *     uses to preview answer regions), and sends the verdict. Works for
+ *     every question type.
  */
 function ResponseCardActions({
     question,
@@ -419,14 +418,12 @@ function ResponseCardActions({
     const randomizeCard = $hand.find(
         (c) => c.kind === "powerup" && c.powerup === "randomize",
     );
-    // Randomize swaps the question to a different subtype of the SAME
-    // category and auto-grades it — only meaningful for the categories
-    // that have subtypes (matching / measuring / tentacles).
-    const randomizeApplies =
-        question.id === "matching" ||
-        question.id === "measuring" ||
-        question.id === "tentacles";
-    const showRandomize = Boolean(randomizeCard) && randomizeApplies;
+    // Randomize swaps the question to a random different substitute of
+    // the SAME category and auto-grades it through the universal hider
+    // engine (`hiderifyQuestion`) — the exact same code path the seeker
+    // uses to preview answer regions. Every question type is gradable,
+    // so randomize is offered for all of them.
+    const showRandomize = Boolean(randomizeCard);
     if (!vetoCard && !showRandomize) return null;
 
     const markHandled = (reply: Record<string, unknown>) => {
@@ -540,12 +537,31 @@ function ResponseCardActions({
     );
 }
 
+/** Radar (radius) presets — randomize picks a different one. */
+const RADIUS_PRESETS = [
+    { label: "500 m", radius: 500, unit: "meters" },
+    { label: "1 km", radius: 1, unit: "kilometers" },
+    { label: "2 km", radius: 2, unit: "kilometers" },
+    { label: "5 km", radius: 5, unit: "kilometers" },
+    { label: "10 km", radius: 10, unit: "kilometers" },
+] as const;
+
 /**
- * Auto-grade a randomized substitute: pick a random different subtype of
- * the same category that's a "nearest-reference" question (so the hider
- * can compute the answer from GPS + the seeker's point), then compute the
- * binary/place answer. Returns the wire answer fields + labels, or null
- * when no auto-gradable substitute is available.
+ * Auto-grade a randomized substitute through the SAME engine the seeker
+ * uses to preview answer regions (`hiderifyQuestion`).
+ *
+ * The rulebook's Randomize replaces the asked question with a randomly
+ * chosen different question of the same category. We do exactly that:
+ * clone the question, swap it to a random substitute (a different
+ * subtype for matching/measuring/tentacles, a different radius for
+ * radar; thermometer has no parameter to vary so it grades as-is), put
+ * the engine into hider mode at the hider's live GPS, run
+ * `hiderifyQuestion`, then read back the graded fields.
+ *
+ * Because it's the canonical grader, EVERY question type is gradable —
+ * there is no "couldn't auto-compute" path anymore. Returns the wire
+ * answer fields (swapped parameters + grade) plus from/to labels for the
+ * toast, or null only if there's genuinely no GPS fix.
  */
 async function computeRandomizedAnswer(
     question: Question,
@@ -556,63 +572,91 @@ async function computeRandomizedAnswer(
     toLabel: string;
 } | null> {
     const cat = question.id;
-    const subs = getSubtypes(cat, gameSize.get());
-    if (!subs) return null;
-    const data = question.data as {
-        lat?: number;
-        lng?: number;
-        type?: string;
-        locationType?: string;
-    };
-    const currentSub = cat === "tentacles" ? data.locationType : data.type;
-    // Only subtypes we can auto-grade (resolveFamily maps them to a
-    // concrete nearest-place strategy); exclude the current one.
-    const candidates = subs.filter(
-        (s) => s.value !== currentSub && resolveFamily(s.value) !== null,
-    );
-    if (candidates.length === 0) return null;
-    const pick = candidates[Math.floor(Math.random() * candidates.length)];
-    const family = resolveFamily(pick.value);
-    if (
-        !family ||
-        typeof data.lat !== "number" ||
-        typeof data.lng !== "number"
-    ) {
-        return null;
-    }
-    const [nearHider, nearSeeker] = await Promise.all([
-        fetchNearest(family, hiderPos.lat, hiderPos.lng),
-        fetchNearest(family, data.lat, data.lng),
-    ]);
-    if (!nearHider || !nearSeeker) return null;
-    const fromLabel =
-        (currentSub && findSubtypeMeta(currentSub)?.label) ??
-        currentSub ??
-        cat;
-    const toLabel = pick.label;
+    // Deep-ish clone so we never mutate the live question while grading.
+    // `drag: true` is what gates the engine into "compute the answer".
+    const clone = {
+        ...question,
+        data: { ...(question.data as Record<string, unknown>), drag: true },
+    } as Question;
+    const data = clone.data as Record<string, unknown>;
 
-    if (cat === "matching") {
-        const same =
-            nearHider.name === nearSeeker.name &&
-            Math.abs(nearHider.lat - nearSeeker.lat) < 1e-4 &&
-            Math.abs(nearHider.lng - nearSeeker.lng) < 1e-4;
-        return { answer: { type: pick.value, same }, fromLabel, toLabel };
+    let fromLabel = CATEGORIES[cat as CategoryId]?.label ?? cat;
+    let toLabel = fromLabel;
+
+    if (cat === "matching" || cat === "measuring" || cat === "tentacles") {
+        const subs = getSubtypes(cat, gameSize.get());
+        const currentSub = (
+            cat === "tentacles" ? data.locationType : data.type
+        ) as string | undefined;
+        const candidates = (subs ?? []).filter((s) => s.value !== currentSub);
+        if (candidates.length > 0) {
+            const pick =
+                candidates[Math.floor(Math.random() * candidates.length)];
+            fromLabel =
+                (currentSub && findSubtypeMeta(currentSub)?.label) ??
+                currentSub ??
+                fromLabel;
+            toLabel = pick.label;
+            if (cat === "tentacles") data.locationType = pick.value;
+            else data.type = pick.value;
+        }
+    } else if (cat === "radius") {
+        const candidates = RADIUS_PRESETS.filter(
+            (p) => !(p.radius === data.radius && p.unit === data.unit),
+        );
+        const pick =
+            candidates[Math.floor(Math.random() * candidates.length)] ??
+            RADIUS_PRESETS[0];
+        fromLabel = `Radar ${data.radius} ${data.unit}`;
+        toLabel = `Radar ${pick.label}`;
+        data.radius = pick.radius;
+        data.unit = pick.unit;
     }
-    if (cat === "measuring") {
-        const hiderCloser =
-            nearHider.distanceMeters < nearSeeker.distanceMeters;
-        return {
-            answer: { type: pick.value, hiderCloser },
-            fromLabel,
-            toLabel,
-        };
+    // thermometer: no parameter to randomize — grade the question as-is.
+
+    // Flip the global hider mode to the hider's live position for the
+    // duration of the grade, then restore it (the hider may not actually
+    // be in "hider mode" on this device).
+    const prev = hiderMode.get();
+    hiderMode.set({ latitude: hiderPos.lat, longitude: hiderPos.lng });
+    try {
+        await hiderifyQuestion(clone);
+    } finally {
+        hiderMode.set(prev);
     }
-    // tentacles → the answer is the closest place's name.
-    return {
-        answer: { locationType: pick.value, hiderPlace: nearHider.name },
-        fromLabel,
-        toLabel,
-    };
+
+    const out = clone.data as Record<string, unknown>;
+    // Send the swapped parameters + the engine's verdict. `drag:false`
+    // is added by the caller's `markHandled`.
+    let answer: Record<string, unknown>;
+    switch (cat) {
+        case "radius":
+            answer = {
+                radius: out.radius,
+                unit: out.unit,
+                within: out.within,
+            };
+            break;
+        case "thermometer":
+            answer = { warmer: out.warmer };
+            break;
+        case "matching":
+            answer = {
+                type: out.type,
+                same: out.same,
+                lengthComparison: out.lengthComparison,
+            };
+            break;
+        case "measuring":
+            answer = { type: out.type, hiderCloser: out.hiderCloser };
+            break;
+        case "tentacles":
+            answer = { locationType: out.locationType, location: out.location };
+            break;
+        default:
+            answer = {};
+    }
+    return { answer, fromLabel, toLabel };
 }
 
 /** Title-cases a hyphenated subtype slug ("same-street" → "Same Street"). */
