@@ -237,6 +237,13 @@ export function PlayAreaPreviewMap({
     // a cross-line municipality) would have their boundary parked
     // off-screen until the user manually zoomed out.
     const $adjacent = useStore(adjacentCandidatePreview);
+    // Added (committed) adjacent areas — the camera must frame these as
+    // part of the play area too, so a lobby/preview showing a primary +
+    // folded-in neighbours fits the WHOLE assembled shape, not just the
+    // primary (the "zoom to fit adjacent areas" the user asked for). The
+    // CommittedAreasOverlay already DRAWS them; this just frames them.
+    const $added = useStore(additionalMapGeoLocations);
+    const hasAdded = $added.some((e) => e.added && e.location);
     // v483: true once every adjacent candidate's boundary polygon has
     // settled (reported by AdjacentCandidatesOverlay). Folds into the
     // reveal gate so the preview waits for the neighbour boundaries to
@@ -260,7 +267,10 @@ export function PlayAreaPreviewMap({
     // The bbox extent was an over-approximation for irregular shapes
     // (Dalarna's bbox swallowed parts of Norway + Uppsala).
     useEffect(() => {
-        if (!realPolygon || widenedRef.current) return;
+        // When the area has folded-in neighbours, the committed-fit effect
+        // below owns framing (primary + every added area); tightening to
+        // the primary alone here would just crop them back out.
+        if (!realPolygon || widenedRef.current || hasAdded) return;
         try {
             const map = mapRef.current?.getMap();
             if (!map) return;
@@ -279,7 +289,64 @@ export function PlayAreaPreviewMap({
         } catch {
             /* ignore */
         }
-    }, [realPolygon]);
+    }, [realPolygon, hasAdded]);
+
+    // Committed-area fit: frame the camera to the WHOLE assembled play
+    // area — the primary plus every ADDED neighbour — whenever the
+    // candidate picker isn't the thing driving the camera (the wizard's
+    // widen effect owns that case). This is what makes the lobby preview
+    // zoom out to include folded-in adjacents instead of cropping to the
+    // primary. Re-fits when the added set changes (add/remove a neighbour)
+    // and once the primary boundary lands.
+    const committedFitRef = useRef<string | null>(null);
+    useEffect(() => {
+        if ($adjacent?.candidates?.length) return; // wizard widen owns it
+        const added = $added.filter((e) => e.added && e.location);
+        if (added.length === 0) return;
+        const base: [number, number, number, number] | null = realPolygon
+            ? (turf.bbox({
+                  type: "Feature",
+                  properties: {},
+                  geometry: realPolygon,
+              } as GeoJSON.Feature) as [number, number, number, number])
+            : bbox
+              ? [bbox.minLng, bbox.minLat, bbox.maxLng, bbox.maxLat]
+              : null;
+        if (!base) return;
+        let [minX, minY, maxX, maxY] = base;
+        for (const e of added) {
+            // extent order is [maxLat, minLng, minLat, maxLng].
+            const ext = (
+                e.location?.properties as { extent?: number[] } | undefined
+            )?.extent;
+            if (!ext || ext.length < 4) continue;
+            const [cMaxLat, cMinLng, cMinLat, cMaxLng] = ext;
+            minX = Math.min(minX, cMinLng);
+            maxX = Math.max(maxX, cMaxLng);
+            minY = Math.min(minY, cMinLat);
+            maxY = Math.max(maxY, cMaxLat);
+        }
+        const key = `${minX.toFixed(4)},${minY.toFixed(4)},${maxX.toFixed(4)},${maxY.toFixed(4)}`;
+        if (committedFitRef.current === key) return;
+        try {
+            const map = mapRef.current?.getMap();
+            if (!map) return;
+            committedFitRef.current = key;
+            // Mark as "framed wider" so the primary-only tighten/widen
+            // effects don't fight this fit.
+            widenedRef.current = true;
+            map.fitBounds(
+                [
+                    [minX, minY],
+                    [maxX, maxY],
+                ],
+                { padding: 24, duration: 600, maxZoom: 12, essential: true },
+            );
+        } catch {
+            /* ignore */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [$added, $adjacent, realPolygon, bbox]);
 
     // One smooth, one-time widen to include every adjacent-candidate
     // bbox, the first time candidates are available for this area. A
@@ -357,8 +424,10 @@ export function PlayAreaPreviewMap({
     };
 
     useEffect(() => {
-        // New area chosen → allow exactly one fresh widen for it.
+        // New area chosen → allow exactly one fresh widen for it, and let
+        // the committed-area fit recompute for the new primary.
         widenedRef.current = false;
+        committedFitRef.current = null;
         fitToBbox(true);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [bbox]);
@@ -419,6 +488,15 @@ export function PlayAreaPreviewMap({
     const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
         dataReady,
         resetKey,
+        // When waiting on adjacency, give the gate longer before it
+        // force-reveals. The default 12 s frequently expired before a
+        // multi-neighbour city (e.g. Bucharest + 6 adjacents) finished its
+        // adjacency Overpass query + per-candidate boundary fetches, which
+        // force-revealed the primary-only map and then streamed the
+        // neighbours in afterwards — the "loads in two parts" the user
+        // reported. 30 s keeps it a single settle in all but pathological
+        // cases; the veil shows a normal loader the whole time.
+        revealTimeoutMs: awaitAdjacent ? 30_000 : 12_000,
         // The cache-hit fast path (start already revealed) is skipped when
         // we're waiting on adjacency: candidate readiness isn't knowable
         // at mount, so honour the full gate instead of flashing the map

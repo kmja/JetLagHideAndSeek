@@ -28,7 +28,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { appConfirm } from "@/lib/confirm";
-import { mapGeoLocation } from "@/lib/context";
+import { additionalMapGeoLocations, mapGeoLocation } from "@/lib/context";
 import {
     allowedTransit,
     type GameSize,
@@ -299,22 +299,57 @@ export function GameLobbyDialog() {
     // the preload checkbox is actually shown (metered link). null while
     // unknown / no pack → estimatePreloadMB falls back to the area model.
     const [packBytes, setPackBytes] = useState<number | null>(null);
+    const $additional = useStore(additionalMapGeoLocations);
+    // Stable key of the added-adjacent osm ids so the effect re-runs when
+    // neighbours are folded in/out — each added area is a SEPARATE tile
+    // pack to download, so the estimate must sum them with the primary.
+    const addedPackKey = useMemo(
+        () =>
+            $additional
+                .filter((e) => e.added && e.location)
+                .map(
+                    (e) =>
+                        (e.location.properties as {
+                            osm_id?: number;
+                            osm_type?: string;
+                        }),
+                )
+                .filter((p) => p?.osm_type === "R" && p?.osm_id)
+                .map((p) => p!.osm_id)
+                .sort((a, b) => (a ?? 0) - (b ?? 0))
+                .join(","),
+        [$additional],
+    );
     useEffect(() => {
         if (isMidGame || !metered) return;
-        const props = $mapGeoLocation?.properties as
+        const ids: number[] = [];
+        const primary = $mapGeoLocation?.properties as
             | { osm_id?: number; osm_type?: string }
             | undefined;
-        if (!props || props.osm_type !== "R" || !props.osm_id) {
+        if (primary?.osm_type === "R" && primary?.osm_id) {
+            ids.push(Number(primary.osm_id));
+        }
+        if (addedPackKey) {
+            for (const s of addedPackKey.split(",")) ids.push(Number(s));
+        }
+        if (ids.length === 0) {
             setPackBytes(null);
             return;
         }
         const ctrl = new AbortController();
         setPackBytes(null);
-        fetchTilePackBytes(Number(props.osm_id), ctrl.signal).then((b) => {
-            if (!ctrl.signal.aborted) setPackBytes(b);
+        // Sum the packs that exist (404s → null → contribute nothing, and
+        // their map data warms via the range walk, which the area term of
+        // the estimate covers). Resolve to null only if NONE has a pack.
+        Promise.all(
+            ids.map((id) => fetchTilePackBytes(id, ctrl.signal)),
+        ).then((sizes) => {
+            if (ctrl.signal.aborted) return;
+            const total = sizes.reduce<number>((a, b) => a + (b ?? 0), 0);
+            setPackBytes(total > 0 ? total : null);
         });
         return () => ctrl.abort();
-    }, [$mapGeoLocation?.properties, isMidGame, metered]);
+    }, [$mapGeoLocation?.properties, addedPackKey, isMidGame, metered]);
     const preloadOn = $preload.map || $preload.references || $preload.transit;
     const setPreloadOn = (on: boolean) =>
         preloadChoices.set({ map: on, references: on, transit: on });
