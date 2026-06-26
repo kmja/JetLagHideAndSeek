@@ -69,7 +69,7 @@ type ResolvedFamily =
  * questions — admin polygons (zone, letter-zone) and user-drawn
  * custom geometry.
  */
-function resolveFamily(typeRaw: string): ResolvedFamily {
+export function resolveFamily(typeRaw: string): ResolvedFamily {
     const stripped = typeRaw.endsWith("-full")
         ? typeRaw.slice(0, -"-full".length)
         : typeRaw;
@@ -323,7 +323,7 @@ async function tryCacheNearest(
     }
 }
 
-async function fetchNearest(
+export async function fetchNearest(
     family: NonNullable<ResolvedFamily>,
     lat: number,
     lng: number,

@@ -6,6 +6,10 @@ import { toast } from "react-toastify";
 import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
+import {
+    fetchNearest,
+    resolveFamily,
+} from "@/components/NearestReferencePreview";
 import { HiderShell } from "@/components/HiderShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +33,8 @@ import {
     roundFoundAt,
     settleLateAnswer,
 } from "@/lib/hiderRole";
+import { gameSize } from "@/lib/gameSetup";
+import { findSubtypeMeta, getSubtypes } from "@/lib/subtypes";
 import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
 import {
     decodeFoundFromUrl,
@@ -373,7 +379,7 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 (rulebook p65). The answer dialog is modal, so without
                 surfacing them here the hand is unreachable at the one
                 moment Veto / Randomize are meant to be used. */}
-            <ResponseCardActions question={question} />
+            <ResponseCardActions question={question} hiderPos={hiderPos} />
 
             <main>
                 <AnswerControls
@@ -398,74 +404,215 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
  *     (resolved between the players — the app can't auto-pick it). The
  *     dialog stays open so they can carry on.
  */
-function ResponseCardActions({ question }: { question: Question }) {
+function ResponseCardActions({
+    question,
+    hiderPos,
+}: {
+    question: Question;
+    hiderPos: { lat: number; lng: number; accuracy: number } | null;
+}) {
     const $hand = useStore(hiderHand);
+    const [busy, setBusy] = useState(false);
     const vetoCard = $hand.find(
         (c) => c.kind === "powerup" && c.powerup === "veto",
     );
     const randomizeCard = $hand.find(
         (c) => c.kind === "powerup" && c.powerup === "randomize",
     );
-    if (!vetoCard && !randomizeCard) return null;
+    // Randomize swaps the question to a different subtype of the SAME
+    // category and auto-grades it — only meaningful for the categories
+    // that have subtypes (matching / measuring / tentacles).
+    const randomizeApplies =
+        question.id === "matching" ||
+        question.id === "measuring" ||
+        question.id === "tentacles";
+    const showRandomize = Boolean(randomizeCard) && randomizeApplies;
+    if (!vetoCard && !showRandomize) return null;
 
-    const playVeto = () => {
-        if (!vetoCard) return;
-        discardCard(vetoCard.id);
-        // Mark handled with no reply so the unanswered overlay clears;
-        // no presentDraw — veto earns no reward (rulebook).
+    const markHandled = (reply: Record<string, unknown>) => {
         const inbox = hiderInbox.get();
         hiderInbox.set(
             inbox.map((e) =>
                 e.key === question.key && !e.repliedAt
-                    ? { ...e, repliedAt: Date.now() }
+                    ? { ...e, repliedAt: Date.now(), reply }
                     : e,
             ),
         );
+        // Mirror to the seeker over the wire (drag:false + the marker),
+        // so they're notified + the question log shows it.
+        hiderAnswerQuestion(question.key, reply);
+    };
+
+    const playVeto = () => {
+        if (!vetoCard || busy) return;
+        discardCard(vetoCard.id);
+        // No presentDraw — veto earns no reward (rulebook p65). The
+        // `vetoed` marker makes the seeker eliminate nothing.
+        markHandled({ drag: false, vetoed: true });
         toast.info(
-            "Veto played. Tell the seeker no answer is coming — you earn no reward, and they can still ask their next question.",
+            "Veto played — the seekers are told no answer is coming. You earn no reward, but they can still ask their next question.",
             { autoClose: 5000 },
         );
         answeringQuestion.set(null);
     };
 
-    const playRandomize = () => {
-        if (!randomizeCard) return;
-        discardCard(randomizeCard.id);
-        toast.info(
-            "Randomize played. Answer a different, randomly-chosen un-asked question from the same category instead — agree it with the seeker.",
-            { autoClose: 6000 },
-        );
+    const playRandomize = async () => {
+        if (!randomizeCard || busy) return;
+        if (!hiderPos) {
+            toast.error("Need your GPS fix before randomizing.");
+            return;
+        }
+        setBusy(true);
+        try {
+            const result = await computeRandomizedAnswer(question, hiderPos);
+            if (!result) {
+                toast.error(
+                    "Couldn't auto-answer a substitute question here — no usable category to randomize to.",
+                );
+                return;
+            }
+            discardCard(randomizeCard.id);
+            markHandled({
+                drag: false,
+                randomized: true,
+                randomizedFrom: result.fromLabel,
+                ...result.answer,
+            });
+            toast.success(
+                `Randomized to a ${result.toLabel} question — answered automatically and sent to the seeker.`,
+                { autoClose: 5000 },
+            );
+            answeringQuestion.set(null);
+        } finally {
+            setBusy(false);
+        }
     };
 
     return (
-        <div className="rounded-lg border border-border bg-secondary/30 p-3 space-y-2">
-            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                Play a card instead
-            </div>
-            <div className="flex gap-2">
-                {vetoCard && (
-                    <Button
-                        variant="outline"
-                        onClick={playVeto}
-                        className="flex-1 gap-1.5"
-                    >
-                        <Ban className="w-4 h-4" />
-                        Veto
-                    </Button>
-                )}
-                {randomizeCard && (
-                    <Button
-                        variant="outline"
-                        onClick={playRandomize}
-                        className="flex-1 gap-1.5"
-                    >
-                        <Dices className="w-4 h-4" />
-                        Randomize
-                    </Button>
-                )}
-            </div>
+        <div className="space-y-2">
+            {showRandomize && (
+                <button
+                    type="button"
+                    onClick={playRandomize}
+                    disabled={busy}
+                    className={cn(
+                        "w-full flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-colors",
+                        "border-[hsl(265,60%,60%)]/40 bg-[hsl(265,60%,60%)]/10",
+                        "hover:bg-[hsl(265,60%,60%)]/15 disabled:opacity-50",
+                    )}
+                >
+                    <Dices className="w-5 h-5 shrink-0 text-[hsl(265,60%,72%)]" />
+                    <span className="min-w-0">
+                        <span className="block text-sm font-poppins font-bold">
+                            {busy ? "Randomizing…" : "Play Randomize"}
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground leading-snug">
+                            Answer a random different {question.id} question
+                            instead — auto-graded and sent.
+                        </span>
+                    </span>
+                </button>
+            )}
+            {vetoCard && (
+                <button
+                    type="button"
+                    onClick={playVeto}
+                    disabled={busy}
+                    className={cn(
+                        "w-full flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-colors",
+                        "border-destructive/40 bg-destructive/10",
+                        "hover:bg-destructive/15 disabled:opacity-50",
+                    )}
+                >
+                    <Ban className="w-5 h-5 shrink-0 text-destructive" />
+                    <span className="min-w-0">
+                        <span className="block text-sm font-poppins font-bold">
+                            Play Veto
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground leading-snug">
+                            Send no answer. No reward, but the seekers can
+                            ask their next question.
+                        </span>
+                    </span>
+                </button>
+            )}
         </div>
     );
+}
+
+/**
+ * Auto-grade a randomized substitute: pick a random different subtype of
+ * the same category that's a "nearest-reference" question (so the hider
+ * can compute the answer from GPS + the seeker's point), then compute the
+ * binary/place answer. Returns the wire answer fields + labels, or null
+ * when no auto-gradable substitute is available.
+ */
+async function computeRandomizedAnswer(
+    question: Question,
+    hiderPos: { lat: number; lng: number },
+): Promise<{
+    answer: Record<string, unknown>;
+    fromLabel: string;
+    toLabel: string;
+} | null> {
+    const cat = question.id;
+    const subs = getSubtypes(cat, gameSize.get());
+    if (!subs) return null;
+    const data = question.data as {
+        lat?: number;
+        lng?: number;
+        type?: string;
+        locationType?: string;
+    };
+    const currentSub = cat === "tentacles" ? data.locationType : data.type;
+    // Only subtypes we can auto-grade (resolveFamily maps them to a
+    // concrete nearest-place strategy); exclude the current one.
+    const candidates = subs.filter(
+        (s) => s.value !== currentSub && resolveFamily(s.value) !== null,
+    );
+    if (candidates.length === 0) return null;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    const family = resolveFamily(pick.value);
+    if (
+        !family ||
+        typeof data.lat !== "number" ||
+        typeof data.lng !== "number"
+    ) {
+        return null;
+    }
+    const [nearHider, nearSeeker] = await Promise.all([
+        fetchNearest(family, hiderPos.lat, hiderPos.lng),
+        fetchNearest(family, data.lat, data.lng),
+    ]);
+    if (!nearHider || !nearSeeker) return null;
+    const fromLabel =
+        (currentSub && findSubtypeMeta(currentSub)?.label) ??
+        currentSub ??
+        cat;
+    const toLabel = pick.label;
+
+    if (cat === "matching") {
+        const same =
+            nearHider.name === nearSeeker.name &&
+            Math.abs(nearHider.lat - nearSeeker.lat) < 1e-4 &&
+            Math.abs(nearHider.lng - nearSeeker.lng) < 1e-4;
+        return { answer: { type: pick.value, same }, fromLabel, toLabel };
+    }
+    if (cat === "measuring") {
+        const hiderCloser =
+            nearHider.distanceMeters < nearSeeker.distanceMeters;
+        return {
+            answer: { type: pick.value, hiderCloser },
+            fromLabel,
+            toLabel,
+        };
+    }
+    // tentacles → the answer is the closest place's name.
+    return {
+        answer: { locationType: pick.value, hiderPlace: nearHider.name },
+        fromLabel,
+        toLabel,
+    };
 }
 
 /** Title-cases a hyphenated subtype slug ("same-street" → "Same Street"). */

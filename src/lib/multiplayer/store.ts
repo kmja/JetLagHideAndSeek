@@ -725,11 +725,32 @@ function handleServerMessage(msg: ServerMessage) {
                     tag: "q-added",
                 });
             } else if (msg.t === "qAnswered" && role === "seeker") {
-                notify({
-                    title: "Hider answered",
-                    body: `Your ${label.toLowerCase()} question got an answer.`,
-                    tag: "q-answered",
-                });
+                // Distinguish a Veto / Randomize from a normal answer so
+                // the seeker knows what happened to their question.
+                const qd = (
+                    msg.question as {
+                        data?: { vetoed?: boolean; randomized?: boolean };
+                    } | null
+                )?.data;
+                if (qd?.vetoed) {
+                    notify({
+                        title: "Question vetoed",
+                        body: `The hider vetoed your ${label.toLowerCase()} question — no answer is coming, but you can ask another.`,
+                        tag: "q-answered",
+                    });
+                } else if (qd?.randomized) {
+                    notify({
+                        title: "Question randomized",
+                        body: `The hider randomized your ${label.toLowerCase()} question and answered a different one of the same category.`,
+                        tag: "q-answered",
+                    });
+                } else {
+                    notify({
+                        title: "Hider answered",
+                        body: `Your ${label.toLowerCase()} question got an answer.`,
+                        tag: "q-answered",
+                    });
+                }
             }
             return;
         }

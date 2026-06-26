@@ -108,6 +108,10 @@ const thermometerQuestionSchema = z
          * that didn't have a target picker.
          */
         targetSig: z.string().optional(),
+        /** Veto / Randomize markers — see ordinaryBaseQuestionSchema. */
+        vetoed: z.boolean().optional(),
+        randomized: z.boolean().optional(),
+        randomizedFrom: z.string().optional(),
     })
     .transform((question) => {
         if (question.colorA === question.colorB) {
@@ -132,6 +136,15 @@ const ordinaryBaseQuestionSchema = z.object({
     collapsed: z.boolean().default(true),
     /** Unix ms timestamp of when this question was created. Optional so older saved questions still parse. */
     createdAt: z.number().optional(),
+    /** Hider played the Veto card (rulebook p65): no answer, no reward,
+     *  and the seeker eliminates nothing from this question. */
+    vetoed: z.boolean().optional(),
+    /** Hider played the Randomize card: this question's subtype was
+     *  swapped to a random un-asked one of the same category and
+     *  auto-answered. `randomizedFrom` keeps the original subtype label
+     *  for the log. */
+    randomized: z.boolean().optional(),
+    randomizedFrom: z.string().optional(),
 });
 
 const getDefaultUnit = () => {
@@ -527,6 +540,10 @@ const photoQuestionSchema = z.object({
     color: iconColorSchema.default(randomColor),
     /** Unix ms timestamp of when this question was created. */
     createdAt: z.number().optional(),
+    /** Veto / Randomize markers — see ordinaryBaseQuestionSchema. */
+    vetoed: z.boolean().optional(),
+    randomized: z.boolean().optional(),
+    randomizedFrom: z.string().optional(),
 });
 
 export const questionSchema = z.union([

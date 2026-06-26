@@ -162,20 +162,41 @@ export const QuestionCard = ({
     // `forceExpanded` = the configure dialog, where the question hasn't
     // been committed yet; we suppress the pill there to avoid implying
     // it's already in a lifecycle state.
-    type Lifecycle = "in-progress" | "not-sent" | "awaiting" | "answered";
+    type Lifecycle =
+        | "in-progress"
+        | "not-sent"
+        | "awaiting"
+        | "answered"
+        | "vetoed"
+        | "randomized";
+    const respData = thisQuestion?.data as
+        | { vetoed?: boolean; randomized?: boolean }
+        | undefined;
     const lifecycle: Lifecycle | null = forceExpanded
         ? null
-        : thermStatus === "started"
-          ? "in-progress"
-          : locked === true
-            ? "answered"
-            : createdAt
-              ? "awaiting"
-              : "not-sent";
+        : respData?.vetoed
+          ? "vetoed"
+          : respData?.randomized
+            ? "randomized"
+            : thermStatus === "started"
+              ? "in-progress"
+              : locked === true
+                ? "answered"
+                : createdAt
+                  ? "awaiting"
+                  : "not-sent";
     const lifecycleMeta: Record<
         Lifecycle,
         { label: string; cls: string }
     > = {
+        vetoed: {
+            label: "Vetoed",
+            cls: "bg-destructive/15 text-destructive border-destructive/30",
+        },
+        randomized: {
+            label: "Randomized",
+            cls: "bg-[hsl(265,60%,60%)]/15 text-[hsl(265,60%,72%)] border-[hsl(265,60%,60%)]/30",
+        },
         "in-progress": {
             label: "In progress",
             cls: "bg-primary/15 text-primary border-primary/30",

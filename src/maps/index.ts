@@ -139,6 +139,12 @@ export async function applyQuestionsToMapGeoData(
         if (question.data.drag) {
             continue;
         }
+        // Vetoed questions carry no answer — the hider played the Veto
+        // card — so they must eliminate NOTHING (the schema-default
+        // answer like `within:true` would otherwise mask the map).
+        if ((question.data as { vetoed?: boolean }).vetoed) {
+            continue;
+        }
 
         // v389: one failing elimination must not zero the others. The
         // visible bug was an app reload after a deploy: the @arcgis/core
