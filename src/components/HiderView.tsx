@@ -237,6 +237,12 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
         question.id === "tentacles";
     const shouldBlurMap = autoComputable && !revealed;
 
+    // Photo answers don't use the hider's location at all — the answer is
+    // the image, not a point. Skip the map, its loading/reveal overlays,
+    // and the manual-location fallback entirely so the photo dialog is
+    // just the prompt + capture controls.
+    const isPhoto = question.id === "photo";
+
     // v315: single readiness gate covering GPS + map. The Reveal
     // overlay (and any answer flow that needs the hider's
     // position) waits behind this until both are in.
@@ -305,71 +311,73 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 )}
             </header>
 
-            <div className="relative">
-                <div
-                    className={cn(
-                        "transition-all duration-500",
-                        shouldBlurMap && "blur-md scale-[1.02]",
-                    )}
-                    style={{
-                        // Avoid the blur bleeding past the rounded corners
-                        // of the map by clipping the wrapper too.
-                        overflow: "hidden",
-                        borderRadius: "0.375rem",
-                    }}
-                >
-                    <HiderMap
-                        question={question}
-                        overridePos={manualPos}
-                        onHiderLocationChange={(lat, lng, accuracy) =>
-                            setHiderPos({ lat, lng, accuracy })
-                        }
-                        onGeoError={() => setGeoFailed(true)}
-                        onMapReady={() => setMapReady(true)}
-                    />
-                </div>
-                {/* v315: unified loading overlay — covers map tiles
-                    AND GPS fix. The Reveal CTA only mounts when
-                    everything's in, so the hider never taps a fake
-                    reveal that drops them into a half-painted view
-                    or a "waiting for your location" wall. */}
-                {!allReady && (
+            {!isPhoto && (
+                <div className="relative">
                     <div
                         className={cn(
-                            "absolute inset-0 rounded-md z-10",
-                            "flex items-center justify-center",
-                            "bg-background/95 backdrop-blur-sm",
+                            "transition-all duration-500",
+                            shouldBlurMap && "blur-md scale-[1.02]",
                         )}
-                        aria-live="polite"
+                        style={{
+                            // Avoid the blur bleeding past the rounded corners
+                            // of the map by clipping the wrapper too.
+                            overflow: "hidden",
+                            borderRadius: "0.375rem",
+                        }}
                     >
-                        <div className="flex items-center gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                            <span className="text-xs uppercase tracking-wider font-poppins font-semibold text-foreground">
-                                {loadingStage}
-                            </span>
-                        </div>
+                        <HiderMap
+                            question={question}
+                            overridePos={manualPos}
+                            onHiderLocationChange={(lat, lng, accuracy) =>
+                                setHiderPos({ lat, lng, accuracy })
+                            }
+                            onGeoError={() => setGeoFailed(true)}
+                            onMapReady={() => setMapReady(true)}
+                        />
                     </div>
-                )}
-                {allReady && shouldBlurMap && (
-                    /* The blurred map is the tap target — v288 dropped
-                       the separate "Reveal answer" button below the
-                       map in favour of this single in-place gesture. */
-                    <button
-                        type="button"
-                        onClick={() => setRevealed(true)}
-                        aria-label="Tap the map to reveal your answer"
-                        className={cn(
-                            "absolute inset-0 rounded-md",
-                            "flex items-center justify-center",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        )}
-                    >
-                        <span className="bg-background/70 backdrop-blur-sm px-4 py-2 rounded-full text-xs uppercase tracking-wider font-poppins font-semibold text-foreground border border-border">
-                            Tap the map to reveal your answer
-                        </span>
-                    </button>
-                )}
-            </div>
+                    {/* v315: unified loading overlay — covers map tiles
+                        AND GPS fix. The Reveal CTA only mounts when
+                        everything's in, so the hider never taps a fake
+                        reveal that drops them into a half-painted view
+                        or a "waiting for your location" wall. */}
+                    {!allReady && (
+                        <div
+                            className={cn(
+                                "absolute inset-0 rounded-md z-10",
+                                "flex items-center justify-center",
+                                "bg-background/95 backdrop-blur-sm",
+                            )}
+                            aria-live="polite"
+                        >
+                            <div className="flex items-center gap-2">
+                                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                                <span className="text-xs uppercase tracking-wider font-poppins font-semibold text-foreground">
+                                    {loadingStage}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+                    {allReady && shouldBlurMap && (
+                        /* The blurred map is the tap target — v288 dropped
+                           the separate "Reveal answer" button below the
+                           map in favour of this single in-place gesture. */
+                        <button
+                            type="button"
+                            onClick={() => setRevealed(true)}
+                            aria-label="Tap the map to reveal your answer"
+                            className={cn(
+                                "absolute inset-0 rounded-md",
+                                "flex items-center justify-center",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                        >
+                            <span className="bg-background/70 backdrop-blur-sm px-4 py-2 rounded-full text-xs uppercase tracking-wider font-poppins font-semibold text-foreground border border-border">
+                                Tap the map to reveal your answer
+                            </span>
+                        </button>
+                    )}
+                </div>
+            )}
 
             {/* v315: manual-location panel now ONLY appears when GPS
                 actually failed. The previous "set location manually"
@@ -377,7 +385,7 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                 that was noise the user never asked to see. Once the
                 answer is revealed the panel also disappears so the
                 override doesn't sit next to a committed answer. */}
-            {geoFailed && !revealed && (
+            {!isPhoto && geoFailed && !revealed && (
                 <ManualLocationPanel
                     geoFailed={geoFailed}
                     manualPos={manualPos}
@@ -434,9 +442,10 @@ function ResponseCardActions({
     // Randomize swaps the question to a random different substitute of
     // the SAME category and auto-grades it through the universal hider
     // engine (`hiderifyQuestion`) — the exact same code path the seeker
-    // uses to preview answer regions. Every question type is gradable,
-    // so randomize is offered for all of them.
-    const showRandomize = Boolean(randomizeCard);
+    // uses to preview answer regions. Every spatial type is gradable.
+    // Photo is excluded: a substitute photo still has to be physically
+    // taken, so there's nothing to auto-grade (Veto still applies).
+    const showRandomize = Boolean(randomizeCard) && question.id !== "photo";
     if (!vetoCard && !showRandomize) return null;
 
     const markHandled = (reply: Record<string, unknown>) => {
