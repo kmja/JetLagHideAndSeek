@@ -326,10 +326,16 @@ export function InlineLocationPicker({
     useEffect(() => {
         if (lastGpsRef.current !== gpsState && gpsState === "granted") {
             const map = mapRef.current?.getMap();
-            if (map) {
+            // When a reference point exists (matching / measuring), the
+            // reference-fit effect below frames the pin + reference
+            // TOGETHER — don't fight it by zooming to the pin alone. For
+            // radar, zoom to fit the whole radius circle, not a fixed 13.
+            if (map && !referencePoint) {
                 map.flyTo({
                     center: [safeLng, safeLat],
-                    zoom: Math.max(map.getZoom(), 13),
+                    zoom: radiusMeters
+                        ? zoomForRadius(radiusMeters)
+                        : Math.max(map.getZoom(), 13),
                     duration: 400,
                 });
             }
@@ -366,6 +372,43 @@ export function InlineLocationPicker({
             { padding: 40, maxZoom: 14, duration: 400 },
         );
     }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
+
+    // Radar: reframe to fit the whole radius circle whenever the RADIUS
+    // changes — i.e. the seeker picked a different preset size. Guarded on
+    // the radius value so dragging the pin (which also moves safeLat/Lng)
+    // doesn't yank the camera; only a genuine size change reframes. The
+    // very first radius is already framed by initialViewState's
+    // zoomForRadius, so we skip that and only animate later changes.
+    const lastRadiusRef = useRef<number | undefined>(undefined);
+    useEffect(() => {
+        if (radiusMeters == null || radiusMeters <= 0) {
+            lastRadiusRef.current = radiusMeters ?? undefined;
+            return;
+        }
+        if (lastRadiusRef.current === radiusMeters) return;
+        const isFirst = lastRadiusRef.current === undefined;
+        lastRadiusRef.current = radiusMeters;
+        if (isFirst) return;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        try {
+            const circle = turfCircle([safeLng, safeLat], radiusMeters / 1000, {
+                steps: 64,
+                units: "kilometers",
+            });
+            const [minX, minY, maxX, maxY] = turfBbox(circle);
+            map.fitBounds(
+                [
+                    [minX, minY],
+                    [maxX, maxY],
+                ],
+                { padding: 32, duration: 400 },
+            );
+        } catch {
+            /* ignore — map may not be ready */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [radiusMeters, safeLat, safeLng]);
 
     // v370: invert `$maskData` (the in-scope WORKING polygon — play area
     // minus eliminations) into the dark cover the layer actually wants

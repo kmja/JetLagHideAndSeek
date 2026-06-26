@@ -609,35 +609,33 @@ export function Map({ className }: MapProps) {
         let bounds:
             | [[number, number], [number, number]]
             | null = null;
-        if (extent) {
+        // Prefer the loaded boundary's OWN bbox — that's the assembled
+        // play area (primary UNIONED with every folded-in adjacent, and
+        // clipped to land), so the camera frames the whole region instead
+        // of cropping to the primary's extent and cutting neighbours off.
+        // Falls back to the primary extent before the boundary lands
+        // (immediate framing) and to the centroid flyTo below if neither
+        // is available (e.g. a guest who only got playArea coords).
+        const fc = ($mapGeoJSON || $polyGeoJSON) as
+            | GeoJSON.FeatureCollection
+            | null;
+        if (fc) {
+            try {
+                const b = turf.bbox(fc);
+                bounds = [
+                    [b[0], b[1]],
+                    [b[2], b[3]],
+                ];
+            } catch (e) {
+                console.warn("Map boundary bbox failed:", e);
+            }
+        }
+        if (!bounds && extent) {
             const [maxLat, minLng, minLat, maxLng] = extent;
             bounds = [
                 [minLng, minLat],
                 [maxLng, maxLat],
             ];
-        } else if ($mapGeoJSON || $polyGeoJSON) {
-            // Fallback: if mapGeoLocation didn't carry an extent
-            // (e.g. a guest-joined session where the host's push
-            // only included playArea / displayName + coords),
-            // center on the boundary's own bbox once it loads.
-            // Without this the map sat at the default world view
-            // zoom 2 and the user saw a uniform blue — the
-            // tile-layer's pacific ocean — instead of the play
-            // area they joined (v98 user report).
-            try {
-                const fc = ($mapGeoJSON || $polyGeoJSON) as
-                    | GeoJSON.FeatureCollection
-                    | null;
-                if (fc) {
-                    const b = turf.bbox(fc);
-                    bounds = [
-                        [b[0], b[1]],
-                        [b[2], b[3]],
-                    ];
-                }
-            } catch (e) {
-                console.warn("Map bbox fallback failed:", e);
-            }
         }
         if (!bounds) {
             // No extent, no boundary geometry yet. Last-resort
