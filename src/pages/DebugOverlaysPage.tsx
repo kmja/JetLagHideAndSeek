@@ -1,6 +1,5 @@
-import { useStore } from "@nanostores/react";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
@@ -26,24 +25,25 @@ import { roundFoundAt, roundLog } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 
 /**
- * Developer overlay gallery at `/debug/overlays` — preview the floating
- * timer / pending-question / banner / celebration overlays in isolation,
- * in each of their states, without setting up a real game.
+ * Developer overlay gallery at `/debug/overlays` — every floating
+ * timer / pending-question / banner / celebration / veil overlay shown
+ * AT ONCE, side by side, each in its own cell. The data driving them is
+ * deliberately incoherent (the timer is mid-hiding while a thermometer is
+ * running and the seekers are frozen and location is in grace…) — the
+ * point is to eyeball every overlay's visual at a glance, not to model a
+ * real game state.
  *
- * SAFETY: most overlays read PERSISTENT global atoms (hidingPeriodEndsAt,
- * questions, …). Driving them means writing those atoms, which would
- * otherwise clobber a real in-progress game. So this page snapshots every
- * atom it touches on mount and RESTORES them on unmount (i.e. when you
- * navigate away). A "Restore now" button does it on demand. Caveat: a
- * hard refresh / tab close while a preview is active skips the restore —
- * the banner below says so.
+ * Why cells: these overlays position with `fixed` / `absolute` against
+ * the viewport and read GLOBAL atoms, so mounted naively they'd all stack
+ * on top of each other at the same screen position. Each cell sets a
+ * non-`none` `transform`, which makes it the containing block for its
+ * overlay's `fixed`/`absolute` positioning — so each overlay lays itself
+ * out within its own cell instead of the whole window.
  *
- * How it works: all display overlays are mounted unconditionally; each
- * self-gates on its atoms and renders nothing until its atoms are set.
- * Selecting a preset neutralises every sandbox atom, then sets just the
- * ones that preset needs — so exactly one overlay shows at a time, no
- * cross-overlay atom conflicts. (Effect/fetch overlays — TravelTimes,
- * HiderReach — are deliberately excluded; they hit the network.)
+ * SAFETY: the overlays read PERSISTENT global atoms, so driving them
+ * writes those atoms. We snapshot every atom we touch on mount and RESTORE
+ * on unmount (and via the Restore button). A hard refresh while the
+ * gallery is open skips the restore — the header says so.
  */
 
 // A throwaway lat/lng for mock question geometry (central London).
@@ -97,22 +97,6 @@ function restore(s: SandboxSnapshot): void {
     triggerLocalRefresh.set(Math.random());
 }
 
-/** Neutralise every overlay-driving atom so nothing renders, ready for a
- *  preset to set exactly what it needs. */
-function neutralise(): void {
-    hidingPeriodEndsAt.set(null);
-    endgameStartedAt.set(null);
-    gameStartCelebrationAt.set(null);
-    seekersFrozenUntil.set(null);
-    locationGraceStartedAt.set(null);
-    gamePausedForLocationAt.set(null);
-    roundFoundAt.set(null);
-    questions.set([]);
-    // setupCompleted stays true so the timer/banners are allowed to mount.
-    setupCompleted.set(true);
-    triggerLocalRefresh.set(Math.random());
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mockRadiusQuestion(createdAt: number | undefined): any {
     return {
@@ -148,284 +132,157 @@ function mockStartedThermometer(): any {
     };
 }
 
-interface Preset {
-    id: string;
-    group: string;
-    label: string;
-    apply: () => void;
+/**
+ * Light every overlay up at once. Values are intentionally simultaneous
+ * and incoherent — we just want each overlay's gate satisfied so it
+ * renders. The `locationMode` arg flips the one banner that has two
+ * mutually-exclusive states (grace countdown vs hard pause).
+ */
+function arm(locationMode: "grace" | "paused"): void {
+    setupCompleted.set(true);
+    endgameStartedAt.set(null);
+    roundFoundAt.set(null);
+    // Hiding period running → HiderTimer (hiding) + GoGoGo countdown.
+    hidingPeriodEndsAt.set(Date.now() + 5 * 60_000);
+    gameStartCelebrationAt.set(Date.now());
+    seekersFrozenUntil.set(Date.now() + 45_000);
+    locationGraceStartedAt.set(locationMode === "grace" ? Date.now() : null);
+    gamePausedForLocationAt.set(locationMode === "paused" ? Date.now() : null);
+    // One pending radar (PendingAnswerOverlay) + one running thermometer
+    // (ThermometerOverlay). Each overlay filters to its own kind.
+    questions.set([mockRadiusQuestion(Date.now()), mockStartedThermometer()]);
+    triggerLocalRefresh.set(Math.random());
 }
 
-const PRESETS: Preset[] = [
-    // ── Timer ──────────────────────────────────────────────────
-    {
-        id: "timer-hiding-5m",
-        group: "Timer",
-        label: "Hiding period · 5:00 left",
-        apply: () => hidingPeriodEndsAt.set(Date.now() + 5 * 60_000),
-    },
-    {
-        id: "timer-hiding-20s",
-        group: "Timer",
-        label: "Hiding period · 0:20 left",
-        apply: () => hidingPeriodEndsAt.set(Date.now() + 20_000),
-    },
-    {
-        id: "timer-seeking",
-        group: "Timer",
-        label: "Seeking · hidden 2:00",
-        apply: () => hidingPeriodEndsAt.set(Date.now() - 2 * 60_000),
-    },
-    // ── Pending question ───────────────────────────────────────
-    {
-        id: "pending-not-sent",
-        group: "Pending question",
-        label: "Radar · not sent",
-        apply: () => questions.set([mockRadiusQuestion(undefined)]),
-    },
-    {
-        id: "pending-waiting",
-        group: "Pending question",
-        label: "Radar · waiting for answer",
-        apply: () => questions.set([mockRadiusQuestion(Date.now())]),
-    },
-    {
-        id: "pending-overdue",
-        group: "Pending question",
-        label: "Radar · overdue",
-        apply: () =>
-            questions.set([mockRadiusQuestion(Date.now() - 6 * 60_000)]),
-    },
-    {
-        id: "thermo-started",
-        group: "Pending question",
-        label: "Thermometer · running pill",
-        apply: () => questions.set([mockStartedThermometer()]),
-    },
-    // ── Banners ────────────────────────────────────────────────
-    {
-        id: "loc-grace",
-        group: "Banner",
-        label: "Location sharing · grace countdown",
-        apply: () => locationGraceStartedAt.set(Date.now()),
-    },
-    {
-        id: "loc-paused",
-        group: "Banner",
-        label: "Location sharing · paused",
-        apply: () => gamePausedForLocationAt.set(Date.now()),
-    },
-    {
-        id: "frozen",
-        group: "Banner",
-        label: "Seekers frozen (Move powerup)",
-        apply: () => seekersFrozenUntil.set(Date.now() + 45_000),
-    },
-    // ── Celebration ────────────────────────────────────────────
-    {
-        id: "gogogo",
-        group: "Celebration",
-        label: "Go, go, go! (game start)",
-        apply: () => {
-            hidingPeriodEndsAt.set(Date.now() + 30 * 60_000);
-            gameStartCelebrationAt.set(Date.now());
-        },
-    },
-];
-
-const GROUPS = Array.from(new Set(PRESETS.map((p) => p.group)));
+/** A single labelled gallery cell that becomes the containing block for
+ *  its overlay's fixed/absolute positioning. */
+function Cell({
+    label,
+    children,
+}: {
+    label: string;
+    children: ReactNode;
+}) {
+    return (
+        <div className="flex flex-col gap-1.5">
+            <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
+                {label}
+            </div>
+            <div
+                className={cn(
+                    "relative h-72 rounded-lg border border-border overflow-hidden",
+                    "bg-[hsl(var(--sidebar-background))]",
+                )}
+                // A non-`none` transform makes this the containing block
+                // for the overlay's `fixed`/`absolute` positioning, so it
+                // lays out inside the cell rather than the viewport.
+                style={{ transform: "translateZ(0)" }}
+            >
+                {/* Faux-map grid so positioned overlays read against a
+                    map-like surface, not a flat panel. */}
+                <div
+                    className="absolute inset-0 opacity-[0.15]"
+                    style={{
+                        backgroundImage:
+                            "linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)",
+                        backgroundSize: "28px 28px",
+                    }}
+                    aria-hidden
+                />
+                {children}
+            </div>
+        </div>
+    );
+}
 
 export function DebugOverlaysPage() {
-    useStore(triggerLocalRefresh);
     const snapRef = useRef<SandboxSnapshot | null>(null);
-    const [active, setActive] = useState<string | null>(null);
-    // MapTilesVeil is prop-driven (no atoms), handled separately.
-    const [veil, setVeil] = useState<null | "loading" | "timedout">(null);
+    const [locationMode, setLocationMode] = useState<"grace" | "paused">(
+        "grace",
+    );
 
     useEffect(() => {
         snapRef.current = snapshot();
+        arm("grace");
         return () => {
             if (snapRef.current) restore(snapRef.current);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const applyPreset = (p: Preset) => {
-        neutralise();
-        setVeil(null);
-        p.apply();
-        triggerLocalRefresh.set(Math.random());
-        setActive(p.id);
+    const reArm = () => arm(locationMode);
+    const toggleLocation = () => {
+        const next = locationMode === "grace" ? "paused" : "grace";
+        setLocationMode(next);
+        arm(next);
     };
-
-    const clearAll = () => {
-        neutralise();
-        setVeil(null);
-        setActive(null);
-    };
-
     const restoreNow = () => {
         if (snapRef.current) restore(snapRef.current);
-        setActive("(restored)");
-        setVeil(null);
     };
 
     return (
-        <div className="dark fixed inset-0 z-0 overflow-hidden bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]">
-            {/* Faux-map backdrop so positioned overlays read against a
-                map-like surface, not a flat panel. */}
-            <div
-                className="absolute inset-0 opacity-[0.15]"
-                style={{
-                    backgroundImage:
-                        "linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)",
-                    backgroundSize: "32px 32px",
-                }}
-                aria-hidden
-            />
-
-            {/* The real overlays — all mounted, each self-gates on its
-                atoms. Exactly one shows per preset. */}
-            <HiderTimer />
-            <PendingAnswerOverlay />
-            <ThermometerOverlay />
-            <LocationPauseBanner />
-            <SeekerFrozenBanner />
-            <GoGoGoOverlay />
-            {veil !== null && (
-                <MapTilesVeil
-                    visible
-                    timedOut={veil === "timedout"}
-                    label={
-                        veil === "timedout"
-                            ? "Map tiles are slow to load"
-                            : "Loading map"
-                    }
-                    sublabel={
-                        veil === "timedout"
-                            ? "Hang tight — still trying"
-                            : undefined
-                    }
-                />
-            )}
-
-            {/* Control panel. z above the non-fullscreen overlays; the
-                full-screen GoGoGo (z-[1070]) intentionally covers it —
-                dismiss it with its own button to get back here. */}
-            <div className="absolute top-3 left-3 z-[1065] w-[18rem] max-w-[calc(100vw-1.5rem)] max-h-[calc(100vh-1.5rem)] overflow-y-auto rounded-xl border border-border bg-background/95 backdrop-blur shadow-xl">
-                <div className="px-4 pt-3 pb-2 border-b border-border flex items-center gap-2">
-                    <Link
-                        to="/"
-                        className="inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-accent shrink-0"
-                        aria-label="Back to app"
-                        title="Back (restores your game state)"
-                    >
-                        <ArrowLeft className="w-4 h-4" />
-                    </Link>
-                    <div className="min-w-0">
-                        <div className="font-display font-extrabold uppercase text-sm leading-none tracking-wide">
-                            Overlay gallery
-                        </div>
-                        <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-                            /debug/overlays
-                        </div>
+        <div className="dark min-h-screen bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]">
+            {/* Header */}
+            <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 border-b border-border bg-background/95 backdrop-blur">
+                <Link
+                    to="/"
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-accent shrink-0"
+                    aria-label="Back to app"
+                    title="Back (restores your game state)"
+                >
+                    <ArrowLeft className="w-4 h-4" />
+                </Link>
+                <div className="min-w-0 flex-1">
+                    <div className="font-display font-extrabold uppercase text-sm leading-none tracking-wide">
+                        Overlay gallery
+                    </div>
+                    <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                        All overlays at once · your game state is restored
+                        when you leave (hard refresh skips it)
                     </div>
                 </div>
+                <Button variant="outline" size="sm" onClick={toggleLocation}>
+                    Location: {locationMode}
+                </Button>
+                <Button variant="outline" size="sm" onClick={reArm}>
+                    Re-arm
+                </Button>
+                <Button variant="outline" size="sm" onClick={restoreNow}>
+                    Restore
+                </Button>
+            </div>
 
-                <div className="px-4 py-2 text-[11px] leading-snug text-muted-foreground border-b border-border">
-                    Sandbox — your real game state is snapshotted now and
-                    restored when you leave (or tap Restore). A hard refresh
-                    while a preview is active skips the restore.
-                </div>
-
-                <div className="p-3 space-y-3">
-                    {GROUPS.map((group) => (
-                        <div key={group} className="space-y-1.5">
-                            <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
-                                {group}
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                                {PRESETS.filter((p) => p.group === group).map(
-                                    (p) => (
-                                        <button
-                                            key={p.id}
-                                            type="button"
-                                            onClick={() => applyPreset(p)}
-                                            className={cn(
-                                                "w-full text-left px-2.5 py-1.5 rounded-md text-xs",
-                                                "border transition-colors",
-                                                active === p.id
-                                                    ? "bg-primary text-primary-foreground border-primary"
-                                                    : "bg-secondary/40 border-border hover:bg-accent",
-                                            )}
-                                        >
-                                            {p.label}
-                                        </button>
-                                    ),
-                                )}
-                            </div>
-                        </div>
-                    ))}
-
-                    {/* Loading veil — prop-driven, not atom-driven. */}
-                    <div className="space-y-1.5">
-                        <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
-                            Loading veil
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    neutralise();
-                                    setActive(null);
-                                    setVeil("loading");
-                                }}
-                                className={cn(
-                                    "w-full text-left px-2.5 py-1.5 rounded-md text-xs border transition-colors",
-                                    veil === "loading"
-                                        ? "bg-primary text-primary-foreground border-primary"
-                                        : "bg-secondary/40 border-border hover:bg-accent",
-                                )}
-                            >
-                                Tiles loading
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    neutralise();
-                                    setActive(null);
-                                    setVeil("timedout");
-                                }}
-                                className={cn(
-                                    "w-full text-left px-2.5 py-1.5 rounded-md text-xs border transition-colors",
-                                    veil === "timedout"
-                                        ? "bg-primary text-primary-foreground border-primary"
-                                        : "bg-secondary/40 border-border hover:bg-accent",
-                                )}
-                            >
-                                Tiles slow (timed out)
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="p-3 border-t border-border flex gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={clearAll}
-                    >
-                        Clear
-                    </Button>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={restoreNow}
-                    >
-                        Restore
-                    </Button>
-                </div>
+            {/* Gallery grid */}
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <Cell label="Hider timer (hiding)">
+                    <HiderTimer />
+                </Cell>
+                <Cell label="Pending question">
+                    <PendingAnswerOverlay />
+                </Cell>
+                <Cell label="Thermometer pill">
+                    <ThermometerOverlay />
+                </Cell>
+                <Cell label={`Location banner (${locationMode})`}>
+                    <LocationPauseBanner />
+                </Cell>
+                <Cell label="Seekers frozen (Move)">
+                    <SeekerFrozenBanner />
+                </Cell>
+                <Cell label="Game start (Go, go, go)">
+                    <GoGoGoOverlay />
+                </Cell>
+                <Cell label="Map tiles loading">
+                    <MapTilesVeil visible label="Loading map" />
+                </Cell>
+                <Cell label="Map tiles slow (timed out)">
+                    <MapTilesVeil
+                        visible
+                        timedOut
+                        label="Map tiles are slow to load"
+                        sublabel="Hang tight — still trying"
+                    />
+                </Cell>
             </div>
         </div>
     );
