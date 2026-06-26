@@ -23,87 +23,13 @@ import {
     currentGameCode,
     multiplayerEnabled,
 } from "@/lib/multiplayer/session";
-import {
-    hiderAnswerQuestion,
-    uploadGamePhoto,
-} from "@/lib/multiplayer/store";
+import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
+import { preparePhotoForSend } from "@/lib/photo";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import type { PhotoQuestion } from "@/maps/schema";
 
 import { QuestionCard } from "./base";
-
-/**
- * Decode a captured image file and downscale it onto a canvas at the
- * given max edge. Shared by the data-URI and Blob encoders below. Phone
- * photos are routinely 4–8 MB; we resize before encoding so neither
- * localStorage nor the upload carries the raw original.
- */
-async function fileToScaledCanvas(
-    file: File,
-    maxEdge: number,
-): Promise<HTMLCanvasElement> {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(reader.error);
-        reader.onload = () => {
-            const img = new Image();
-            img.onerror = () => reject(new Error("decode failed"));
-            img.onload = () => {
-                const scale = Math.min(
-                    1,
-                    maxEdge / Math.max(img.width, img.height),
-                );
-                const w = Math.round(img.width * scale);
-                const h = Math.round(img.height * scale);
-                const canvas = document.createElement("canvas");
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext("2d");
-                if (!ctx) return reject(new Error("no 2d ctx"));
-                ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas);
-            };
-            img.src = reader.result as string;
-        };
-        reader.readAsDataURL(file);
-    });
-}
-
-/**
- * Compress to a JPEG data URI at the given max edge. Used for the small
- * local thumbnail (multiplayer) and the full-res inline image (solo).
- */
-async function fileToCompressedDataUri(
-    file: File,
-    maxEdge = 1200,
-    quality = 0.8,
-): Promise<string> {
-    const canvas = await fileToScaledCanvas(file, maxEdge);
-    return canvas.toDataURL("image/jpeg", quality);
-}
-
-/**
- * Compress to a JPEG Blob at the given max edge — the upload payload for
- * the full-detail photo that goes to R2. Defaults target ~2560px / q0.85,
- * which lands ~1–2 MB for a typical phone photo: plenty of detail for the
- * seekers to zoom into signage and fine features.
- */
-async function fileToCompressedBlob(
-    file: File,
-    maxEdge = 2560,
-    quality = 0.85,
-): Promise<Blob> {
-    const canvas = await fileToScaledCanvas(file, maxEdge);
-    return new Promise((resolve, reject) => {
-        canvas.toBlob(
-            (blob) =>
-                blob ? resolve(blob) : reject(new Error("encode failed")),
-            "image/jpeg",
-            quality,
-        );
-    });
-}
 
 export const PhotoQuestionComponent = ({
     data,
@@ -169,47 +95,12 @@ export const PhotoQuestionComponent = ({
                 multiplayerEnabled.get() &&
                 !!currentGameCode.get();
 
-            // Small thumbnail — instant local display, offline-safe, and
-            // the wire fallback if the full-res upload fails (well under
-            // the 64 KB WebSocket cap).
-            const thumb = await fileToCompressedDataUri(file, 640, 0.7);
-
-            // Online: upload the full-detail image to R2 and ship only
-            // its URL. This is what lets multi-megabyte photos reach the
-            // seekers — the data URI never crosses the WebSocket.
-            let photoUrl: string | undefined;
-            if (online) {
-                try {
-                    const fullBlob = await fileToCompressedBlob(
-                        file,
-                        2560,
-                        0.85,
-                    );
-                    photoUrl = await uploadGamePhoto(fullBlob);
-                } catch (e) {
-                    console.warn(
-                        "photo upload failed; falling back to inline thumbnail",
-                        e,
-                    );
-                }
-            }
-
-            if (photoUrl) {
-                // Full detail via URL; keep a thumbnail for instant local
-                // render and offline viewing.
-                data.photoUrl = photoUrl;
-                data.photoUri = thumb;
-            } else if (online) {
-                // Upload failed — at least inline the thumbnail so the
-                // seekers see *something*.
-                data.photoUrl = undefined;
-                data.photoUri = thumb;
-            } else {
-                // Solo / offline — inline the full-resolution image for
-                // local viewing (no seeker to send it to).
-                data.photoUrl = undefined;
-                data.photoUri = await fileToCompressedDataUri(file, 2560, 0.85);
-            }
+            const { photoUri, photoUrl, fellBack } = await preparePhotoForSend(
+                file,
+                online,
+            );
+            data.photoUri = photoUri;
+            data.photoUrl = photoUrl; // undefined unless uploaded
             data.declined = false;
             data.drag = false;
             questionModified();
@@ -218,9 +109,7 @@ export const PhotoQuestionComponent = ({
             // bytes); only inline the thumbnail when there's no URL.
             if (isHideTeam) {
                 hiderAnswerQuestion(questionKey, {
-                    ...(photoUrl
-                        ? { photoUrl }
-                        : { photoUri: data.photoUri }),
+                    ...(photoUrl ? { photoUrl } : { photoUri }),
                     declined: false,
                     drag: false,
                 });
@@ -231,7 +120,7 @@ export const PhotoQuestionComponent = ({
                 if (wasUnanswered) recordPhotoAnswerDraw(questionKey);
             }
 
-            if (online && !photoUrl) {
+            if (fellBack) {
                 toast.warn(
                     "Couldn't upload the full-size photo — sent a smaller preview instead.",
                     { autoClose: 4000 },

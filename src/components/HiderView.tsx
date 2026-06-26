@@ -1,12 +1,13 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Check, Dices, Loader2, MapPin } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Ban, Camera, Check, Dices, Loader2, MapPin } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
 import { HiderShell } from "@/components/HiderShell";
+import { PhotoCensorDialog } from "@/components/PhotoCensorDialog";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -27,12 +28,18 @@ import {
     priorAnsweredCount,
     questionIdentity,
     QUESTION_DRAW_BUDGET,
+    recordPhotoAnswerDraw,
     roundFoundAt,
     settleLateAnswer,
 } from "@/lib/hiderRole";
 import { gameSize } from "@/lib/gameSetup";
 import { findSubtypeMeta, getSubtypes } from "@/lib/subtypes";
+import {
+    currentGameCode,
+    multiplayerEnabled,
+} from "@/lib/multiplayer/session";
 import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
+import { preparePhotoForSend } from "@/lib/photo";
 import {
     decodeFoundFromUrl,
     decodeQuestionFromUrl,
@@ -835,6 +842,8 @@ function AnswerControls({
                     revealed={revealed}
                 />
             );
+        case "photo":
+            return <PhotoAnswer question={question} />;
         default:
             return (
                 <p className="text-sm text-muted-foreground text-center py-8">
@@ -843,6 +852,134 @@ function AnswerControls({
                 </p>
             );
     }
+}
+
+/**
+ * Photo answer, in-dialog. The hider takes/picks a photo, runs it through
+ * the crop/censor editor, and it's compressed + uploaded (full detail to
+ * R2, thumbnail locally) via the shared `preparePhotoForSend` pipeline —
+ * the exact same path the photo card uses. "I cannot answer" is the
+ * rulebook decline (p32). Either resolution sends to the seeker, stamps
+ * the inbox + draws the photo reward via `recordPhotoAnswerDraw`, and
+ * closes the dialog.
+ *
+ * This is what makes photo answerable from the hider's primary flow — the
+ * unanswered-overlay / question-log row that opens this dialog used to
+ * dead-end on photo (no case → "not supported").
+ */
+function PhotoAnswer({ question }: { question: Question }) {
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const [pendingFile, setPendingFile] = useState<File | null>(null);
+    const [busy, setBusy] = useState(false);
+
+    const d = question.data as { type?: string };
+    const subtypeLabel = d.type ? findSubtypeMeta(d.type)?.label : undefined;
+
+    const commit = async (file: File) => {
+        setBusy(true);
+        try {
+            const online = multiplayerEnabled.get() && !!currentGameCode.get();
+            const { photoUri, photoUrl, fellBack } = await preparePhotoForSend(
+                file,
+                online,
+            );
+            // Local reply keeps both so the hider's own log renders it;
+            // the wire reply prefers the URL to stay tiny.
+            const localReply = {
+                photoUri,
+                ...(photoUrl ? { photoUrl } : {}),
+                declined: false,
+                drag: false,
+            };
+            hiderAnswerQuestion(
+                question.key,
+                photoUrl
+                    ? { photoUrl, declined: false, drag: false }
+                    : { photoUri, declined: false, drag: false },
+            );
+            recordPhotoAnswerDraw(question.key, localReply);
+            toast[fellBack ? "warn" : "success"](
+                fellBack
+                    ? "Couldn't upload the full-size photo — sent a smaller preview instead."
+                    : "Photo sent.",
+                { autoClose: fellBack ? 4000 : 2000 },
+            );
+            answeringQuestion.set(null);
+        } catch (e) {
+            console.warn("photo answer failed", e);
+            toast.error("Couldn't process that photo. Try another one.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const decline = () => {
+        if (busy) return;
+        const reply = { declined: true, drag: false };
+        hiderAnswerQuestion(question.key, reply);
+        recordPhotoAnswerDraw(question.key, reply);
+        toast.info('Answered "I cannot answer the question."', {
+            autoClose: 2500,
+        });
+        answeringQuestion.set(null);
+    };
+
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-muted-foreground leading-snug text-center">
+                {subtypeLabel
+                    ? `Take a photo for "${subtypeLabel}". `
+                    : "Take the requested photo. "}
+                You can crop and black out identifying detail before it sends.
+            </p>
+
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                onChange={(e) => {
+                    const picked = e.currentTarget.files?.[0];
+                    e.currentTarget.value = "";
+                    if (picked) setPendingFile(picked);
+                }}
+            />
+
+            <Button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                className="w-full gap-2 py-7 text-base font-semibold"
+                size="lg"
+            >
+                <Camera className="w-5 h-5" />
+                {busy ? "Sending…" : "Take or choose photo"}
+            </Button>
+
+            <Button
+                type="button"
+                variant="ghost"
+                onClick={decline}
+                disabled={busy}
+                className="w-full gap-2 text-muted-foreground"
+            >
+                <Ban className="w-4 h-4" />
+                I cannot answer this
+            </Button>
+
+            {pendingFile && (
+                <PhotoCensorDialog
+                    file={pendingFile}
+                    onCancel={() => setPendingFile(null)}
+                    onConfirm={(redacted) => {
+                        setPendingFile(null);
+                        commit(redacted);
+                    }}
+                />
+            )}
+        </div>
+    );
 }
 
 /**
