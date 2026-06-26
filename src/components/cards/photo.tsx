@@ -1,8 +1,9 @@
 import { useStore } from "@nanostores/react";
 import { Ban, Camera, Check, ImagePlus, Trash2 } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { toast } from "react-toastify";
 
+import { PhotoCensorDialog } from "@/components/PhotoCensorDialog";
 import { Button } from "@/components/ui/button";
 import {
     MENU_ITEM_CLASSNAME,
@@ -156,6 +157,8 @@ export const PhotoQuestionComponent = ({
             : `${subtypeLabel} · marked answered`;
 
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    // Photo picked but not yet committed — drives the censor/review dialog.
+    const [pendingFile, setPendingFile] = useState<File | null>(null);
 
     const onFile = async (file: File | null | undefined) => {
         if (!file) return;
@@ -373,11 +376,26 @@ export const PhotoQuestionComponent = ({
                         capture="environment"
                         className="sr-only"
                         onChange={(e) => {
-                            onFile(e.currentTarget.files?.[0]);
+                            const picked = e.currentTarget.files?.[0];
                             // Reset so the same file can be picked twice
                             e.currentTarget.value = "";
+                            // Route through the censor/review step instead
+                            // of committing straight away — the hider gets
+                            // to black out identifying detail first.
+                            if (picked) setPendingFile(picked);
                         }}
                     />
+
+                    {pendingFile && (
+                        <PhotoCensorDialog
+                            file={pendingFile}
+                            onCancel={() => setPendingFile(null)}
+                            onConfirm={(redacted) => {
+                                setPendingFile(null);
+                                onFile(redacted);
+                            }}
+                        />
+                    )}
 
                     <div className="flex gap-2">
                         <Button
