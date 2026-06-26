@@ -215,13 +215,19 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
     // Reveal state, lifted so the map can apply a blur until reveal.
     const [revealed, setRevealed] = useState(false);
 
-    // The map shows the seeker's geometry and the hider's pin together —
-    // for radius/thermometer this directly reveals the answer (inside vs
-    // outside the circle; closer to A vs B). Blur the map until the
-    // hider explicitly taps "Reveal answer". For other question types,
-    // the map doesn't reveal the answer alone, so no blur.
+    // The map shows the seeker's geometry and the hider's pin together,
+    // and every question type is now auto-graded through the same engine
+    // the seeker uses to preview answer regions. The map can therefore
+    // give the answer away (inside vs outside the circle, which Voronoi
+    // cell, which side of a boundary), so blur it until the hider
+    // explicitly taps to reveal. Photo (and anything unknown) can't be
+    // auto-graded, so it isn't blurred.
     const autoComputable =
-        question.id === "radius" || question.id === "thermometer";
+        question.id === "radius" ||
+        question.id === "thermometer" ||
+        question.id === "matching" ||
+        question.id === "measuring" ||
+        question.id === "tentacles";
     const shouldBlurMap = autoComputable && !revealed;
 
     // v315: single readiness gate covering GPS + map. The Reveal
@@ -537,6 +543,32 @@ function ResponseCardActions({
     );
 }
 
+/**
+ * Grade a question through the canonical hider engine — the exact same
+ * `hiderifyQuestion` the seeker uses to preview answer regions. Clones
+ * the question (so the live one is never mutated), flips the global
+ * `hiderMode` atom to the hider's live GPS for the duration of the
+ * grade, then restores it. Returns the graded `data` (with `within` /
+ * `warmer` / `same` / `hiderCloser` / `location` filled in).
+ */
+async function gradeViaEngine(
+    question: Question,
+    hiderPos: { lat: number; lng: number },
+): Promise<Record<string, unknown>> {
+    const clone = {
+        ...question,
+        data: { ...(question.data as Record<string, unknown>), drag: true },
+    } as Question;
+    const prev = hiderMode.get();
+    hiderMode.set({ latitude: hiderPos.lat, longitude: hiderPos.lng });
+    try {
+        await hiderifyQuestion(clone);
+    } finally {
+        hiderMode.set(prev);
+    }
+    return clone.data as Record<string, unknown>;
+}
+
 /** Radar (radius) presets — randomize picks a different one. */
 const RADIUS_PRESETS = [
     { label: "500 m", radius: 500, unit: "meters" },
@@ -580,8 +612,8 @@ async function computeRandomizedAnswer(
     } as Question;
     const data = clone.data as Record<string, unknown>;
 
-    let fromLabel = CATEGORIES[cat as CategoryId]?.label ?? cat;
-    let toLabel = fromLabel;
+    let fromLabel: string = CATEGORIES[cat as CategoryId]?.label ?? cat;
+    let toLabel: string = fromLabel;
 
     if (cat === "matching" || cat === "measuring" || cat === "tentacles") {
         const subs = getSubtypes(cat, gameSize.get());
@@ -614,18 +646,7 @@ async function computeRandomizedAnswer(
     }
     // thermometer: no parameter to randomize — grade the question as-is.
 
-    // Flip the global hider mode to the hider's live position for the
-    // duration of the grade, then restore it (the hider may not actually
-    // be in "hider mode" on this device).
-    const prev = hiderMode.get();
-    hiderMode.set({ latitude: hiderPos.lat, longitude: hiderPos.lng });
-    try {
-        await hiderifyQuestion(clone);
-    } finally {
-        hiderMode.set(prev);
-    }
-
-    const out = clone.data as Record<string, unknown>;
+    const out = await gradeViaEngine(clone, hiderPos);
     // Send the swapped parameters + the engine's verdict. `drag:false`
     // is added by the caller's `markHandled`.
     let answer: Record<string, unknown>;
@@ -757,10 +778,15 @@ function unitLabel(unit: string): string {
     }
 }
 
-/** Answer flow varies by type:
- *   - radius / thermometer: auto-computable from GPS. Use the reveal pattern.
- *   - matching / measuring: hider must judge. Manual two-button toggle.
- *   - tentacles: hider types the closest place name.
+/** Answer flow. Every type below is auto-graded through the same engine
+ *  the seeker uses to preview answer regions, behind the tap-to-reveal
+ *  gesture:
+ *   - radius / thermometer: computed locally from GPS (exact, synchronous).
+ *   - matching / measuring: graded via `hiderifyQuestion`; the binary
+ *     toggle is pre-selected to the verdict and stays available as an
+ *     override (GPS noise / missing boundary data).
+ *   - tentacles: graded via `hiderifyQuestion` (nearest Voronoi cell);
+ *     the detected place can be overridden by hand.
  */
 function AnswerControls({
     question,
@@ -783,22 +809,32 @@ function AnswerControls({
             );
         case "matching":
             return (
-                <ManualBinaryAnswer
+                <AutoGradedBinaryAnswer
                     question={question}
+                    hiderPos={hiderPos}
+                    revealed={revealed}
                     field="same"
                     labels={{ true: "Match", false: "No match" }}
                 />
             );
         case "measuring":
             return (
-                <ManualBinaryAnswer
+                <AutoGradedBinaryAnswer
                     question={question}
+                    hiderPos={hiderPos}
+                    revealed={revealed}
                     field="hiderCloser"
                     labels={{ true: "Closer", false: "Further" }}
                 />
             );
         case "tentacles":
-            return <TentaclesAnswer question={question} />;
+            return (
+                <AutoGradedTentaclesAnswer
+                    question={question}
+                    hiderPos={hiderPos}
+                    revealed={revealed}
+                />
+            );
         default:
             return (
                 <p className="text-sm text-muted-foreground text-center py-8">
@@ -911,28 +947,88 @@ function computeAnswer(
     return null;
 }
 
-/** Manual two-button toggle for questions the app can't auto-compute. */
-function ManualBinaryAnswer({
+/**
+ * Auto-graded binary answer (matching / measuring). Runs the question
+ * through the universal `hiderifyQuestion` engine at the hider's live
+ * GPS and pre-selects the resulting verdict. The two-button toggle stays
+ * live as an override — the engine can be wrong when the hider device is
+ * missing the play-area boundary (zone matching) or GPS is noisy, so the
+ * hider always has the final say. Hidden until the map is revealed,
+ * mirroring the radius/thermometer reveal gesture.
+ */
+function AutoGradedBinaryAnswer({
     question,
+    hiderPos,
+    revealed,
     field,
     labels,
 }: {
     question: Question;
-    field: string;
+    hiderPos: { lat: number; lng: number; accuracy: number } | null;
+    revealed: boolean;
+    field: "same" | "hiderCloser";
     labels: { true: string; false: string };
 }) {
-    const [answer, setAnswer] = useState<boolean | null>(null);
+    // null = not graded yet; the engine's verdict otherwise.
+    const [computed, setComputed] = useState<boolean | null>(null);
+    const [grading, setGrading] = useState(false);
+    // The hider's manual override, if they tapped a button.
+    const [override, setOverride] = useState<boolean | null>(null);
+
+    useEffect(() => {
+        if (!hiderPos) return;
+        let cancelled = false;
+        setGrading(true);
+        gradeViaEngine(question, hiderPos)
+            .then((data) => {
+                if (cancelled) return;
+                const v = data[field];
+                if (typeof v === "boolean") setComputed(v);
+            })
+            .catch(() => {
+                /* leave computed null → hider picks manually */
+            })
+            .finally(() => {
+                if (!cancelled) setGrading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [question.key, hiderPos?.lat, hiderPos?.lng, field]);
+
+    if (!revealed) return null;
+
+    if (!hiderPos) {
+        return (
+            <p className="text-sm text-center text-muted-foreground py-6">
+                Waiting for your location…
+            </p>
+        );
+    }
+
+    const effective = override ?? computed;
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-3">
+            <p className="text-xs text-center text-muted-foreground font-poppins">
+                {grading && computed === null ? (
+                    <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Computing your answer…
+                    </span>
+                ) : (
+                    "Auto-computed from your location — tap to change if it's wrong."
+                )}
+            </p>
             <div className="grid grid-cols-2 gap-3">
                 {([true, false] as const).map((value) => {
-                    const isSelected = answer === value;
+                    const isSelected = effective === value;
                     return (
                         <button
                             key={String(value)}
                             type="button"
-                            onClick={() => setAnswer(value)}
+                            onClick={() => setOverride(value)}
                             className={cn(
                                 "py-6 rounded-lg font-poppins font-semibold text-lg",
                                 "transition-all border-2",
@@ -947,11 +1043,13 @@ function ManualBinaryAnswer({
                 })}
             </div>
 
-            {answer !== null && (
+            {effective !== null && (
                 <ShareBackRow
                     question={question}
-                    answer={{ [field]: answer }}
-                    shareText={`My answer: ${answer ? labels.true : labels.false}.`}
+                    answer={{ [field]: effective }}
+                    shareText={`My answer: ${
+                        effective ? labels.true : labels.false
+                    }.`}
                 />
             )}
         </div>
@@ -1067,17 +1165,93 @@ function ShareBackRow({
     );
 }
 
-/** Tentacles is special: hider types the name of the closest place. */
-function TentaclesAnswer({ question }: { question: Question }) {
+/**
+ * Tentacles answer. Runs the question through the universal
+ * `hiderifyQuestion` engine, which resolves the hider's containing
+ * Voronoi cell → the nearest candidate place. We send that `location`
+ * Feature (which is what the seeker keys elimination on, via
+ * `location.properties.name`) so the answer actually grades. If the
+ * engine can't resolve a place (hider outside the tentacle radius, or
+ * the candidate scan came back empty), or the hider knows it picked
+ * wrong, they fall back to typing the name by hand. Hidden until reveal.
+ */
+function AutoGradedTentaclesAnswer({
+    question,
+    hiderPos,
+    revealed,
+}: {
+    question: Question;
+    hiderPos: { lat: number; lng: number; accuracy: number } | null;
+    revealed: boolean;
+}) {
+    const [computed, setComputed] = useState<{
+        feature: unknown;
+        name: string;
+    } | null>(null);
+    const [graded, setGraded] = useState(false);
+    const [manual, setManual] = useState(false);
     const [placeName, setPlaceName] = useState("");
 
-    const trimmed = placeName.trim();
+    useEffect(() => {
+        if (!hiderPos) return;
+        let cancelled = false;
+        gradeViaEngine(question, hiderPos)
+            .then((data) => {
+                if (cancelled) return;
+                const loc = data.location as
+                    | { properties?: { name?: unknown } }
+                    | false
+                    | undefined;
+                if (loc && typeof loc === "object") {
+                    setComputed({
+                        feature: loc,
+                        name: String(loc.properties?.name ?? ""),
+                    });
+                }
+            })
+            .catch(() => {
+                /* leave computed null → manual entry */
+            })
+            .finally(() => {
+                if (!cancelled) setGraded(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [question.key, hiderPos?.lat, hiderPos?.lng]);
 
-    return (
-        <div className="space-y-4">
-            <div>
-                <label className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold block mb-2">
-                    Name of the closest place
+    if (!revealed) return null;
+
+    if (!hiderPos) {
+        return (
+            <p className="text-sm text-center text-muted-foreground py-6">
+                Waiting for your location…
+            </p>
+        );
+    }
+
+    if (!graded) {
+        return (
+            <p className="text-sm text-center text-muted-foreground py-6">
+                <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Finding the closest place…
+                </span>
+            </p>
+        );
+    }
+
+    const showManual = manual || !computed;
+
+    if (showManual) {
+        const trimmed = placeName.trim();
+        return (
+            <div className="space-y-3">
+                <label className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold block">
+                    {computed
+                        ? "Type the correct closest place"
+                        : "Couldn't auto-detect — name the closest place"}
                 </label>
                 <Input
                     value={placeName}
@@ -1085,15 +1259,53 @@ function TentaclesAnswer({ question }: { question: Question }) {
                     placeholder="e.g. Stockholm Aquarium"
                     className="text-base py-6"
                 />
+                {trimmed && (
+                    <ShareBackRow
+                        question={question}
+                        answer={{ hiderPlace: trimmed }}
+                        shareText={`Closest match: ${trimmed}.`}
+                    />
+                )}
+                {computed && (
+                    <button
+                        type="button"
+                        onClick={() => setManual(false)}
+                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                        Use auto-detected place instead
+                    </button>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-3">
+            <div className="rounded-lg p-5 border-2 border-primary bg-primary/10 text-center">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold mb-2">
+                    Closest place
+                </div>
+                <div className="text-2xl font-poppins font-bold text-primary mb-1">
+                    {computed!.name || "Unnamed place"}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                    Auto-detected from your location.
+                </div>
             </div>
 
-            {trimmed && (
-                <ShareBackRow
-                    question={question}
-                    answer={{ hiderPlace: trimmed }}
-                    shareText={`Closest match: ${trimmed}.`}
-                />
-            )}
+            <ShareBackRow
+                question={question}
+                answer={{ location: computed!.feature, hiderPlace: computed!.name }}
+                shareText={`Closest match: ${computed!.name}.`}
+            />
+
+            <button
+                type="button"
+                onClick={() => setManual(true)}
+                className="w-full text-center text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+                Wrong place? Enter it manually
+            </button>
         </div>
     );
 }
