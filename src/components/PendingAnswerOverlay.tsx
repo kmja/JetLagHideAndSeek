@@ -159,20 +159,39 @@ export function PendingAnswerOverlay() {
             return;
         }
         if (prevKey !== null) {
-            // Question just got answered. Celebrate, then slide out.
-            setPhase("answered");
-            const answeredTimer = window.setTimeout(
-                () => setPhase("closing"),
-                1100,
-            );
-            const closeTimer = window.setTimeout(() => {
-                setDisplayed(null);
-                setPhase("active");
-            }, 1700);
-            return () => {
-                window.clearTimeout(answeredTimer);
-                window.clearTimeout(closeTimer);
-            };
+            // The previously-pending question is no longer pending. That
+            // happens for TWO very different reasons, and we must not
+            // treat them the same:
+            //   - ANSWERED: its `drag` flipped to false — the question
+            //     still EXISTS in the list. Celebrate, then slide out.
+            //   - DISCARDED: the seeker opened the new-question dialog
+            //     (which adds a drag:true draft, so it counts as pending)
+            //     and then CANCELLED — the draft was removed from the
+            //     list entirely. No answer happened, so show nothing.
+            // The bug this guards: a cancelled draft flashed a green
+            // "ANSWERED!" card on the map. Distinguish by existence.
+            const stillExists = questions
+                .get()
+                .some((q) => q.key === prevKey);
+            if (stillExists) {
+                setPhase("answered");
+                const answeredTimer = window.setTimeout(
+                    () => setPhase("closing"),
+                    1100,
+                );
+                const closeTimer = window.setTimeout(() => {
+                    setDisplayed(null);
+                    setPhase("active");
+                }, 1700);
+                return () => {
+                    window.clearTimeout(answeredTimer);
+                    window.clearTimeout(closeTimer);
+                };
+            }
+            // Discarded draft → clear immediately, no celebration.
+            setDisplayed(null);
+            setPhase("active");
+            return;
         }
         setDisplayed(null);
         setPhase("active");
