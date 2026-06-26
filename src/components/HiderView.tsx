@@ -440,12 +440,13 @@ function ResponseCardActions({
         (c) => c.kind === "powerup" && c.powerup === "randomize",
     );
     // Randomize swaps the question to a random different substitute of
-    // the SAME category and auto-grades it through the universal hider
-    // engine (`hiderifyQuestion`) — the exact same code path the seeker
-    // uses to preview answer regions. Every spatial type is gradable.
-    // Photo is excluded: a substitute photo still has to be physically
-    // taken, so there's nothing to auto-grade (Veto still applies).
-    const showRandomize = Boolean(randomizeCard) && question.id !== "photo";
+    // the SAME category. For the five spatial types it auto-grades the
+    // substitute through the universal hider engine and sends the verdict
+    // immediately. For photo there's nothing to auto-grade — a substitute
+    // photo still has to be taken — so it swaps the requested subtype in
+    // place and leaves the dialog open for the hider to take that photo.
+    const showRandomize = Boolean(randomizeCard);
+    const isPhoto = question.id === "photo";
     if (!vetoCard && !showRandomize) return null;
 
     const markHandled = (reply: Record<string, unknown>) => {
@@ -475,8 +476,53 @@ function ResponseCardActions({
         answeringQuestion.set(null);
     };
 
+    // Photo randomize: pick a random different photo subtype, swap the
+    // request in place, and keep the dialog open so the hider takes THAT
+    // photo. The randomized markers ride along when the photo is committed
+    // (PhotoAnswer reads them off the question data).
+    const playRandomizePhoto = () => {
+        if (!randomizeCard || busy) return;
+        const d = question.data as { type?: string };
+        const candidates = (getSubtypes("photo", gameSize.get()) ?? []).filter(
+            (s) => s.value !== d.type,
+        );
+        if (candidates.length === 0) {
+            toast.error("No other photo type to randomize to.");
+            return;
+        }
+        const pick =
+            candidates[Math.floor(Math.random() * candidates.length)];
+        const fromLabel =
+            (d.type && findSubtypeMeta(d.type)?.label) ?? d.type ?? "photo";
+        discardCard(randomizeCard.id);
+        const newData = {
+            ...(question.data as Record<string, unknown>),
+            type: pick.value,
+            randomized: true,
+            randomizedFrom: fromLabel,
+        };
+        // Persist the swap to the inbox and the open dialog so the prompt
+        // + capture flow reflect the new subtype.
+        const inbox = hiderInbox.get();
+        hiderInbox.set(
+            inbox.map((e) =>
+                e.key === question.key ? { ...e, data: newData } : e,
+            ),
+        );
+        answeringQuestion.set({ ...question, data: newData } as Question);
+        toast.success(
+            `Randomized to a "${pick.label}" photo — take that photo instead.`,
+            { autoClose: 5000 },
+        );
+        // Dialog stays open; the hider now takes the new photo.
+    };
+
     const playRandomize = async () => {
         if (!randomizeCard || busy) return;
+        if (isPhoto) {
+            playRandomizePhoto();
+            return;
+        }
         if (!hiderPos) {
             toast.error("Need your GPS fix before randomizing.");
             return;
@@ -526,8 +572,9 @@ function ResponseCardActions({
                             {busy ? "Randomizing…" : "Play Randomize"}
                         </span>
                         <span className="block text-[11px] text-muted-foreground leading-snug">
-                            Answer a random different {question.id} question
-                            instead — auto-graded and sent.
+                            {isPhoto
+                                ? "Switch to a random different photo and take that one instead."
+                                : `Answer a random different ${question.id} question instead — auto-graded and sent.`}
                         </span>
                     </span>
                 </button>
@@ -881,8 +928,22 @@ function PhotoAnswer({ question }: { question: Question }) {
     const [pendingFile, setPendingFile] = useState<File | null>(null);
     const [busy, setBusy] = useState(false);
 
-    const d = question.data as { type?: string };
+    const d = question.data as {
+        type?: string;
+        randomized?: boolean;
+        randomizedFrom?: string;
+    };
     const subtypeLabel = d.type ? findSubtypeMeta(d.type)?.label : undefined;
+
+    // Carry the current subtype + any randomize markers along with the
+    // answer, so a photo randomized to a different subtype reaches the
+    // seeker as that subtype (and shows as randomized in their log).
+    const markers: Record<string, unknown> = {
+        ...(d.type ? { type: d.type } : {}),
+        ...(d.randomized
+            ? { randomized: true, randomizedFrom: d.randomizedFrom }
+            : {}),
+    };
 
     const commit = async (file: File) => {
         setBusy(true);
@@ -895,6 +956,7 @@ function PhotoAnswer({ question }: { question: Question }) {
             // Local reply keeps both so the hider's own log renders it;
             // the wire reply prefers the URL to stay tiny.
             const localReply = {
+                ...markers,
                 photoUri,
                 ...(photoUrl ? { photoUrl } : {}),
                 declined: false,
@@ -903,8 +965,8 @@ function PhotoAnswer({ question }: { question: Question }) {
             hiderAnswerQuestion(
                 question.key,
                 photoUrl
-                    ? { photoUrl, declined: false, drag: false }
-                    : { photoUri, declined: false, drag: false },
+                    ? { ...markers, photoUrl, declined: false, drag: false }
+                    : { ...markers, photoUri, declined: false, drag: false },
             );
             recordPhotoAnswerDraw(question.key, localReply);
             toast[fellBack ? "warn" : "success"](
@@ -924,7 +986,7 @@ function PhotoAnswer({ question }: { question: Question }) {
 
     const decline = () => {
         if (busy) return;
-        const reply = { declined: true, drag: false };
+        const reply = { ...markers, declined: true, drag: false };
         hiderAnswerQuestion(question.key, reply);
         recordPhotoAnswerDraw(question.key, reply);
         toast.info('Answered "I cannot answer the question."', {
