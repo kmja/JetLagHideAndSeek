@@ -53,6 +53,67 @@ const polygonCache = new Map<
 >();
 
 /**
+ * In-flight boundary loads, keyed by OSM relation id. Two jobs:
+ *
+ *   1. Dedupe — the wizard preview and the lobby preview (separate map
+ *      instances) asking for the same area share one fetch.
+ *   2. Persist — the load populates `polygonCache` when it resolves
+ *      REGARDLESS of whether the component that kicked it off is still
+ *      mounted. Previously the fetch was tied to an AbortController that
+ *      fired on unmount, so finishing the wizard mid-fetch (to create the
+ *      game) aborted the boundary load before it cached — and the lobby
+ *      preview then re-ran the whole load + veil instead of snapping
+ *      straight to the already-chosen area. Letting it complete in the
+ *      background means the lobby reliably hits the cache.
+ */
+const inFlightPolygon = new Map<
+    number,
+    Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null>
+>();
+
+function ensurePolygonCached(
+    osmId: number,
+): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
+    if (polygonCache.has(osmId)) {
+        return Promise.resolve(polygonCache.get(osmId) ?? null);
+    }
+    const existing = inFlightPolygon.get(osmId);
+    if (existing) return existing;
+    const job = (async () => {
+        try {
+            const geom = await fetchRawBoundaryPolygon(osmId);
+            if (!geom) {
+                polygonCache.set(osmId, geom);
+                return geom;
+            }
+            // Clip to land — same `clipPolygonToLand` the main map uses —
+            // so the preview matches the real play surface (no ocean/lake
+            // bite). Cache the CLIPPED result; fall back to raw on failure.
+            try {
+                const clipped = await clipPolygonToLand({
+                    type: "Feature",
+                    properties: {},
+                    geometry: geom,
+                });
+                const finalGeom = clipped?.geometry ?? geom;
+                polygonCache.set(osmId, finalGeom);
+                return finalGeom;
+            } catch {
+                polygonCache.set(osmId, geom);
+                return geom;
+            }
+        } catch {
+            // Don't cache failures — allow a later retry.
+            return null;
+        } finally {
+            inFlightPolygon.delete(osmId);
+        }
+    })();
+    inFlightPolygon.set(osmId, job);
+    return job;
+}
+
+/**
  * Sibling cache for ADJACENT-AREA candidate boundaries (the dashed-pill
  * overlay). Kept separate from `polygonCache` (which holds the primary's
  * land-clipped boundary) because candidate outlines are drawn raw — no
@@ -180,43 +241,17 @@ export function PlayAreaPreviewMap({
             setRealPolygon(cached);
             return;
         }
-        const ctrl = new AbortController();
-        fetchRawBoundaryPolygon(osmId, ctrl.signal)
-            .then(async (geom) => {
-                if (ctrl.signal.aborted) return;
-                // Show the raw polygon immediately so the preview isn't
-                // blank while we (lazily) load the coastline + lakes
-                // masks. Then clip — same `clipPolygonToLand` the main
-                // map uses — so the preview matches the real play
-                // surface (no ocean/lake bite, e.g. Lausanne's slice of
-                // Lac Léman). Cache only the CLIPPED result so repeat
-                // previews of the same area skip both the fetch and the
-                // clip. If clipping fails or returns null, keep the raw
-                // polygon — a preview with a lake is better than none.
-                if (!geom) {
-                    polygonCache.set(osmId, geom);
-                    setRealPolygon(geom);
-                    return;
-                }
-                setRealPolygon(geom);
-                try {
-                    const clipped = await clipPolygonToLand({
-                        type: "Feature",
-                        properties: {},
-                        geometry: geom,
-                    });
-                    if (ctrl.signal.aborted) return;
-                    const finalGeom = clipped?.geometry ?? geom;
-                    polygonCache.set(osmId, finalGeom);
-                    setRealPolygon(finalGeom);
-                } catch {
-                    polygonCache.set(osmId, geom);
-                }
-            })
-            .catch(() => {
-                /* swallowed — overlay stays empty */
-            });
-        return () => ctrl.abort();
+        // Kick off (or join) the shared load. It runs to completion and
+        // caches in the background even if this component unmounts first
+        // — `active` only gates whether WE apply the result, so a stale
+        // swap (osmId changed) or an unmount no longer aborts the fetch.
+        let active = true;
+        ensurePolygonCached(osmId).then((geom) => {
+            if (active) setRealPolygon(geom);
+        });
+        return () => {
+            active = false;
+        };
     }, [osmId, osmType]);
 
     // The overlay is the real polygon or nothing. No bbox fallback.
