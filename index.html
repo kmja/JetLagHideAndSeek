@@ -2,6 +2,32 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8" />
+        <!-- Force a secure context. Geolocation, crypto.subtle (the beta
+             gate hashes the access code with it) and the service worker
+             ALL require https; on a custom domain whose "Always Use
+             HTTPS" edge setting isn't enabled, an http visit loads the
+             app but silently breaks those (the beta code is rejected, GPS
+             never resolves). Upgrade BEFORE the bundle loads so the app
+             only ever runs over https. No loop: only fires on http:, and
+             localhost is exempt for dev. -->
+        <script>
+            (function () {
+                var l = window.location;
+                if (
+                    l.protocol === "http:" &&
+                    l.hostname !== "localhost" &&
+                    l.hostname !== "127.0.0.1"
+                ) {
+                    l.replace(
+                        "https://" +
+                            l.host +
+                            l.pathname +
+                            l.search +
+                            l.hash,
+                    );
+                }
+            })();
+        </script>
         <meta
             name="viewport"
             content="width=device-width, initial-scale=1, viewport-fit=cover"
