@@ -1,6 +1,12 @@
 import { useStore } from "@nanostores/react";
 import { Check } from "lucide-react";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import {
+    type CSSProperties,
+    useCallback,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -67,6 +73,25 @@ export function DrawPickerDialog() {
     // Track timers across the kept lifecycle so a hot-reload or fast
     // reopen of the picker doesn't fire stale callbacks.
     const timersRef = useRef<number[]>([]);
+
+    // Measure the card-tray width so we can decide whether three cards
+    // fit side by side at sensible proportions, or should drop to a 2+1
+    // layout. A callback ref + ResizeObserver handles the dialog's
+    // conditional mount cleanly (the tray only exists while $pending).
+    const [containerW, setContainerW] = useState(0);
+    const roRef = useRef<ResizeObserver | null>(null);
+    const measureRef = useCallback((el: HTMLDivElement | null) => {
+        roRef.current?.disconnect();
+        roRef.current = null;
+        if (!el) return;
+        setContainerW(el.clientWidth);
+        const ro = new ResizeObserver((entries) => {
+            const w = entries[0]?.contentRect.width;
+            if (w) setContainerW(w);
+        });
+        ro.observe(el);
+        roRef.current = ro;
+    }, []);
 
     // Reset local picker state whenever a fresh draw arrives. Reset on
     // both the question key AND the card-id signature so re-draws for
@@ -136,7 +161,23 @@ export function DrawPickerDialog() {
         setSelectedId((curr) => (curr === id ? null : id));
     };
 
-    const cols = total <= 2 ? 2 : total === 3 ? 3 : 2; // 4 → 2x2
+    // Layout decision. Cards ALWAYS keep their poker (5:7) proportions.
+    // Three cards go side by side only if each still gets a sensible
+    // width; otherwise they wrap to a 2+1 layout (two on top, one
+    // centered below at the same width). 2 → one row; 4 → 2×2.
+    const GAP_PX = 12; // gap-3
+    const MIN_CARD_W = 150;
+    const threeAcross =
+        total === 3 &&
+        containerW > 0 &&
+        (containerW - 2 * GAP_PX) / 3 >= MIN_CARD_W;
+    const twoPlusOne = total === 3 && !threeAcross;
+    const gridColsClass =
+        total === 2
+            ? "grid-cols-2"
+            : threeAcross
+              ? "grid-cols-3"
+              : "grid-cols-2"; // 2+1 and 4-up both use a 2-col grid
 
     // v306: chrome fades both during the final card's fly AND
     // during the discard fade-out — they're now the same moment.
@@ -188,15 +229,12 @@ export function DrawPickerDialog() {
                     from the {total} drawn. The rest are discarded.
                 </DialogDescription>
 
-                <div className="px-2 py-2 min-h-0 overflow-visible">
-                    <div
-                        className={cn(
-                            "grid gap-3 auto-rows-fr items-stretch",
-                            cols === 2 && "grid-cols-2",
-                            cols === 3 && "grid-cols-3",
-                        )}
-                    >
-                        {$pending.cards.map((card) => {
+                <div
+                    ref={measureRef}
+                    className="px-2 py-2 min-h-0 overflow-visible"
+                >
+                    <div className={cn("grid gap-3 items-start", gridColsClass)}>
+                        {$pending.cards.map((card, i) => {
                             const isSelected = selectedId === card.id;
                             const isKept = keptIds.includes(card.id);
                             const isFlying = flyingId === card.id;
@@ -212,7 +250,7 @@ export function DrawPickerDialog() {
                                 chromeFadeOn &&
                                 !isKept &&
                                 !isFlying;
-                            return (
+                            const cell = (
                                 <CardCell
                                     key={card.id}
                                     card={card}
@@ -226,6 +264,23 @@ export function DrawPickerDialog() {
                                     onConfirm={confirmSelected}
                                 />
                             );
+                            // 2+1: the third card spans both columns and
+                            // centers at a single-column width, so all
+                            // three keep identical poker proportions
+                            // across two rows.
+                            if (twoPlusOne && i === 2) {
+                                return (
+                                    <div
+                                        key={card.id}
+                                        className="col-span-2 flex justify-center"
+                                    >
+                                        <div style={{ width: "calc(50% - 6px)" }}>
+                                            {cell}
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return cell;
                         })}
                     </div>
                 </div>
@@ -340,11 +395,11 @@ function CardCell({
     })();
 
     return (
-        <div className="flex flex-col items-stretch gap-2 h-full">
+        <div className="flex flex-col items-stretch gap-2">
             <div
                 ref={wrapperRef}
                 style={cardStyle}
-                className="w-full flex-1 min-h-0"
+                className="w-full"
                 // Critical: don't let the flying transform get clipped
                 // by an ancestor's overflow. The CardTile's own border
                 // / shadow stays inside its bbox; only the position
@@ -356,14 +411,13 @@ function CardCell({
                     selected={isSelected}
                     onClick={disabled || isKept ? undefined : onTap}
                     selectionIndicator={isSelected ? "ring" : "none"}
-                    // v306: drop the poker-card aspect ratio in the
-                    // picker so long-bodied curses can grow tall
-                    // enough to show their full description without
-                    // clipping. `h-full` makes the card fill its
-                    // grid-cell, and `auto-rows-fr` on the parent
-                    // grid keeps the row uniform — the tallest
-                    // card sets the height for the others.
-                    className="w-full h-full !aspect-auto"
+                    // Keep the poker-card aspect ratio (CardTile's native
+                    // `aspect-[5/7]`). Cards must never stretch — long
+                    // descriptions scroll within the card body instead
+                    // (CardTile's bodies are overflow-y-auto). When three
+                    // cards can't fit a row at this ratio, the parent
+                    // drops to a 2+1 layout rather than distorting them.
+                    className="w-full"
                 />
             </div>
             {/* Confirm-pick button slot. Reserved height so selecting
