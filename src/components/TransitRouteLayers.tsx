@@ -39,12 +39,47 @@ function FadingTransitLine({
                     <Layer
                         id={`${id}-line`}
                         type="line"
+                        filter={["==", ["geometry-type"], "LineString"]}
                         paint={{
                             "line-color": color,
                             "line-width": 2,
                             "line-opacity": shown ? LINE_OPACITY : 0,
                             "line-opacity-transition": { duration: FADE_MS },
                             ...(dash ? { "line-dasharray": dash } : {}),
+                        }}
+                    />
+                    {/* Station / stop markers — the route relations' node
+                        members. Drawn as small dots in the mode colour with
+                        a white ring so they read as stops on the line. Held
+                        back to zoom ≥ 11 so a dense bus network doesn't turn
+                        into a wall of dots at city overview; the dots grow
+                        slightly as you zoom in. */}
+                    <Layer
+                        id={`${id}-stations`}
+                        type="circle"
+                        filter={["==", ["geometry-type"], "Point"]}
+                        minzoom={11}
+                        paint={{
+                            "circle-radius": [
+                                "interpolate",
+                                ["linear"],
+                                ["zoom"],
+                                11,
+                                2.5,
+                                14,
+                                4,
+                                16,
+                                5,
+                            ],
+                            "circle-color": color,
+                            "circle-stroke-color": "#ffffff",
+                            "circle-stroke-width": 1.25,
+                            "circle-opacity": shown ? 1 : 0,
+                            "circle-stroke-opacity": shown ? 1 : 0,
+                            "circle-opacity-transition": { duration: FADE_MS },
+                            "circle-stroke-opacity-transition": {
+                                duration: FADE_MS,
+                            },
                         }}
                     />
                 </Source>

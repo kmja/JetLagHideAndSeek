@@ -245,6 +245,11 @@ export async function fetchTransitRoutesFeatures(
             members?: Array<{
                 type?: string;
                 ref?: number;
+                role?: string;
+                // Node members (stops/stations) carry lat/lon directly
+                // under `out geom`; way members carry a geometry array.
+                lat?: number;
+                lon?: number;
                 geometry?: Array<{ lat: number; lon: number }>;
             }>;
         }>
@@ -281,10 +286,43 @@ export async function fetchTransitRoutesFeatures(
 
     const seenWayIds = new Set<number>();
     const features: Array<GeoJSON.Feature<GeoJSON.LineString>> = [];
+    // Station/stop markers — the node members of each route relation. With
+    // `out skel geom` these carry lat/lon but no tags, so they render as
+    // dots (no labels). Deduped by node id across relations.
+    const seenNodeIds = new Set<number>();
+    const stations: Array<GeoJSON.Feature<GeoJSON.Point>> = [];
 
     for (const rel of elements) {
         const members = rel.members ?? [];
         for (const member of members) {
+            if (member.type === "node") {
+                // A stop/station node. Skip platform/area roles when the
+                // role is present (we want the boarding point, not a
+                // platform polygon centroid); keep role-less nodes too,
+                // since `skel` sometimes omits roles.
+                const role = member.role ?? "";
+                if (role && /platform|area/i.test(role)) continue;
+                const lat = member.lat;
+                const lon = member.lon;
+                if (
+                    typeof lat !== "number" ||
+                    typeof lon !== "number" ||
+                    !Number.isFinite(lat) ||
+                    !Number.isFinite(lon)
+                ) {
+                    continue;
+                }
+                if (member.ref !== undefined) {
+                    if (seenNodeIds.has(member.ref)) continue;
+                    seenNodeIds.add(member.ref);
+                }
+                stations.push({
+                    type: "Feature",
+                    geometry: { type: "Point", coordinates: [lon, lat] },
+                    properties: {},
+                });
+                continue;
+            }
             if (member.type !== "way") continue;
             const geom = member.geometry;
             if (!geom || geom.length < 2) continue;
@@ -338,9 +376,24 @@ export async function fetchTransitRoutesFeatures(
     // every test point is inside passes through whole; one whose every
     // test point is outside is dropped. Only boundary-crossing lines pay
     // the split cost.
+    // Quick bbox reject for station points (mirrors the line prefilter).
+    const stationInBbox = (s: GeoJSON.Feature<GeoJSON.Point>): boolean => {
+        if (!playBbox) return true;
+        const [lon, lat] = s.geometry.coordinates;
+        return (
+            lat >= playBbox.minLat &&
+            lat <= playBbox.maxLat &&
+            lon >= playBbox.minLon &&
+            lon <= playBbox.maxLon
+        );
+    };
+
     const polyForClip = polyArea ?? boundary;
     if (!polyForClip || polyForClip.features.length === 0) {
-        return { type: "FeatureCollection", features };
+        return {
+            type: "FeatureCollection",
+            features: [...features, ...stations.filter(stationInBbox)],
+        };
     }
     const clipped: Array<GeoJSON.Feature<GeoJSON.LineString>> = [];
     // v384: yield to the event loop every YIELD_EVERY iterations so big
@@ -424,5 +477,14 @@ export async function fetchTransitRoutesFeatures(
             });
         }
     }
-    return { type: "FeatureCollection", features: clipped };
+    // Keep only stations inside the play-area polygon (bbox-reject first).
+    const stationsInPoly = stations.filter((s) => {
+        if (!stationInBbox(s)) return false;
+        const [lon, lat] = s.geometry.coordinates;
+        return pointInPlayArea(polyForClip, lon, lat);
+    });
+    return {
+        type: "FeatureCollection",
+        features: [...clipped, ...stationsInPoly],
+    };
 }
