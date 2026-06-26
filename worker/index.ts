@@ -68,6 +68,7 @@ interface IpTracker {
 
 const createTrackers = new Map<string, IpTracker>();
 const wsTrackers = new Map<string, IpTracker>();
+const photoTrackers = new Map<string, IpTracker>();
 
 /**
  * Sliding-window rate check. Returns `true` if the request should
@@ -115,6 +116,13 @@ const CREATE_LIMIT_WINDOW_MS = 60_000;
 const CREATE_LIMIT_MAX = 6; // 6 games created per minute per IP
 const WS_LIMIT_WINDOW_MS = 60_000;
 const WS_LIMIT_MAX = 30; // 30 connection attempts per minute per IP
+const PHOTO_LIMIT_WINDOW_MS = 60_000;
+const PHOTO_LIMIT_MAX = 40; // 40 photo uploads per minute per IP
+
+// Hard ceiling on a single uploaded photo. Comfortably fits a
+// full-detail ~2560px JPEG (typically 1–2 MB) with headroom for the
+// "send near-original" case, while still bounding R2 writes and abuse.
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 
 /* ────────────────── CORS ────────────────── */
 
@@ -267,12 +275,171 @@ export default {
             return stub.fetch(forwarded);
         }
 
+        // POST /games/:code/photo — store a hider photo answer in R2,
+        // return its URL. The image rides HTTP (not the WS), so it can
+        // be multiple megabytes; only the URL goes over the socket.
+        const photoUploadMatch = url.pathname.match(
+            /^\/games\/([A-Z0-9]{4,8})\/photo$/i,
+        );
+        if (request.method === "POST" && photoUploadMatch) {
+            return handlePhotoUpload(
+                request,
+                env,
+                photoUploadMatch[1].toUpperCase(),
+            );
+        }
+
+        // GET /games/:code/photo/:id — serve a stored photo answer.
+        const photoGetMatch = url.pathname.match(
+            /^\/games\/([A-Z0-9]{4,8})\/photo\/([A-Za-z0-9_-]{1,64})$/i,
+        );
+        if (
+            (request.method === "GET" || request.method === "HEAD") &&
+            photoGetMatch
+        ) {
+            return handlePhotoServe(
+                request,
+                env,
+                photoGetMatch[1].toUpperCase(),
+                photoGetMatch[2],
+            );
+        }
+
         return new Response("not found", {
             status: 404,
             headers: corsHeaders(env, request),
         });
     },
 } satisfies ExportedHandler<Env>;
+
+/* ────────────────── Photo upload / serve ────────────────── */
+
+function jsonResponse(
+    body: unknown,
+    status: number,
+    extraHeaders: Record<string, string>,
+): Response {
+    return new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json", ...extraHeaders },
+    });
+}
+
+/**
+ * Store a hider's photo answer in R2 and hand back a stable URL. Scoped
+ * to the game code (the key prefix), image-only, size-capped and per-IP
+ * rate-limited. We deliberately don't round-trip the Durable Object to
+ * verify the room exists — the cost isn't worth it, the key is namespaced
+ * by code, and games are ephemeral (photos age out with a lifecycle rule
+ * / get purged), so the blast radius of a junk upload is a few stray
+ * objects under a non-existent code.
+ */
+async function handlePhotoUpload(
+    request: Request,
+    env: Env,
+    code: string,
+): Promise<Response> {
+    const cors = corsHeaders(env, request);
+    if (!env.PHOTOS) {
+        return jsonResponse({ error: "photos_unconfigured" }, 503, cors);
+    }
+    const ip = clientIp(request);
+    if (
+        rateLimited(
+            photoTrackers,
+            ip,
+            PHOTO_LIMIT_WINDOW_MS,
+            PHOTO_LIMIT_MAX,
+        )
+    ) {
+        return jsonResponse({ error: "rate_limited" }, 429, {
+            ...cors,
+            "retry-after": "60",
+        });
+    }
+
+    const contentType = (request.headers.get("content-type") ?? "")
+        .split(";")[0]
+        .trim();
+    if (!contentType.startsWith("image/")) {
+        return jsonResponse({ error: "not_an_image" }, 415, cors);
+    }
+
+    // Cheap pre-check from the declared length before we buffer.
+    const declared = parseInt(request.headers.get("content-length") ?? "", 10);
+    if (Number.isFinite(declared) && declared > MAX_PHOTO_BYTES) {
+        return jsonResponse(
+            { error: "too_large", maxBytes: MAX_PHOTO_BYTES },
+            413,
+            cors,
+        );
+    }
+
+    const buf = await request.arrayBuffer();
+    if (buf.byteLength === 0) {
+        return jsonResponse({ error: "empty" }, 400, cors);
+    }
+    if (buf.byteLength > MAX_PHOTO_BYTES) {
+        return jsonResponse(
+            { error: "too_large", maxBytes: MAX_PHOTO_BYTES },
+            413,
+            cors,
+        );
+    }
+
+    const id = crypto.randomUUID();
+    const key = `photos/${code}/${id}`;
+    try {
+        await env.PHOTOS.put(key, buf, {
+            httpMetadata: {
+                contentType,
+                // A given id is byte-stable, so let browsers cache it
+                // hard once fetched.
+                cacheControl: "public, max-age=604800, immutable",
+            },
+            customMetadata: { code, storedAt: String(Date.now()) },
+        });
+    } catch (e) {
+        console.warn(`[photo] R2 put failed ${key}:`, e);
+        return jsonResponse({ error: "store_failed" }, 500, cors);
+    }
+
+    const photoUrl = `${new URL(request.url).origin}/games/${code}/photo/${id}`;
+    return jsonResponse({ url: photoUrl, id }, 200, cors);
+}
+
+/** Serve a stored photo answer straight from R2. */
+async function handlePhotoServe(
+    request: Request,
+    env: Env,
+    code: string,
+    id: string,
+): Promise<Response> {
+    const cors = corsHeaders(env, request);
+    if (!env.PHOTOS) {
+        return new Response("not found", { status: 404, headers: cors });
+    }
+    const key = `photos/${code}/${id}`;
+    let obj: R2ObjectBody | null;
+    try {
+        obj = await env.PHOTOS.get(key);
+    } catch (e) {
+        console.warn(`[photo] R2 get failed ${key}:`, e);
+        obj = null;
+    }
+    if (!obj) {
+        return new Response("not found", { status: 404, headers: cors });
+    }
+    const headers: Record<string, string> = {
+        ...cors,
+        "content-type": obj.httpMetadata?.contentType ?? "image/jpeg",
+        "cache-control": "public, max-age=604800, immutable",
+        etag: obj.httpEtag,
+    };
+    return new Response(request.method === "HEAD" ? null : obj.body, {
+        headers,
+    });
+}
 
 /* ────────────────── Env shape ────────────────── */
 
@@ -281,4 +448,9 @@ interface Env {
     ALLOWED_ORIGINS?: string;
     VAPID_PUBLIC_KEY?: string;
     VAPID_KEYS?: string;
+    /** R2 bucket holding hider photo answers under `photos/<code>/<id>`.
+     *  Optional so the worker still boots if the binding is missing —
+     *  the upload endpoint then 503s and the client falls back to an
+     *  inline thumbnail. */
+    PHOTOS?: R2Bucket;
 }

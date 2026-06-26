@@ -521,8 +521,21 @@ export const measuringQuestionSchema = z.union([
 const photoQuestionSchema = z.object({
     /** Photo subtype — what the seeker asked for ("tree", "selfie", etc.). */
     type: z.string().default("tree"),
-    /** Base64 data URI of the hider's reply photo. Empty when unanswered. */
+    /**
+     * Base64 data URI of the hider's reply photo. In multiplayer this
+     * holds a small *thumbnail* (full detail lives at `photoUrl`); in
+     * solo/offline play it holds the full-resolution image. Empty when
+     * unanswered.
+     */
     photoUri: z.string().optional(),
+    /**
+     * URL of the full-resolution photo stored in the game's R2 bucket
+     * (multiplayer only). When present this is the canonical image the
+     * seekers view — it can be multiple megabytes, well beyond what the
+     * data-URI-over-WebSocket path could ever carry. Falls back to
+     * `photoUri` when absent (solo play, or an upload that failed).
+     */
+    photoUrl: z.string().optional(),
     /** Optional note the hider left alongside the photo. */
     note: z.string().optional(),
     /**

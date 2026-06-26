@@ -321,6 +321,33 @@ export function hiderAnswerQuestion(key: number, answer: Record<string, unknown>
     getTransport().send({ t: "answerQ", key, answer });
 }
 
+/**
+ * Upload a hider photo answer to the game's R2-backed store and return
+ * its public URL. The image travels over HTTP (not the WebSocket), so it
+ * can be multiple megabytes — full detail for the seekers — while only
+ * the short URL rides the socket in the `answerQ` message. Throws on any
+ * failure so the caller can fall back to an inline thumbnail.
+ */
+export async function uploadGamePhoto(blob: Blob): Promise<string> {
+    const code = currentGameCode.get();
+    if (!code) throw new Error("No active game to attach a photo to.");
+    const origin = getMultiplayerOrigin();
+    const resp = await fetch(`${origin}/games/${code}/photo`, {
+        method: "POST",
+        headers: { "content-type": blob.type || "image/jpeg" },
+        body: blob,
+    });
+    if (resp.status === 413) {
+        throw new Error("Photo too large to upload.");
+    }
+    if (!resp.ok) {
+        throw new Error(`Photo upload failed (HTTP ${resp.status}).`);
+    }
+    const data = (await resp.json()) as { url?: string };
+    if (!data?.url) throw new Error("Server didn't return a photo URL.");
+    return data.url;
+}
+
 /** Seeker marks the hider found. Round-end ping. */
 export function seekerMarkFound(foundAt: number) {
     if (!multiplayerEnabled.get()) return;

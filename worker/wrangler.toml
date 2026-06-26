@@ -59,6 +59,18 @@ class_name = "GameRoom"
 tag = "v1"
 new_sqlite_classes = ["GameRoom"]
 
+# R2 bucket for hider photo answers. Reuses the existing
+# `jlhs-overpass-cache` bucket (no new bucket to provision) under a
+# dedicated `photos/<gameCode>/<id>` key prefix, so it never collides
+# with the overpass / journey / tile namespaces or their eviction
+# logic. Photo answers are uploaded over HTTP (POST /games/:code/photo)
+# and served back (GET /games/:code/photo/:id) — only a short URL ever
+# rides the WebSocket, so multi-megabyte full-detail photos reach the
+# seekers without hitting Cloudflare's 1 MiB WS message ceiling.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "jlhs-overpass-cache"
+
 # Tighten CORS to the production Pages origin in prod, but allow
 # localhost during dev. The worker reads this and echoes it back as
 # Access-Control-Allow-Origin.

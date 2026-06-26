@@ -18,7 +18,14 @@ import { appConfirm } from "@/lib/confirm";
 import { endgameStartedAt } from "@/lib/gameSetup";
 import { gameSize } from "@/lib/gameSetup";
 import { playerRole, recordPhotoAnswerDraw } from "@/lib/hiderRole";
-import { hiderAnswerQuestion } from "@/lib/multiplayer/store";
+import {
+    currentGameCode,
+    multiplayerEnabled,
+} from "@/lib/multiplayer/session";
+import {
+    hiderAnswerQuestion,
+    uploadGamePhoto,
+} from "@/lib/multiplayer/store";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import type { PhotoQuestion } from "@/maps/schema";
@@ -26,16 +33,15 @@ import type { PhotoQuestion } from "@/maps/schema";
 import { QuestionCard } from "./base";
 
 /**
- * Resize a captured image down to a sensible max edge before storing it
- * as a data URI. Phone photos are routinely 4–8 MB which blows past any
- * sensible localStorage budget. We hit ~80 KB at 1200px JPEG quality 0.8,
- * which is fine for a "look, this is the tree" answer.
+ * Decode a captured image file and downscale it onto a canvas at the
+ * given max edge. Shared by the data-URI and Blob encoders below. Phone
+ * photos are routinely 4–8 MB; we resize before encoding so neither
+ * localStorage nor the upload carries the raw original.
  */
-async function fileToCompressedDataUri(
+async function fileToScaledCanvas(
     file: File,
-    maxEdge = 1200,
-    quality = 0.8,
-): Promise<string> {
+    maxEdge: number,
+): Promise<HTMLCanvasElement> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onerror = () => reject(reader.error);
@@ -55,11 +61,46 @@ async function fileToCompressedDataUri(
                 const ctx = canvas.getContext("2d");
                 if (!ctx) return reject(new Error("no 2d ctx"));
                 ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL("image/jpeg", quality));
+                resolve(canvas);
             };
             img.src = reader.result as string;
         };
         reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * Compress to a JPEG data URI at the given max edge. Used for the small
+ * local thumbnail (multiplayer) and the full-res inline image (solo).
+ */
+async function fileToCompressedDataUri(
+    file: File,
+    maxEdge = 1200,
+    quality = 0.8,
+): Promise<string> {
+    const canvas = await fileToScaledCanvas(file, maxEdge);
+    return canvas.toDataURL("image/jpeg", quality);
+}
+
+/**
+ * Compress to a JPEG Blob at the given max edge — the upload payload for
+ * the full-detail photo that goes to R2. Defaults target ~2560px / q0.85,
+ * which lands ~1–2 MB for a typical phone photo: plenty of detail for the
+ * seekers to zoom into signage and fine features.
+ */
+async function fileToCompressedBlob(
+    file: File,
+    maxEdge = 2560,
+    quality = 0.85,
+): Promise<Blob> {
+    const canvas = await fileToScaledCanvas(file, maxEdge);
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(
+            (blob) =>
+                blob ? resolve(blob) : reject(new Error("encode failed")),
+            "image/jpeg",
+            quality,
+        );
     });
 }
 
@@ -102,11 +143,15 @@ export const PhotoQuestionComponent = ({
     const subtypeLabel = meta?.label ?? data.type;
     const subtypeDescription = meta?.description;
 
+    // The full-detail photo lives at `photoUrl` (R2) when online; in
+    // solo/offline play the image is inline in `photoUri`. Prefer the URL.
+    const imgSrc = data.photoUrl ?? data.photoUri;
+
     const summary = data.drag
         ? `${subtypeLabel} · awaiting photo`
         : data.declined
           ? `${subtypeLabel} · couldn't answer`
-          : data.photoUri
+          : imgSrc
             ? `${subtypeLabel} · photo received`
             : `${subtypeLabel} · marked answered`;
 
@@ -115,19 +160,64 @@ export const PhotoQuestionComponent = ({
     const onFile = async (file: File | null | undefined) => {
         if (!file) return;
         try {
-            const dataUri = await fileToCompressedDataUri(file);
             const wasUnanswered = data.drag;
-            data.photoUri = dataUri;
+            const online =
+                isHideTeam &&
+                multiplayerEnabled.get() &&
+                !!currentGameCode.get();
+
+            // Small thumbnail — instant local display, offline-safe, and
+            // the wire fallback if the full-res upload fails (well under
+            // the 64 KB WebSocket cap).
+            const thumb = await fileToCompressedDataUri(file, 640, 0.7);
+
+            // Online: upload the full-detail image to R2 and ship only
+            // its URL. This is what lets multi-megabyte photos reach the
+            // seekers — the data URI never crosses the WebSocket.
+            let photoUrl: string | undefined;
+            if (online) {
+                try {
+                    const fullBlob = await fileToCompressedBlob(
+                        file,
+                        2560,
+                        0.85,
+                    );
+                    photoUrl = await uploadGamePhoto(fullBlob);
+                } catch (e) {
+                    console.warn(
+                        "photo upload failed; falling back to inline thumbnail",
+                        e,
+                    );
+                }
+            }
+
+            if (photoUrl) {
+                // Full detail via URL; keep a thumbnail for instant local
+                // render and offline viewing.
+                data.photoUrl = photoUrl;
+                data.photoUri = thumb;
+            } else if (online) {
+                // Upload failed — at least inline the thumbnail so the
+                // seekers see *something*.
+                data.photoUrl = undefined;
+                data.photoUri = thumb;
+            } else {
+                // Solo / offline — inline the full-resolution image for
+                // local viewing (no seeker to send it to).
+                data.photoUrl = undefined;
+                data.photoUri = await fileToCompressedDataUri(file, 2560, 0.85);
+            }
             data.declined = false;
             data.drag = false;
             questionModified();
-            // When the hide team attaches the photo, also push it
-            // to the seekers so they actually see the reply — the
-            // local-only path here was the visible side of the
-            // "photo questions don't reach the seeker" report.
+
+            // Push the answer to the seekers. Prefer the URL (a few
+            // bytes); only inline the thumbnail when there's no URL.
             if (isHideTeam) {
                 hiderAnswerQuestion(questionKey, {
-                    photoUri: dataUri,
+                    ...(photoUrl
+                        ? { photoUrl }
+                        : { photoUri: data.photoUri }),
                     declined: false,
                     drag: false,
                 });
@@ -137,9 +227,17 @@ export const PhotoQuestionComponent = ({
                 // extra cards.
                 if (wasUnanswered) recordPhotoAnswerDraw(questionKey);
             }
-            toast.success("Photo attached. Question committed.", {
-                autoClose: 2500,
-            });
+
+            if (online && !photoUrl) {
+                toast.warn(
+                    "Couldn't upload the full-size photo — sent a smaller preview instead.",
+                    { autoClose: 4000 },
+                );
+            } else {
+                toast.success("Photo attached. Question committed.", {
+                    autoClose: 2500,
+                });
+            }
         } catch (e) {
             console.warn("photo compression failed", e);
             toast.error("Couldn't process that photo. Try another one.");
@@ -201,10 +299,10 @@ export const PhotoQuestionComponent = ({
                         </div>
                     </div>
 
-                    {data.photoUri ? (
+                    {imgSrc ? (
                         <div className="relative">
                             <img
-                                src={data.photoUri}
+                                src={imgSrc}
                                 alt={subtypeLabel}
                                 className="w-full rounded-md border border-border max-h-[300px] object-contain bg-black/30"
                             />
@@ -221,6 +319,7 @@ export const PhotoQuestionComponent = ({
                                     });
                                     if (!ok) return;
                                     data.photoUri = undefined;
+                                    data.photoUrl = undefined;
                                     questionModified();
                                 }}
                                 disabled={$isLoading}
@@ -290,7 +389,7 @@ export const PhotoQuestionComponent = ({
                             disabled={$isLoading}
                         >
                             <ImagePlus className="w-3.5 h-3.5" />
-                            {data.photoUri ? "Replace photo" : "Attach photo"}
+                            {imgSrc ? "Replace photo" : "Attach photo"}
                         </Button>
                         {data.drag && (
                             <Button
