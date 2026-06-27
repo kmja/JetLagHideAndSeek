@@ -87,19 +87,29 @@ export function HiderUnansweredOverlay({
         } as Question);
     };
 
-    // Compact white status under the icon inside the solid colour square:
-    // the answer-window countdown, plus a "+N" when more are queued.
+    // Status on the right: the answer-window countdown in the category
+    // colour (red when overdue), plus a "+N" when more are queued.
     const rightSlot = (
-        <div className="flex flex-col items-center gap-0.5 leading-none">
-            <span className="text-sm font-poppins font-black tabular-nums leading-none">
+        <div className="flex flex-col items-center leading-none">
+            <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-zinc-500 dark:text-zinc-400 mb-0.5">
+                {overdue ? "Overdue" : "Answer in"}
+            </span>
+            <span
+                className={cn(
+                    "text-2xl font-poppins font-black tabular-nums leading-none",
+                    overdue
+                        ? "text-destructive"
+                        : "text-[color:var(--cat-deep)] dark:text-[color:var(--cat-bright)]",
+                )}
+            >
                 {overdue ? "0:00" : countdownLabel}
             </span>
             {extraCount > 0 && (
                 <span
-                    className="text-[8px] font-poppins font-bold leading-none"
+                    className="text-[8px] font-poppins font-bold leading-none mt-0.5 text-zinc-500 dark:text-zinc-400"
                     aria-label={`${extraCount} more question${extraCount === 1 ? "" : "s"} waiting`}
                 >
-                    +{extraCount}
+                    +{extraCount} more
                 </span>
             )}
         </div>

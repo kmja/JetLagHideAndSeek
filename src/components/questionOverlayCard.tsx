@@ -264,7 +264,11 @@ export function QuestionOverlayCard({
 }) {
     const meta = CATEGORIES[categoryId as CategoryId];
     const base = meta?.color ?? "#999";
+    // `deep` (saturated/dark) reads on a LIGHT card; the original pastel
+    // `base` reads on a DARK card. We expose both as CSS vars so the
+    // label + timer can switch on `.dark` without knowing the theme.
     const deep = answered ? "#10b981" : deepColor(base);
+    const bright = answered ? "#34d399" : base;
     const Icon = summary.icon ?? meta?.icon ?? Hourglass;
     const interactive = Boolean(onClick);
 
@@ -284,54 +288,67 @@ export function QuestionOverlayCard({
                     : undefined
             }
             aria-label={ariaLabel}
+            style={
+                {
+                    "--cat-deep": deep,
+                    "--cat-bright": bright,
+                } as React.CSSProperties
+            }
             className={cn(
-                // Jet-Lag-show lower-third: a white/cream card (the same in
-                // light AND dark — the show's banner is always light over
-                // the video) with a big bold coloured label and a solid
-                // colour square on the right. Sharp corners. Fixed height
-                // so the square resolves via `aspect-square`.
+                // Jet-Lag-show lower-third: a card with a solid colour icon
+                // block on the LEFT, a big bold coloured label, and the
+                // live status on the RIGHT. Light card in light mode, dark
+                // card in dark mode. Sharp corners. Fixed height so the
+                // icon block resolves to a square via `aspect-square`.
                 "pointer-events-auto relative flex items-stretch overflow-hidden h-[4.5rem]",
-                "bg-[#f6f5f1] text-[#1F2F3F] shadow-xl border border-black/10",
+                "shadow-xl border",
+                "bg-[#f6f5f1] text-[#1F2F3F] border-black/10",
+                "dark:bg-[#1b2433] dark:text-zinc-100 dark:border-white/10",
                 interactive &&
                     "cursor-pointer select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-transform duration-200",
                 className,
             )}
         >
-            {/* Big coloured label + one short description (left). */}
-            <div className="min-w-0 flex-1 px-4 py-2 flex flex-col justify-center">
-                <div
-                    className="font-display font-extrabold uppercase leading-[1.0] text-lg sm:text-xl truncate"
-                    style={{ color: deep, letterSpacing: "-0.01em" }}
-                >
-                    {summary.bigLabel}
-                </div>
-                {summary.detail && (
-                    <div className="text-[11px] sm:text-xs text-zinc-500 leading-snug truncate mt-0.5">
-                        {summary.detail}
-                    </div>
-                )}
-            </div>
-
-            {/* Solid category-colour square (right): white icon + status.
+            {/* Solid category-colour square icon block (left). White icon;
                 `aspect-square` resolves against the card's fixed height. */}
-            <div
-                className="relative h-full aspect-square shrink-0 flex flex-col items-center justify-center gap-0.5 text-white transition-colors duration-300"
+            <span
+                className="h-full aspect-square shrink-0 flex items-center justify-center text-white"
                 style={{ backgroundColor: deep }}
+                aria-hidden="true"
             >
                 {answered ? (
                     <Check
-                        size={26}
+                        size={24}
                         strokeWidth={3}
                         className="animate-[jlAnsweredPop_400ms_ease-out]"
                     />
                 ) : (
                     <Icon size={22} strokeWidth={2.5} />
                 )}
-                {!answered && right && (
-                    <div className="leading-none text-center">{right}</div>
+            </span>
+
+            {/* Big coloured label + one short description (middle). */}
+            <div className="min-w-0 flex-1 px-3 py-2 flex flex-col justify-center">
+                <div
+                    className="font-display font-extrabold uppercase leading-[1.0] text-lg sm:text-xl truncate text-[color:var(--cat-deep)] dark:text-[color:var(--cat-bright)]"
+                    style={{ letterSpacing: "-0.01em" }}
+                >
+                    {summary.bigLabel}
+                </div>
+                {summary.detail && (
+                    <div className="text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 leading-snug truncate mt-0.5">
+                        {summary.detail}
+                    </div>
                 )}
             </div>
+
+            {/* Live status — timer / retry / answered (right). */}
+            {right && (
+                <div className="shrink-0 flex items-center justify-center pl-1 pr-3 min-w-[3.75rem]">
+                    {right}
+                </div>
+            )}
         </div>
     );
 }

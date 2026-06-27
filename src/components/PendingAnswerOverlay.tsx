@@ -168,20 +168,31 @@ export function PendingAnswerOverlay({
         }
     };
 
-    // Compact status sitting under the icon inside the solid colour
-    // square (white text, supplied by the card). Timer when waiting,
-    // "0:00" when overdue, a Retry affordance when the send failed.
+    // Status on the right of the card. Prominent countdown while waiting
+    // (in the category colour — deep on a light card, bright on dark),
+    // a paused "0:00" when overdue, a Retry button when the send failed,
+    // and "Answered!" on resolve.
     const rightSlot = waiting ? (
-        <span className="text-sm font-poppins font-black tabular-nums leading-none">
-            {mm}:{String(ss).padStart(2, "0")}
-        </span>
+        <div className="flex flex-col items-center leading-none">
+            <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-zinc-500 dark:text-zinc-400 mb-0.5">
+                Answer in
+            </span>
+            <span className="text-2xl font-poppins font-black tabular-nums leading-none text-[color:var(--cat-deep)] dark:text-[color:var(--cat-bright)]">
+                {mm}:{String(ss).padStart(2, "0")}
+            </span>
+        </div>
     ) : overdue ? (
-        <span
-            className="text-sm font-poppins font-black tabular-nums leading-none"
-            title="Past the answer window — the hider's clock is paused (rulebook p61)"
-        >
-            0:00
-        </span>
+        <div className="flex flex-col items-center leading-none text-destructive">
+            <span className="text-2xl font-poppins font-black tabular-nums leading-none">
+                0:00
+            </span>
+            <span
+                className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold mt-0.5"
+                title="Past the answer window — the hider's clock is paused (rulebook p61)"
+            >
+                Paused
+            </span>
+        </div>
     ) : notYetSent ? (
         <button
             type="button"
@@ -191,11 +202,21 @@ export function PendingAnswerOverlay({
             }}
             aria-label="Retry sending the question to the hider"
             title="Sending failed — retry. Starts the answer window."
-            className="flex items-center gap-1 text-[10px] font-poppins font-black uppercase tracking-wide hover:underline focus-visible:outline-none"
+            className={cn(
+                "flex flex-col items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-md",
+                "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
         >
-            <RefreshCw className="w-3 h-3" strokeWidth={2.5} />
-            Retry
+            <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
+            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
+                Retry
+            </span>
         </button>
+    ) : answered ? (
+        <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-emerald-500">
+            Answered!
+        </span>
     ) : null;
 
     return (
