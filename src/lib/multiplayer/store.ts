@@ -213,6 +213,15 @@ export function joinAsGuest(code: string, name: string) {
  * when persistent state shows we were in the middle of a game.
  */
 export function tryResumeFromPersistent() {
+    // A LIVE demo is runtime-only but still writes the persistent
+    // code/token atoms while it runs. MultiplayerBoot calls this on every
+    // page mount, so navigating into the seeker/hider shell mid-demo would
+    // otherwise hit the stale-demo wipe below and silently flip
+    // `multiplayerEnabled` off — dropping the player back to offline send
+    // (clipboard share, no bot answers). If the broker is still attached
+    // (demoMode true), the demo is live: leave it completely alone. Only a
+    // demo whose atoms survived a reload (demoMode false) is stale.
+    if (demoMode.get()) return;
     const code = currentGameCode.get();
     const token = sessionToken.get();
     if (!code || !token) return;
