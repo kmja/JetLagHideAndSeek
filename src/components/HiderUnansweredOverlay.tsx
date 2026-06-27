@@ -27,8 +27,17 @@ import type { Question } from "@/maps/schema";
  * Mounted by HiderShell. Hides itself entirely when there's nothing
  * waiting so it never sits on the map for no reason.
  */
-export function HiderUnansweredOverlay() {
-    const $inbox = useStore(hiderInbox);
+/** Override the inbox to preview the pill in the /debug/overlays gallery
+ *  without touching global state. */
+export interface HiderUnansweredPreview {
+    inbox: InboxEntry[];
+}
+
+export function HiderUnansweredOverlay({
+    preview,
+}: { preview?: HiderUnansweredPreview } = {}) {
+    let $inbox = useStore(hiderInbox);
+    if (preview) $inbox = preview.inbox;
     const waiting = useMemo(
         () =>
             $inbox

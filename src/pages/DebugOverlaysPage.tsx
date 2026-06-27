@@ -4,11 +4,13 @@ import { Link } from "react-router-dom";
 
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { HiderTimer } from "@/components/HiderTimer";
+import { HiderUnansweredOverlay } from "@/components/HiderUnansweredOverlay";
 import { LocationPauseBanner } from "@/components/LocationPauseBanner";
 import { MapTilesVeil } from "@/components/MapTilesVeil";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
+import type { InboxEntry } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
 
@@ -64,6 +66,43 @@ function mockThermometer(now: number): Question {
             lngB: MOCK_LNG,
             drag: true,
         },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+}
+
+/** A pending (sent, awaiting-answer) question of any type, for the
+ *  PendingAnswerOverlay cells. `createdAt` set → shows the live timer. */
+function mockPending(
+    id: string,
+    data: Record<string, unknown>,
+    key: number,
+    now: number,
+): Question {
+    return {
+        id,
+        key,
+        data: {
+            lat: MOCK_LAT,
+            lng: MOCK_LNG,
+            drag: true,
+            createdAt: now,
+            ...data,
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+}
+
+/** A waiting inbox entry for the hider's unanswered-question pill. */
+function mockInbox(
+    id: string,
+    data: Record<string, unknown>,
+    now: number,
+): InboxEntry {
+    return {
+        key: 999100,
+        id,
+        data: { lat: MOCK_LAT, lng: MOCK_LNG, drag: true, ...data },
+        arrivedAt: now - 48_000,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
 }
@@ -165,11 +204,116 @@ export function DebugOverlaysPage() {
                         preview={{ questions: [mockRadius(now - 6 * M)] }}
                     />
                 </Cell>
+                <Cell label="Pending · answered!">
+                    <PendingAnswerOverlay
+                        preview={{
+                            questions: [mockRadius(now)],
+                            forcePhase: "answered",
+                        }}
+                    />
+                </Cell>
+
+                {/* ── Pending · every question type ───────────── */}
+                <Cell label="Pending · thermometer">
+                    <PendingAnswerOverlay
+                        preview={{
+                            questions: [
+                                mockPending(
+                                    "thermometer",
+                                    { distance: "1km" },
+                                    999010,
+                                    now,
+                                ),
+                            ],
+                        }}
+                    />
+                </Cell>
+                <Cell label="Pending · matching">
+                    <PendingAnswerOverlay
+                        preview={{
+                            questions: [
+                                mockPending(
+                                    "matching",
+                                    { type: "museum" },
+                                    999011,
+                                    now,
+                                ),
+                            ],
+                        }}
+                    />
+                </Cell>
+                <Cell label="Pending · measuring">
+                    <PendingAnswerOverlay
+                        preview={{
+                            questions: [
+                                mockPending(
+                                    "measuring",
+                                    { type: "aquarium" },
+                                    999012,
+                                    now,
+                                ),
+                            ],
+                        }}
+                    />
+                </Cell>
+                <Cell label="Pending · tentacles">
+                    <PendingAnswerOverlay
+                        preview={{
+                            questions: [
+                                mockPending(
+                                    "tentacles",
+                                    { locationType: "zoo", radius: 15, unit: "miles" },
+                                    999013,
+                                    now,
+                                ),
+                            ],
+                        }}
+                    />
+                </Cell>
+                <Cell label="Pending · photo">
+                    <PendingAnswerOverlay
+                        preview={{
+                            questions: [
+                                mockPending(
+                                    "photo",
+                                    { type: "tree" },
+                                    999014,
+                                    now,
+                                ),
+                            ],
+                        }}
+                    />
+                </Cell>
 
                 {/* ── Thermometer ─────────────────────────────── */}
                 <Cell label="Thermometer · running pill">
                     <ThermometerOverlay
                         preview={{ questions: [mockThermometer(now)] }}
+                    />
+                </Cell>
+
+                {/* ── Hider side ──────────────────────────────── */}
+                <Cell label="Hider · unanswered pill">
+                    <HiderUnansweredOverlay
+                        preview={{
+                            inbox: [mockInbox("radius", { radius: 5, unit: "kilometers" }, now)],
+                        }}
+                    />
+                </Cell>
+                <Cell label="Hider · unanswered (overdue)">
+                    <HiderUnansweredOverlay
+                        preview={{
+                            inbox: [
+                                {
+                                    ...mockInbox(
+                                        "matching",
+                                        { type: "museum" },
+                                        now,
+                                    ),
+                                    arrivedAt: now - 6 * M,
+                                },
+                            ],
+                        }}
                     />
                 </Cell>
 

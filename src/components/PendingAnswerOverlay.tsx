@@ -16,8 +16,8 @@ import {
     Mountain,
     PawPrint,
     Plane,
+    RefreshCw,
     Ruler,
-    Share2,
     ShoppingBag,
     Train,
     TrainFront,
@@ -38,6 +38,8 @@ import { isHiderConnected } from "@/lib/multiplayer/store";
 import { encodeQuestionForHider, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question, ThermometerQuestion } from "@/maps/schema";
+
+import { SidebarContext } from "./ui/sidebar-l";
 
 import {
     prettyTypeNoun,
@@ -134,6 +136,20 @@ function subtypeLabel(type: string | undefined): string | null {
  *  the /debug/overlays gallery without touching global state. */
 export interface PendingAnswerPreview {
     questions: ReturnType<typeof questions.get>;
+    /** Force a lifecycle phase so the gallery can show the otherwise
+     *  transient "answered" celebration statically. The first question
+     *  is rendered in this phase. */
+    forcePhase?: "active" | "answered";
+}
+
+/** hex (#rrggbb) → rgba() string, for the show-style category tinting. */
+function hexToRgba(hex: string, alpha: number): string {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export function PendingAnswerOverlay({
@@ -206,30 +222,36 @@ export function PendingAnswerOverlay({
         setPhase("active");
     }, [pending?.key]);
 
-    // 1 Hz tick to keep the countdown fresh. Visibility-aware so
-    // a hidden tab isn't waking the CPU every second just to drift
-    // a countdown that nobody is looking at.
-    // v377: shared clock (was a dedicated 1 Hz setInterval).
-    const now = useNow(Boolean(displayed) && phase === "active");
+    // Gallery override: force a phase + question so the static gallery
+    // can show the otherwise-transient "answered" celebration.
+    const dShown = preview?.forcePhase
+        ? (preview.questions[0] ?? null)
+        : displayed;
+    const phShown: Phase = preview?.forcePhase ?? phase;
+
+    // 1 Hz tick to keep the countdown fresh. Visibility-aware so a
+    // hidden tab isn't waking the CPU just to drift an unseen countdown.
+    const now = useNow(Boolean(dShown) && phShown === "active");
 
     // Nearest-reference lookup for matching/measuring headlines. Always
     // called so the hook order stays stable across renders.
     const showRefLookup =
-        displayed?.id === "matching" || displayed?.id === "measuring";
+        dShown?.id === "matching" || dShown?.id === "measuring";
     const nearestState = useNearestReference(
-        showRefLookup ? (displayed!.data as { lat: number }).lat ?? 0 : 0,
-        showRefLookup ? (displayed!.data as { lng: number }).lng ?? 0 : 0,
-        showRefLookup ? (displayed!.data as { type: string }).type ?? "" : "",
+        showRefLookup ? (dShown!.data as { lat: number }).lat ?? 0 : 0,
+        showRefLookup ? (dShown!.data as { lng: number }).lng ?? 0 : 0,
+        showRefLookup ? (dShown!.data as { type: string }).type ?? "" : "",
     );
 
-    if (!displayed) return null;
+    if (!dShown) return null;
 
-    const meta = CATEGORIES[displayed.id as CategoryId];
+    const meta = CATEGORIES[dShown.id as CategoryId];
+    const color = meta?.color ?? "#999";
     const Icon = meta?.icon ?? Hourglass;
-    const createdAt = (displayed.data as { createdAt?: number }).createdAt;
+    const createdAt = (dShown.data as { createdAt?: number }).createdAt;
     // Rulebook p5/p32: 5 min for everything except photo (10 min S/M,
     // 20 min L). `answerWindowMs` reads the live game size.
-    const windowMs = answerWindowMs(displayed.id, $gameSize);
+    const windowMs = answerWindowMs(dShown.id, $gameSize);
     const remainingMs = createdAt
         ? Math.max(0, createdAt + windowMs - now)
         : null;
@@ -238,19 +260,29 @@ export function PendingAnswerOverlay({
     const mm = remainingSec !== null ? Math.floor(remainingSec / 60) : 0;
     const ss = remainingSec !== null ? remainingSec % 60 : 0;
     const overdue =
-        phase === "active" && remainingSec !== null && remainingSec <= 0;
-    const notYetSent = createdAt === undefined;
+        phShown === "active" && remainingSec !== null && remainingSec <= 0;
+    const notYetSent = phShown === "active" && createdAt === undefined;
+    const waiting = phShown === "active" && !notYetSent && !overdue;
+    const answered = phShown === "answered" || phShown === "closing";
 
-    const summary = summarizeQuestion(displayed, nearestState);
-    const status = pickStatus({ phase, notYetSent, overdue });
+    const summary = summarizeQuestion(dShown, nearestState);
+    const status = pickStatus({ phase: phShown, notYetSent, overdue });
+    const AvatarIcon = summary.icon ?? Icon;
 
-    const handleShare = async () => {
-        // If the hider is connected to the online room they already
-        // received the question over the WebSocket bridge — skip the
-        // share-link entirely and just stamp `createdAt` so the 5-min
-        // answer clock starts ticking.
+    // Tap anywhere on the card → open the questions panel for full
+    // detail (params, the answer toggle, share, …). (#5)
+    const openDetails = () => {
+        const sb = SidebarContext.get();
+        if (sb.isMobile) sb.setOpenMobile(true);
+        else sb.setOpen(true);
+    };
+
+    // "Not sent" only happens in the offline/solo fallback when the
+    // auto clipboard-copy of the share link failed. The action is a
+    // genuine RETRY of that send, not a generic share. (#1)
+    const handleRetry = async () => {
         if (isHiderConnected()) {
-            const d = displayed.data as { createdAt?: number };
+            const d = dShown.data as { createdAt?: number };
             if (!d.createdAt) {
                 d.createdAt = Date.now();
                 questionModified();
@@ -258,15 +290,14 @@ export function PendingAnswerOverlay({
             toast.success("Sent to hider", { autoClose: 1500 });
             return;
         }
-
-        const url = encodeQuestionForHider(displayed);
+        const url = encodeQuestionForHider(dShown);
         const result = await shareOrCopy({
             title: `${meta?.label ?? "Question"} for the hider`,
             text: `${meta?.label ?? "Question"}: tap to answer`,
             url,
         });
         if (result.method === "share" || result.method === "copy") {
-            const d = displayed.data as { createdAt?: number };
+            const d = dShown.data as { createdAt?: number };
             if (!d.createdAt) {
                 d.createdAt = Date.now();
                 questionModified();
@@ -289,103 +320,102 @@ export function PendingAnswerOverlay({
                 // mutually exclusive per rulebook, so they share the slot.
                 "bottom-[calc(80px+env(safe-area-inset-bottom))] md:bottom-4",
                 "max-w-[92vw] w-[min(92vw,460px)]",
-                // Slide-out close: keeps the card mounted so the
-                // transition can run, then the parent timer flips
-                // `displayed` to null.
                 "transition-all duration-500 ease-out",
-                phase === "closing" &&
+                phShown === "closing" &&
                     "translate-y-16 opacity-0 -translate-x-1/2",
-                phase === "answered" && "scale-[1.02] -translate-x-1/2",
+                phShown === "answered" && "scale-[1.02] -translate-x-1/2",
             )}
             data-testid="pending-answer-overlay"
-            data-phase={phase}
+            data-phase={phShown}
         >
+            {/* Jet-Lag-show-style answer card: a category-tinted, frosted
+                panel with a solid category-colour icon block on the left,
+                the bold uppercase prompt in the category colour, and a
+                prominent status/timer block on the right. The whole card
+                is tappable to open the question's full detail. (#2,#4,#5) */}
             <div
+                role="button"
+                tabIndex={0}
+                onClick={openDetails}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openDetails();
+                    }
+                }}
+                aria-label="Open question details"
                 className={cn(
-                    "pointer-events-auto",
-                    "flex items-center gap-3 px-3 py-2.5 rounded-md",
+                    "pointer-events-auto cursor-pointer select-none",
+                    "relative flex items-stretch rounded-xl overflow-hidden",
                     "bg-background/95 backdrop-blur-md shadow-xl",
-                    "border-2 transition-colors duration-300",
-                    status.border,
+                    "border-2 transition-all duration-300",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "active:scale-[0.99]",
                 )}
+                style={{
+                    borderColor: answered
+                        ? "rgb(16 185 129 / 0.8)"
+                        : hexToRgba(color, 0.55),
+                }}
             >
-                {(() => {
-                    // Avatar icon — subtype-specific where we have one
-                    // (Museum, Plane, Fish…), category fallback otherwise.
-                    // Swaps to a green checkmark once the question is
-                    // answered.
-                    const AvatarIcon = summary.icon ?? Icon;
-                    return (
-                        <span
-                            className={cn(
-                                "inline-flex items-center justify-center w-9 h-9 rounded shrink-0 transition-colors duration-300",
-                                phase === "answered" ? "bg-emerald-500" : "",
-                            )}
-                            style={
-                                phase === "answered"
-                                    ? undefined
-                                    : { backgroundColor: meta?.color ?? "#999" }
-                            }
-                            aria-hidden="true"
-                        >
-                            {phase === "answered" ? (
-                                <Check
-                                    size={18}
-                                    strokeWidth={3}
-                                    className="text-white animate-[jlAnsweredPop_400ms_ease-out]"
-                                />
-                            ) : (
-                                <AvatarIcon
-                                    size={16}
-                                    strokeWidth={2.5}
-                                    className="text-white"
-                                />
-                            )}
-                        </span>
-                    );
-                })()}
+                {/* Category wash across the whole card (behind content). */}
+                <div
+                    className="absolute inset-0 pointer-events-none transition-colors duration-300"
+                    style={{
+                        backgroundColor: answered
+                            ? "rgb(16 185 129 / 0.10)"
+                            : hexToRgba(color, 0.1),
+                    }}
+                    aria-hidden
+                />
 
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 leading-none">
-                        <span className="text-[10px] uppercase tracking-[0.14em] font-poppins font-semibold text-muted-foreground min-w-0 truncate">
+                {/* Solid category-colour icon block (left). */}
+                <span
+                    className="relative flex items-center justify-center w-12 shrink-0 transition-colors duration-300"
+                    style={{
+                        backgroundColor: answered ? "#10b981" : color,
+                    }}
+                    aria-hidden="true"
+                >
+                    {answered ? (
+                        <Check
+                            size={22}
+                            strokeWidth={3}
+                            className="text-white animate-[jlAnsweredPop_400ms_ease-out]"
+                        />
+                    ) : (
+                        <AvatarIcon
+                            size={20}
+                            strokeWidth={2.5}
+                            className="text-white"
+                        />
+                    )}
+                </span>
+
+                {/* Prompt body (center). */}
+                <div className="relative min-w-0 flex-1 px-3 py-2">
+                    <div className="flex items-center gap-1.5 leading-none">
+                        <span
+                            className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold truncate"
+                            style={{
+                                color: answered
+                                    ? "#10b981"
+                                    : hexToRgba(color, 0.95),
+                            }}
+                        >
                             {summary.headerCategoryLabel}
-                            {summary.headerSubtypeLabel && (
-                                <>
-                                    {" · "}
-                                    <span className="text-foreground/80">
-                                        {summary.headerSubtypeLabel}
-                                    </span>
-                                </>
-                            )}
-                        </span>
-                        <span className="ml-auto shrink-0 flex items-center gap-1.5">
-                            <span
-                                className={cn(
-                                    "text-[10px] uppercase tracking-[0.14em] font-poppins font-bold",
-                                    status.textTone,
-                                )}
-                            >
-                                {status.label}
-                            </span>
-                            {phase === "active" && !notYetSent && !overdue && (
-                                <span
-                                    className="text-[11px] font-poppins font-bold tabular-nums text-primary"
-                                    title="Time left in the hider's answer window"
-                                >
-                                    {mm}:{String(ss).padStart(2, "0")}
-                                </span>
-                            )}
-                            {phase === "active" && overdue && (
-                                <span
-                                    className="text-[10px] font-poppins font-bold uppercase tracking-[0.1em] text-destructive"
-                                    title="Past the answer window — the hider's clock is paused until they answer, and they earn no card (rulebook p61)"
-                                >
-                                    Clock paused
-                                </span>
-                            )}
+                            {summary.headerSubtypeLabel
+                                ? ` · ${summary.headerSubtypeLabel}`
+                                : ""}
                         </span>
                     </div>
-                    <div className="mt-1 text-sm font-inter-tight font-bold text-foreground leading-tight truncate">
+                    <div
+                        className="mt-0.5 font-display font-extrabold uppercase leading-[1.05] text-base sm:text-lg truncate"
+                        style={{
+                            color: answered ? undefined : color,
+                            letterSpacing: "-0.01em",
+                        }}
+                    >
                         {summary.title}
                     </div>
                     {summary.detail && (
@@ -395,36 +425,55 @@ export function PendingAnswerOverlay({
                     )}
                 </div>
 
-                {phase === "active" && (
-                    <button
-                        type="button"
-                        onClick={handleShare}
-                        aria-label={
-                            isHiderConnected()
-                                ? notYetSent
-                                    ? "Mark sent to hider"
-                                    : "Re-send to hider"
-                                : notYetSent
-                                  ? "Share question with hider"
-                                  : "Re-share question with hider"
-                        }
-                        title={
-                            isHiderConnected()
-                                ? "Hider is connected — they already see this question. Tap to start the 5-min answer window."
-                                : notYetSent
-                                  ? "Share with hider — starts the answer window"
-                                  : "Re-share with hider"
-                        }
-                        className={cn(
-                            "flex items-center justify-center w-9 h-9 rounded-md shrink-0",
-                            "bg-primary text-primary-foreground hover:bg-primary/90",
-                            "transition-colors",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        )}
-                    >
-                        <Share2 className="w-4 h-4" />
-                    </button>
-                )}
+                {/* Status / timer / retry block (right). (#1,#3,#4) */}
+                <div className="relative shrink-0 flex items-center justify-center px-3 min-w-[4.5rem]">
+                    {waiting && (
+                        <div className="flex flex-col items-center leading-none">
+                            <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mb-1">
+                                Answer in
+                            </span>
+                            <span className="text-2xl font-poppins font-black tabular-nums text-primary leading-none">
+                                {mm}:{String(ss).padStart(2, "0")}
+                            </span>
+                        </div>
+                    )}
+                    {overdue && (
+                        <div className="flex flex-col items-center leading-none text-destructive">
+                            <span className="text-2xl font-poppins font-black tabular-nums leading-none">
+                                0:00
+                            </span>
+                            <span className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold mt-1">
+                                Clock paused
+                            </span>
+                        </div>
+                    )}
+                    {notYetSent && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                void handleRetry();
+                            }}
+                            aria-label="Retry sending the question to the hider"
+                            title="Sending failed — retry. Starts the answer window."
+                            className={cn(
+                                "flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-lg",
+                                "bg-yellow-500 text-black hover:bg-yellow-400 transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                        >
+                            <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
+                            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
+                                Retry
+                            </span>
+                        </button>
+                    )}
+                    {answered && (
+                        <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-emerald-500">
+                            {status.label}
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
     );
