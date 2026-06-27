@@ -151,6 +151,15 @@ restart.
   materialized yet). `GET /games/:code/ws` upgrades to WebSocket and
   routes to the DO instance keyed by code. Also `GET /health`
   (liveness) and `GET /vapid-public-key` (Web Push public key).
+  **Photo answers** ride HTTP, not the WS (a data URI would blow the
+  64 KB `MAX_MESSAGE_BYTES` check and Cloudflare's 1 MiB WS frame cap):
+  `POST /games/:code/photo` stores a full-detail JPEG in R2 (image-only,
+  8 MB cap, per-IP rate-limited) and returns `{ url }`;
+  `GET /games/:code/photo/:id` serves it back with immutable caching.
+  Only that short `photoUrl` then crosses the socket in the `answerQ`
+  message. Uses the `PHOTOS` R2 binding (`wrangler.toml`), which reuses
+  the existing `jlhs-overpass-cache` bucket under a `photos/<code>/<id>`
+  key prefix — no new bucket to provision.
 - `GameRoom.ts` — the Durable Object. Holds in-memory state
   (`code`, `setup`, `questions`, `roundFoundAt`, `participants`),
   manages WebSocket lifecycle (host/join/resume/disconnect),
@@ -184,10 +193,13 @@ restart.
   status, participants roster, last error.
 - `store.ts` — the bridge. Outbound wrappers (`seekerAddQuestion`,
   `hiderAnswerQuestion`, `seekerMarkFound`, `hostPushSetup`,
-  `setOnlineRole`) and inbound dispatch that merges server messages
-  into the existing local stores (`questions`, `hiderInbox`,
-  `roundFoundAt`, etc.). Idempotent by key — re-broadcasts of
-  locally-initiated changes don't double-apply.
+  `setOnlineRole`, and `uploadGamePhoto` — POSTs a photo blob to the
+  worker's R2 endpoint and returns its URL) and inbound dispatch that
+  merges server messages into the existing local stores (`questions`,
+  `hiderInbox`, `roundFoundAt`, etc.). Idempotent by key —
+  re-broadcasts of locally-initiated changes don't double-apply. The
+  photo compress/upload pipeline itself lives in `src/lib/photo.ts`
+  (`preparePhotoForSend`).
 - `types.ts` — client-side multiplayer types.
 - `demoBroker.ts` — an in-browser mock GameRoom used by demo mode,
   so the multiplayer UI can be exercised without a live worker.
@@ -256,6 +268,11 @@ These were follow-ups in the original draft of this doc and are now
 - **Curse cast over the wire.** Curses go over the socket
   (`castCurse` → `curseReceived`), and `webpush.ts` even delivers
   them to **offline** seekers as Web Push notifications.
+- **Photo answers over R2.** The hider's photo is uploaded to R2 over
+  HTTP and only its short `photoUrl` rides the `answerQ` message, so
+  full-detail (multi-megabyte) photos reach the seekers without hitting
+  the WS frame caps (see the Server `index.ts` notes above). Offline /
+  solo play inlines the image as a data URI instead.
 
 ## What's still not in this build
 
@@ -309,6 +326,7 @@ specifically to make public exposure safer:
 | Max participants per room | `protocol/state.ts` (`MAX_PARTICIPANTS`) | 5 (1 hider + 4 seekers). Joins beyond this get a `room_full` error. |
 | Max questions per room | `protocol/state.ts` (`MAX_QUESTIONS_PER_ROOM`) | 200. Defends against an abusive client pumping the broadcast cost. |
 | Max WebSocket message size | `protocol/state.ts` (`MAX_MESSAGE_BYTES`) | 64 KB per inbound frame. Drops obvious amplification attempts pre-parse. |
+| Photo upload guard | `worker/index.ts` (`MAX_PHOTO_BYTES`, `PHOTO_LIMIT_*`) | `POST /games/:code/photo` is image-only, capped at 8 MB, and rate-limited to 40 uploads/min/IP. Keys are namespaced by game code; a junk upload to a non-existent code costs a stray R2 object, nothing more. |
 | Idle room eviction | `protocol/state.ts` (`IDLE_EVICTION_MS`) | 30 min of zero connections → state cleared, DO sleeps. |
 | Sanitized error messages | `worker/GameRoom.ts` | Internal errors log server-side, return generic "Internal server error" to clients. No stack traces leaked. |
 | Cloudflare edge DDoS protection | (built-in) | Layer 4/7 attacks absorbed before traffic even reaches the Worker. |
