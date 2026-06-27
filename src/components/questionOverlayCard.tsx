@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+    AlertTriangle,
     Beef,
     BookOpen,
     Building2,
@@ -249,6 +250,7 @@ export function QuestionOverlayCard({
     summary,
     right,
     answered = false,
+    error = false,
     onClick,
     ariaLabel,
     className,
@@ -258,6 +260,8 @@ export function QuestionOverlayCard({
     /** Right-hand slot — timer, retry button, countdown, chevron, … */
     right?: ReactNode;
     answered?: boolean;
+    /** Failed-to-send state: red icon block + label + border, alert icon. */
+    error?: boolean;
     onClick?: () => void;
     ariaLabel?: string;
     className?: string;
@@ -267,8 +271,9 @@ export function QuestionOverlayCard({
     // `deep` (saturated/dark) reads on a LIGHT card; the original pastel
     // `base` reads on a DARK card. We expose both as CSS vars so the
     // label + timer can switch on `.dark` without knowing the theme.
-    const deep = answered ? "#10b981" : deepColor(base);
-    const bright = answered ? "#34d399" : base;
+    // `error` / `answered` override the category colour entirely.
+    const deep = error ? "#dc2626" : answered ? "#10b981" : deepColor(base);
+    const bright = error ? "#f87171" : answered ? "#34d399" : base;
     const Icon = summary.icon ?? meta?.icon ?? Hourglass;
     const interactive = Boolean(onClick);
 
@@ -292,6 +297,8 @@ export function QuestionOverlayCard({
                 {
                     "--cat-deep": deep,
                     "--cat-bright": bright,
+                    // Error/answered tint the whole border to match.
+                    ...(error || answered ? { borderColor: deep } : {}),
                 } as React.CSSProperties
             }
             className={cn(
@@ -317,7 +324,9 @@ export function QuestionOverlayCard({
                 style={{ backgroundColor: deep }}
                 aria-hidden="true"
             >
-                {answered ? (
+                {error ? (
+                    <AlertTriangle size={36} strokeWidth={2.5} />
+                ) : answered ? (
                     <Check
                         size={36}
                         strokeWidth={3}

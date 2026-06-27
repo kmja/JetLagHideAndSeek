@@ -128,6 +128,10 @@ export function PendingAnswerOverlay({
     const answered = phShown === "answered" || phShown === "closing";
 
     const summary = summarizeQuestion(dShown);
+    // Failed send → full-card error state with an explanatory detail line.
+    const cardSummary = notYetSent
+        ? { ...summary, detail: "Couldn't send to the hider — tap retry" }
+        : summary;
 
     // Tap anywhere on the card → open the questions panel for full detail.
     const openDetails = () => {
@@ -210,30 +214,27 @@ export function PendingAnswerOverlay({
             </span>
         </div>
     ) : notYetSent ? (
-        <div className="flex items-center gap-2">
-            <span className="text-[10px] font-poppins font-bold uppercase tracking-wide text-destructive leading-tight text-right max-w-[5.5rem]">
-                Couldn&apos;t send
+        // Full card is in the error state (see `error` prop below); the
+        // right slot is just the Retry action.
+        <button
+            type="button"
+            onClick={(e) => {
+                e.stopPropagation();
+                void handleRetry();
+            }}
+            aria-label="Retry sending the question to the hider"
+            title="Sending failed — retry. Starts the answer window."
+            className={cn(
+                "flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-md",
+                "bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+        >
+            <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
+            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
+                Retry
             </span>
-            <button
-                type="button"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    void handleRetry();
-                }}
-                aria-label="Retry sending the question to the hider"
-                title="Sending failed — retry. Starts the answer window."
-                className={cn(
-                    "flex flex-col items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-md",
-                    "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-            >
-                <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
-                <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
-                    Retry
-                </span>
-            </button>
-        </div>
+        </button>
     ) : answered ? (
         <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-emerald-500">
             Answered!
@@ -259,8 +260,9 @@ export function PendingAnswerOverlay({
         >
             <QuestionOverlayCard
                 categoryId={dShown.id}
-                summary={summary}
+                summary={cardSummary}
                 answered={answered}
+                error={notYetSent}
                 onClick={openDetails}
                 ariaLabel="Open question details"
                 right={rightSlot}
