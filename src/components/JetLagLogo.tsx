@@ -82,14 +82,17 @@ export function JetLagLogo({
 /* ────────────────── HIDE+SEEK mountain peak mark ────────────────── */
 
 /**
- * The Hide+Seek logomark, matched to the rulebook / box cover: a white
- * circle with a red pyramid (triangle) rising through it, and a small
- * dark wedge where they meet. v469: was a white-circle + navy mountain
- * peak ("keyhole"-ish); now the red-pyramid-over-circle from the box.
+ * The Hide+Seek logomark, matched to the box cover: a white CIRCLE with a
+ * red TRIANGLE (mountain) rising through it. The dark wedge where they
+ * meet is a true boolean DIFFERENCE — the circle MINUS the triangle —
+ * where the cut is the red triangle dilated by an even gap (stroke =
+ * 2×gap, round joins), so the seam stays uniform-width along both edges.
  *
- * The wedge between the circle and the pyramid is a transparent cutout
- * (the surface shows through), so the mark reads correctly on the navy
- * app chrome, on red, or anywhere else.
+ * Box proportions: a wide mountain (base ~full width), apex just below
+ * the circle's centre, the triangle's upper edges crossing the circle's
+ * lower-left/right so the white reads as a domed peak. The wedge is a
+ * transparent cutout, so the mark works on the navy app chrome, on red,
+ * or anywhere else.
  */
 export function HideSeekMark({
     size = 40,
@@ -101,6 +104,9 @@ export function HideSeekMark({
     // Unique mask id per instance — multiple marks can mount at once
     // (welcome hero + sidebar), and a shared id would cross-wire them.
     const maskId = `hsmark-${useId().replace(/:/g, "")}`;
+    // The mountain — used both as the difference cut (dilated, in the
+    // mask) and as the red fill (undilated), so they share one geometry.
+    const TRIANGLE = "M32 30 L3 58 L61 58 Z";
     return (
         <svg
             width={size}
@@ -113,29 +119,23 @@ export function HideSeekMark({
             className={className}
         >
             <defs>
-                {/* White = the circle MINUS the pyramid, where the pyramid
-                    is the SAME shape drawn below, dilated by a uniform
-                    ~2.5px (stroke = 2×gap, round joins). That makes the
-                    circle and the pyramid meet along a clean, even-width
-                    navy gap — a true boolean DIFFERENCE — instead of the
-                    old mismatched notch (which cut a different, wider
-                    triangle than the red one and left an uneven wedge). */}
                 <mask id={maskId}>
                     <rect width="64" height="64" fill="black" />
-                    <circle cx="32" cy="27" r="19" fill="white" />
+                    <circle cx="32" cy="26" r="18" fill="white" />
+                    {/* Subtract the dilated mountain → even-width gap. */}
                     <path
-                        d="M32 31 L12 58 L52 58 Z"
+                        d={TRIANGLE}
                         fill="black"
                         stroke="black"
-                        strokeWidth="5"
+                        strokeWidth="4"
                         strokeLinejoin="round"
                     />
                 </mask>
             </defs>
-            {/* White circle with the pyramid difference cut out. */}
+            {/* White circle with the mountain difference cut out. */}
             <rect width="64" height="64" fill="white" mask={`url(#${maskId})`} />
-            {/* Red pyramid rising from below, into the circle's bite. */}
-            <path d="M32 31 L12 58 L52 58 Z" fill="hsl(2 70% 54%)" />
+            {/* Red mountain rising from below, into the circle's bite. */}
+            <path d={TRIANGLE} fill="hsl(5 80% 55%)" />
         </svg>
     );
 }
