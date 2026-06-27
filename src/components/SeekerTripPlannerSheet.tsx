@@ -5,6 +5,7 @@ import { Drawer as VaulDrawer } from "vaul";
 
 import { JourneyCard } from "@/components/JourneyCard";
 import { Button } from "@/components/ui/button";
+import { useStableGpsOrigin } from "@/hooks/useStableGpsOrigin";
 import { lastKnownPosition } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
 import {
@@ -38,6 +39,9 @@ export function SeekerTripPlannerSheet() {
     const open = useStore(seekerTripPlannerOpen);
     const $gps = useStore(lastKnownPosition);
     const $allowed = useStore(allowedTransit);
+    // Jitter-proof origin: only changes once the seeker actually moves
+    // past the threshold, so standing still doesn't re-plan.
+    const origin = useStableGpsOrigin($gps);
 
     const [query, setQuery] = useState("");
     const [destination, setDestination] = useState<TravelPlace | null>(null);
@@ -72,15 +76,16 @@ export function SeekerTripPlannerSheet() {
         }
     }, [open]);
 
-    // Re-plan when the destination, allowed modes, or a manual Refresh
-    // change — NOT on GPS drift. The origin is read from the live GPS at
-    // plan time, but a few metres of jitter every few seconds must not
-    // trigger a fresh round-trip (it made the route flicker + reload
-    // constantly). `$gps` stays in the deps only so the FIRST plan fires
-    // once a fix arrives; the signature guard skips drift-only re-runs.
+    // Re-plan when the destination, allowed modes, the settled origin, or
+    // a manual Refresh change — NOT on raw GPS drift. The origin comes
+    // from `useStableGpsOrigin`, which only moves once the seeker has
+    // travelled past the threshold; a few metres of jitter every few
+    // seconds leaves it (and the signature) unchanged, so the effect
+    // doesn't re-run and the in-flight route request isn't aborted +
+    // restarted (which previously made the card reload constantly).
     useEffect(() => {
-        if (!open || !destination || !$gps) return;
-        const sig = `${destination.lat},${destination.lng}|${$allowed.join(",")}|${nonce}`;
+        if (!open || !destination || !origin) return;
+        const sig = `${destination.lat},${destination.lng}|${origin.lat},${origin.lng}|${$allowed.join(",")}|${nonce}`;
         if (lastSigRef.current === sig) return;
         lastSigRef.current = sig;
         let cancelled = false;
@@ -90,7 +95,7 @@ export function SeekerTripPlannerSheet() {
         (async () => {
             const resp: PlanResponse | null = await fetchTripPlan(
                 {
-                    origin: { lat: $gps.lat, lng: $gps.lng },
+                    origin: { lat: origin.lat, lng: origin.lng },
                     destination,
                     departAt: Date.now(),
                     modes: $allowed,
@@ -121,8 +126,8 @@ export function SeekerTripPlannerSheet() {
         open,
         destination?.lat,
         destination?.lng,
-        $gps?.lat,
-        $gps?.lng,
+        origin?.lat,
+        origin?.lng,
         $allowed,
         nonce,
     ]);

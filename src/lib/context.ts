@@ -393,9 +393,15 @@ export const customStations = persistentAtom<CustomStation[]>(
         decode: JSON.parse,
     },
 );
+// Merge same-named stations whose zones overlap (the OSM data often has
+// several nodes for one physical station — per platform / direction /
+// transit mode — which otherwise show up as a cluster of duplicate
+// hiding zones with identical names). Defaults ON: a single merged zone
+// per station is what players expect, and it declutters the map. The
+// toggle in the zone options can turn it back off.
 export const mergeDuplicates = persistentAtom<boolean>(
     "removeDuplicates",
-    false,
+    true,
     {
         encode: JSON.stringify,
         decode: JSON.parse,

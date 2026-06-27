@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { useEffect, useRef, useState } from "react";
 
 import { JourneyCard } from "@/components/JourneyCard";
+import { useStableGpsOrigin } from "@/hooks/useStableGpsOrigin";
 import { lastKnownPosition } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
@@ -16,9 +17,11 @@ import { tripRouteFC } from "@/lib/journey/state";
  *
  * Lifecycle: mounts when the hider has committed a zone (parent
  * is responsible for gating on `hidingZone !== null`). The fetch
- * re-fires whenever GPS moves more than 75 m OR the zone identity
- * changes OR the user taps refresh — anything finer would burn
- * proxy quota for trivially-different plans.
+ * re-fires whenever the settled GPS origin moves past the trip
+ * re-plan threshold (`useStableGpsOrigin`) OR the zone identity
+ * changes OR the user taps refresh — GPS jitter while standing
+ * still is filtered out so it doesn't burn proxy quota or abort
+ * the in-flight request.
  *
  * The card is *intentionally* a present-tense plan. We don't
  * pre-compute "what would happen if you started at hiding-period
@@ -31,6 +34,9 @@ export function HiderTripPlanCard() {
     const $gps = useStore(lastKnownPosition);
     const $zone = useStore(hidingZone);
     const $allowed = useStore(allowedTransit);
+    // Jitter-proof origin: only changes once the hider actually moves
+    // past the threshold, so a standing phone doesn't re-plan.
+    const origin = useStableGpsOrigin($gps);
 
     const [journey, setJourney] = useState<Journey | null>(null);
     const [source, setSource] = useState<string | undefined>(undefined);
@@ -46,12 +52,13 @@ export function HiderTripPlanCard() {
     const lastSigRef = useRef<string | null>(null);
 
     useEffect(() => {
-        if (!$zone || !$gps) return;
+        if (!$zone || !origin) return;
         const zoneKey = `${$zone.stationLat},${$zone.stationLng}`;
-        const sig = `${zoneKey}|${$allowed.join(",")}|${nonce}`;
-        // GPS drift alone leaves the signature unchanged → no re-plan.
-        // Only a new zone, a transit-mode change, or a Refresh tap re-plans
-        // (reading the CURRENT GPS at fetch time).
+        // The origin only changes once the hider has actually moved past
+        // the threshold (see useStableGpsOrigin), so it's in the signature:
+        // a real move re-plans, but GPS jitter while standing still leaves
+        // the signature unchanged — no re-run, no aborted in-flight fetch.
+        const sig = `${zoneKey}|${origin.lat},${origin.lng}|${$allowed.join(",")}|${nonce}`;
         if (lastSigRef.current === sig) return;
         lastSigRef.current = sig;
 
@@ -63,7 +70,7 @@ export function HiderTripPlanCard() {
         (async () => {
             const resp = await fetchTripPlan(
                 {
-                    origin: { lat: $gps.lat, lng: $gps.lng },
+                    origin: { lat: origin.lat, lng: origin.lng },
                     destination: {
                         lat: $zone.stationLat,
                         lng: $zone.stationLng,
@@ -99,8 +106,8 @@ export function HiderTripPlanCard() {
     }, [
         $zone?.stationLat,
         $zone?.stationLng,
-        $gps?.lat,
-        $gps?.lng,
+        origin?.lat,
+        origin?.lng,
         $allowed,
         nonce,
     ]);
