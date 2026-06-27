@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { useNow } from "@/hooks/useNow";
-import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions, triggerLocalRefresh } from "@/lib/context";
 import { answerWindowMs, gameSize } from "@/lib/gameSetup";
-import { participants } from "@/lib/multiplayer/session";
-import { isHiderConnected } from "@/lib/multiplayer/store";
-import { encodeQuestionForHider, shareOrCopy } from "@/lib/shareLinks";
+import { multiplayerEnabled, participants } from "@/lib/multiplayer/session";
+import {
+    isHiderConnected,
+    seekerResendQuestion,
+} from "@/lib/multiplayer/store";
+import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question, ThermometerQuestion } from "@/maps/schema";
 
@@ -108,7 +110,6 @@ export function PendingAnswerOverlay({
 
     if (!dShown) return null;
 
-    const meta = CATEGORIES[dShown.id as CategoryId];
     const createdAt = (dShown.data as { createdAt?: number }).createdAt;
     // Rulebook p5/p32: 5 min for everything except photo (10 min S/M,
     // 20 min L). `answerWindowMs` reads the live game size.
@@ -135,36 +136,51 @@ export function PendingAnswerOverlay({
         else sb.setOpen(true);
     };
 
-    // "Not sent" only happens in the offline/solo fallback when the auto
-    // clipboard-copy of the share link failed. The action is a genuine
-    // RETRY of that send.
+    const stampSent = () => {
+        const d = dShown.data as { createdAt?: number };
+        if (!d.createdAt) {
+            d.createdAt = Date.now();
+            questionModified();
+        }
+    };
+
+    // Retry sending. The primary path is the APP channel: re-push the
+    // question over the multiplayer WebSocket (idempotent by key; the
+    // server queues it if the hider is momentarily offline). It never
+    // opens an OS share sheet. Only solo/offline play — which has no app
+    // channel at all — falls back to copying a share link to the
+    // clipboard (still no share dialog).
     const handleRetry = async () => {
-        if (isHiderConnected()) {
-            const d = dShown.data as { createdAt?: number };
-            if (!d.createdAt) {
-                d.createdAt = Date.now();
-                questionModified();
-            }
-            toast.success("Sent to hider", { autoClose: 1500 });
+        if (preview) {
+            toast.info("Preview only — no live question to send.", {
+                autoClose: 1500,
+            });
             return;
         }
-        const url = encodeQuestionForHider(dShown);
-        const result = await shareOrCopy({
-            title: `${meta?.label ?? "Question"} for the hider`,
-            text: `${meta?.label ?? "Question"}: tap to answer`,
-            url,
-        });
-        if (result.method === "share" || result.method === "copy") {
-            const d = dShown.data as { createdAt?: number };
-            if (!d.createdAt) {
-                d.createdAt = Date.now();
-                questionModified();
+        if (multiplayerEnabled.get()) {
+            const ok = seekerResendQuestion(dShown.key);
+            if (!ok) {
+                toast.error("Couldn't resend over the app");
+                return;
             }
-            if (result.method === "copy") {
-                toast.success("Question link copied", { autoClose: 1500 });
-            }
-        } else if (result.method === "failed") {
-            toast.error("Could not share question link");
+            stampSent();
+            toast.success(
+                isHiderConnected()
+                    ? "Resent to hider"
+                    : "Resent — hider's offline, they'll get it on reconnect.",
+                { autoClose: 2500 },
+            );
+            return;
+        }
+        // Solo / offline — no in-app channel; copy a share link instead.
+        try {
+            await navigator.clipboard.writeText(encodeQuestionForHider(dShown));
+            stampSent();
+            toast.success("Question link copied — send it to the hider.", {
+                autoClose: 2500,
+            });
+        } catch {
+            toast.error("Couldn't copy the question link.");
         }
     };
 
