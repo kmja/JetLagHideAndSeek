@@ -6,7 +6,9 @@ This is Kalle's fork of [taibeled/JetLagHideAndSeek](https://github.com/taibeled
 
 GitHub: **github.com/kmja/JetLagHideAndSeek**
 
-Stack: **Vite SPA + React + React Router + TypeScript + Tailwind + shadcn/ui + Lucide + nanostores**. Maps via **MapLibre GL** (`react-map-gl/maplibre`). Hardcoded dark mode. Fonts: Poppins + Oxygen.
+Stack: **Vite SPA + React + React Router + TypeScript + Tailwind + shadcn/ui + Lucide + nanostores**. Maps via **MapLibre GL** (`react-map-gl/maplibre`). Fonts: Poppins + Oxygen.
+
+**Theming (v546):** NOT hardcoded dark anymore. `src/lib/theme.ts` is a three-state preference (`system | light | dark`, persisted `jlhs:theme`, default **system** via `prefers-color-scheme`, live-reacts to OS changes); `installTheme()` (main.tsx) + the no-flash inline script in `index.html` apply `class="light"`/`"dark"` to `<html>`. Tailwind `darkMode: "class"` + shadcn `:root,.light` / `.dark` variable sets resolve from there. **Caveat for per-subtree theming** (e.g. the overlay gallery previewing both modes at once): a Tailwind `dark:` variant matches ANY `.dark` ancestor and can't be undone by a nested `.light`, so components that must theme by their *nearest* wrapper use CSS-variable indirection instead of `dark:` (see `--overlay-card*` / `--cat-label` in `globals.css`).
 
 > The app was **originally Astro + React islands** and migrated to a plain Vite SPA — see the migration note at the top of `vite.config.ts`. Any reference below to `.astro` pages, `client:load`/`client:only` directives, or Leaflet is **historical**; the current entry is `src/main.tsx` → `src/App.tsx` (React Router), the build is `vite build` → static `dist/` served as Cloudflare Worker Static Assets with SPA fallback to `index.html`.
 
@@ -219,7 +221,7 @@ The app is well past the early-batch features documented here historically — c
 
 Built on **Cloudflare Workers + Durable Objects** (one DO per game, WebSocket fan-out, server-authoritative) — the decision resolved to **raw Workers+DO** (not PartyKit). Full design + operator docs in **`MULTIPLAYER.md`**. Real file layout:
 
-- **Server** (`worker/`): `index.ts` (HTTP router — `POST /games`, `GET /games/:code/ws`, `GET /health`, `GET /vapid-public-key`), `GameRoom.ts` (the Durable Object), `webpush.ts` (RFC 8291/8188 Web Push), `wrangler.toml`, `scripts/deploy.mjs` (master-only deploy shim).
+- **Server** (`worker/`): `index.ts` (HTTP router — `POST /games`, `GET /games/:code/ws`, `GET /health`, `GET /vapid-public-key`, plus photo answers: `POST /games/:code/photo` → R2, `GET /games/:code/photo/:id`), `GameRoom.ts` (the Durable Object), `webpush.ts` (RFC 8291/8188 Web Push), `wrangler.toml` (DO binding + `PHOTOS` R2 binding → `jlhs-overpass-cache` bucket, `photos/<code>/<id>` prefix), `scripts/deploy.mjs` (master-only deploy shim).
 - **Client lib** (`src/lib/multiplayer/`): `transport.ts`, `session.ts`, `store.ts` (the questions-store bridge), `types.ts`, `demoBroker.ts` (in-browser mock room for demo mode).
 - **Client components** (`src/components/multiplayer/`): `OnlinePlaySection.tsx` (host/join), `InviteSheet.tsx`, `MultiplayerBoot.tsx`, `PresenceIndicators.tsx`, `RotateHiderDialog.tsx` — plus `GameLobbyDialog`, `RolePicker`, `SeekerLivePositions`, `CurseInbox` elsewhere.
 - **Shared** (`protocol/`): `{index,messages,names,state,version}.ts` — wire types imported by both client and worker.
@@ -243,14 +245,49 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v414` (rulebook-audit mechanics pass — see
-`RULEBOOK_AUDIT.md`. Now enforced: Overflowing Chalice draw boost,
-Move powerup pause/freeze/re-anchor, thermometer preset size-gating,
-photo answer window by size, late-answer pause + no-card economy,
-discard casting costs. Scoring flows through one formula:
+build stamp. Current: `v546`. Use `git log` for the per-version detail;
+the headline arcs since the v414 rulebook-audit pass:
+
+- **Universal hider auto-grading wired into the answer flow** —
+  `hiderifyQuestion` (`src/maps/index.ts`, the same engine the seeker
+  uses to preview answer regions) now grades EVERY type in the hider's
+  answer dialog (`HiderView.tsx`): radar/thermometer locally, matching/
+  measuring/tentacles via the engine (verdict pre-selected, manual
+  override kept). **Photo** is answerable from the dialog too (was the
+  one type that dead-ended). **Veto / Randomize** are playable in the
+  answer dialog; Randomize auto-grades a random substitute for the
+  spatial types and swaps to a different photo subtype for photo.
+- **Photo pipeline** — capture → crop/censor editor
+  (`PhotoCensorDialog.tsx`, non-destructive undo/redo, redaction baked
+  into the exported JPEG) → `preparePhotoForSend` (`src/lib/photo.ts`):
+  full-detail ~2560px JPEG uploaded to R2 via the multiplayer worker
+  (`POST /games/:code/photo`, `PHOTOS` binding reusing the
+  `jlhs-overpass-cache` bucket), only the short `photoUrl` crosses the
+  WebSocket (a data URI would blow the 64 KB / 1 MiB WS caps). Thumbnail
+  kept locally; solo/offline inlines the full image.
+- **Question overlays redesigned** to the Jet Lag show lower-third look
+  — shared `QuestionOverlayCard` (+ `summarizeQuestion`) used by BOTH
+  the seeker's `PendingAnswerOverlay` and the hider's
+  `HiderUnansweredOverlay`: solid category-colour icon block (left),
+  big bold uppercase label in the deepened category colour, live status
+  (countdown / retry / answered) on the right. Theme-aware via CSS vars
+  (see Theming above). "Not sent" only happens on an offline copy
+  failure → its action is **Retry**, not Share.
+- **In an online game a sent/answered question can't be deleted** (it
+  would desync from the hider) — `cards/base.tsx` swaps the trash for a
+  disabled lock.
+- **Debug overlay gallery** at `/debug/overlays` — every state of every
+  overlay at once via a `preview` prop on each overlay (shadows its
+  atoms, writes nothing global), plus a light/dark toggle. The debug
+  panel (`DebugPhaseControls`) is also mounted on the `/welcome` landing
+  page now.
+
+Still enforced from the v414 audit (see `RULEBOOK_AUDIT.md`): Overflowing
+Chalice draw boost, Move powerup pause/freeze/re-anchor, thermometer
+preset size-gating, photo answer window by size, late-answer pause +
+no-card economy, discard casting costs. Scoring:
 `max(0, (foundAt − hidingEndsAt) + hiddenCreditMs − hiddenDebitMs)`.
-B2 repeat-question pay-double is deferred with a plan in the audit
-doc).
+B2 repeat-question pay-double still deferred (plan in the audit doc).
 
 ### Hider economy quick-reference
 
@@ -268,10 +305,17 @@ doc).
 ## Dev workflow
 
 1. Edit files
-2. Bump `APP_VERSION` in `src/lib/version.ts`
-3. Push to master → Cloudflare auto-builds (2–3 min)
-4. Check build logs in Cloudflare dashboard
-5. If build fails: check for `window is not defined` (SSR leaflet import) or TypeScript errors first
+2. **Update the docs in the same change** (standing instruction): keep
+   this `CLAUDE.md` — and the relevant topic doc (`MULTIPLAYER.md`,
+   `RULEBOOK_AUDIT.md`, `overpass-cache/*.md`) — in sync whenever you
+   change app behaviour, architecture, endpoints, schema, or
+   conventions. Treat stale docs as a bug; fix the affected section
+   rather than only appending.
+3. Bump `APP_VERSION` in `src/lib/version.ts`
+4. Push to master → Cloudflare auto-builds (2–3 min)
+5. Check build logs in Cloudflare dashboard
+6. If build fails: check TypeScript errors first (the historical SSR
+   `window is not defined` Leaflet trap no longer applies — client-only SPA)
 
 For multi-file changes: use `github.dev` (press `.` on repo) to batch-commit across folders in a single build trigger.
 
