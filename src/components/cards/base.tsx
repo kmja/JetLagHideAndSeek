@@ -15,7 +15,6 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Separator } from "@/components/ui/separator";
 import {
     SidebarGroup,
     SidebarGroupContent,
@@ -54,6 +53,17 @@ function formatRelativeTime(timestamp: number, now: number): string {
     if (diffHr < 24) return `${diffHr}h ago`;
     const diffDay = Math.floor(diffHr / 24);
     return `${diffDay}d ago`;
+}
+
+/** hex (#rrggbb) → rgba() string, for the show-style category tinting
+ *  (mirrors the pending-answer overlay). */
+function hexToRgba(hex: string, alpha: number): string {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export const QuestionCard = ({
@@ -226,17 +236,30 @@ export const QuestionCard = ({
         <>
             <SidebarGroup
                 className={cn(
-                    category && "border-l-[3px] border-l-[var(--cat-color)]",
+                    "overflow-hidden rounded-xl mx-2 my-1.5 shadow-sm",
+                    category && "border-2",
                     className,
                 )}
                 style={
                     categoryMeta
-                        ? ({
-                              "--cat-color": categoryMeta.color,
-                          } as React.CSSProperties)
+                        ? { borderColor: hexToRgba(categoryMeta.color, 0.45) }
                         : undefined
                 }
             >
+                {/* Jet-Lag-show-style skin: a faint category wash behind the
+                    whole card, matching the pending-answer overlay. */}
+                {categoryMeta && (
+                    <div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                            backgroundColor: hexToRgba(
+                                categoryMeta.color,
+                                0.08,
+                            ),
+                        }}
+                        aria-hidden
+                    />
+                )}
                 {/* Header row + summary. When collapsed we wrap the whole
                     visible band in a click-target div so any tap (not just
                     the chevron / label / summary) expands the card.
@@ -322,20 +345,27 @@ export const QuestionCard = ({
                     >
                         {CategoryIcon && (
                             <span
-                                className="inline-flex items-center justify-center w-5 h-5 rounded shrink-0"
+                                className="inline-flex items-center justify-center w-6 h-6 rounded-md shrink-0 shadow-sm"
                                 style={{
                                     backgroundColor: categoryMeta!.color,
                                 }}
                                 aria-hidden="true"
                             >
                                 <CategoryIcon
-                                    size={13}
+                                    size={14}
                                     strokeWidth={2.5}
                                     className="text-white"
                                 />
                             </span>
                         )}
-                        <span>
+                        <span
+                            className="font-display font-extrabold uppercase tracking-tight"
+                            style={
+                                categoryMeta
+                                    ? { color: categoryMeta.color }
+                                    : undefined
+                            }
+                        >
                             {label} {sub && `(${sub})`}
                         </span>
                         {lifecycle && (
@@ -395,7 +425,6 @@ export const QuestionCard = ({
                     </SidebarGroupContent>
                 </div>
             </SidebarGroup>
-            <Separator className="h-1" />
         </>
     );
 };
