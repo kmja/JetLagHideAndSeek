@@ -145,8 +145,20 @@ export function DebugOverlaysPage() {
     const [now] = useState(() => Date.now());
     const M = 60_000;
 
+    // The app is hardcoded dark, but overlays render in both themes. The
+    // gallery applies `dark`/`light` to its own subtree (both classes
+    // re-declare the full token set in globals.css) so it can preview the
+    // overlays under either theme regardless of the global `.dark`.
+    const [theme, setTheme] = useState<"dark" | "light">("dark");
+
     return (
-        <div className="dark min-h-screen bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]">
+        <div
+            className={cn(
+                theme,
+                "min-h-screen bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
+            )}
+            style={{ colorScheme: theme }}
+        >
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 border-b border-border bg-background/95 backdrop-blur">
                 <Link
@@ -164,6 +176,24 @@ export function DebugOverlaysPage() {
                         Every state of every overlay · preview-only, does not
                         touch your game
                     </div>
+                </div>
+                {/* Theme toggle — preview the overlays in light or dark. */}
+                <div className="flex items-center rounded-md border border-border overflow-hidden shrink-0 text-xs font-semibold">
+                    {(["dark", "light"] as const).map((t) => (
+                        <button
+                            key={t}
+                            type="button"
+                            onClick={() => setTheme(t)}
+                            className={cn(
+                                "px-2.5 py-1.5 capitalize transition-colors",
+                                theme === t
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-background text-muted-foreground hover:bg-accent",
+                            )}
+                        >
+                            {t}
+                        </button>
+                    ))}
                 </div>
             </div>
 
