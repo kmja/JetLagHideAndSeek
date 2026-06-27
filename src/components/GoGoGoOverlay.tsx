@@ -32,10 +32,23 @@ import { cn } from "@/lib/utils";
  *
  * Controlled by `gameStartCelebrationAt` (non-null = visible).
  */
-export function GoGoGoOverlay() {
-    const $at = useStore(gameStartCelebrationAt);
-    const $endsAt = useStore(hidingPeriodEndsAt);
-    const $gameSize = useStore(gameSize);
+/** Override the celebration atoms to preview the overlay in the
+ *  /debug/overlays gallery without touching global state. */
+export interface GoGoGoPreview {
+    at: number | null;
+    endsAt?: number | null;
+    gameSize?: ReturnType<typeof gameSize.get>;
+}
+
+export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
+    let $at = useStore(gameStartCelebrationAt);
+    let $endsAt = useStore(hidingPeriodEndsAt);
+    let $gameSize = useStore(gameSize);
+    if (preview) {
+        $at = preview.at;
+        $endsAt = preview.endsAt ?? null;
+        if (preview.gameSize) $gameSize = preview.gameSize;
+    }
 
     const [now, setNow] = useState(() => Date.now());
     const running = $at !== null && $endsAt !== null && $endsAt > now;

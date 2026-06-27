@@ -33,12 +33,30 @@ import { cn } from "@/lib/utils";
  *     hider has been "seekable but uncaught" — this is the round's
  *     score in the making. Counts in primary red, with seconds.
  */
-export function HiderTimer() {
-    const $endsAt = useStore(hidingPeriodEndsAt);
-    const $setupCompleted = useStore(setupCompleted);
-    const $endgameStartedAt = useStore(endgameStartedAt);
-    const $foundAt = useStore(roundFoundAt);
-    const $roundLog = useStore(roundLog);
+/** Override atom values to render a specific state — used by the
+ *  /debug/overlays gallery so several states can show at once without
+ *  touching global game state. */
+export interface HiderTimerPreview {
+    endsAt: number | null;
+    setupCompleted?: boolean;
+    endgameStartedAt?: number | null;
+    foundAt?: number | null;
+    roundLog?: ReturnType<typeof roundLog.get>;
+}
+
+export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
+    let $endsAt = useStore(hidingPeriodEndsAt);
+    let $setupCompleted = useStore(setupCompleted);
+    let $endgameStartedAt = useStore(endgameStartedAt);
+    let $foundAt = useStore(roundFoundAt);
+    let $roundLog = useStore(roundLog);
+    if (preview) {
+        $endsAt = preview.endsAt;
+        $setupCompleted = preview.setupCompleted ?? true;
+        $endgameStartedAt = preview.endgameStartedAt ?? null;
+        $foundAt = preview.foundAt ?? null;
+        $roundLog = preview.roundLog ?? [];
+    }
 
     const handleTriggerEndgame = async () => {
         const ok = await appConfirm({

@@ -39,9 +39,18 @@ const THERMOMETER_PRESETS: { km: number; label: string; sig: string }[] = [
     { km: 75, label: "75km", sig: "75km" },
 ];
 
-export function ThermometerOverlay() {
+/** Override the questions list to preview the running pill in the
+ *  /debug/overlays gallery without touching global state. */
+export interface ThermometerPreview {
+    questions: ReturnType<typeof questions.get>;
+}
+
+export function ThermometerOverlay({
+    preview,
+}: { preview?: ThermometerPreview } = {}) {
     useStore(triggerLocalRefresh);
-    const $questions = useStore(questions);
+    let $questions = useStore(questions);
+    if (preview) $questions = preview.questions;
 
     // Find the started thermometer, if any. Take the most recent by
     // startedAt timestamp to handle the unusual case of more than one.

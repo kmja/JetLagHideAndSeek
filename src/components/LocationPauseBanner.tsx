@@ -21,9 +21,22 @@ import { cn } from "@/lib/utils";
  * turn location sharing back on, and the hider sees that their clock
  * is protected.
  */
-export function LocationPauseBanner() {
-    const $grace = useStore(locationGraceStartedAt);
-    const $pausedAt = useStore(gamePausedForLocationAt);
+/** Override the grace/paused atoms to preview either banner state in the
+ *  /debug/overlays gallery without touching global state. */
+export interface LocationPausePreview {
+    grace?: number | null;
+    paused?: number | null;
+}
+
+export function LocationPauseBanner({
+    preview,
+}: { preview?: LocationPausePreview } = {}) {
+    let $grace = useStore(locationGraceStartedAt);
+    let $pausedAt = useStore(gamePausedForLocationAt);
+    if (preview) {
+        $grace = preview.grace ?? null;
+        $pausedAt = preview.paused ?? null;
+    }
     const active = $grace != null || $pausedAt != null;
     const now = useNow(active);
 

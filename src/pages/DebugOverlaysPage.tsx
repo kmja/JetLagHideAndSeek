@@ -1,5 +1,5 @@
 import { ArrowLeft } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
@@ -9,96 +9,31 @@ import { MapTilesVeil } from "@/components/MapTilesVeil";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
-import { Button } from "@/components/ui/button";
-import { questions, triggerLocalRefresh } from "@/lib/context";
-import {
-    endgameStartedAt,
-    gamePausedForLocationAt,
-    gameSize,
-    gameStartCelebrationAt,
-    hidingPeriodEndsAt,
-    locationGraceStartedAt,
-    seekersFrozenUntil,
-    setupCompleted,
-} from "@/lib/gameSetup";
-import { roundFoundAt, roundLog } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
+import type { Question } from "@/maps/schema";
 
 /**
- * Developer overlay gallery at `/debug/overlays` — every floating
- * timer / pending-question / banner / celebration / veil overlay shown
- * AT ONCE, side by side, each in its own cell. The data driving them is
- * deliberately incoherent (the timer is mid-hiding while a thermometer is
- * running and the seekers are frozen and location is in grace…) — the
- * point is to eyeball every overlay's visual at a glance, not to model a
- * real game state.
+ * Developer overlay gallery at `/debug/overlays` — EVERY state of EVERY
+ * floating overlay shown at once, side by side.
  *
- * Why cells: these overlays position with `fixed` / `absolute` against
- * the viewport and read GLOBAL atoms, so mounted naively they'd all stack
- * on top of each other at the same screen position. Each cell sets a
- * non-`none` `transform`, which makes it the containing block for its
- * overlay's `fixed`/`absolute` positioning — so each overlay lays itself
- * out within its own cell instead of the whole window.
+ * Each overlay takes a `preview` prop that shadows the global atoms it
+ * would normally read, so the gallery drives every cell to a specific
+ * state WITHOUT writing any global state. That's what lets several states
+ * of the same overlay appear simultaneously (impossible when they all
+ * read one shared atom) — and it means the gallery can never disturb a
+ * real in-progress game. No snapshot/restore needed.
  *
- * SAFETY: the overlays read PERSISTENT global atoms, so driving them
- * writes those atoms. We snapshot every atom we touch on mount and RESTORE
- * on unmount (and via the Restore button). A hard refresh while the
- * gallery is open skips the restore — the header says so.
+ * Why cells: the overlays position with `fixed` / `absolute` against the
+ * viewport. Each cell sets a non-`none` `transform`, which makes it the
+ * containing block for its overlay's positioning, so each lays itself out
+ * within its own cell instead of the whole window.
  */
 
-// A throwaway lat/lng for mock question geometry (central London).
+// Throwaway lat/lng for mock question geometry (central London).
 const MOCK_LAT = 51.5074;
 const MOCK_LNG = -0.1278;
 
-type SandboxSnapshot = {
-    hidingPeriodEndsAt: number | null;
-    gameSize: ReturnType<typeof gameSize.get>;
-    setupCompleted: boolean;
-    endgameStartedAt: number | null;
-    gameStartCelebrationAt: number | null;
-    seekersFrozenUntil: number | null;
-    locationGraceStartedAt: number | null;
-    gamePausedForLocationAt: number | null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    questions: any;
-    roundFoundAt: number | null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    roundLog: any;
-};
-
-function snapshot(): SandboxSnapshot {
-    return {
-        hidingPeriodEndsAt: hidingPeriodEndsAt.get(),
-        gameSize: gameSize.get(),
-        setupCompleted: setupCompleted.get(),
-        endgameStartedAt: endgameStartedAt.get(),
-        gameStartCelebrationAt: gameStartCelebrationAt.get(),
-        seekersFrozenUntil: seekersFrozenUntil.get(),
-        locationGraceStartedAt: locationGraceStartedAt.get(),
-        gamePausedForLocationAt: gamePausedForLocationAt.get(),
-        questions: questions.get(),
-        roundFoundAt: roundFoundAt.get(),
-        roundLog: roundLog.get(),
-    };
-}
-
-function restore(s: SandboxSnapshot): void {
-    hidingPeriodEndsAt.set(s.hidingPeriodEndsAt);
-    gameSize.set(s.gameSize);
-    setupCompleted.set(s.setupCompleted);
-    endgameStartedAt.set(s.endgameStartedAt);
-    gameStartCelebrationAt.set(s.gameStartCelebrationAt);
-    seekersFrozenUntil.set(s.seekersFrozenUntil);
-    locationGraceStartedAt.set(s.locationGraceStartedAt);
-    gamePausedForLocationAt.set(s.gamePausedForLocationAt);
-    questions.set(s.questions);
-    roundFoundAt.set(s.roundFoundAt);
-    roundLog.set(s.roundLog);
-    triggerLocalRefresh.set(Math.random());
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mockRadiusQuestion(createdAt: number | undefined): any {
+function mockRadius(createdAt: number | undefined): Question {
     return {
         id: "radius",
         key: 999001,
@@ -110,17 +45,17 @@ function mockRadiusQuestion(createdAt: number | undefined): any {
             drag: true,
             ...(createdAt !== undefined ? { createdAt } : {}),
         },
-    };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mockStartedThermometer(): any {
+function mockThermometer(now: number): Question {
     return {
         id: "thermometer",
         key: 999002,
         data: {
             status: "started",
-            startedAt: Date.now() - 90_000,
+            startedAt: now - 90_000,
             targetSig: "1km",
             distance: "1km",
             latA: MOCK_LAT,
@@ -129,40 +64,13 @@ function mockStartedThermometer(): any {
             lngB: MOCK_LNG,
             drag: true,
         },
-    };
-}
-
-/**
- * Light every overlay up at once. Values are intentionally simultaneous
- * and incoherent — we just want each overlay's gate satisfied so it
- * renders. The `locationMode` arg flips the one banner that has two
- * mutually-exclusive states (grace countdown vs hard pause).
- */
-function arm(locationMode: "grace" | "paused"): void {
-    setupCompleted.set(true);
-    endgameStartedAt.set(null);
-    roundFoundAt.set(null);
-    // Hiding period running → HiderTimer (hiding) + GoGoGo countdown.
-    hidingPeriodEndsAt.set(Date.now() + 5 * 60_000);
-    gameStartCelebrationAt.set(Date.now());
-    seekersFrozenUntil.set(Date.now() + 45_000);
-    locationGraceStartedAt.set(locationMode === "grace" ? Date.now() : null);
-    gamePausedForLocationAt.set(locationMode === "paused" ? Date.now() : null);
-    // One pending radar (PendingAnswerOverlay) + one running thermometer
-    // (ThermometerOverlay). Each overlay filters to its own kind.
-    questions.set([mockRadiusQuestion(Date.now()), mockStartedThermometer()]);
-    triggerLocalRefresh.set(Math.random());
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
 }
 
 /** A single labelled gallery cell that becomes the containing block for
  *  its overlay's fixed/absolute positioning. */
-function Cell({
-    label,
-    children,
-}: {
-    label: string;
-    children: ReactNode;
-}) {
+function Cell({ label, children }: { label: string; children: ReactNode }) {
     return (
         <div className="flex flex-col gap-1.5">
             <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
@@ -174,12 +82,9 @@ function Cell({
                     "bg-[hsl(var(--sidebar-background))]",
                 )}
                 // A non-`none` transform makes this the containing block
-                // for the overlay's `fixed`/`absolute` positioning, so it
-                // lays out inside the cell rather than the viewport.
+                // for the overlay's `fixed`/`absolute` positioning.
                 style={{ transform: "translateZ(0)" }}
             >
-                {/* Faux-map grid so positioned overlays read against a
-                    map-like surface, not a flat panel. */}
                 <div
                     className="absolute inset-0 opacity-[0.15]"
                     style={{
@@ -196,29 +101,10 @@ function Cell({
 }
 
 export function DebugOverlaysPage() {
-    const snapRef = useRef<SandboxSnapshot | null>(null);
-    const [locationMode, setLocationMode] = useState<"grace" | "paused">(
-        "grace",
-    );
-
-    useEffect(() => {
-        snapRef.current = snapshot();
-        arm("grace");
-        return () => {
-            if (snapRef.current) restore(snapRef.current);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const reArm = () => arm(locationMode);
-    const toggleLocation = () => {
-        const next = locationMode === "grace" ? "paused" : "grace";
-        setLocationMode(next);
-        arm(next);
-    };
-    const restoreNow = () => {
-        if (snapRef.current) restore(snapRef.current);
-    };
+    // Fix a mount-time "now" so each preview's relative timestamps
+    // (countdowns etc.) are stable and read sensibly.
+    const [now] = useState(() => Date.now());
+    const M = 60_000;
 
     return (
         <div className="dark min-h-screen bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]">
@@ -228,7 +114,6 @@ export function DebugOverlaysPage() {
                     to="/"
                     className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-accent shrink-0"
                     aria-label="Back to app"
-                    title="Back (restores your game state)"
                 >
                     <ArrowLeft className="w-4 h-4" />
                 </Link>
@@ -237,45 +122,82 @@ export function DebugOverlaysPage() {
                         Overlay gallery
                     </div>
                     <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-                        All overlays at once · your game state is restored
-                        when you leave (hard refresh skips it)
+                        Every state of every overlay · preview-only, does not
+                        touch your game
                     </div>
                 </div>
-                <Button variant="outline" size="sm" onClick={toggleLocation}>
-                    Location: {locationMode}
-                </Button>
-                <Button variant="outline" size="sm" onClick={reArm}>
-                    Re-arm
-                </Button>
-                <Button variant="outline" size="sm" onClick={restoreNow}>
-                    Restore
-                </Button>
             </div>
 
             {/* Gallery grid */}
             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <Cell label="Hider timer (hiding)">
-                    <HiderTimer />
+                {/* ── Hider timer ─────────────────────────────── */}
+                <Cell label="Timer · hiding (5:00 left)">
+                    <HiderTimer preview={{ endsAt: now + 5 * M }} />
                 </Cell>
-                <Cell label="Pending question">
-                    <PendingAnswerOverlay />
+                <Cell label="Timer · hiding (0:20 left)">
+                    <HiderTimer preview={{ endsAt: now + 20_000 }} />
                 </Cell>
-                <Cell label="Thermometer pill">
-                    <ThermometerOverlay />
+                <Cell label="Timer · seeking (hidden 2:00)">
+                    <HiderTimer preview={{ endsAt: now - 2 * M }} />
                 </Cell>
-                <Cell label={`Location banner (${locationMode})`}>
-                    <LocationPauseBanner />
+                <Cell label="Timer · seeking + endgame">
+                    <HiderTimer
+                        preview={{
+                            endsAt: now - 2 * M,
+                            endgameStartedAt: now - M,
+                        }}
+                    />
+                </Cell>
+
+                {/* ── Pending question ────────────────────────── */}
+                <Cell label="Pending · radar not sent">
+                    <PendingAnswerOverlay
+                        preview={{ questions: [mockRadius(undefined)] }}
+                    />
+                </Cell>
+                <Cell label="Pending · radar waiting">
+                    <PendingAnswerOverlay
+                        preview={{ questions: [mockRadius(now)] }}
+                    />
+                </Cell>
+                <Cell label="Pending · radar overdue">
+                    <PendingAnswerOverlay
+                        preview={{ questions: [mockRadius(now - 6 * M)] }}
+                    />
+                </Cell>
+
+                {/* ── Thermometer ─────────────────────────────── */}
+                <Cell label="Thermometer · running pill">
+                    <ThermometerOverlay
+                        preview={{ questions: [mockThermometer(now)] }}
+                    />
+                </Cell>
+
+                {/* ── Banners ─────────────────────────────────── */}
+                <Cell label="Location · grace countdown">
+                    <LocationPauseBanner preview={{ grace: now }} />
+                </Cell>
+                <Cell label="Location · paused">
+                    <LocationPauseBanner preview={{ paused: now }} />
                 </Cell>
                 <Cell label="Seekers frozen (Move)">
-                    <SeekerFrozenBanner />
+                    <SeekerFrozenBanner
+                        preview={{ frozenUntil: now + 45_000 }}
+                    />
                 </Cell>
+
+                {/* ── Celebration ─────────────────────────────── */}
                 <Cell label="Game start (Go, go, go)">
-                    <GoGoGoOverlay />
+                    <GoGoGoOverlay
+                        preview={{ at: now, endsAt: now + 30 * M }}
+                    />
                 </Cell>
-                <Cell label="Map tiles loading">
+
+                {/* ── Loading veil ────────────────────────────── */}
+                <Cell label="Tiles loading">
                     <MapTilesVeil visible label="Loading map" />
                 </Cell>
-                <Cell label="Map tiles slow (timed out)">
+                <Cell label="Tiles slow (timed out)">
                     <MapTilesVeil
                         visible
                         timedOut

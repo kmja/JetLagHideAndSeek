@@ -130,9 +130,18 @@ function subtypeLabel(type: string | undefined): string | null {
  * overlay on the map fades on the same beat (see RadarScanOverlay) so
  * the seeker reads it as "scan complete; here's the new play area".
  */
-export function PendingAnswerOverlay() {
+/** Override the questions list to preview a specific pending state in
+ *  the /debug/overlays gallery without touching global state. */
+export interface PendingAnswerPreview {
+    questions: ReturnType<typeof questions.get>;
+}
+
+export function PendingAnswerOverlay({
+    preview,
+}: { preview?: PendingAnswerPreview } = {}) {
     useStore(triggerLocalRefresh);
-    const $questions = useStore(questions);
+    let $questions = useStore(questions);
+    if (preview) $questions = preview.questions;
     const $gameSize = useStore(gameSize);
     // Reactive subscription — the share button re-labels itself when
     // a hider joins/leaves the online room mid-question. `isHiderConnected`

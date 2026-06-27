@@ -16,8 +16,17 @@ import { seekersFrozenUntil } from "@/lib/gameSetup";
  * banner disappears on the next tick (the atom is left as-is; scoring
  * doesn't read it, so there's no need to null it eagerly).
  */
-export function SeekerFrozenBanner() {
-    const $frozenUntil = useStore(seekersFrozenUntil);
+/** Override the frozen-until atom to preview the banner in the
+ *  /debug/overlays gallery without touching global state. */
+export interface SeekerFrozenPreview {
+    frozenUntil: number | null;
+}
+
+export function SeekerFrozenBanner({
+    preview,
+}: { preview?: SeekerFrozenPreview } = {}) {
+    let $frozenUntil = useStore(seekersFrozenUntil);
+    if (preview) $frozenUntil = preview.frozenUntil;
     const active = $frozenUntil !== null && $frozenUntil > Date.now();
     const now = useNow(active);
 
