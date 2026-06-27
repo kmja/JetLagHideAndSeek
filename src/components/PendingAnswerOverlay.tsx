@@ -187,32 +187,37 @@ export function PendingAnswerOverlay({
                 0:00
             </span>
             <span
-                className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold mt-0.5"
+                className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold mt-0.5 whitespace-nowrap"
                 title="Past the answer window — the hider's clock is paused (rulebook p61)"
             >
-                Paused
+                Game paused
             </span>
         </div>
     ) : notYetSent ? (
-        <button
-            type="button"
-            onClick={(e) => {
-                e.stopPropagation();
-                void handleRetry();
-            }}
-            aria-label="Retry sending the question to the hider"
-            title="Sending failed — retry. Starts the answer window."
-            className={cn(
-                "flex flex-col items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-md",
-                "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            )}
-        >
-            <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
-            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
-                Retry
+        <div className="flex items-center gap-2">
+            <span className="text-[10px] font-poppins font-bold uppercase tracking-wide text-destructive leading-tight text-right max-w-[5.5rem]">
+                Couldn&apos;t send
             </span>
-        </button>
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    void handleRetry();
+                }}
+                aria-label="Retry sending the question to the hider"
+                title="Sending failed — retry. Starts the answer window."
+                className={cn(
+                    "flex flex-col items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-md",
+                    "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+            >
+                <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
+                <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
+                    Retry
+                </span>
+            </button>
+        </div>
     ) : answered ? (
         <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-emerald-500">
             Answered!

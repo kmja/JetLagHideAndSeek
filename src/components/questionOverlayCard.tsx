@@ -319,12 +319,13 @@ export function QuestionOverlayCard({
             >
                 {answered ? (
                     <Check
-                        size={24}
+                        size={36}
                         strokeWidth={3}
                         className="animate-[jlAnsweredPop_400ms_ease-out]"
                     />
                 ) : (
-                    <Icon size={22} strokeWidth={2.5} />
+                    // Big, show-style icon filling the colour block.
+                    <Icon size={38} strokeWidth={2.25} />
                 )}
             </span>
 
@@ -343,9 +344,10 @@ export function QuestionOverlayCard({
                 )}
             </div>
 
-            {/* Live status — timer / retry / answered (right). */}
+            {/* Live status — timer / retry / answer action (right). Sizes
+                to its content so error messages / CTAs have room. */}
             {right && (
-                <div className="shrink-0 flex items-center justify-center pl-1 pr-3 min-w-[3.75rem]">
+                <div className="shrink-0 flex items-center justify-center pl-2 pr-3">
                     {right}
                 </div>
             )}
