@@ -472,6 +472,19 @@ div.leaflet-control-attribution.leaflet-control {
         --sidebar-accent-foreground: 240 5.9% 10%;
         --sidebar-border: 220 13% 85%;
         --sidebar-ring: 5 69% 55%;
+        /* Question-overlay card (PendingAnswer / HiderUnanswered). Driven
+         * by CSS vars rather than Tailwind `dark:` variants so the
+         * /debug/overlays gallery can preview BOTH themes in a subtree
+         * regardless of the global theme on <html> (a `dark:` variant
+         * matches any `.dark` ancestor and can't be undone by a nested
+         * `.light`; a CSS var resolves to its nearest definition).
+         * `--cat-label` aliases the per-card inline `--cat-deep` /
+         * `--cat-bright` to whichever reads on this theme's card. */
+        --overlay-card: #f6f5f1;
+        --overlay-card-fg: #1f2f3f;
+        --overlay-card-border: rgba(0, 0, 0, 0.1);
+        --overlay-card-desc: #71717a;
+        --cat-label: var(--cat-deep);
     }
     .dark {
         --background: 222.2 84% 4.9%;
@@ -515,6 +528,12 @@ div.leaflet-control-attribution.leaflet-control {
         --sidebar-accent-foreground: 240 4.8% 95.9%;
         --sidebar-border: 240 3.7% 15.9%;
         --sidebar-ring: 5 69% 55%;
+        /* Question-overlay card — dark variant (see the light block). */
+        --overlay-card: #1b2433;
+        --overlay-card-fg: #f4f4f5;
+        --overlay-card-border: rgba(255, 255, 255, 0.1);
+        --overlay-card-desc: #a1a1aa;
+        --cat-label: var(--cat-bright);
     }
 
     /* Theme-aware default text colour. Previously this forced

@@ -298,12 +298,12 @@ export function QuestionOverlayCard({
                 // Jet-Lag-show lower-third: a card with a solid colour icon
                 // block on the LEFT, a big bold coloured label, and the
                 // live status on the RIGHT. Light card in light mode, dark
-                // card in dark mode. Sharp corners. Fixed height so the
-                // icon block resolves to a square via `aspect-square`.
+                // card in dark mode — themed via CSS vars (NOT `dark:`
+                // variants) so the gallery can preview both. Sharp corners,
+                // fixed height so the icon block resolves to a square.
                 "pointer-events-auto relative flex items-stretch overflow-hidden h-[4.5rem]",
                 "shadow-xl border",
-                "bg-[#f6f5f1] text-[#1F2F3F] border-black/10",
-                "dark:bg-[#1b2433] dark:text-zinc-100 dark:border-white/10",
+                "bg-[var(--overlay-card)] text-[color:var(--overlay-card-fg)] border-[color:var(--overlay-card-border)]",
                 interactive &&
                     "cursor-pointer select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-transform duration-200",
@@ -331,13 +331,13 @@ export function QuestionOverlayCard({
             {/* Big coloured label + one short description (middle). */}
             <div className="min-w-0 flex-1 px-3 py-2 flex flex-col justify-center">
                 <div
-                    className="font-display font-extrabold uppercase leading-[1.0] text-lg sm:text-xl truncate text-[color:var(--cat-deep)] dark:text-[color:var(--cat-bright)]"
+                    className="font-display font-extrabold uppercase leading-[1.0] text-lg sm:text-xl truncate text-[color:var(--cat-label)]"
                     style={{ letterSpacing: "-0.01em" }}
                 >
                     {summary.bigLabel}
                 </div>
                 {summary.detail && (
-                    <div className="text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 leading-snug truncate mt-0.5">
+                    <div className="text-[11px] sm:text-xs text-[color:var(--overlay-card-desc)] leading-snug truncate mt-0.5">
                         {summary.detail}
                     </div>
                 )}

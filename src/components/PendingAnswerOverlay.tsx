@@ -174,10 +174,10 @@ export function PendingAnswerOverlay({
     // and "Answered!" on resolve.
     const rightSlot = waiting ? (
         <div className="flex flex-col items-center leading-none">
-            <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-zinc-500 dark:text-zinc-400 mb-0.5">
+            <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-[color:var(--overlay-card-desc)] mb-0.5">
                 Answer in
             </span>
-            <span className="text-2xl font-poppins font-black tabular-nums leading-none text-[color:var(--cat-deep)] dark:text-[color:var(--cat-bright)]">
+            <span className="text-2xl font-poppins font-black tabular-nums leading-none text-[color:var(--cat-label)]">
                 {mm}:{String(ss).padStart(2, "0")}
             </span>
         </div>
