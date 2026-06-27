@@ -492,15 +492,16 @@ export function Welcome() {
                     </>
                 )}
 
-                {/* Footer — support the real game + unofficial disclaimer.
-                    In intro mode it rides on top of the mountain (no
-                    background, light text for contrast on the red); in the
-                    join / lobby modes it keeps the opaque sticky panel so
-                    it reads over scrolling content. `mt-auto` drops it to
-                    the bottom of the viewport either way. */}
+                {/* Footer — a single link supporting the real game. The
+                    unofficial/fan-made disclaimer was removed (v560) for a
+                    cleaner, more official-looking landing. In intro mode the
+                    link rides on top of the mountain (light text for
+                    contrast on the red); the join / lobby modes keep the
+                    opaque sticky panel so it reads over scrolling content.
+                    `mt-auto` drops it to the bottom of the viewport. */}
                 <div
                     className={cn(
-                        "mt-auto px-6 pt-4 pb-8 text-center space-y-2.5",
+                        "mt-auto px-6 pt-4 pb-8 text-center",
                         mode === "intro"
                             ? "relative z-10"
                             : "sticky bottom-0 z-10 bg-jetlag border-t border-border/40",
@@ -519,19 +520,6 @@ export function Welcome() {
                     >
                         Love it? Buy the official Hide+Seek box from Nebula →
                     </a>
-                    <p
-                        className={cn(
-                            "text-[10px] leading-snug",
-                            mode === "intro"
-                                ? "text-white/85 drop-shadow"
-                                : "text-current/40",
-                        )}
-                    >
-                        This is a free, unofficial fan-made companion. Not
-                        affiliated with or endorsed by Jet Lag: The Game or
-                        Nebula. Please support the creators by buying the
-                        physical game.
-                    </p>
                 </div>
             </div>
         </div>

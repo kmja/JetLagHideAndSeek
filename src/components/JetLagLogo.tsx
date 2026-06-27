@@ -160,28 +160,20 @@ export function HideSeekMark({
  * The box-cover "scene": the same sun/mountain EXCLUDE (XOR) as
  * `HideSeekMark`, but laid out to fill its container (the welcome landing
  * uses it as a full-viewport background, echoing the physical box). The
- * geometry is tied to the measured box per the box spec:
+ * geometry is tied to the measured box:
  *
- *   - the SUN's diameter is one third of the width (r = w/6), centred
- *     horizontally;
+ *   - the SUN's diameter is one third of the (capped) band width;
  *   - the MOUNTAIN's apex sits at the exact centre of the sun;
- *   - its base is the full bottom edge (corner to corner), so the two
- *     slopes are equal length (isosceles);
+ *   - its base is the full bottom edge, and the apex is placed left of
+ *     centre so the two slopes are UNEQUAL (a natural mountain), with the
+ *     apex height derived so the peak angle is exactly 90°;
  *   - the overlap is knocked out of both, edges meeting flush.
  *
- * `cyFraction` places the sun's centre (and thus the apex) as a fraction
- * of the height — the one free variable the spec leaves open. Because the
- * circle/triangle must scale to real pixels (a fixed viewBox can't pin a
- * diameter to a third of the *screen*), the component measures its own
- * box and redraws on resize.
+ * Because the circle/triangle must scale to real pixels (a fixed viewBox
+ * can't pin a diameter to a fraction of the *screen*), the component
+ * measures its own box and redraws on resize.
  */
-export function HideSeekScene({
-    className,
-    cyFraction = 0.6,
-}: {
-    className?: string;
-    cyFraction?: number;
-}) {
+export function HideSeekScene({ className }: { className?: string }) {
     const ref = useRef<HTMLDivElement>(null);
     const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
     const uid = useId().replace(/:/g, "");
@@ -202,10 +194,23 @@ export function HideSeekScene({
     let svg: ReactNode = null;
     if (dims && dims.w > 0 && dims.h > 0) {
         const { w, h } = dims;
-        const cx = w / 2;
-        const r = w / 6; // sun diameter = one third of the width
-        const cy = h * cyFraction; // apex coincides with the sun's centre
-        const triangle = `M${cx} ${cy} L0 ${h} L${w} ${h} Z`;
+        // Cap how wide the mountain draws so a wide desktop viewport
+        // doesn't get a giant full-bleed peak — on phones (w < cap) it's
+        // the full width, matching the box.
+        const ew = Math.min(w, 560);
+        const x0 = (w - ew) / 2; // left edge of the drawn band, centred
+        const r = ew / 6; // sun diameter = one third of the band width
+        // ASYMMETRIC peak: the apex sits left of the band centre so the
+        // two slopes are unequal (a natural mountain, not a pyramid). The
+        // apex Y is then DERIVED so the peak angle is exactly 90°: with a
+        // full-band base, the apex is 90° iff its height above the base
+        // equals sqrt(aLeft·aRight) (geometric mean of the two base runs).
+        const apexFrac = 0.42; // <0.5 ⇒ apex left of centre, left slope steeper
+        const aLeft = apexFrac * ew;
+        const aRight = ew - aLeft;
+        const cx = x0 + aLeft;
+        const cy = h - Math.sqrt(aLeft * aRight); // ⇒ 90° at the apex
+        const triangle = `M${cx} ${cy} L${x0} ${h} L${x0 + ew} ${h} Z`;
         svg = (
             <svg
                 width={w}
