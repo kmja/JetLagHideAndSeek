@@ -1,5 +1,4 @@
 import { useStore } from "@nanostores/react";
-import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
@@ -88,33 +87,21 @@ export function HiderUnansweredOverlay({
         } as Question);
     };
 
+    // Compact white status under the icon inside the solid colour square:
+    // the answer-window countdown, plus a "+N" when more are queued.
     const rightSlot = (
-        <div className="flex items-center gap-2">
-            <div className="flex flex-col items-center leading-none">
-                <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mb-1">
-                    {overdue ? "Overdue" : "Answer in"}
-                </span>
-                <span
-                    className={cn(
-                        "text-xl font-poppins font-black tabular-nums leading-none",
-                        overdue ? "text-destructive" : "text-primary",
-                    )}
-                >
-                    {overdue ? "0:00" : countdownLabel}
-                </span>
-            </div>
+        <div className="flex flex-col items-center gap-0.5 leading-none">
+            <span className="text-sm font-poppins font-black tabular-nums leading-none">
+                {overdue ? "0:00" : countdownLabel}
+            </span>
             {extraCount > 0 && (
                 <span
-                    className="shrink-0 text-[10px] font-mono font-bold tabular-nums bg-foreground/15 text-foreground px-1.5 py-0.5 rounded-full"
+                    className="text-[8px] font-poppins font-bold leading-none"
                     aria-label={`${extraCount} more question${extraCount === 1 ? "" : "s"} waiting`}
                 >
                     +{extraCount}
                 </span>
             )}
-            <ChevronRight
-                className="w-4 h-4 text-muted-foreground shrink-0"
-                aria-hidden
-            />
         </div>
     );
 

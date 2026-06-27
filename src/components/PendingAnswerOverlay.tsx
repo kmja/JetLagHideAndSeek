@@ -168,24 +168,20 @@ export function PendingAnswerOverlay({
         }
     };
 
+    // Compact status sitting under the icon inside the solid colour
+    // square (white text, supplied by the card). Timer when waiting,
+    // "0:00" when overdue, a Retry affordance when the send failed.
     const rightSlot = waiting ? (
-        <div className="flex flex-col items-center leading-none">
-            <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mb-1">
-                Answer in
-            </span>
-            <span className="text-2xl font-poppins font-black tabular-nums text-primary leading-none">
-                {mm}:{String(ss).padStart(2, "0")}
-            </span>
-        </div>
+        <span className="text-sm font-poppins font-black tabular-nums leading-none">
+            {mm}:{String(ss).padStart(2, "0")}
+        </span>
     ) : overdue ? (
-        <div className="flex flex-col items-center leading-none text-destructive">
-            <span className="text-2xl font-poppins font-black tabular-nums leading-none">
-                0:00
-            </span>
-            <span className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold mt-1">
-                Clock paused
-            </span>
-        </div>
+        <span
+            className="text-sm font-poppins font-black tabular-nums leading-none"
+            title="Past the answer window — the hider's clock is paused (rulebook p61)"
+        >
+            0:00
+        </span>
     ) : notYetSent ? (
         <button
             type="button"
@@ -195,21 +191,11 @@ export function PendingAnswerOverlay({
             }}
             aria-label="Retry sending the question to the hider"
             title="Sending failed — retry. Starts the answer window."
-            className={cn(
-                "flex flex-col items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-md",
-                "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            )}
+            className="flex items-center gap-1 text-[10px] font-poppins font-black uppercase tracking-wide hover:underline focus-visible:outline-none"
         >
-            <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
-            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
-                Retry
-            </span>
+            <RefreshCw className="w-3 h-3" strokeWidth={2.5} />
+            Retry
         </button>
-    ) : answered ? (
-        <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-emerald-500">
-            Answered!
-        </span>
     ) : null;
 
     return (

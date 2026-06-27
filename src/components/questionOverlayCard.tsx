@@ -116,14 +116,46 @@ export interface QuestionSummary {
     detail?: string;
 }
 
-/** hex (#rrggbb) → rgba() string, for the show-style category tinting. */
-export function hexToRgba(hex: string, alpha: number): string {
+/**
+ * Deepen a pastel category colour into a punchy, saturated tone that
+ * reads as bold coloured TEXT on a white card and as a solid block with
+ * WHITE content — the Jet Lag show's lower-third look. Near-grey inputs
+ * (matching) collapse to the brand navy, like the show's train blocks.
+ */
+function deepColor(hex: string): string {
     const h = hex.replace("#", "");
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
+    let r = parseInt(h.slice(0, 2), 16);
+    let g = parseInt(h.slice(2, 4), 16);
+    let b = parseInt(h.slice(4, 6), 16);
     if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let s = 0;
+    let hue = 0;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+            case r:
+                hue = (g - b) / d + (g < b ? 6 : 0);
+                break;
+            case g:
+                hue = (b - r) / d + 2;
+                break;
+            default:
+                hue = (r - g) / d + 4;
+        }
+        hue /= 6;
+    }
+    // Greys (matching) → brand navy, like the show's train blocks.
+    if (s < 0.12) return "#1F2F3F";
+    const ns = Math.max(s, 0.6);
+    const nl = Math.min(l, 0.4);
+    return `hsl(${Math.round(hue * 360)} ${Math.round(ns * 100)}% ${Math.round(nl * 100)}%)`;
 }
 
 /**
@@ -231,7 +263,8 @@ export function QuestionOverlayCard({
     className?: string;
 }) {
     const meta = CATEGORIES[categoryId as CategoryId];
-    const color = meta?.color ?? "#999";
+    const base = meta?.color ?? "#999";
+    const deep = answered ? "#10b981" : deepColor(base);
     const Icon = summary.icon ?? meta?.icon ?? Hourglass;
     const interactive = Boolean(onClick);
 
@@ -252,77 +285,53 @@ export function QuestionOverlayCard({
             }
             aria-label={ariaLabel}
             className={cn(
-                // Fixed height so the left icon block can resolve to a
-                // SQUARE — `aspect-square` only computes a width when the
-                // height is definite, which a content-driven flex row is
-                // not.
+                // Jet-Lag-show lower-third: a white/cream card (the same in
+                // light AND dark — the show's banner is always light over
+                // the video) with a big bold coloured label and a solid
+                // colour square on the right. Sharp corners. Fixed height
+                // so the square resolves via `aspect-square`.
                 "pointer-events-auto relative flex items-stretch overflow-hidden h-[4.5rem]",
-                "bg-background/95 backdrop-blur-md shadow-xl",
-                "border-2 transition-all duration-300",
+                "bg-[#f6f5f1] text-[#1F2F3F] shadow-xl border border-black/10",
                 interactive &&
                     "cursor-pointer select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "transition-transform duration-200",
                 className,
             )}
-            style={{
-                borderColor: answered
-                    ? "rgb(16 185 129 / 0.8)"
-                    : hexToRgba(color, 0.55),
-            }}
         >
-            {/* Category wash across the whole card (behind content). */}
-            <div
-                className="absolute inset-0 pointer-events-none transition-colors duration-300"
-                style={{
-                    backgroundColor: answered
-                        ? "rgb(16 185 129 / 0.10)"
-                        : hexToRgba(color, 0.1),
-                }}
-                aria-hidden
-            />
-
-            {/* Square solid category-colour icon block (left). `h-full`
-                makes the height definite so `aspect-square` resolves the
-                width to match (true square). */}
-            <span
-                className="relative h-full aspect-square flex items-center justify-center shrink-0 transition-colors duration-300"
-                style={{ backgroundColor: answered ? "#10b981" : color }}
-                aria-hidden="true"
-            >
-                {answered ? (
-                    <Check
-                        size={22}
-                        strokeWidth={3}
-                        className="text-white animate-[jlAnsweredPop_400ms_ease-out]"
-                    />
-                ) : (
-                    <Icon size={20} strokeWidth={2.5} className="text-white" />
-                )}
-            </span>
-
-            {/* Big label + one short description (two lines). */}
-            <div className="relative min-w-0 flex-1 px-3 py-2 flex flex-col justify-center">
+            {/* Big coloured label + one short description (left). */}
+            <div className="min-w-0 flex-1 px-4 py-2 flex flex-col justify-center">
                 <div
-                    className="font-display font-extrabold uppercase leading-[1.05] text-base sm:text-lg truncate"
-                    style={{
-                        color: answered ? undefined : color,
-                        letterSpacing: "-0.01em",
-                    }}
+                    className="font-display font-extrabold uppercase leading-[1.0] text-lg sm:text-xl truncate"
+                    style={{ color: deep, letterSpacing: "-0.01em" }}
                 >
                     {summary.bigLabel}
                 </div>
                 {summary.detail && (
-                    <div className="text-[11px] text-muted-foreground leading-snug truncate mt-0.5">
+                    <div className="text-[11px] sm:text-xs text-zinc-500 leading-snug truncate mt-0.5">
                         {summary.detail}
                     </div>
                 )}
             </div>
 
-            {/* Caller-supplied right slot. */}
-            {right && (
-                <div className="relative shrink-0 flex items-center justify-center px-3">
-                    {right}
-                </div>
-            )}
+            {/* Solid category-colour square (right): white icon + status.
+                `aspect-square` resolves against the card's fixed height. */}
+            <div
+                className="relative h-full aspect-square shrink-0 flex flex-col items-center justify-center gap-0.5 text-white transition-colors duration-300"
+                style={{ backgroundColor: deep }}
+            >
+                {answered ? (
+                    <Check
+                        size={26}
+                        strokeWidth={3}
+                        className="animate-[jlAnsweredPop_400ms_ease-out]"
+                    />
+                ) : (
+                    <Icon size={22} strokeWidth={2.5} />
+                )}
+                {!answered && right && (
+                    <div className="leading-none text-center">{right}</div>
+                )}
+            </div>
         </div>
     );
 }
