@@ -82,17 +82,19 @@ export function JetLagLogo({
 /* ────────────────── HIDE+SEEK mountain peak mark ────────────────── */
 
 /**
- * The Hide+Seek logomark, matched to the box cover: a white CIRCLE with a
- * red TRIANGLE (mountain) rising through it. The dark wedge where they
- * meet is a true boolean DIFFERENCE — the circle MINUS the triangle —
- * where the cut is the red triangle dilated by an even gap (stroke =
- * 2×gap, round joins), so the seam stays uniform-width along both edges.
+ * The Hide+Seek logomark, matched to the box cover: a whole white CIRCLE
+ * (the sun) with a red TRIANGLE (mountain) in front of it. The seam is a
+ * true boolean DIFFERENCE — the triangle MINUS the circle — so the part
+ * of the mountain that overlaps the sun is REMOVED, leaving the disc
+ * intact and the peak reading as if it passes behind it. The cut circle
+ * is dilated by an even gap (stroke = 2×gap) so a uniform-width wedge of
+ * background shows between the two shapes.
  *
- * Box proportions: a wide mountain (base ~full width), apex just below
- * the circle's centre, the triangle's upper edges crossing the circle's
- * lower-left/right so the white reads as a domed peak. The wedge is a
- * transparent cutout, so the mark works on the navy app chrome, on red,
- * or anywhere else.
+ * Box proportions: a full sun disc high in the frame, a wide mountain
+ * (base ~full width) whose apex sits inside the disc — so once the disc
+ * (plus gap) is subtracted, the mountain's visible top edge hugs the
+ * sun's lower arc. The wedge is a transparent cutout, so the mark works
+ * on the navy app chrome, on red, or anywhere else.
  */
 export function HideSeekMark({
     size = 40,
@@ -104,9 +106,8 @@ export function HideSeekMark({
     // Unique mask id per instance — multiple marks can mount at once
     // (welcome hero + sidebar), and a shared id would cross-wire them.
     const maskId = `hsmark-${useId().replace(/:/g, "")}`;
-    // The mountain — used both as the difference cut (dilated, in the
-    // mask) and as the red fill (undilated), so they share one geometry.
     const TRIANGLE = "M32 30 L3 58 L61 58 Z";
+    const CIRCLE = { cx: 32, cy: 26, r: 18 };
     return (
         <svg
             width={size}
@@ -119,23 +120,30 @@ export function HideSeekMark({
             className={className}
         >
             <defs>
+                {/* Show the whole mountain EXCEPT where the (dilated) sun
+                    sits — i.e. triangle MINUS circle. White = keep,
+                    black = cut. The black circle's black stroke widens
+                    the cut so an even gap of background shows. */}
                 <mask id={maskId}>
-                    <rect width="64" height="64" fill="black" />
-                    <circle cx="32" cy="26" r="18" fill="white" />
-                    {/* Subtract the dilated mountain → even-width gap. */}
-                    <path
-                        d={TRIANGLE}
+                    <rect width="64" height="64" fill="white" />
+                    <circle
+                        cx={CIRCLE.cx}
+                        cy={CIRCLE.cy}
+                        r={CIRCLE.r}
                         fill="black"
                         stroke="black"
                         strokeWidth="4"
-                        strokeLinejoin="round"
                     />
                 </mask>
             </defs>
-            {/* White circle with the mountain difference cut out. */}
-            <rect width="64" height="64" fill="white" mask={`url(#${maskId})`} />
-            {/* Red mountain rising from below, into the circle's bite. */}
-            <path d={TRIANGLE} fill="hsl(5 80% 55%)" />
+            {/* Whole white sun disc. */}
+            <circle cx={CIRCLE.cx} cy={CIRCLE.cy} r={CIRCLE.r} fill="white" />
+            {/* Red mountain with the sun (plus gap) subtracted out. */}
+            <path
+                d={TRIANGLE}
+                fill="hsl(5 80% 55%)"
+                mask={`url(#${maskId})`}
+            />
         </svg>
     );
 }
