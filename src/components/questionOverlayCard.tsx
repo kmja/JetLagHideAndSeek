@@ -252,7 +252,11 @@ export function QuestionOverlayCard({
             }
             aria-label={ariaLabel}
             className={cn(
-                "pointer-events-auto relative flex items-stretch overflow-hidden",
+                // Fixed height so the left icon block can resolve to a
+                // SQUARE — `aspect-square` only computes a width when the
+                // height is definite, which a content-driven flex row is
+                // not.
+                "pointer-events-auto relative flex items-stretch overflow-hidden h-[4.5rem]",
                 "bg-background/95 backdrop-blur-md shadow-xl",
                 "border-2 transition-all duration-300",
                 interactive &&
@@ -276,9 +280,11 @@ export function QuestionOverlayCard({
                 aria-hidden
             />
 
-            {/* Square solid category-colour icon block (left). */}
+            {/* Square solid category-colour icon block (left). `h-full`
+                makes the height definite so `aspect-square` resolves the
+                width to match (true square). */}
             <span
-                className="relative aspect-square flex items-center justify-center shrink-0 transition-colors duration-300"
+                className="relative h-full aspect-square flex items-center justify-center shrink-0 transition-colors duration-300"
                 style={{ backgroundColor: answered ? "#10b981" : color }}
                 aria-hidden="true"
             >
