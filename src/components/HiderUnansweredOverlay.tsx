@@ -92,7 +92,7 @@ export function HiderUnansweredOverlay({
     // red when overdue) above a clear ANSWER call-to-action. The whole
     // card is the button — the pill is the visible affordance for it.
     const rightSlot = (
-        <div className="flex flex-col items-center justify-center gap-1.5 leading-none">
+        <div className="flex flex-col items-center justify-center gap-1 leading-none">
             <span className="inline-flex items-baseline gap-1">
                 <span
                     className={cn(
@@ -113,6 +113,11 @@ export function HiderUnansweredOverlay({
                     </span>
                 )}
             </span>
+            {overdue && (
+                <span className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold text-destructive whitespace-nowrap">
+                    Game paused
+                </span>
+            )}
             <span className="inline-flex items-center gap-0.5 rounded-md bg-primary px-2.5 py-1 text-primary-foreground text-[11px] font-poppins font-black uppercase tracking-wide">
                 Answer
                 <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
