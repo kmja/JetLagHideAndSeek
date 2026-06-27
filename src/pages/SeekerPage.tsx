@@ -44,8 +44,10 @@ import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useReleaseStuckBodyLock } from "@/hooks/useReleaseStuckBodyLock";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
+import { pendingOverlayActive } from "@/lib/context";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
+import { cn } from "@/lib/utils";
 
 // Dialogs / overlays / wizards that only render once the user
 // actually triggers them — lazy so a freshly-landed seeker doesn't
@@ -124,6 +126,11 @@ export function SeekerPage() {
     // finally takes over.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const gameStarted = $hidingEndsAt !== null;
+
+    // When the pending-answer overlay occupies the top of the map, slide
+    // the top-right controls (map options + trip planner) down so they
+    // don't collide with it.
+    const $pendingOverlay = useStore(pendingOverlayActive);
 
     // Safety net for the lobby→in-game branch swap below: if the lobby
     // drawer was still open when the game started (e.g. a guest getting
@@ -209,8 +216,18 @@ export function SeekerPage() {
                             matching the Jet Lag show. */}
                         <HiderTimer />
                         {/* Top-right cluster: map-options chip +
-                            trip-planner launcher. */}
-                        <div className="absolute top-2 right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2">
+                            trip-planner launcher. Slides down when the
+                            pending-answer overlay is pinned to the top so
+                            the two don't overlap on narrow screens. */}
+                        <div
+                            className={cn(
+                                "absolute right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2",
+                                "transition-[top] duration-300 ease-out",
+                                $pendingOverlay
+                                    ? "top-[5.5rem] md:top-[6rem]"
+                                    : "top-2",
+                            )}
+                        >
                             <MapDisplayControls />
                             {/* Trip planner launcher — small pill sitting
                                 under the map-options chip. Opens the

@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { useNow } from "@/hooks/useNow";
-import { questionModified, questions, triggerLocalRefresh } from "@/lib/context";
+import {
+    pendingOverlayActive,
+    questionModified,
+    questions,
+    triggerLocalRefresh,
+} from "@/lib/context";
 import { answerWindowMs, gameSize } from "@/lib/gameSetup";
 import { multiplayerEnabled, participants } from "@/lib/multiplayer/session";
 import {
@@ -107,6 +112,15 @@ export function PendingAnswerOverlay({
 
     // 1 Hz tick to keep the countdown fresh (visibility-aware).
     const now = useNow(Boolean(dShown) && phShown === "active");
+
+    // Broadcast whether the overlay is occupying the top of the map, so
+    // the top-right controls can slide down out of its way. Skip in the
+    // gallery so previews don't move live chrome. Clear on unmount.
+    useEffect(() => {
+        if (preview) return;
+        pendingOverlayActive.set(Boolean(dShown));
+        return () => pendingOverlayActive.set(false);
+    }, [Boolean(dShown), preview]);
 
     if (!dShown) return null;
 
@@ -245,14 +259,14 @@ export function PendingAnswerOverlay({
         <div
             className={cn(
                 "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1031]",
-                // Bottom of the map view — just above the mobile bottom nav
-                // on mobile, hugging the bottom edge on desktop. Shares the
-                // slot with the thermometer overlay (mutually exclusive).
-                "bottom-[calc(80px+env(safe-area-inset-bottom))] md:bottom-4",
+                // Top of the map view (the controls dodge downward when a
+                // question is showing). Hugs the top edge of the map area,
+                // below the seeker top bar.
+                "top-2 md:top-4",
                 "max-w-[92vw] w-[min(92vw,460px)]",
                 "transition-all duration-500 ease-out",
                 phShown === "closing" &&
-                    "translate-y-16 opacity-0 -translate-x-1/2",
+                    "-translate-y-16 opacity-0 -translate-x-1/2",
                 phShown === "answered" && "scale-[1.02] -translate-x-1/2",
             )}
             data-testid="pending-answer-overlay"

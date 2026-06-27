@@ -585,6 +585,14 @@ export const autoZoom = persistentAtom<boolean>("autoZoom", true, {
 
 export const isLoading = atom<boolean>(false);
 
+/**
+ * True while the seeker's pending-answer overlay is occupying the TOP of
+ * the map view (a question is awaiting an answer, or the brief "answered"
+ * celebration is playing). The top-right map controls (`MapDisplayControls`
+ * + trip-planner launcher) read this to slide down out of the overlay's
+ * way. Set by `PendingAnswerOverlay`; runtime-only. */
+export const pendingOverlayActive = atom<boolean>(false);
+
 export const baseTileLayer = persistentAtom<
     | "auto"
     | "voyager"

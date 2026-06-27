@@ -144,8 +144,10 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                 "absolute z-[1030] group-[.fullscreen]:hidden",
                 // v462: the bottom nav is now a flow row below the map
                 // area (not an overlay), so the timer only needs to clear
-                // the map edge — no more bottom-[80px] dodge.
-                "bottom-2 md:bottom-4",
+                // the map edge. v558: raised off the very bottom so the
+                // map's basemap attribution (bottom-right) stays visible
+                // beneath the seeking-phase clock + endgame buttons.
+                "bottom-7 md:bottom-8",
                 "flex flex-col gap-2",
                 inHidingPeriod
                     ? "left-2 md:left-4 items-start"

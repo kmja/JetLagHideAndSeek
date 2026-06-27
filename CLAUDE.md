@@ -144,8 +144,10 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
     <main>
       <div> {/* map container */}
         <SidebarTriggerL />                  {/* top-left, desktop only */}
-        <MapDisplayControls />               {/* top-right */}
+        <MapDisplayControls />               {/* top-right; slides DOWN when a question overlay is shown */}
         <SeekerTripPlannerLauncher />        {/* top-right, under controls */}
+        <HiderTimer />                       {/* bottom-left (hiding) / bottom-right (seeking), raised off the bottom so the basemap attribution stays visible */}
+        <PendingAnswerOverlay />             {/* TOP-center: the show-style pending-answer card (v559) */}
         <ThermometerOverlay /> <TravelTimesOverlay />
         <Map />                              {/* MapLibre via react-map-gl */}
       </div>
@@ -245,7 +247,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v558`. Use `git log` for the per-version detail;
+build stamp. Current: `v559`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
