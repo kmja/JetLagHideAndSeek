@@ -510,7 +510,12 @@ div.leaflet-control-attribution.leaflet-control {
         --muted-foreground: 215 20.2% 65.1%;
         --accent: 217.2 32.6% 17.5%;
         --accent-foreground: 210 40% 98%;
-        --destructive: 0 62.8% 30.6%;
+        /* Brightened from shadcn's dark default (L 30.6%), which is fine
+         * as a button background but far too dark to read as `text-
+         * destructive` on a dark surface (error countdowns, etc.). This
+         * lifts text contrast to ~4:1 while keeping white-on-red buttons
+         * comfortably legible. */
+        --destructive: 0 72% 51%;
         --destructive-foreground: 210 40% 98%;
         --border: 217.2 32.6% 17.5%;
         --input: 217.2 32.6% 17.5%;

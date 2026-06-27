@@ -89,14 +89,24 @@ export function HiderUnansweredOverlay({
     };
 
     // Status on the right: the answer-window countdown (category colour,
-    // red when overdue) above a clear ANSWER call-to-action. The whole
-    // card is the button — the pill is the visible affordance for it.
+    // red when overdue) with a chevron — the whole card is the tap target
+    // to open the answer flow, the chevron is the visible affordance.
     const rightSlot = (
-        <div className="flex flex-col items-center justify-center gap-1 leading-none">
-            <span className="inline-flex items-baseline gap-1">
+        <div className="flex items-center gap-1.5">
+            <div className="flex flex-col items-center leading-none">
                 <span
                     className={cn(
-                        "text-base font-poppins font-black tabular-nums leading-none",
+                        "text-[8px] uppercase tracking-[0.14em] font-poppins font-bold mb-0.5 whitespace-nowrap",
+                        overdue
+                            ? "text-destructive"
+                            : "text-[color:var(--overlay-card-desc)]",
+                    )}
+                >
+                    {overdue ? "Game paused" : "Answer in"}
+                </span>
+                <span
+                    className={cn(
+                        "text-2xl font-poppins font-black tabular-nums leading-none",
                         overdue
                             ? "text-destructive"
                             : "text-[color:var(--cat-label)]",
@@ -106,22 +116,18 @@ export function HiderUnansweredOverlay({
                 </span>
                 {extraCount > 0 && (
                     <span
-                        className="text-[9px] font-poppins font-bold text-[color:var(--overlay-card-desc)]"
+                        className="text-[9px] font-poppins font-bold mt-0.5 text-[color:var(--overlay-card-desc)]"
                         aria-label={`${extraCount} more question${extraCount === 1 ? "" : "s"} waiting`}
                     >
-                        +{extraCount}
+                        +{extraCount} more
                     </span>
                 )}
-            </span>
-            {overdue && (
-                <span className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold text-destructive whitespace-nowrap">
-                    Game paused
-                </span>
-            )}
-            <span className="inline-flex items-center gap-0.5 rounded-md bg-primary px-2.5 py-1 text-primary-foreground text-[11px] font-poppins font-black uppercase tracking-wide">
-                Answer
-                <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
-            </span>
+            </div>
+            <ChevronRight
+                className="w-5 h-5 shrink-0 text-[color:var(--overlay-card-desc)]"
+                strokeWidth={2.5}
+                aria-hidden
+            />
         </div>
     );
 
