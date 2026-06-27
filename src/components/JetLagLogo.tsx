@@ -19,7 +19,7 @@
  *   <SizeBadge size />   The S/M/L pill — yellow / orange / red rounded
  *                        rectangle with bold uppercase white text.
  */
-import { useId } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { GameSize } from "@/lib/gameSetup";
@@ -157,61 +157,95 @@ export function HideSeekMark({
 /* ────────────────── HIDE+SEEK full-width box scene ────────────────── */
 
 /**
- * The box-cover "scene": the same sun/mountain EXCLUDE as `HideSeekMark`,
- * but on a wide canvas built to span the FULL screen width as a band at
- * the bottom of a surface (the welcome landing echoes the physical box,
- * where the mountain range runs corner-to-corner along the bottom with
- * the sun rising behind the peak). Width is driven by the caller via
- * `className` (e.g. `w-full`); height follows the 120×72 viewBox.
+ * The box-cover "scene": the same sun/mountain EXCLUDE (XOR) as
+ * `HideSeekMark`, but laid out to fill its container (the welcome landing
+ * uses it as a full-viewport background, echoing the physical box). The
+ * geometry is tied to the measured box per the box spec:
+ *
+ *   - the SUN's diameter is one third of the width (r = w/6), centred
+ *     horizontally;
+ *   - the MOUNTAIN's apex sits at the exact centre of the sun;
+ *   - its base is the full bottom edge (corner to corner), so the two
+ *     slopes are equal length (isosceles);
+ *   - the overlap is knocked out of both, edges meeting flush.
+ *
+ * `cyFraction` places the sun's centre (and thus the apex) as a fraction
+ * of the height — the one free variable the spec leaves open. Because the
+ * circle/triangle must scale to real pixels (a fixed viewBox can't pin a
+ * diameter to a third of the *screen*), the component measures its own
+ * box and redraws on resize.
  */
-export function HideSeekScene({ className }: { className?: string }) {
+export function HideSeekScene({
+    className,
+    cyFraction = 0.6,
+}: {
+    className?: string;
+    cyFraction?: number;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
     const uid = useId().replace(/:/g, "");
     const circleMaskId = `hsscene-c-${uid}`;
     const triMaskId = `hsscene-t-${uid}`;
-    const W = 120;
-    const H = 72;
-    const SUN = { cx: 60, cy: 28, r: 19 };
-    // Apex pokes into the sun's lower third; base runs just past both
-    // edges so the mountain reaches the corners at any rounding.
-    const TRIANGLE = `M60 38 L-4 ${H} L${W + 4} ${H} Z`;
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const measure = () =>
+            setDims({ w: el.clientWidth, h: el.clientHeight });
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+
+    let svg: ReactNode = null;
+    if (dims && dims.w > 0 && dims.h > 0) {
+        const { w, h } = dims;
+        const cx = w / 2;
+        const r = w / 6; // sun diameter = one third of the width
+        const cy = h * cyFraction; // apex coincides with the sun's centre
+        const triangle = `M${cx} ${cy} L0 ${h} L${w} ${h} Z`;
+        svg = (
+            <svg
+                width={w}
+                height={h}
+                viewBox={`0 0 ${w} ${h}`}
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                role="img"
+                aria-label="Hide+Seek"
+            >
+                <defs>
+                    <mask id={circleMaskId}>
+                        <rect width={w} height={h} fill="white" />
+                        <path d={triangle} fill="black" />
+                    </mask>
+                    <mask id={triMaskId}>
+                        <rect width={w} height={h} fill="white" />
+                        <circle cx={cx} cy={cy} r={r} fill="black" />
+                    </mask>
+                </defs>
+                <circle
+                    cx={cx}
+                    cy={cy}
+                    r={r}
+                    fill="white"
+                    mask={`url(#${circleMaskId})`}
+                />
+                <path
+                    d={triangle}
+                    fill="hsl(5 80% 55%)"
+                    mask={`url(#${triMaskId})`}
+                />
+            </svg>
+        );
+    }
+
     return (
-        <svg
-            viewBox={`0 0 ${W} ${H}`}
-            fill="none"
-            preserveAspectRatio="xMidYMax meet"
-            xmlns="http://www.w3.org/2000/svg"
-            role="img"
-            aria-label="Hide+Seek"
-            className={className}
-        >
-            <defs>
-                <mask id={circleMaskId}>
-                    <rect width={W} height={H} fill="white" />
-                    <path d={TRIANGLE} fill="black" />
-                </mask>
-                <mask id={triMaskId}>
-                    <rect width={W} height={H} fill="white" />
-                    <circle
-                        cx={SUN.cx}
-                        cy={SUN.cy}
-                        r={SUN.r}
-                        fill="black"
-                    />
-                </mask>
-            </defs>
-            <circle
-                cx={SUN.cx}
-                cy={SUN.cy}
-                r={SUN.r}
-                fill="white"
-                mask={`url(#${circleMaskId})`}
-            />
-            <path
-                d={TRIANGLE}
-                fill="hsl(5 80% 55%)"
-                mask={`url(#${triMaskId})`}
-            />
-        </svg>
+        <div ref={ref} className={className} aria-hidden="true">
+            {svg}
+        </div>
     );
 }
 
