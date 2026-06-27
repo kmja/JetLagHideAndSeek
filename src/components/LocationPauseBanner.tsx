@@ -68,7 +68,7 @@ export function LocationPauseBanner({
                     <div className="font-semibold">
                         Seekers must share their location
                     </div>
-                    <div className="text-xs font-bold tabular-nums text-amber-300">
+                    <div className="text-xs font-bold tabular-nums text-yellow-300">
                         Game pauses in {mm}:{String(ss).padStart(2, "0")}
                     </div>
                 </div>
