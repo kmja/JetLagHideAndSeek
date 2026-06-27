@@ -87,13 +87,12 @@ export function JetLagLogo({
  * EXCLUDE (XOR) — the region where the two OVERLAP is knocked out of
  * BOTH shapes, so the intersection reads as empty background. The sun
  * gets a triangular notch bitten out of its lower edge; the mountain
- * gets its peak bitten out by the sun's arc; between them sits an even
- * navy wedge.
+ * gets its peak bitten out by the sun's arc, and the two cut edges meet
+ * flush (no seam) along the boolean boundary.
  *
  * Implemented as two masks, one per shape, each subtracting the OTHER
- * shape dilated by an even gap (stroke = 2×gap) so a uniform-width sliver
- * of background separates the cut edges. The cutout is transparent, so
- * the mark works on the navy app chrome, on red, or anywhere else.
+ * shape. The cutout is transparent, so the mark works on the navy app
+ * chrome, on red, or anywhere else.
  */
 export function HideSeekMark({
     size = 40,
@@ -109,9 +108,6 @@ export function HideSeekMark({
     const triMaskId = `hsmark-t-${uid}`;
     const TRIANGLE = "M32 30 L3 58 L61 58 Z";
     const CIRCLE = { cx: 32, cy: 26, r: 18 };
-    // Stroke on each cut → the gap. Split across both shapes (each cuts
-    // the other), so 3 here ≈ a 3px navy seam total.
-    const GAP = 3;
     return (
         <svg
             width={size}
@@ -124,18 +120,12 @@ export function HideSeekMark({
             className={className}
         >
             <defs>
-                {/* Sun keeps everything EXCEPT the (dilated) mountain. */}
+                {/* Sun keeps everything EXCEPT the mountain. */}
                 <mask id={circleMaskId}>
                     <rect width="64" height="64" fill="white" />
-                    <path
-                        d={TRIANGLE}
-                        fill="black"
-                        stroke="black"
-                        strokeWidth={GAP}
-                        strokeLinejoin="round"
-                    />
+                    <path d={TRIANGLE} fill="black" />
                 </mask>
-                {/* Mountain keeps everything EXCEPT the (dilated) sun. */}
+                {/* Mountain keeps everything EXCEPT the sun. */}
                 <mask id={triMaskId}>
                     <rect width="64" height="64" fill="white" />
                     <circle
@@ -143,8 +133,6 @@ export function HideSeekMark({
                         cy={CIRCLE.cy}
                         r={CIRCLE.r}
                         fill="black"
-                        stroke="black"
-                        strokeWidth={GAP}
                     />
                 </mask>
             </defs>
@@ -157,6 +145,67 @@ export function HideSeekMark({
                 mask={`url(#${circleMaskId})`}
             />
             {/* Red mountain with the sun knocked out of its peak. */}
+            <path
+                d={TRIANGLE}
+                fill="hsl(5 80% 55%)"
+                mask={`url(#${triMaskId})`}
+            />
+        </svg>
+    );
+}
+
+/* ────────────────── HIDE+SEEK full-width box scene ────────────────── */
+
+/**
+ * The box-cover "scene": the same sun/mountain EXCLUDE as `HideSeekMark`,
+ * but on a wide canvas built to span the FULL screen width as a band at
+ * the bottom of a surface (the welcome landing echoes the physical box,
+ * where the mountain range runs corner-to-corner along the bottom with
+ * the sun rising behind the peak). Width is driven by the caller via
+ * `className` (e.g. `w-full`); height follows the 120×72 viewBox.
+ */
+export function HideSeekScene({ className }: { className?: string }) {
+    const uid = useId().replace(/:/g, "");
+    const circleMaskId = `hsscene-c-${uid}`;
+    const triMaskId = `hsscene-t-${uid}`;
+    const W = 120;
+    const H = 72;
+    const SUN = { cx: 60, cy: 28, r: 19 };
+    // Apex pokes into the sun's lower third; base runs just past both
+    // edges so the mountain reaches the corners at any rounding.
+    const TRIANGLE = `M60 38 L-4 ${H} L${W + 4} ${H} Z`;
+    return (
+        <svg
+            viewBox={`0 0 ${W} ${H}`}
+            fill="none"
+            preserveAspectRatio="xMidYMax meet"
+            xmlns="http://www.w3.org/2000/svg"
+            role="img"
+            aria-label="Hide+Seek"
+            className={className}
+        >
+            <defs>
+                <mask id={circleMaskId}>
+                    <rect width={W} height={H} fill="white" />
+                    <path d={TRIANGLE} fill="black" />
+                </mask>
+                <mask id={triMaskId}>
+                    <rect width={W} height={H} fill="white" />
+                    <circle
+                        cx={SUN.cx}
+                        cy={SUN.cy}
+                        r={SUN.r}
+                        fill="black"
+                    />
+                </mask>
+            </defs>
+            <circle
+                cx={SUN.cx}
+                cy={SUN.cy}
+                r={SUN.r}
+                fill="white"
+                mask={`url(#${circleMaskId})`}
+            />
             <path
                 d={TRIANGLE}
                 fill="hsl(5 80% 55%)"

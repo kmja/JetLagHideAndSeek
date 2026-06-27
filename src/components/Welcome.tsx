@@ -23,7 +23,7 @@ import {
 } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
-import { HideSeekMark, HideSeekWordmark } from "./JetLagLogo";
+import { HideSeekMark, HideSeekScene, HideSeekWordmark } from "./JetLagLogo";
 
 /**
  * First-load welcome screen. v267: was a dialog overlaid on the
@@ -167,8 +167,12 @@ export function Welcome() {
         >
             <div className="w-full sm:max-w-md flex flex-col p-0 gap-0">
                 {/* Hero — echoes the box-face cover. Official Jet Lag:
-                    The Game lockup sits above the Hide+Seek mark +
-                    wordmark. */}
+                    The Game lockup sits above the Hide+Seek wordmark. In
+                    intro mode the big sun/mountain mark moves to a
+                    full-width band at the BOTTOM (see the scene below),
+                    exactly like the physical box; the join/lobby modes
+                    keep a compact mark up here instead since their
+                    content fills the lower half. */}
                 <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
                     <img
                         src="/jetlag-logo.svg"
@@ -180,7 +184,7 @@ export function Welcome() {
                            centred over the Hide+Seek mark below it. */
                         className="h-12 w-auto max-w-[70%] translate-x-[3%]"
                     />
-                    <HideSeekMark size={72} />
+                    {mode !== "intro" && <HideSeekMark size={64} />}
                     <HideSeekWordmark boxLayout size="xl" />
                 </div>
 
@@ -480,26 +484,34 @@ export function Welcome() {
                     </>
                 )}
 
-                {/* Footer — support the real game + unofficial disclaimer.
-                    v477: sticky to the bottom of the scroll viewport so the
-                    purchase link + disclaimer stay visible while the panel
-                    above scrolls. Opaque background + top border so content
-                    scrolls cleanly behind it. */}
-                <div className="mt-auto sticky bottom-0 z-10 px-6 pt-4 pb-8 text-center space-y-2.5 bg-jetlag border-t border-border/40">
-                    <a
-                        href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-block text-xs font-semibold text-jetlag-yellow hover:underline"
-                    >
-                        Love it? Buy the official Hide+Seek box from Nebula →
-                    </a>
-                    <p className="text-[10px] leading-snug text-current/40">
-                        This is a free, unofficial fan-made companion. Not
-                        affiliated with or endorsed by Jet Lag: The Game or
-                        Nebula. Please support the creators by buying the
-                        physical game.
-                    </p>
+                {/* Bottom of the box face. In intro mode the sun/mountain
+                    scene runs full-width along the very bottom (the
+                    rulebook/box layout), with the purchase link +
+                    disclaimer beneath it. `mt-auto` drops the whole group
+                    to the bottom of the viewport. */}
+                <div className="mt-auto flex flex-col">
+                    {mode === "intro" && (
+                        <HideSeekScene className="block w-full" />
+                    )}
+                    {/* Footer — support the real game + unofficial
+                        disclaimer. Opaque background + top border so any
+                        scrolling content reads cleanly behind it. */}
+                    <div className="sticky bottom-0 z-10 px-6 pt-4 pb-8 text-center space-y-2.5 bg-jetlag border-t border-border/40">
+                        <a
+                            href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block text-xs font-semibold text-jetlag-yellow hover:underline"
+                        >
+                            Love it? Buy the official Hide+Seek box from Nebula →
+                        </a>
+                        <p className="text-[10px] leading-snug text-current/40">
+                            This is a free, unofficial fan-made companion. Not
+                            affiliated with or endorsed by Jet Lag: The Game or
+                            Nebula. Please support the creators by buying the
+                            physical game.
+                        </p>
+                    </div>
                 </div>
             </div>
         </div>
