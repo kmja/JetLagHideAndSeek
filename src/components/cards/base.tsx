@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Copy, Share2, Trash2 } from "lucide-react";
+import { Copy, Lock, Share2, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { VscChevronDown } from "react-icons/vsc";
 import { toast } from "react-toastify";
@@ -101,9 +101,18 @@ export const QuestionCard = ({
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
     const $gameSize = useStore(gameSize);
+    const $mpEnabled = useStore(multiplayerEnabled);
 
     const categoryMeta = category ? CATEGORIES[category] : undefined;
     const CategoryIcon = categoryMeta?.icon;
+
+    // In an online game a question that's already been SENT to the hider
+    // (createdAt stamped) or ANSWERED (locked) can't be deleted — the
+    // hider still has it on their side, so removing it here would desync
+    // the two devices. `forceExpanded` is the configure dialog, where the
+    // draft hasn't been committed yet, so deletion stays allowed there.
+    const sentToHider = createdAt !== undefined || locked === true;
+    const deletionLocked = $mpEnabled && sentToHider && !forceExpanded;
 
     // Resolve the live Question from the store so we can build a fresh
     // share URL (config may have changed since add-time). Thermometer in
@@ -289,57 +298,80 @@ export const QuestionCard = ({
                     {/* Trash button — top-right of the header. Stops
                         propagation so tapping it doesn't also toggle the
                         collapsed state. Opens the existing confirm
-                        AlertDialog before actually removing the question. */}
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <button
-                                type="button"
-                                onClick={(e) => e.stopPropagation()}
-                                disabled={$isLoading}
-                                aria-label="Delete question"
-                                title="Delete question"
-                                className={cn(
-                                    "absolute top-2 right-2 w-6 h-6",
-                                    "flex items-center justify-center rounded-md",
-                                    "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-                                    "transition-colors",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    "disabled:opacity-40 disabled:cursor-not-allowed",
-                                )}
-                            >
-                                <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent
+                        AlertDialog before actually removing the question.
+
+                        In an online game a sent/answered question can't be
+                        deleted (it would desync from the hider); we swap the
+                        trash for a disabled lock instead. */}
+                    {deletionLocked ? (
+                        <button
+                            type="button"
                             onClick={(e) => e.stopPropagation()}
+                            disabled
+                            aria-label="Sent questions can't be deleted in an online game"
+                            title="Sent to the hider — can't be deleted in an online game"
+                            className={cn(
+                                "absolute top-2 right-2 w-6 h-6",
+                                "flex items-center justify-center rounded-md",
+                                "text-muted-foreground/40 cursor-not-allowed",
+                            )}
                         >
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                    Are you absolutely sure?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    This action cannot be undone. This will
-                                    permanently delete the question.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                    onClick={() => {
-                                        questions.set(
-                                            $questions.filter(
-                                                (q) =>
-                                                    q.key !== questionKey,
-                                            ),
-                                        );
-                                    }}
-                                    className="mb-2 sm:mb-0"
+                            <Lock className="w-3 h-3" />
+                        </button>
+                    ) : (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    disabled={$isLoading}
+                                    aria-label="Delete question"
+                                    title="Delete question"
+                                    className={cn(
+                                        "absolute top-2 right-2 w-6 h-6",
+                                        "flex items-center justify-center rounded-md",
+                                        "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+                                        "transition-colors",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                        "disabled:opacity-40 disabled:cursor-not-allowed",
+                                    )}
                                 >
-                                    Delete Question
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                        Are you absolutely sure?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This action cannot be undone. This
+                                        will permanently delete the question.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>
+                                        Cancel
+                                    </AlertDialogCancel>
+                                    <AlertDialogAction
+                                        onClick={() => {
+                                            questions.set(
+                                                $questions.filter(
+                                                    (q) =>
+                                                        q.key !== questionKey,
+                                                ),
+                                            );
+                                        }}
+                                        className="mb-2 sm:mb-0"
+                                    >
+                                        Delete Question
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                    )}
                     <SidebarGroupLabel
                         className="ml-8 mr-10 flex items-center gap-2 rounded-sm transition-colors"
                     >
