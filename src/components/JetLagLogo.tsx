@@ -163,10 +163,10 @@ export function HideSeekMark({
  * geometry is tied to the measured box:
  *
  *   - the SUN's diameter is one third of the (capped) band width;
- *   - the MOUNTAIN's apex sits at the exact centre of the sun;
- *   - its base is the full bottom edge, and the apex is placed left of
- *     centre so the two slopes are UNEQUAL (a natural mountain), with the
- *     apex height derived so the peak angle is exactly 90°;
+ *   - the MOUNTAIN's apex sits at the exact centre of the sun, centred
+ *     horizontally;
+ *   - its base is the full bottom edge (symmetric, equal slopes), and the
+ *     apex height is derived so the peak angle is ~80°;
  *   - the overlap is knocked out of both, edges meeting flush.
  *
  * Because the circle/triangle must scale to real pixels (a fixed viewBox
@@ -200,16 +200,14 @@ export function HideSeekScene({ className }: { className?: string }) {
         const ew = Math.min(w, 560);
         const x0 = (w - ew) / 2; // left edge of the drawn band, centred
         const r = ew / 6; // sun diameter = one third of the band width
-        // ASYMMETRIC peak: the apex sits left of the band centre so the
-        // two slopes are unequal (a natural mountain, not a pyramid). The
-        // apex Y is then DERIVED so the peak angle is exactly 90°: with a
-        // full-band base, the apex is 90° iff its height above the base
-        // equals sqrt(aLeft·aRight) (geometric mean of the two base runs).
-        const apexFrac = 0.42; // <0.5 ⇒ apex left of centre, left slope steeper
-        const aLeft = apexFrac * ew;
-        const aRight = ew - aLeft;
-        const cx = x0 + aLeft;
-        const cy = h - Math.sqrt(aLeft * aRight); // ⇒ 90° at the apex
+        // Centred, symmetric peak. The apex sits at the band centre and
+        // its height is DERIVED so the peak angle equals PEAK_ANGLE_DEG:
+        // with a full-band base, each slope makes (angle / 2) with the
+        // vertical, so height = halfBase / tan(angle / 2).
+        const PEAK_ANGLE_DEG = 80;
+        const cx = x0 + ew / 2;
+        const halfAngle = ((PEAK_ANGLE_DEG / 2) * Math.PI) / 180;
+        const cy = h - ew / 2 / Math.tan(halfAngle);
         const triangle = `M${cx} ${cy} L${x0} ${h} L${x0 + ew} ${h} Z`;
         svg = (
             <svg
