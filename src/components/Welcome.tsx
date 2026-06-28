@@ -181,7 +181,7 @@ export function Welcome() {
                     the join/lobby modes also show the compact mark here. */}
                 <div
                     className={cn(
-                        "px-6 pt-8 flex flex-col items-center text-center gap-4 shrink-0",
+                        "px-6 pt-8 flex flex-col items-center text-center gap-6 shrink-0",
                         mode === "intro" ? "pb-0" : "pb-6",
                     )}
                 >
