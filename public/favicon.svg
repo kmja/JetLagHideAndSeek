@@ -15,12 +15,12 @@
     </mask>
     <mask id="hsfav-tm">
       <rect width="512" height="512" fill="white"/>
-      <circle cx="256" cy="256" r="162" fill="black"/>
+      <circle cx="256" cy="256" r="148" fill="black"/>
     </mask>
   </defs>
   <g clip-path="url(#hsfav-round)">
     <rect width="512" height="512" fill="#1F2F3F"/>
-    <circle cx="256" cy="256" r="162" fill="#FFFFFF" mask="url(#hsfav-cm)"/>
+    <circle cx="256" cy="256" r="148" fill="#FFFFFF" mask="url(#hsfav-cm)"/>
     <path d="M256 256 L0 512 L512 512 Z" fill="#E84030" mask="url(#hsfav-tm)"/>
   </g>
 </svg>
