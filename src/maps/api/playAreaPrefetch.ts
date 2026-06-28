@@ -926,6 +926,28 @@ export function nearestFromCache(
 }
 
 /**
+ * How many prefetched features of a family sit INSIDE the play-area
+ * polygon. Returns null when the family hasn't been prefetched yet (count
+ * unknown — callers must NOT gate on an unknown). While the boundary is
+ * still loading (polyGeoJSON null) we return the raw cached count as a
+ * best-effort upper bound rather than null, so a not-yet-loaded boundary
+ * never wrongly disables a category. Used by the New-question subtype
+ * picker to grey out reference types with too few instances to make a
+ * meaningful question (e.g. a single aquarium, or no airports).
+ */
+export function countInPlayArea(family: FamilyKey): number | null {
+    const features = getCachedCategory(family);
+    if (features === null) return null;
+    const poly = polyGeoJSON.get();
+    if (!poly) return features.length;
+    let n = 0;
+    for (const f of features) {
+        if (pointInPlayArea(poly, f.lng, f.lat)) n++;
+    }
+    return n;
+}
+
+/**
  * Warm a whole set of families in ONE Overpass query.
  *
  * This is the heart of the consolidation: instead of firing N

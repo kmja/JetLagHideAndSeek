@@ -41,6 +41,7 @@ import {
     seekerResendQuestion,
 } from "@/lib/multiplayer/store";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
+import { useSubtypeAvailability } from "@/lib/subtypeAvailability";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 import {
@@ -283,6 +284,21 @@ export const AddQuestionDialog = ({
     const [subtypePickerFor, setSubtypePickerFor] = React.useState<
         "matching" | "measuring" | "tentacles" | "photo" | null
     >(null);
+    // Per-subtype availability for the open subtype picker: greys out
+    // reference types with too few instances inside the play area to make
+    // a meaningful question (e.g. a single aquarium, or no airports).
+    const pickerSubtypeValues = React.useMemo(
+        () =>
+            (subtypePickerFor
+                ? (getSubtypes(subtypePickerFor, $gameSize) ?? [])
+                : []
+            ).map((s) => s.value),
+        [subtypePickerFor, $gameSize],
+    );
+    const subtypeAvailability = useSubtypeAvailability(
+        subtypePickerFor,
+        pickerSubtypeValues,
+    );
     // Key of the just-added question awaiting Confirm/Cancel.
     const [pendingKey, setPendingKey] = React.useState<number | null>(null);
     // v339: thermometer now needs a target-distance + Start confirm
@@ -997,6 +1013,21 @@ export const AddQuestionDialog = ({
                                                 const hardBlock =
                                                     $askOnce && subtypeUsed;
                                                 const repeatMult = askedTimes + 1;
+                                                // Too few of this reference
+                                                // inside the play area to ask
+                                                // a meaningful question.
+                                                const avail =
+                                                    subtypeAvailability[
+                                                        subtype.value
+                                                    ];
+                                                const tooFew = Boolean(
+                                                    avail && !avail.available,
+                                                );
+                                                const tooFewReason = tooFew
+                                                    ? avail!.count === 0
+                                                        ? `No ${subtype.label.toLowerCase()} in the play area to ask about.`
+                                                        : `Only one ${subtype.label.toLowerCase()} in the play area — not enough to ask this.`
+                                                    : undefined;
                                                 return (
                                                     <SubtypeTile
                                                         key={subtype.value}
@@ -1008,7 +1039,9 @@ export const AddQuestionDialog = ({
                                                             $mapGeo?.properties
                                                                 ?.countrycode,
                                                         )}
-                                                        disabled={hardBlock}
+                                                        disabled={
+                                                            hardBlock || tooFew
+                                                        }
                                                         repeatMultiplier={
                                                             subtypeUsed
                                                                 ? repeatMult
@@ -1017,7 +1050,7 @@ export const AddQuestionDialog = ({
                                                         blockedReason={
                                                             hardBlock
                                                                 ? "House rule: each question can only be asked once per game."
-                                                                : undefined
+                                                                : tooFewReason
                                                         }
                                                         onClick={() => {
                                                             const cat =
