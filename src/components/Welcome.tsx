@@ -175,13 +175,18 @@ export function Welcome() {
             )}
             <div className="relative z-10 w-full sm:max-w-md flex flex-col p-0 gap-0">
                 {/* Hero — echoes the box-face cover. Official Jet Lag:
-                    The Game lockup sits above the Hide+Seek wordmark. In
-                    intro mode the big sun/mountain mark moves to a
-                    full-width band at the BOTTOM (see the scene below),
-                    exactly like the physical box; the join/lobby modes
-                    keep a compact mark up here instead since their
-                    content fills the lower half. */}
-                <div className="px-6 pt-8 pb-6 flex flex-col items-center text-center gap-4">
+                    The Game lockup at the top. In intro mode the Hide+Seek
+                    wordmark moves DOWN into the centred middle band (so the
+                    wordmark + blurb + buttons sit centred between this
+                    lockup and the sun); the join/lobby modes keep the
+                    compact mark + wordmark up here since their content
+                    fills the lower half. */}
+                <div
+                    className={cn(
+                        "px-6 pt-8 flex flex-col items-center text-center gap-4 shrink-0",
+                        mode === "intro" ? "pb-0" : "pb-6",
+                    )}
+                >
                     <img
                         src="/jetlag-logo.svg"
                         alt="Jet Lag: The Game"
@@ -193,35 +198,44 @@ export function Welcome() {
                         className="h-12 w-auto max-w-[70%] translate-x-[3%]"
                     />
                     {mode !== "intro" && <HideSeekMark size={64} />}
-                    <HideSeekWordmark boxLayout size="xl" />
+                    {mode !== "intro" && (
+                        <HideSeekWordmark boxLayout size="xl" />
+                    )}
                 </div>
 
                 {mode === "intro" ? (
                     <>
-                        <div className="px-6 pb-5 text-sm leading-relaxed text-current/85 space-y-2">
-                            <p>
+                        {/* Centred band: wordmark + blurb + CTAs vertically
+                            centred in the gap between the Jet Lag lockup
+                            above and the sun reserve below. */}
+                        <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center px-6 gap-6">
+                            <HideSeekWordmark
+                                boxLayout
+                                size="xl"
+                                className="w-full"
+                            />
+                            <p className="text-sm leading-relaxed text-current/85">
                                 A real-time companion app for playing Jet Lag:
                                 The Game's Hide+Seek in your own city — on your
                                 phones, across your local transit network.
                             </p>
-                        </div>
-
-                        <div className="px-6 pb-7 flex flex-col gap-2">
-                            <Button
-                                size="lg"
-                                className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
-                                onClick={handleStartNew}
-                            >
-                                Create game
-                            </Button>
-                            <Button
-                                size="lg"
-                                variant="outline"
-                                className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
-                                onClick={() => setMode("join-form")}
-                            >
-                                Join a game
-                            </Button>
+                            <div className="w-full flex flex-col gap-2">
+                                <Button
+                                    size="lg"
+                                    className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
+                                    onClick={handleStartNew}
+                                >
+                                    Create game
+                                </Button>
+                                <Button
+                                    size="lg"
+                                    variant="outline"
+                                    className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
+                                    onClick={() => setMode("join-form")}
+                                >
+                                    Join a game
+                                </Button>
+                            </div>
                         </div>
                     </>
                 ) : mode === "join-form" ? (
@@ -492,35 +506,47 @@ export function Welcome() {
                     </>
                 )}
 
-                {/* Footer — a single link supporting the real game. The
-                    unofficial/fan-made disclaimer was removed (v560) for a
-                    cleaner, more official-looking landing. In intro mode the
-                    link rides on top of the mountain (light text for
-                    contrast on the red); the join / lobby modes keep the
-                    opaque sticky panel so it reads over scrolling content.
-                    `mt-auto` drops it to the bottom of the viewport. */}
-                <div
-                    className={cn(
-                        "mt-auto px-6 pt-4 pb-8 text-center",
-                        mode === "intro"
-                            ? "relative z-10"
-                            : "sticky bottom-0 z-10 bg-jetlag border-t border-border/40",
-                    )}
-                >
-                    <a
-                        href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={cn(
-                            "inline-block text-xs font-semibold hover:underline",
-                            mode === "intro"
-                                ? "text-white drop-shadow"
-                                : "text-jetlag-yellow",
-                        )}
+                {/* Footer — a single link supporting the real game (the
+                    fan-made disclaimer was removed in v560). In intro mode
+                    it sits inside a bottom RESERVE whose height matches the
+                    sun band, so the centred middle above stops exactly at
+                    the sun's top edge and the link rides on the mountain;
+                    the join / lobby modes keep the opaque sticky panel so
+                    it reads over scrolling content.
+
+                    Reserve height mirrors HideSeekScene's geometry: apex
+                    height D = (ew/2)/tan(40°) plus sun radius r =
+                    (ew/6)·1.25 ≈ 0.804·ew, ew = min(100vw, 560px). Keep
+                    this factor in sync with HideSeekScene. */}
+                {mode === "intro" ? (
+                    <div
+                        className="relative shrink-0 z-10"
+                        style={{ height: "calc(min(100vw, 560px) * 0.804)" }}
                     >
-                        Love it? Buy the official Hide+Seek box from Nebula →
-                    </a>
-                </div>
+                        <div className="absolute inset-x-0 bottom-0 px-6 pt-4 pb-8 text-center">
+                            <a
+                                href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-block text-xs font-semibold text-white drop-shadow hover:underline"
+                            >
+                                Love it? Buy the official Hide+Seek box from
+                                Nebula →
+                            </a>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="mt-auto sticky bottom-0 z-10 px-6 pt-4 pb-8 text-center bg-jetlag border-t border-border/40">
+                        <a
+                            href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-block text-xs font-semibold text-jetlag-yellow hover:underline"
+                        >
+                            Love it? Buy the official Hide+Seek box from Nebula →
+                        </a>
+                    </div>
+                )}
             </div>
         </div>
     );
