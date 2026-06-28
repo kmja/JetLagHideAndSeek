@@ -5,6 +5,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { installTheme } from "@/lib/theme";
+// Side-effect import: registers the `beforeinstallprompt` listener at
+// startup so the landing's "Install app" button can offer the native
+// prompt (the event can fire before the landing component mounts).
+import "@/lib/pwaInstall";
 
 import { App } from "./App";
 

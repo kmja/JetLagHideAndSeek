@@ -23,6 +23,7 @@ import {
 } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
+import { InstallAppButton } from "./InstallAppButton";
 import { HideSeekMark, HideSeekScene, HideSeekWordmark } from "./JetLagLogo";
 
 /**
@@ -226,6 +227,10 @@ export function Welcome() {
                                 >
                                     Join a game
                                 </Button>
+                                {/* Renders only when installable (Android /
+                                    desktop Chrome) or on iOS Safari; hidden
+                                    once installed. */}
+                                <InstallAppButton />
                             </div>
                         </div>
                     </>
