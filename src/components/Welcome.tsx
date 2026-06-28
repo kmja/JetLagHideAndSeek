@@ -201,10 +201,10 @@ export function Welcome() {
 
                 {mode === "intro" ? (
                     <>
-                        {/* Centred band: the blurb + CTAs sit centred in
-                            the gap between the lockup/wordmark above and the
-                            sun reserve below. */}
-                        <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center px-6 gap-6">
+                        {/* Blurb + CTAs sit just under the wordmark with
+                            reasonable spacing; the sun reserve below uses
+                            mt-auto to stay pinned at the bottom. */}
+                        <div className="px-6 pt-8 flex flex-col items-center text-center gap-6">
                             <p className="text-sm leading-relaxed text-current/85">
                                 A real-time companion app for playing Jet Lag:
                                 The Game's Hide+Seek in your own city — on your
@@ -511,7 +511,7 @@ export function Welcome() {
                     this factor in sync with HideSeekScene. */}
                 {mode === "intro" ? (
                     <div
-                        className="relative shrink-0 z-10"
+                        className="relative shrink-0 z-10 mt-auto"
                         style={{ height: "calc(min(100vw, 560px) * 0.804)" }}
                     >
                         <div className="absolute inset-x-0 bottom-0 px-6 pt-4 pb-8 text-center">
