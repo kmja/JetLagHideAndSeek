@@ -1,19 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Hide+Seek">
   <!-- Hide+Seek mark: a white sun and a red mountain combined with a
        boolean EXCLUDE (XOR) — the overlap is knocked out of BOTH shapes,
-       so the navy app colour shows through the wedge where they meet.
-       Matches <HideSeekMark> in src/components/JetLagLogo.tsx. -->
+       so the navy shows through the wedge where they meet. The sun is
+       centred, the mountain's peak sits at the sun's exact centre, and
+       its base spans the full bottom edge (matches the landing scene).
+       Clipped to the rounded rect so the base rounds with the corners. -->
   <defs>
+    <clipPath id="hsfav-round">
+      <rect width="512" height="512" rx="112"/>
+    </clipPath>
     <mask id="hsfav-cm">
       <rect width="512" height="512" fill="white"/>
-      <path d="M256 244 L75 418 L437 418 Z" fill="black"/>
+      <path d="M256 256 L0 512 L512 512 Z" fill="black"/>
     </mask>
     <mask id="hsfav-tm">
       <rect width="512" height="512" fill="white"/>
-      <circle cx="256" cy="218" r="112" fill="black"/>
+      <circle cx="256" cy="256" r="162" fill="black"/>
     </mask>
   </defs>
-  <rect width="512" height="512" rx="112" fill="#1F2F3F"/>
-  <circle cx="256" cy="218" r="112" fill="#FFFFFF" mask="url(#hsfav-cm)"/>
-  <path d="M256 244 L75 418 L437 418 Z" fill="#E84030" mask="url(#hsfav-tm)"/>
+  <g clip-path="url(#hsfav-round)">
+    <rect width="512" height="512" fill="#1F2F3F"/>
+    <circle cx="256" cy="256" r="162" fill="#FFFFFF" mask="url(#hsfav-cm)"/>
+    <path d="M256 256 L0 512 L512 512 Z" fill="#E84030" mask="url(#hsfav-tm)"/>
+  </g>
 </svg>
