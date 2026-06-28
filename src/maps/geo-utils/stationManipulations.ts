@@ -2,14 +2,6 @@ import * as turf from "@turf/turf";
 
 import type { StationPlace } from "@/maps/api";
 
-/** Co-located duplicate-node threshold (metres). Two station nodes this
- *  close are the same physical hub (separate OSM nodes for tram / metro /
- *  bus / platforms / directions) and are merged REGARDLESS of name — OSM
- *  gives them inconsistent names (e.g. "Schous plass" vs
- *  "Schous plass [Trikk]"), which is why a name-only merge left visible
- *  duplicates all over dense networks like Oslo. */
-const CO_LOCATED_METERS = 130;
-
 /**
  * Normalise a station name for duplicate detection: strip diacritics,
  * lowercase, drop bracketed/parenthetical qualifiers and common
@@ -45,13 +37,17 @@ function approxMeters(a: number[], b: number[]): number {
 
 /**
  * Merge duplicate stations into one (averaged centre). Two stations are
- * the same hub when EITHER:
- *   - they share a normalised name AND their hiding zones overlap (centres
- *     within `radius`), OR
- *   - their centres are within `CO_LOCATED_METERS` of each other
- *     (regardless of name — co-located OSM nodes for the same stop).
- * Clusters are formed by union-find so a chain of near-duplicates collapses
- * to a single station.
+ * the same hub ONLY when they share a NORMALISED name (diacritics,
+ * bracketed qualifiers, and mode/direction words stripped — so
+ * "Schous plass", "Schous plass [Trikk]" and "Schous Plass stasjon" all
+ * match) AND their hiding zones overlap (centres within `radius`).
+ *
+ * Crucially this is name-based, never proximity-alone: two DIFFERENTLY-
+ * named stations that merely sit close together (a train station and a
+ * separate bus stop 100 m apart) are distinct hiding zones and BOTH stay
+ * selectable — merging by distance risks hiding a real station the hider
+ * went to. Clusters form by union-find so a chain of same-named
+ * near-duplicates collapses to a single station.
  *
  * @param places  Array of unmerged station point features
  * @param radius  Hiding-zone radius
@@ -83,13 +79,11 @@ export function mergeDuplicateStation(
     };
 
     for (let i = 0; i < n; i++) {
+        if (names[i] === "") continue; // unnamed nodes never merge
         for (let j = i + 1; j < n; j++) {
-            const d = approxMeters(coords[i], coords[j]);
-            if (d > radiusM && d > CO_LOCATED_METERS) continue;
-            const coLocated = d <= CO_LOCATED_METERS;
-            const sameName =
-                names[i] !== "" && names[i] === names[j] && d <= radiusM;
-            if (coLocated || sameName) union(i, j);
+            // Same normalised name + overlapping zones → duplicate stop.
+            if (names[i] !== names[j]) continue;
+            if (approxMeters(coords[i], coords[j]) <= radiusM) union(i, j);
         }
     }
 

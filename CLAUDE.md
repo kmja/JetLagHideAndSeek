@@ -182,7 +182,7 @@ There is **no "More" slot** anymore, and the hiding-period countdown is **not** 
 
 (The hider's sibling `HiderMapDisplayControls` is a trimmed version of the same popover + a "Reachable zones" toggle; see the Trip-planning section.)
 
-**Hiding-zone overlay rendering** (`ZoneSidebar.tsx` `styleStations` → `hidingZonesGeoJSON` atom → `Map.tsx` `hiding-zones-*` layers): the overlay ships the zone CIRCLES (faint `hiding-zones-fill` + dashed `hiding-zones-line`) AND their centre POINTS (dots `hiding-zones-points` + name labels `hiding-zones-labels`, a symbol layer reading `name`, `minzoom 11`, overlap-culled). Station de-duplication (`mergeDuplicateStation`, `stationManipulations.ts`, default-on via `mergeDuplicates`) is union-find clustering: two nodes merge when they share a NORMALISED name (diacritics/brackets/mode-&-direction words stripped) and their zones overlap, OR when they're within `CO_LOCATED_METERS` (130 m) regardless of name — the latter collapses the variant-named co-located OSM nodes (tram/metro/bus/platform) that previously left duplicate dots all over dense networks like Oslo.
+**Hiding-zone overlay rendering** (`ZoneSidebar.tsx` `styleStations` → `hidingZonesGeoJSON` atom → `Map.tsx` `hiding-zones-*` layers): the overlay ships the zone CIRCLES (faint `hiding-zones-fill` + dashed `hiding-zones-line`) AND their centre POINTS (dots `hiding-zones-points` + name labels `hiding-zones-labels`, a symbol layer reading `name`, `minzoom 11`, overlap-culled). Station de-duplication (`mergeDuplicateStation`, `stationManipulations.ts`, default-on via `mergeDuplicates`) is union-find clustering keyed ONLY on a NORMALISED name (diacritics/brackets/mode-&-direction words stripped, so "Schous plass [Trikk]" ≡ "Schous plass") + overlapping zones (centres within the hiding radius). It is deliberately NOT proximity-alone: two differently-named stations that sit close (a train station and a separate bus stop) stay distinct so neither is hidden from selection.
 
 ## AddQuestionDialog flow
 
@@ -251,7 +251,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v575`. Use `git log` for the per-version detail;
+build stamp. Current: `v576`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

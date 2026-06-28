@@ -1404,8 +1404,8 @@ export function Map({ className }: MapProps) {
                                             : "hsl(2, 70%, 54%)",
                                     "fill-opacity": shown
                                         ? $theme === "dark"
-                                            ? 0.22
-                                            : 0.12
+                                            ? 0.16
+                                            : 0.08
                                         : 0,
                                     "fill-opacity-transition": {
                                         duration: 280,
@@ -1424,8 +1424,13 @@ export function Map({ className }: MapProps) {
                                 ]}
                                 paint={{
                                     "line-color": "hsl(2, 70%, 54%)",
-                                    "line-width": 2,
-                                    "line-opacity": shown ? 0.9 : 0,
+                                    "line-width": 1.5,
+                                    // Subtle: the zone circles now show in
+                                    // the stations overlay too, so a full
+                                    // 0.9 dashed edge crisscrossed the whole
+                                    // view. A faint edge just hints the
+                                    // extent without the noise.
+                                    "line-opacity": shown ? 0.4 : 0,
                                     "line-opacity-transition": {
                                         duration: 280,
                                     },
@@ -1481,7 +1486,10 @@ export function Map({ className }: MapProps) {
                                         "",
                                     ],
                                     "text-size": 11,
-                                    "text-font": ["Open Sans Regular"],
+                                    // Must be a fontstack the glyph proxy
+                                    // actually serves (Protomaps assets =
+                                    // Noto Sans); "Open Sans" 404s → no text.
+                                    "text-font": ["Noto Sans Regular"],
                                     "text-anchor": "top",
                                     "text-offset": [0, 0.7],
                                     "text-allow-overlap": false,
@@ -1569,7 +1577,7 @@ export function Map({ className }: MapProps) {
                                 layout={{
                                     "text-field": ["get", "arrivalLabel"],
                                     "text-size": 12,
-                                    "text-font": ["Open Sans Regular"],
+                                    "text-font": ["Noto Sans Regular"],
                                     "text-anchor": "left",
                                     "text-offset": [0.8, 0],
                                     "text-allow-overlap": false,
