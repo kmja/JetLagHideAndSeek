@@ -1464,6 +1464,39 @@ export function Map({ className }: MapProps) {
                                     },
                                 }}
                             />
+                            {/* Station name labels. Reads `name` off the
+                                centre point features the zone overlay ships
+                                alongside the circles. Hidden when zoomed out
+                                / on overlap so a dense network doesn't turn
+                                into a wall of text. */}
+                            <Layer
+                                id="hiding-zones-labels"
+                                type="symbol"
+                                filter={["==", ["geometry-type"], "Point"]}
+                                minzoom={11}
+                                layout={{
+                                    "text-field": [
+                                        "coalesce",
+                                        ["get", "name"],
+                                        "",
+                                    ],
+                                    "text-size": 11,
+                                    "text-font": ["Open Sans Regular"],
+                                    "text-anchor": "top",
+                                    "text-offset": [0, 0.7],
+                                    "text-allow-overlap": false,
+                                    "text-optional": true,
+                                }}
+                                paint={{
+                                    "text-color": "#ffffff",
+                                    "text-halo-color": "rgba(0,0,0,0.85)",
+                                    "text-halo-width": 1.4,
+                                    "text-opacity": shown ? 1 : 0,
+                                    "text-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
                         </Source>
                     )}
                 </FadeOverlay>

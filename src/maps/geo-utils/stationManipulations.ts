@@ -2,101 +2,125 @@ import * as turf from "@turf/turf";
 
 import type { StationPlace } from "@/maps/api";
 
+/** Co-located duplicate-node threshold (metres). Two station nodes this
+ *  close are the same physical hub (separate OSM nodes for tram / metro /
+ *  bus / platforms / directions) and are merged REGARDLESS of name — OSM
+ *  gives them inconsistent names (e.g. "Schous plass" vs
+ *  "Schous plass [Trikk]"), which is why a name-only merge left visible
+ *  duplicates all over dense networks like Oslo. */
+const CO_LOCATED_METERS = 130;
+
 /**
- * Function to merge duplicates stations into one station, by averaging their longitude and latitude
- * @param places    Array of all unmerged stations
- * @param radius    Radius of the hiding zone
- * @param units     turf.Units unit of the radius ("miles", "kilometers" etc.)
- * @returns         Array of all merged stations
+ * Normalise a station name for duplicate detection: strip diacritics,
+ * lowercase, drop bracketed/parenthetical qualifiers and common
+ * station/mode/direction words, and collapse to bare alphanumerics. So
+ * "Schous plass [Trikk]", "Schous plass (T-bane)" and "Schous Plass
+ * stasjon" all reduce to "schous plass".
+ */
+function normalizeStationName(raw: string | undefined | null): string {
+    if (!raw) return "";
+    return raw
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "") // strip diacritics
+        .toLowerCase()
+        .replace(/[[(][^\])]*[\])]/g, " ") // drop [..] / (..)
+        .replace(
+            /\b(stasjon|stasjonen|station|stazione|estacion|estacao|bahnhof|gare|stoppested|holdeplass|platform|plattform|spor|track|gleis|bus|buss|trikk|tram|sporvogn|t-bane|tbane|metro|subway|undergrunn|ferje|ferge|ferry|kai|brygge|nb|sb|eb|wb|northbound|southbound|eastbound|westbound)\b/g,
+            " ",
+        )
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
+
+/** Cheap equirectangular metres between two [lng,lat] points — accurate
+ *  enough at the sub-kilometre scale this clustering works on, and far
+ *  cheaper than `turf.distance` across an O(n²) pass. */
+function approxMeters(a: number[], b: number[]): number {
+    const R = 6_371_000;
+    const latMid = (((a[1] + b[1]) / 2) * Math.PI) / 180;
+    const x = (((b[0] - a[0]) * Math.PI) / 180) * Math.cos(latMid);
+    const y = ((b[1] - a[1]) * Math.PI) / 180;
+    return Math.sqrt(x * x + y * y) * R;
+}
+
+/**
+ * Merge duplicate stations into one (averaged centre). Two stations are
+ * the same hub when EITHER:
+ *   - they share a normalised name AND their hiding zones overlap (centres
+ *     within `radius`), OR
+ *   - their centres are within `CO_LOCATED_METERS` of each other
+ *     (regardless of name — co-located OSM nodes for the same stop).
+ * Clusters are formed by union-find so a chain of near-duplicates collapses
+ * to a single station.
+ *
+ * @param places  Array of unmerged station point features
+ * @param radius  Hiding-zone radius
+ * @param units   turf.Units of `radius`
  */
 export function mergeDuplicateStation(
     places: StationPlace[],
     radius: number,
     units: turf.Units,
 ): StationPlace[] {
-    const grouped = new Map<string, any[]>();
-    // 1. Group by name
-    for (const place of places) {
-        const name = place.properties.name ?? "";
-        // Check if the group already exist, if not add a new group entry.
-        if (!grouped.has(name)) {
-            grouped.set(name, [place]);
-        } else {
-            // group already exist, need to check all groups and all members if their zones are shared
-            let placeAdded = false;
-            for (const group of grouped) {
-                // check all groups
-                const groupValues = group[1];
+    const n = places.length;
+    if (n <= 1) return places;
 
-                // if the name matches the first group members name, check all members
-                if (groupValues[0].properties.name == name) {
-                    let shareZones: boolean = false;
-                    for (const groupPlace of groupValues) {
-                        const station1: Location = {
-                            coordinates: place.geometry.coordinates,
-                        };
-                        const station2: Location = {
-                            coordinates: groupPlace.geometry.coordinates,
-                        };
-                        shareZones = checkIfStationsShareZones(
-                            station1,
-                            station2,
-                            radius,
-                            units,
-                        );
-                        if (!shareZones) {
-                            // new zone does not overlap with a station, leave early
-                            break;
-                        }
-                    }
-                    if (shareZones) {
-                        // add to group if all stations share the zone
-                        groupValues.push(place);
-                        placeAdded = true;
-                        break; // leave group search, as the new place is already added
-                    }
-                }
-            }
+    const radiusM = turf.convertLength(radius, units, "meters");
+    const coords = places.map((p) => p.geometry.coordinates);
+    const names = places.map((p) => normalizeStationName(p.properties?.name));
 
-            if (!placeAdded) {
-                // if we arrive here, we need to make a new group with a unique key
+    // Union-find over the stations.
+    const parent = Array.from({ length: n }, (_, i) => i);
+    const find = (x: number): number => {
+        while (parent[x] !== x) {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        return x;
+    };
+    const union = (a: number, b: number) => {
+        parent[find(a)] = find(b);
+    };
 
-                // searching for all groups containing the station name to find latest index
-                const matches = Array.from(grouped.entries()).filter(
-                    ([key]) => typeof key === "string" && key.includes(name),
-                );
-                const lastGroup = matches.at(-1); // last group has the latest index
-                let lastKey = "0";
-                if (lastGroup) {
-                    lastKey = lastGroup[0];
-                }
-                const lastIdx = Number(lastKey.split("#")[1] ?? "0");
-                const nextIdx = lastIdx + 1;
-                const key: string = name + "#" + nextIdx.toString();
-                // New key example: "Station Name#1"
-                grouped.set(key, [place]);
-            }
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            const d = approxMeters(coords[i], coords[j]);
+            if (d > radiusM && d > CO_LOCATED_METERS) continue;
+            const coLocated = d <= CO_LOCATED_METERS;
+            const sameName =
+                names[i] !== "" && names[i] === names[j] && d <= radiusM;
+            if (coLocated || sameName) union(i, j);
         }
     }
 
-    // 2. Compute central point per group
-    const merged: any[] = [];
-    grouped.forEach((group) => {
-        const avgLng =
-            group.reduce((sum, p) => sum + p.geometry.coordinates[0], 0) /
-            group.length;
-        const avgLat =
-            group.reduce((sum, p) => sum + p.geometry.coordinates[1], 0) /
-            group.length;
+    // Group by cluster root, then average each cluster to one station.
+    const groups = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) {
+        const r = find(i);
+        const g = groups.get(r);
+        if (g) g.push(i);
+        else groups.set(r, [i]);
+    }
 
+    const merged: StationPlace[] = [];
+    for (const idxs of groups.values()) {
+        const first = places[idxs[0]];
+        const avgLng =
+            idxs.reduce((s, i) => s + coords[i][0], 0) / idxs.length;
+        const avgLat =
+            idxs.reduce((s, i) => s + coords[i][1], 0) / idxs.length;
+        // Keep the first non-empty original name in the cluster.
+        const name =
+            idxs
+                .map((i) => places[i].properties?.name)
+                .find((nm) => nm && String(nm).trim()) ??
+            first.properties?.name;
         merged.push({
-            ...group[0], // copy other fields from the first feature
-            geometry: {
-                type: "Point",
-                coordinates: [avgLng, avgLat],
-            },
-        });
-    });
+            ...first,
+            properties: { ...first.properties, name },
+            geometry: { type: "Point", coordinates: [avgLng, avgLat] },
+        } as StationPlace);
+    }
     return merged;
 }
 

@@ -1239,10 +1239,21 @@ function styleStations(
             return safeUnion(turf.featureCollection(circles));
 
         case "stations":
-            return turf.featureCollection(circles.map((c) => c.properties));
+            // Station dots + the faint hiding-zone extent fill + name
+            // labels: ship BOTH the circle polygons (Map paints a faint
+            // fill + outline) and their centre points (dot + label).
+            return turf.featureCollection([
+                ...circles,
+                ...circles.map((c) => c.properties as Feature),
+            ]);
 
         default:
-            return turf.featureCollection(circles);
+            // "zones": circles for the fill/outline, plus centre points so
+            // the name labels (Point-filtered symbol layer) render here too.
+            return turf.featureCollection([
+                ...circles,
+                ...circles.map((c) => c.properties as Feature),
+            ]);
     }
 }
 
