@@ -199,7 +199,7 @@ export function HideSeekScene({ className }: { className?: string }) {
         // the full width, matching the box.
         const ew = Math.min(w, 560);
         const x0 = (w - ew) / 2; // left edge of the drawn band, centred
-        const r = ew / 6; // sun diameter = one third of the band width
+        const r = (ew / 6) * 1.25; // sun ~25% larger than a third-of-width
         // Centred, symmetric peak. The apex sits at the band centre and
         // its height is DERIVED so the peak angle equals PEAK_ANGLE_DEG:
         // with a full-band base, each slope makes (angle / 2) with the

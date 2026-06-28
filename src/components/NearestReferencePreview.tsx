@@ -2,9 +2,10 @@ import * as turf from "@turf/turf";
 import { Loader2, MapPin, Ruler } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { mapGeoLocation } from "@/lib/context";
+import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { cn } from "@/lib/utils";
 import { fetchCoastline, LOCATION_FIRST_TAG } from "@/maps/api";
+import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
     findPlacesInZone,
     findTentacleLocations,
@@ -323,6 +324,21 @@ async function tryCacheNearest(
     }
 }
 
+/**
+ * Rulebook p17: "If locations are not within a map's boundaries, players
+ * must operate as if they do not exist." The cache path already filters
+ * (nearestFromCache), but the Overpass `around:` FALLBACKS below walk a
+ * radius from the seeker with no boundary awareness, so they can surface
+ * a reference far outside the play area (e.g. an aquarium one city over).
+ * This predicate restricts every fallback's candidate set to the loaded
+ * play-area polygon. While the boundary is still loading (polyGeoJSON
+ * null) we keep everything, matching nearestFromCache's behaviour.
+ */
+function inLoadedPlayArea(lat: number, lng: number): boolean {
+    const poly = polyGeoJSON.get();
+    return !poly || pointInPlayArea(poly, lng, lat);
+}
+
 export async function fetchNearest(
     family: NonNullable<ResolvedFamily>,
     lat: number,
@@ -374,9 +390,21 @@ export async function fetchNearest(
             },
             "",
         );
-        if (fc.features.length > 0) {
+        // Drop anything outside the play area before picking the nearest
+        // — otherwise a closer out-of-bounds instance wins over a valid
+        // in-area one (the aquarium-one-city-over bug).
+        const inArea = {
+            ...fc,
+            features: fc.features.filter((f: any) => {
+                const c = f.geometry?.coordinates as
+                    | [number, number]
+                    | undefined;
+                return c ? inLoadedPlayArea(c[1], c[0]) : false;
+            }),
+        };
+        if (inArea.features.length > 0) {
             const questionPoint = turf.point([lng, lat]);
-            const nearest = turf.nearestPoint(questionPoint, fc as any);
+            const nearest = turf.nearestPoint(questionPoint, inArea as any);
             const distanceMeters = turf.distance(questionPoint, nearest as any, {
                 units: "meters",
             });
@@ -546,6 +574,7 @@ out center;
             const elLat = el.lat ?? el.center?.lat;
             const elLon = el.lon ?? el.center?.lon;
             if (!Number.isFinite(elLat) || !Number.isFinite(elLon)) continue;
+            if (!inLoadedPlayArea(elLat as number, elLon as number)) continue;
             const name =
                 el.tags?.["name:en"] ?? el.tags?.["name"] ?? brandName;
             const d = turf.distance(
@@ -782,6 +811,7 @@ function pickNearestNamed(
         const lat = el.lat ?? el.center?.lat;
         const lon = el.lon ?? el.center?.lon;
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+        if (!inLoadedPlayArea(lat as number, lon as number)) continue;
         const name = el.tags?.["name:en"] ?? el.tags?.["name"] ?? el.tags?.["iata"];
         if (!name) continue;
         const d = turf.distance(seeker, turf.point([lon as number, lat as number]), {
