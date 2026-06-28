@@ -270,15 +270,17 @@ export function HideSeekWordmark({
     className?: string;
     showTagline?: boolean;
     boxLayout?: boolean;
-    size?: "default" | "lg" | "xl";
+    size?: "default" | "lg" | "xl" | "2xl";
 }) {
     const tagline = showTagline || boxLayout;
     const wordmarkClass =
-        size === "xl"
-            ? "text-5xl"
-            : size === "lg"
-              ? "text-4xl"
-              : "text-3xl";
+        size === "2xl"
+            ? "text-6xl sm:text-7xl"
+            : size === "xl"
+              ? "text-5xl"
+              : size === "lg"
+                ? "text-4xl"
+                : "text-3xl";
     return (
         <div className={cn("inline-flex flex-col", className)}>
             <span
