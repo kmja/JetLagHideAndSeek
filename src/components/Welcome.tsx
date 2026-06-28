@@ -174,13 +174,11 @@ export function Welcome() {
                 <HideSeekScene className="pointer-events-none fixed inset-0 z-0" />
             )}
             <div className="relative z-10 w-full sm:max-w-md flex flex-col p-0 gap-0">
-                {/* Hero — echoes the box-face cover. Official Jet Lag:
-                    The Game lockup at the top. In intro mode the Hide+Seek
-                    wordmark moves DOWN into the centred middle band (so the
-                    wordmark + blurb + buttons sit centred between this
-                    lockup and the sun); the join/lobby modes keep the
-                    compact mark + wordmark up here since their content
-                    fills the lower half. */}
+                {/* Hero — echoes the box-face cover: the official Jet Lag:
+                    The Game lockup with the Hide+Seek wordmark stacked
+                    tightly beneath it (as on the box). In intro mode only
+                    the blurb + buttons drop into the centred band below;
+                    the join/lobby modes also show the compact mark here. */}
                 <div
                     className={cn(
                         "px-6 pt-8 flex flex-col items-center text-center gap-4 shrink-0",
@@ -198,22 +196,15 @@ export function Welcome() {
                         className="h-12 w-auto max-w-[70%] translate-x-[3%]"
                     />
                     {mode !== "intro" && <HideSeekMark size={64} />}
-                    {mode !== "intro" && (
-                        <HideSeekWordmark boxLayout size="xl" />
-                    )}
+                    <HideSeekWordmark boxLayout size="xl" />
                 </div>
 
                 {mode === "intro" ? (
                     <>
-                        {/* Centred band: wordmark + blurb + CTAs vertically
-                            centred in the gap between the Jet Lag lockup
-                            above and the sun reserve below. */}
+                        {/* Centred band: the blurb + CTAs sit centred in
+                            the gap between the lockup/wordmark above and the
+                            sun reserve below. */}
                         <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center px-6 gap-6">
-                            <HideSeekWordmark
-                                boxLayout
-                                size="xl"
-                                className="w-full"
-                            />
                             <p className="text-sm leading-relaxed text-current/85">
                                 A real-time companion app for playing Jet Lag:
                                 The Game's Hide+Seek in your own city — on your
