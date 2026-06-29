@@ -106,8 +106,12 @@ export function HideSeekMark({
     const uid = useId().replace(/:/g, "");
     const circleMaskId = `hsmark-c-${uid}`;
     const triMaskId = `hsmark-t-${uid}`;
-    const TRIANGLE = "M32 30 L3 58 L61 58 Z";
-    const CIRCLE = { cx: 32, cy: 26, r: 18 };
+    // Same layout as the favicon / landing scene (favicon.svg scaled
+    // 512→64): sun CENTRED, mountain apex at the sun's exact centre, base
+    // spanning the full bottom edge. (The pre-v593 mark had the sun high
+    // at cy26 and the base inset at y58 — the "old" look.)
+    const TRIANGLE = "M32 32 L0 64 L64 64 Z";
+    const CIRCLE = { cx: 32, cy: 32, r: 18.5 };
     return (
         <svg
             width={size}
@@ -144,10 +148,11 @@ export function HideSeekMark({
                 fill="white"
                 mask={`url(#${circleMaskId})`}
             />
-            {/* Red mountain with the sun knocked out of its peak. */}
+            {/* Red mountain with the sun knocked out of its peak. Brand
+                red (matches --primary / PLAY_AREA_COLOR). */}
             <path
                 d={TRIANGLE}
-                fill="hsl(5 80% 55%)"
+                fill="hsl(5 69% 55%)"
                 mask={`url(#${triMaskId})`}
             />
         </svg>

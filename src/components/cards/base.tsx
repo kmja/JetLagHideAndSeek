@@ -265,44 +265,45 @@ export const QuestionCard = ({
         detail: resolved ?? baseSummary.detail,
     };
 
-    // Status (Answered / Awaiting / …) + relative time / answer countdown
-    // sit ABOVE the card, right-aligned (see `statusAbove`). The card's own
-    // right slot is just the big expand chevron.
-    const timeNode = answerDeadlineLabel ? (
-        <span
-            className={cn(
-                "text-[10px] font-mono tabular-nums whitespace-nowrap",
-                remainingSec === 0 ? "text-destructive" : "text-primary",
-            )}
-            title="Hider's answer window (rulebook p5/p32)"
-        >
-            {answerDeadlineLabel}
-        </span>
-    ) : relativeTime ? (
-        <span
-            className="text-[10px] font-mono text-muted-foreground whitespace-nowrap"
-            title={createdAt ? new Date(createdAt).toLocaleString() : undefined}
-        >
-            {relativeTime}
-        </span>
-    ) : null;
-
-    const statusAbove =
-        !forceExpanded && (lifecycle || timeNode) ? (
-            <div className="flex items-center justify-end gap-2 pr-1 pb-1.5 leading-none">
-                {lifecycle && (
-                    <span
-                        className={cn(
-                            "text-[10px] uppercase tracking-wider font-poppins font-bold whitespace-nowrap",
-                            lifecycleMeta[lifecycle].cls,
-                        )}
-                    >
+    // Eyebrow line INSIDE the card, above the big label. Most questions
+    // only appear in the list once ANSWERED, so for them the eyebrow is
+    // just the relative time ("10m ago"). In-flight states show their
+    // status instead (the answer countdown while awaiting, "Not sent",
+    // "Vetoed", …). The configure dialog (`forceExpanded`) shows none.
+    const eyebrow = forceExpanded
+        ? undefined
+        : lifecycle === "answered"
+          ? relativeTime
+              ? (
+                    <span className="text-muted-foreground" title={
+                        createdAt ? new Date(createdAt).toLocaleString() : undefined
+                    }>
+                        {relativeTime}
+                    </span>
+                )
+              : undefined
+          : answerDeadlineLabel
+            ? (
+                  <span
+                      className={
+                          remainingSec === 0
+                              ? "text-destructive"
+                              : "text-warning"
+                      }
+                      title="Hider's answer window (rulebook p5/p32)"
+                  >
+                      {answerDeadlineLabel}
+                  </span>
+              )
+            : lifecycle
+              ? (
+                    <span className={lifecycleMeta[lifecycle].cls}>
                         {lifecycleMeta[lifecycle].label}
                     </span>
-                )}
-                {timeNode}
-            </div>
-        ) : null;
+                )
+              : relativeTime
+                ? <span className="text-muted-foreground">{relativeTime}</span>
+                : undefined;
 
     const rightSlot = forceExpanded ? undefined : (
         <ChevronDown
@@ -327,8 +328,6 @@ export const QuestionCard = ({
 
     return (
         <div className="relative">
-            {/* Lifecycle status + time live ABOVE the card, right-aligned. */}
-            {statusAbove}
             <div
                 className={cn(
                     // Match the on-map QuestionOverlayCard treatment: sharp
@@ -345,13 +344,13 @@ export const QuestionCard = ({
             >
                 {/* Header = the same Jet-Lag-show overlay chrome the
                     pending-answer card uses (solid category-colour icon
-                    block, big coloured label). Borderless + square-cornered
-                    here; the wrapper supplies the border so the whole thing
-                    reads as one card. Right slot = the expand chevron. The
+                    block, big coloured label). The status/time is an eyebrow
+                    inside the card now. Right slot = the expand chevron. The
                     configure dialog (`forceExpanded`) keeps it static. */}
                 <QuestionOverlayCard
                     categoryId={category ?? ""}
                     summary={cardSummary}
+                    eyebrow={eyebrow}
                     error={lifecycle === "not-sent"}
                     right={rightSlot}
                     onClick={forceExpanded ? undefined : toggleCollapse}

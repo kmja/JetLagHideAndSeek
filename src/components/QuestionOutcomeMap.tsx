@@ -272,6 +272,18 @@ export function QuestionOutcomeMap({
           }
         : { longitude: 0, latitude: 0 };
 
+    // Start the map already framed on the play area so there's no
+    // visible fit-jump on first paint (the skeleton then lifts onto the
+    // final, settled view). `fitToBbox` in onLoad fine-tunes the rest.
+    const initialZoom = useMemo(() => {
+        if (!bbox) return 9;
+        const latSpan = Math.max(1e-4, bbox.maxLat - bbox.minLat);
+        const lngSpan = Math.max(1e-4, bbox.maxLng - bbox.minLng);
+        const span = Math.max(latSpan, lngSpan);
+        const z = Math.log2(360 / span) - 0.8;
+        return Math.max(2, Math.min(12, z));
+    }, [bbox]);
+
     const containerCls = `${height} relative overflow-hidden rounded-lg border border-border pointer-events-none select-none`;
 
     if (!base) {
@@ -302,7 +314,7 @@ export function QuestionOutcomeMap({
             {mountMap && (
                 <MapGL
                     ref={mapRef}
-                    initialViewState={{ ...center, zoom: 9 }}
+                    initialViewState={{ ...center, zoom: initialZoom }}
                     style={{ width: "100%", height: "100%" }}
                     mapStyle={mapStyle}
                     attributionControl={false}

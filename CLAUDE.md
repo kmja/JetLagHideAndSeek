@@ -238,14 +238,17 @@ subtle NEUTRAL `border-sidebar-border` outline (not category-tinted), a
 `shadow-lg` lift, and a `bg-sidebar-accent` surface only a hair above the
 drawer background** — so the shadow/border separate it, not a contrasting
 block. The card owns no margin; the list (`QuestionSidebar`'s
-`SidebarContent`, `px-4 pt-3 gap-3`) insets it so its left edge lines up
-with the header and spaces the rows (`gap-5`). The lifecycle label
-(Answered / Awaiting / …, **plain coloured text — no pill**) + relative
-time / answer countdown sit **above** the card, right-aligned
-(`statusAbove`); the card's own right slot is just a **big `ChevronDown`**
-(rotates on expand) — there's no small left chevron anymore. The vaul
-drawer handles are `bg-foreground/25` (visible in both themes; the old
-`bg-muted` was near-invisible in light mode). **No delete/trash button at all** — sent questions are
+`SidebarContent`, `px-6 pt-4 gap-5`) insets it so its left edge lines up
+with the header and spaces the rows. The status is an **eyebrow line
+INSIDE the card** above the big label (v593): a question only reaches the
+list once answered in most cases, so for answered cards it's just the
+relative time (`10m ago`, muted); in-flight states show the answer
+countdown / `Not sent` / `Vetoed` etc. in their colour. The card's right
+slot is just a **big `ChevronDown`** (rotates on expand) — no small left
+chevron. The `QuestionOverlayCard` content has roomy `px-5` horizontal
+padding (v593). The vaul drawer handles are `bg-foreground/25` (visible in
+both themes; the old `bg-muted` was near-invisible in light mode). **No
+delete/trash button at all** — sent questions are
 never deletable (it would desync the hider); discarding an
 un-sent draft is the configure dialog's Cancel button's job.
 `forceExpanded` (the configure dialog) renders the header static (no
@@ -268,9 +271,11 @@ alone is invisible there); no per-category fill colour. The static view is
 and cached per theme+question+framing, so RE-expanding a card shows a cheap
 `<img>` with no MapLibre instance; the first render also **defers the
 MapLibre mount ~350 ms** so the card's expand animation stays smooth
-instead of fighting GL init. The map is `pointer-events-none` (so it never
-steals drawer scroll) and shows an **`animate-pulse` skeleton** until both
-the geometry is computed and the tiles paint.
+instead of fighting GL init. The map starts already framed on the play
+area (bbox-derived initial zoom) so there's no fit-jump on first paint,
+and it's `pointer-events-none` (so it never steals drawer scroll) and
+shows an **`animate-pulse` skeleton** until both the geometry is computed
+and the tiles paint.
 Mounted only while expanded (so collapsed cards aren't each running a
 MapLibre instance) and suppressed in the configure dialog (which already
 embeds the interactive picker). Spatial types read cached play-area
@@ -284,10 +289,17 @@ of what the outcome map already shows, so the expanded card is just the
 map. Children stay for in-flight questions (e.g. the thermometer
 end-point share), the configure dialog (`forceExpanded`), and photo.
 
-The questions drawer header (`QuestionSidebar.tsx`) puts the **New
-question** CTA at its natural width up in the title row (where the role
-tag used to sit) — not a full-width bar — and the role/SEEKER chip is
-gone from this panel.
+The questions drawer header (`QuestionSidebar.tsx`) matches the settings
+drawer's (v593): a small `text-lg font-semibold` title + a muted
+description, on the same `px-6` inset, with the **New question** CTA to
+the right of the title (not a full-width bar). The role/SEEKER chip is
+gone. The empty state shows just text — **no logo icon** (removed v593).
+
+The shared `HideSeekMark` logomark (used in `Welcome`/`BetaGate`) was
+realigned in v593 to the favicon/landing-scene layout (sun centred,
+mountain apex at the sun's centre, base spanning the full bottom) — the
+pre-v593 mark had the sun high and the base inset; that was the "old"
+look. Brand red `hsl(5 69% 55%)`.
 
 ## Current state
 
@@ -321,7 +333,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v592`. Use `git log` for the per-version detail;
+build stamp. Current: `v593`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

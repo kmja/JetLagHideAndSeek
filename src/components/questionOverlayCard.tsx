@@ -248,6 +248,7 @@ export function summarizeQuestion(q: {
 export function QuestionOverlayCard({
     categoryId,
     summary,
+    eyebrow,
     right,
     answered = false,
     error = false,
@@ -257,6 +258,9 @@ export function QuestionOverlayCard({
 }: {
     categoryId: string;
     summary: QuestionSummary;
+    /** Small eyebrow line above the big label (e.g. "10m ago"). Caller
+     *  supplies its own colour; the slot provides the size/tracking. */
+    eyebrow?: ReactNode;
     /** Right-hand slot — timer, retry button, countdown, chevron, … */
     right?: ReactNode;
     answered?: boolean;
@@ -342,8 +346,15 @@ export function QuestionOverlayCard({
                 )}
             </span>
 
-            {/* Big coloured label + one short description (middle). */}
-            <div className="min-w-0 flex-1 px-3 py-2 flex flex-col justify-center">
+            {/* Eyebrow + big coloured label + one short description
+                (middle). Roomier horizontal padding (`px-5`) than the
+                icon-block flush so the text has space to breathe. */}
+            <div className="min-w-0 flex-1 px-5 py-2 flex flex-col justify-center">
+                {eyebrow && (
+                    <div className="text-[10px] uppercase tracking-wider font-poppins font-bold leading-none mb-1 truncate">
+                        {eyebrow}
+                    </div>
+                )}
                 <div
                     className="font-display font-extrabold uppercase leading-[1.0] text-lg sm:text-xl truncate text-[color:var(--cat-label)]"
                     style={{ letterSpacing: "-0.01em" }}
@@ -360,7 +371,7 @@ export function QuestionOverlayCard({
             {/* Live status — timer / retry / answer action (right). Sizes
                 to its content so error messages / CTAs have room. */}
             {right && (
-                <div className="shrink-0 flex items-center justify-center pl-2 pr-3">
+                <div className="shrink-0 flex items-center justify-center pl-2 pr-5">
                     {right}
                 </div>
             )}

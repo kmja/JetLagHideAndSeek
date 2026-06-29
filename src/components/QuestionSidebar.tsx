@@ -26,7 +26,6 @@ import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
-import { HideSeekMark } from "./JetLagLogo";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -117,52 +116,61 @@ export const QuestionSidebar = () => {
 
     const innerContent = (
         <>
-            <div className="flex items-center justify-between gap-2 mx-4 mt-4">
-                <h2 className="font-display font-extrabold text-2xl uppercase leading-none" style={{ letterSpacing: "-0.02em" }}>
-                    Questions
-                </h2>
-                {/* New-question CTA lives in the header now (where the role
-                    tag used to sit) at its natural width — not a full-width
-                    bar — so the question list reads as the panel's content. */}
-                <AddQuestionDialog>
-                    <button
-                        type="button"
-                        data-tutorial-id="add-questions-buttons"
-                        // Don't block on `$isLoading`: that flag also goes
-                        // high for ambient station-finder fetches (rulebook
-                        // place data), which can take many seconds. The
-                        // seeker should still be able to add a question
-                        // during those — only the in-flight answer rule
-                        // (`hasPendingAnswer`) and the hiding-period gate
-                        // actually warrant blocking.
-                        disabled={hidingRunning || hasPendingAnswer}
-                        title={
-                            hidingRunning
-                                ? "Hiding period — wait for the timer or end it manually to start asking"
-                                : hasPendingAnswer
-                                  ? "Waiting for the hider to answer your previous question"
-                                  : undefined
-                        }
-                        className={cn(
-                            "shrink-0 flex items-center justify-center gap-1.5",
-                            "py-2 px-3 rounded-md",
-                            "bg-primary text-primary-foreground",
-                            "hover:bg-primary/90 active:bg-primary/80",
-                            "font-poppins font-bold uppercase tracking-wider text-[11px]",
-                            "transition-colors",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            "disabled:opacity-50 disabled:cursor-not-allowed",
-                        )}
-                    >
-                        <Plus className="w-4 h-4" strokeWidth={2.5} />
-                        New question
-                    </button>
-                </AddQuestionDialog>
+            {/* Header matches the settings drawer's: a small
+                `text-lg font-semibold` title + a muted description, on the
+                same `px-6` inset. The New-question CTA sits to the right of
+                the title (settings has no header action). */}
+            <div className="px-6 pt-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1.5">
+                        <h2 className="text-lg font-semibold leading-none tracking-tight">
+                            Questions
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                            Everything you&apos;ve asked and how the hider
+                            answered.
+                        </p>
+                    </div>
+                    <AddQuestionDialog>
+                        <button
+                            type="button"
+                            data-tutorial-id="add-questions-buttons"
+                            // Don't block on `$isLoading`: that flag also
+                            // goes high for ambient station-finder fetches
+                            // (rulebook place data), which can take many
+                            // seconds. The seeker should still be able to add
+                            // a question during those — only the in-flight
+                            // answer rule (`hasPendingAnswer`) and the
+                            // hiding-period gate actually warrant blocking.
+                            disabled={hidingRunning || hasPendingAnswer}
+                            title={
+                                hidingRunning
+                                    ? "Hiding period — wait for the timer or end it manually to start asking"
+                                    : hasPendingAnswer
+                                      ? "Waiting for the hider to answer your previous question"
+                                      : undefined
+                            }
+                            className={cn(
+                                "shrink-0 flex items-center justify-center gap-1.5",
+                                "py-2 px-3 rounded-md",
+                                "bg-primary text-primary-foreground",
+                                "hover:bg-primary/90 active:bg-primary/80",
+                                "font-poppins font-bold uppercase tracking-wider text-[11px]",
+                                "transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                "disabled:opacity-50 disabled:cursor-not-allowed",
+                            )}
+                        >
+                            <Plus className="w-4 h-4" strokeWidth={2.5} />
+                            New question
+                        </button>
+                    </AddQuestionDialog>
+                </div>
             </div>
-            {/* The cards own no margin; the list insets them (px-4) so
-                their left edge lines up with the header, and spaces them
-                (gap-3) with a clear gap below the header (pt-3). */}
-            <SidebarContent className="px-4 pt-3 gap-5 pb-2">
+            {/* The cards own no margin; the list insets them (px-6, matching
+                the header) so their left edge lines up, and spaces them
+                (gap-5) with a clear gap below the header (pt-4). */}
+            <SidebarContent className="px-6 pt-4 gap-5 pb-2">
                 {questionsNewestFirst.length === 0 ? (
                     // Empty state — separates "no questions yet"
                     // from "list failed to load" or "list still
@@ -176,9 +184,6 @@ export const QuestionSidebar = () => {
                                     "px-4 py-8 flex flex-col items-center text-center gap-3",
                                 )}
                             >
-                                <div className="opacity-60">
-                                    <HideSeekMark size={56} />
-                                </div>
                                 <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
                                     No questions yet
                                 </div>
