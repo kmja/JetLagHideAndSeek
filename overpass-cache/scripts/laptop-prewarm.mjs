@@ -349,11 +349,13 @@ function boundaryQuery(relationId) {
 }
 
 // Per-city transit modes the laptop warms. v334: extended to include
-// train + tram, both new colored overlays the client toggles (and
-// which the cron does TRY to per-shard prewarm, but DE/JP/CN-scale
-// rail networks blow the 20 MB reduce cap there; this script is the
-// reliable fallback). Subway + ferry stay shard-only (cron-side) —
-// sparse modes warm cleanly per country and don't need laptop help.
+// train + tram, both colored overlays the client toggles (and which the
+// cron DOES per-shard prewarm, but DE/JP/CN-scale rail networks blow the
+// 20 MB reduce cap there; this script is the reliable fallback). v584:
+// the cron also per-shard prewarms BUS now — sparse/medium countries
+// warm cleanly at country scope, so this per-city bus pass is the dense-
+// country (US/DE/JP) fallback for the same oversize reason. Subway +
+// ferry are tiny everywhere and don't need laptop help.
 //
 // Why per-city for bus/train/tram: every one of these is dense enough
 // that a whole-country `out skel geom` overruns the worker's reduce
@@ -458,9 +460,11 @@ function reduceTransitResponse(text) {
  * v329: bbox lives in the `[bbox:...]` global setting (it used to be
  * a per-statement `(${tuple})` filter on the route relation). The new
  * form lets the worker's query canonicaliser strip the bbox and match
- * a stable template fingerprint, which is how subway + ferry queries
- * dispatch into the per-shard slicing path on the worker side. Bus
- * still matches via the byte-identical exact-key path.
+ * a stable template fingerprint, which is how every TRANSIT_SHARD_MODES
+ * query (subway/ferry/train/tram, and bus since v584) dispatches into
+ * the per-shard slicing path on the worker side. A bus query in a dense
+ * country whose shard oversize-skipped still resolves via the byte-
+ * identical exact-key path this script warms.
  *
  * KEEP IN LOCKSTEP with buildTransitBboxTuple + fetchTransitRelations
  * in src/maps/api/transitRoutes.ts AND transitRouteQuery in

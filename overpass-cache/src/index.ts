@@ -663,15 +663,18 @@ export default {
 
         // Phase 6: TRANSIT ROUTES — split by sparsity (v329).
         //
-        //   6a. SUBWAY + FERRY per-country-shard. Sparse globally and
-        //       small per country, so one shard-scope `out skel geom`
-        //       fetch covers every play area in that shard via the
-        //       runtime slicer (Step 2.6). Rotating slice across the
-        //       ~214 shards × 2 modes; warm shards skip cheaply.
-        //   6b. BUS per-city. Dense everywhere — a country-scope bus
-        //       fetch trips the worker's resource budget AND the
-        //       slicer's MAX_SLICE_PARSE_BYTES cap. Stays per-city,
-        //       exact-key match.
+        //   6a. SUBWAY/FERRY/TRAIN/TRAM/BUS per-country-shard. One
+        //       shard-scope `out skel geom` fetch covers every play area
+        //       in that shard via the runtime slicer (Step 2.6). Rotating
+        //       slice across the ~214 shards × TRANSIT_SHARD_MODES; warm
+        //       (and known-oversize, v584) shards skip cheaply. Bus joined
+        //       here in v584: sparse/medium countries warm fine, dense
+        //       ones (US/DE/JP) oversize-skip with a marker and fall to 6b.
+        //   6b. BUS per-city. The fallback for dense countries whose
+        //       country-scope bus is oversize at shard scope; the slicer's
+        //       MAX_SLICE_PARSE_BYTES cap and the worker's resource budget
+        //       can't take a national bus body for those. Exact-key match;
+        //       cities already covered by a fresh bus shard are skipped.
         //
         // Both halves are opt-out via TRANSIT_PREWARM_ENABLED (the
         // request-time read paths use the same flag). Heavy phase, so
@@ -1059,13 +1062,14 @@ async function handleRequest(
         }
 
         // Step 2.6 — transit-route shard slicing (v329). Same shape as
-        // 2.5, different shard space: SUBWAY + FERRY queries get sliced
-        // out of `transit-routes/v1/<iso>/<routeType>/all`. Bus is
-        // excluded by template-fingerprint mismatch (dense networks
-        // can't be country-warmed safely; bus runs through the per-city
-        // exact-key path in Step 2). Same opt-out flag as the per-city
-        // bus prewarm (`TRANSIT_PREWARM_ENABLED`) so the runtime read
-        // path stays consistent with the cron writes.
+        // 2.5, different shard space: queries for any TRANSIT_SHARD_MODES
+        // route (subway/ferry/train/tram, and bus since v584) get sliced
+        // out of `transit-routes/v1/<iso>/<routeType>/all`. A bus query in
+        // a DENSE country has no shard entry (it oversize-skipped at warm
+        // time) so it cleanly falls through to the per-city exact-key path
+        // (Step 2) / live miss (Step 3). Same opt-out flag as the per-city
+        // bus prewarm (`TRANSIT_PREWARM_ENABLED`) so the runtime read path
+        // stays consistent with the cron writes.
         if (env.TRANSIT_PREWARM_ENABLED !== "false") {
             let sliced: SlicedResult | null = null;
             try {
@@ -2547,15 +2551,20 @@ out geom;
  *   - the helpers below                              (this cron)
  */
 /** Modes warmed at country-shard scope and sliced at request time.
- *  v334 added train + tram. Both are denser than subway/ferry but
- *  still tractable per-shard in most countries — the rare mega-network
- *  (German DB, Japan JR, China high-speed) may exceed the 20 MB
- *  reduce cap and skip, falling through to the live per-city query
- *  path. Worst-case behaviour: the colored overlay shows nothing for
- *  those countries on first ask, and the per-query exact-key R2 cache
- *  fills as users tap. */
-const TRANSIT_SHARD_MODES = ["subway", "ferry", "train", "tram"] as const;
-/** Modes warmed per-city (exact-key match — no slicing). */
+ *  v334 added train + tram. v584 added bus. All are denser than
+ *  subway/ferry but still tractable per-shard for the great majority of
+ *  countries — the rare mega-network (German DB, Japan JR, US metro
+ *  bus) exceeds the 20 MB reduce cap and skips, recording an oversize
+ *  marker (so it isn't re-queried every TTL cycle) and falling through
+ *  to the per-city / live path. Worst-case behaviour: the colored
+ *  overlay shows nothing for those countries on first ask, and the
+ *  per-query exact-key R2 cache fills as users tap. */
+const TRANSIT_SHARD_MODES = ["subway", "ferry", "train", "tram", "bus"] as const;
+/** Modes warmed per-city (exact-key match — no slicing). Bus stays here
+ *  as the fallback for DENSE countries whose country-scope bus query is
+ *  oversize at shard scope (US/DE/JP curated cities); sparse-country
+ *  cities are skipped here because the shard slice already serves them
+ *  (see prewarmTransitForCity). */
 const TRANSIT_CITY_MODES = ["bus"] as const;
 /** All transit modes valid on the public /api/transit/<id>/<mode> route. */
 const TRANSIT_MODES: ReadonlySet<string> = new Set([
@@ -2792,6 +2801,40 @@ async function prewarmTransitForCity(
     let skippedBig = 0;
     if (!city.extent) return { stored, skippedFresh, skippedBig };
     for (const routeType of TRANSIT_CITY_MODES) {
+        // v584: skip per-city bus when the city's containing shard already
+        // holds a fresh bus shard entry — the runtime slicer serves the
+        // city from there, so a redundant per-city Overpass fetch only
+        // adds load. (Dense countries oversize-skip at shard scope, so
+        // their cities have no fresh shard entry and still warm here.)
+        if (routeType === "bus") {
+            // CityEntry.extent is Photon order [maxLat, minLng, minLat,
+            // maxLng]; findContainingShard wants GeoJSON [w, s, e, n].
+            const shard = findContainingShard([
+                city.extent[1],
+                city.extent[2],
+                city.extent[3],
+                city.extent[0],
+            ]);
+            if (shard) {
+                try {
+                    const shardObj = await env.CACHE.get(
+                        transitShardKey(shard.iso, "bus"),
+                    );
+                    if (shardObj) {
+                        const at = parseInt(
+                            shardObj.customMetadata?.cachedAt ?? "0",
+                            10,
+                        );
+                        if (at && Date.now() - at < ttlMs) {
+                            skippedFresh++;
+                            continue;
+                        }
+                    }
+                } catch {
+                    /* fall through to the per-city warm */
+                }
+            }
+        }
         const query = transitRouteQuery(city.extent, routeType);
         const cacheKey = await r2KeyForQuery(query);
         // Skip if a fresh entry already exists.
@@ -2892,6 +2935,34 @@ async function prewarmTransitForShard(
             return { status: "skipped-fresh", ageMs };
         }
     }
+    // v584: oversize marker. Bus (a shard mode since v584) is tractable
+    // at country scope for sparse/medium countries but blows the
+    // MAX_TRANSIT_REDUCE_BYTES cap for dense ones (US/DE/JP). Without a
+    // marker we'd re-issue the doomed country-scope query every TTL cycle
+    // and burn an Overpass slot for nothing. A prior oversize verdict (a
+    // tiny sibling object) lets later ticks skip cheaply; it expires on
+    // the same TTL so a network that genuinely shrinks gets re-tried.
+    const oversizeKey = `${key}__oversize`;
+    try {
+        const marker = await env.CACHE.get(oversizeKey);
+        if (marker) {
+            const markedAt = parseInt(
+                marker.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (markedAt && Date.now() - markedAt < ttlMs) {
+                return {
+                    status: "skipped-oversize",
+                    ageMs: Date.now() - markedAt,
+                };
+            }
+        }
+    } catch (e) {
+        console.warn(
+            `R2 get failed for transit-shard oversize marker (${shard.iso} ${routeType}):`,
+            e,
+        );
+    }
     const slotOk = await waitForOverpassSlot(
         `transit-shard ${shard.iso} ${routeType}`,
     );
@@ -2903,6 +2974,20 @@ async function prewarmTransitForShard(
     if (!upstream) return { status: "upstream-failed" };
     const raw = await readBodyCapped(upstream, MAX_TRANSIT_REDUCE_BYTES);
     if (raw === null) {
+        // Record the oversize verdict so the next TTL cycle skips this
+        // (shard, mode) without another doomed upstream fetch.
+        try {
+            await env.CACHE.put(oversizeKey, "1", {
+                customMetadata: {
+                    cachedAt: String(Date.now()),
+                    kind: "transit-shard-oversize",
+                    shardIso: shard.iso,
+                    routeType,
+                },
+            });
+        } catch {
+            /* best-effort marker — a re-fetch next tick is the only cost */
+        }
         return { status: "oversize-skipped" };
     }
     let reduced: { text: string; wayCount: number };
