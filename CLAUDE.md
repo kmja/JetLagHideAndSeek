@@ -255,7 +255,12 @@ embeds the interactive picker). Spatial types read cached play-area
 references, degrading to "show the whole play area" on any failure.
 **Photo is skipped** — it narrows nothing (the engine would just
 highlight the whole play area), and the photo card's own received-image
-`<img>` (`photoUrl ?? photoUri`) below IS its outcome.
+`<img>` (`photoUrl ?? photoUri`) below IS its outcome. Once a question is
+**resolved** (`locked`/answered) its config children (subtype select,
+location-picker mini-map, …) are hidden — they're a read-only duplicate
+of what the outcome map already shows, so the expanded card is just the
+map. Children stay for in-flight questions (e.g. the thermometer
+end-point share), the configure dialog (`forceExpanded`), and photo.
 
 The questions drawer header (`QuestionSidebar.tsx`) puts the **New
 question** CTA at its natural width up in the title row (where the role
@@ -294,7 +299,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v588`. Use `git log` for the per-version detail;
+build stamp. Current: `v589`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

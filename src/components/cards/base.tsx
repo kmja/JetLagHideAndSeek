@@ -316,6 +316,17 @@ export const QuestionCard = ({
         </div>
     );
 
+    // Once a question is RESOLVED (locked / answered) its config children
+    // are a read-only duplicate of what the outcome map already shows — the
+    // subtype select, the location-picker mini-map, etc. Hide them so the
+    // expanded card is just the outcome map. Still shown while the question
+    // is in-flight (the thermometer end-point share, drafts), in the
+    // configure dialog (`forceExpanded`), and for photo (whose children ARE
+    // the received image, not a duplicate map).
+    const showChildren =
+        forceExpanded || category === "photo" || locked !== true;
+    const shareRow = shareable && thisQuestion;
+
     return (
         <div
             className={cn(
@@ -355,7 +366,7 @@ export const QuestionCard = ({
             />
             <div
                 className={cn(
-                    "overflow-hidden transition-all duration-200 max-h-[200rem]",
+                    "overflow-hidden transition-all duration-200 max-h-[200rem] pb-2",
                     isCollapsed && !forceExpanded && "max-h-0",
                 )}
             >
@@ -376,12 +387,14 @@ export const QuestionCard = ({
                             <QuestionOutcomeMap question={thisQuestion} />
                         </div>
                     )}
-                <SidebarMenu>
-                    {shareable && thisQuestion && (
-                        <ShareQuestionRow question={thisQuestion} />
-                    )}
-                    {children}
-                </SidebarMenu>
+                {(showChildren || shareRow) && (
+                    <SidebarMenu>
+                        {shareRow && (
+                            <ShareQuestionRow question={thisQuestion!} />
+                        )}
+                        {showChildren && children}
+                    </SidebarMenu>
+                )}
             </div>
         </div>
     );
