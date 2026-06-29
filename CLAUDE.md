@@ -248,6 +248,9 @@ Mounted only while expanded (so collapsed cards aren't each running a
 MapLibre instance) and suppressed in the configure dialog (which already
 embeds the interactive picker). Spatial types read cached play-area
 references, degrading to "show the whole play area" on any failure.
+**Photo is skipped** — it narrows nothing (the engine would just
+highlight the whole play area), and the photo card's own received-image
+`<img>` (`photoUrl ?? photoUri`) below IS its outcome.
 
 The questions drawer header (`QuestionSidebar.tsx`) puts the **New
 question** CTA at its natural width up in the title row (where the role
@@ -286,7 +289,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v586`. Use `git log` for the per-version detail;
+build stamp. Current: `v587`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

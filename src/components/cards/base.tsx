@@ -375,12 +375,18 @@ export const QuestionCard = ({
                     consistent with the answer). Suppressed in the configure
                     dialog, which already embeds the interactive picker.
                     Mounted only while expanded so each collapsed card isn't
-                    running its own MapLibre instance. */}
-                {!forceExpanded && thisQuestion && !isCollapsed && (
-                    <div className="px-2 pt-2">
-                        <QuestionOutcomeMap question={thisQuestion} />
-                    </div>
-                )}
+                    running its own MapLibre instance. Skipped for PHOTO —
+                    it eliminates nothing (the engine would just highlight
+                    the whole play area), and the photo card's own image
+                    below IS the outcome. */}
+                {!forceExpanded &&
+                    thisQuestion &&
+                    !isCollapsed &&
+                    category !== "photo" && (
+                        <div className="px-2 pt-2">
+                            <QuestionOutcomeMap question={thisQuestion} />
+                        </div>
+                    )}
                 <SidebarMenu>
                     {shareable && thisQuestion && (
                         <ShareQuestionRow question={thisQuestion} />
