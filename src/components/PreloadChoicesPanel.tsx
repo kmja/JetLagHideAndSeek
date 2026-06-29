@@ -59,7 +59,7 @@ const BUCKETS: BucketDef[] = [
         id: "map",
         label: "Map",
         blurb:
-            "Boundary polygon + every basemap tile around the play area at street zooms. Without this, zooming in mid-game stutters while fresh tiles download.",
+            "The play-area outline and the map imagery around it, so the map stays smooth when you zoom in during the game.",
         icon: MapIcon,
         // v263: bumped from 0.55 → 1.5 multiplier after London (~1500 km²)
         // came in at ~80 MB once z15 (street zoom) was actually preloaded.
@@ -72,7 +72,7 @@ const BUCKETS: BucketDef[] = [
         id: "references",
         label: "Question references",
         blurb:
-            "All 15 question categories (hospitals, parks, museums, train stations, …). Off-by-tap fallback still works without this.",
+            "The places questions compare against — airports, stations, parks, museums, hospitals and the like. Questions still work without it, just a little slower the first time you ask.",
         icon: BookOpen,
         // sqrt(200) * 0.17 ≈ 2.9 MB at null fallback (200 km²)
         estimateMb: (km2) => 0.5 + Math.sqrt(km2 ?? 200) * 0.17,
@@ -81,7 +81,7 @@ const BUCKETS: BucketDef[] = [
         id: "transit",
         label: "Transit lines & arrivals",
         blurb:
-            "High-speed rail data + journey arrival times. Drop this if you're on a slow connection — only matters for transit-themed questions.",
+            "The transit route lines for the map overlay (metro, tram, bus, train, ferry), plus high-speed rail and station arrival times. Mainly for transit questions and the line overlay — safe to skip on a slow connection.",
         icon: TramFront,
         // sqrt(200) * 0.057 ≈ 1.0 MB at null fallback (200 km²)
         estimateMb: (km2) => 0.2 + Math.sqrt(km2 ?? 200) * 0.057,
