@@ -5,15 +5,23 @@ import * as turf from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
-import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
+import {
+    PLAY_AREA_COLOR,
+    PLAY_AREA_LINE_OPACITY,
+    PLAY_AREA_LINE_WIDTH,
+} from "@/lib/playAreaStyle";
 import {
     handleMapLibreError,
     installMissingImageHandler,
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
-import { applyQuestionsToMapGeoData, determinePlanningPolygon } from "@/maps";
+import {
+    applyQuestionsToMapGeoData,
+    determinePlanningPolygon,
+    holedMask,
+} from "@/maps";
 import type { Question } from "@/maps/schema";
 
 /**
@@ -25,27 +33,26 @@ import type { Question } from "@/maps/schema";
  * of the play-area boundary, so the highlighted region matches precisely
  * what the seeker sees on the big map. For a still-unanswered (draft /
  * awaiting) question there's no answer to resolve yet, so we draw the
- * question's planning FOOTPRINT outline instead (what it'll constrain once
- * answered).
+ * question's planning FOOTPRINT outline instead.
  *
- * Lazy by design — only rendered when a question card is expanded. The
- * answered spatial types (matching / measuring / tentacles) read their
- * reference POIs from the already-warmed play-area cache, so no fresh
- * Overpass round-trip happens on the happy path; the engine's own
- * try/catch degrades to "show the whole play area" on any failure.
+ * Marking is CONSISTENT across every question type and matches the big
+ * map: the play-area boundary is the canonical red stroke
+ * (`PLAY_AREA_COLOR`), and the resulting area is shown by DIMMING
+ * everything outside it (the same elimination-mask language the main map
+ * uses) with a white edge — no per-category fill colour.
+ *
+ * Lazy by design — only rendered when a question card is expanded, and
+ * `pointer-events-none` so it never steals touch/scroll from the drawer.
  */
 
 /** Coerce whatever the engine returns into a FeatureCollection. */
-function normalizeFC(
-    value: unknown,
-): GeoJSON.FeatureCollection | null {
+function normalizeFC(value: unknown): GeoJSON.FeatureCollection | null {
     if (!value || typeof value !== "object" || !("type" in value)) return null;
     const v = value as GeoJSON.GeoJSON;
     if (v.type === "FeatureCollection") return v;
     if (v.type === "Feature") {
         return { type: "FeatureCollection", features: [v] };
     }
-    // A bare geometry.
     return {
         type: "FeatureCollection",
         features: [turf.feature(v as GeoJSON.Geometry)],
@@ -66,19 +73,21 @@ export function QuestionOutcomeMap({
 
     const base = $mapGeoJSON || $polyGeoJSON;
     const mapRef = useRef<MapRef | null>(null);
-
-    const cat = CATEGORIES[question.id as CategoryId] ?? CATEGORIES.matching;
     const isDraft = question.data.drag === true;
 
     type Outcome = {
-        fc: GeoJSON.FeatureCollection;
+        /** result-mode: the dark mask that dims everything OUTSIDE the
+         *  resulting area; footprint-mode: null. */
+        mask: GeoJSON.Feature | null;
+        /** The resulting-area / footprint polygon, for the white edge. */
+        area: GeoJSON.FeatureCollection;
         mode: "result" | "footprint";
     } | null;
     const [outcome, setOutcome] = useState<Outcome>(null);
     const [computing, setComputing] = useState(true);
     const [failed, setFailed] = useState(false);
+    const [tilesReady, setTilesReady] = useState(false);
 
-    // Elimination-relevant signature so we recompute only on a real change.
     const sig = useMemo(() => {
         const d = question.data as Record<string, unknown>;
         return [
@@ -109,9 +118,6 @@ export function QuestionOutcomeMap({
         setFailed(false);
         (async () => {
             try {
-                // Clone so the engine's in-place tweaks can't touch the
-                // live store. The question clone keeps the real answer
-                // fields; only `drag` matters to the engine's skip logic.
                 const qClone = {
                     id: question.id,
                     key: question.key,
@@ -122,7 +128,9 @@ export function QuestionOutcomeMap({
                     const poly = await determinePlanningPolygon(qClone, true);
                     if (cancelled) return;
                     const fc = poly ? normalizeFC(poly) : null;
-                    setOutcome(fc ? { fc, mode: "footprint" } : null);
+                    setOutcome(
+                        fc ? { mask: null, area: fc, mode: "footprint" } : null,
+                    );
                 } else {
                     const baseClone = JSON.parse(
                         JSON.stringify(base),
@@ -133,8 +141,22 @@ export function QuestionOutcomeMap({
                         false,
                     );
                     if (cancelled) return;
-                    const fc = normalizeFC(working);
-                    setOutcome(fc ? { fc, mode: "result" } : null);
+                    const area = normalizeFC(working);
+                    if (!area) {
+                        setOutcome(null);
+                    } else {
+                        // Dim everything OUTSIDE the resulting area — the
+                        // same elimination-mask treatment as the main map.
+                        let mask: GeoJSON.Feature | null = null;
+                        try {
+                            mask = holedMask(
+                                working as never,
+                            ) as GeoJSON.Feature | null;
+                        } catch {
+                            mask = null;
+                        }
+                        setOutcome({ mask, area, mode: "result" });
+                    }
                 }
             } catch {
                 if (!cancelled) setFailed(true);
@@ -181,11 +203,20 @@ export function QuestionOutcomeMap({
         }
     };
 
-    // Re-fit when the framing changes (new question / boundary).
     useEffect(() => {
         fitToBbox();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [bbox]);
+
+    // Skeleton until BOTH the geometry is computed AND the tiles have
+    // painted once. Hard fallback so a stuck tile fetch can't pin the
+    // skeleton forever (e.g. the basemap host is unreachable).
+    useEffect(() => {
+        if (tilesReady) return;
+        const t = window.setTimeout(() => setTilesReady(true), 4000);
+        return () => window.clearTimeout(t);
+    }, [tilesReady]);
+    const loading = computing || !tilesReady;
 
     const mapStyle = useMemo(
         () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
@@ -199,10 +230,12 @@ export function QuestionOutcomeMap({
           }
         : { longitude: 0, latitude: 0 };
 
+    const containerCls = `${height} relative overflow-hidden rounded-lg border border-border pointer-events-none select-none`;
+
     if (!base) {
         return (
             <div
-                className={`${height} flex items-center justify-center rounded-lg bg-muted/40 text-[11px] text-muted-foreground`}
+                className={`${containerCls} flex items-center justify-center bg-muted/40 text-[11px] text-muted-foreground`}
             >
                 No play area to preview
             </div>
@@ -210,9 +243,7 @@ export function QuestionOutcomeMap({
     }
 
     return (
-        <div
-            className={`${height} relative overflow-hidden rounded-lg border border-border`}
-        >
+        <div className={containerCls}>
             <MapGL
                 ref={mapRef}
                 initialViewState={{ ...center, zoom: 9 }}
@@ -227,79 +258,80 @@ export function QuestionOutcomeMap({
                     installMissingImageHandler(e.target);
                     fitToBbox();
                 }}
+                onIdle={() => setTilesReady(true)}
                 onError={handleMapLibreError}
             >
-                {/* Faint full play-area outline for context. */}
-                <Source id="qom-base" type="geojson" data={base}>
+                {/* Resulting area: dim everything outside it (the main
+                    map's elimination-mask language) + a crisp white edge.
+                    Consistent for every question type — no category fill. */}
+                {outcome?.mode === "result" && outcome.mask && (
+                    <Source id="qom-mask" type="geojson" data={outcome.mask}>
+                        <Layer
+                            id="qom-mask-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color": "#000000",
+                                "fill-opacity": 0.55,
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {outcome && (
+                    <Source id="qom-area" type="geojson" data={outcome.area}>
+                        {outcome.mode === "footprint" && (
+                            <Layer
+                                id="qom-area-fill"
+                                type="fill"
+                                paint={{
+                                    "fill-color": "#ffffff",
+                                    "fill-opacity": 0.06,
+                                }}
+                            />
+                        )}
+                        <Layer
+                            id="qom-area-line"
+                            type="line"
+                            paint={{
+                                "line-color": "#ffffff",
+                                "line-width": 2,
+                                "line-opacity": 0.9,
+                                ...(outcome.mode === "footprint"
+                                    ? { "line-dasharray": [3, 2] }
+                                    : {}),
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Canonical play-area boundary — same red stroke as every
+                    other map (wizard / lobby / seeker / hider). */}
+                <Source id="qom-boundary" type="geojson" data={base}>
                     <Layer
-                        id="qom-base-line"
+                        id="qom-boundary-line"
                         type="line"
                         paint={{
-                            "line-color": darkTiles ? "#94a3b8" : "#475569",
-                            "line-width": 1,
-                            "line-opacity": 0.5,
-                            "line-dasharray": [2, 2],
+                            "line-color": PLAY_AREA_COLOR,
+                            "line-width": PLAY_AREA_LINE_WIDTH,
+                            "line-opacity": PLAY_AREA_LINE_OPACITY,
                         }}
                     />
                 </Source>
-
-                {outcome && outcome.mode === "result" && (
-                    <Source id="qom-result" type="geojson" data={outcome.fc}>
-                        <Layer
-                            id="qom-result-fill"
-                            type="fill"
-                            paint={{
-                                "fill-color": cat.color,
-                                "fill-opacity": 0.3,
-                            }}
-                        />
-                        <Layer
-                            id="qom-result-line"
-                            type="line"
-                            paint={{
-                                "line-color": cat.color,
-                                "line-width": 2,
-                                "line-opacity": 0.9,
-                            }}
-                        />
-                    </Source>
-                )}
-
-                {outcome && outcome.mode === "footprint" && (
-                    <Source id="qom-foot" type="geojson" data={outcome.fc}>
-                        <Layer
-                            id="qom-foot-fill"
-                            type="fill"
-                            paint={{
-                                "fill-color": cat.color,
-                                "fill-opacity": 0.08,
-                            }}
-                        />
-                        <Layer
-                            id="qom-foot-line"
-                            type="line"
-                            paint={{
-                                "line-color": cat.color,
-                                "line-width": 2,
-                                "line-opacity": 0.85,
-                                "line-dasharray": [3, 2],
-                            }}
-                        />
-                    </Source>
-                )}
             </MapGL>
 
-            {/* Status veil — computing / failed / nothing-to-show. */}
-            {(computing || failed || (!outcome && !computing)) && (
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center pb-1.5">
+            {/* Loading skeleton — covers the map until geometry + tiles
+                are ready, so the answer region never pops in abruptly. */}
+            {loading && (
+                <div className="absolute inset-0 animate-pulse bg-muted" />
+            )}
+
+            {/* Settled empty/failure states (only once loading is done). */}
+            {!loading && (failed || !outcome) && (
+                <div className="absolute inset-x-0 bottom-0 flex justify-center pb-1.5">
                     <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-poppins text-muted-foreground backdrop-blur-sm">
-                        {computing
-                            ? "Computing outcome…"
-                            : failed
-                              ? "Couldn't render this outcome"
-                              : question.id === "photo"
-                                ? "Photo questions don't narrow the map"
-                                : "No resulting area"}
+                        {failed
+                            ? "Couldn't render this outcome"
+                            : "No resulting area"}
                     </span>
                 </div>
             )}

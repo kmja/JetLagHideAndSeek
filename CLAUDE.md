@@ -217,7 +217,10 @@ A lazily-loaded (`React.lazy` in `LatLngPicker`) **MapLibre** inline map embedde
 
 ## Card base (cards/base.tsx)
 
-Expand/collapse transition: `duration-200` (was 1000ms, was slow).
+Expand/collapse uses the **grid-rows `0fr`→`1fr` trick** (`duration-300`,
+animates to the real content height — smoother than the old max-h guess);
+the body stays mounted through the close transition then unmounts
+(`bodyMounted`) so a collapsed card holds no live MapLibre instance.
 
 **Collapsed look (v585):** every question card's collapsed header IS the
 shared `QuestionOverlayCard` chrome — the same Jet-Lag-show lower-third
@@ -234,10 +237,11 @@ subtle NEUTRAL `border-sidebar-border` outline (not category-tinted), a
 drawer background** — so the shadow/border separate it, not a contrasting
 block. The card owns no margin; the list (`QuestionSidebar`'s
 `SidebarContent`, `px-4 pt-3 gap-3`) insets it so its left edge lines up
-with the header and spaces the rows. Right slot = lifecycle chip
-(Answered / Awaiting / …) over the relative time / answer countdown, plus
-a **big `ChevronDown`** (rotates on expand) — there's no small left
-chevron anymore. **No delete/trash button at all** — sent questions are
+with the header and spaces the rows. The lifecycle chip (Answered /
+Awaiting / …) + relative time / answer countdown sit **above** the card,
+right-aligned (`statusAbove`); the card's own right slot is just a **big
+`ChevronDown`** (rotates on expand) — there's no small left chevron
+anymore. **No delete/trash button at all** — sent questions are
 never deletable (it would desync the hider); discarding an
 un-sent draft is the configure dialog's Cancel button's job.
 `forceExpanded` (the configure dialog) renders the header static (no
@@ -249,6 +253,13 @@ question's **resulting area** — it reuses the main map's elimination
 engine (`applyQuestionsToMapGeoData` against a clone of the play-area
 boundary for an answered question; `determinePlanningPolygon` footprint
 for a still-draft one), so the highlight matches the big map exactly.
+Marking is **consistent across every type and matches the big map**: the
+play-area boundary is the canonical red `PLAY_AREA_COLOR` stroke (same as
+every other map), and the resulting area is shown by DIMMING everything
+outside it (`holedMask`, the main map's elimination-mask language) with a
+white edge — no per-category fill colour. The map is `pointer-events-none`
+(so it never steals drawer scroll) and shows a **`animate-pulse`
+skeleton** until both the geometry is computed and the tiles paint.
 Mounted only while expanded (so collapsed cards aren't each running a
 MapLibre instance) and suppressed in the configure dialog (which already
 embeds the interactive picker). Spatial types read cached play-area
@@ -299,7 +310,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v589`. Use `git log` for the per-version detail;
+build stamp. Current: `v590`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

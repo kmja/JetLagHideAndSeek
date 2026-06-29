@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { ChevronDown, Copy, Share2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
 import { QuestionOutcomeMap } from "@/components/QuestionOutcomeMap";
@@ -248,6 +248,21 @@ export const QuestionCard = ({
         setIsCollapsed((prev) => !prev);
     };
 
+    // Keep the expanded body mounted through the close animation so the
+    // height transition is smooth both ways, then unmount it (so a
+    // collapsed card isn't holding a live MapLibre instance). The 320 ms
+    // matches the grid-rows transition below (300 ms + slack).
+    const expanded = forceExpanded || !isCollapsed;
+    const [bodyMounted, setBodyMounted] = useState(expanded);
+    useEffect(() => {
+        if (expanded) {
+            setBodyMounted(true);
+            return;
+        }
+        const t = window.setTimeout(() => setBodyMounted(false), 320);
+        return () => window.clearTimeout(t);
+    }, [expanded]);
+
     // Show-style summary (same engine as the pending-answer overlay) so the
     // collapsed card reads identically to the on-map overlay. While a
     // question is still awaiting / draft we keep the overlay's generic
@@ -266,9 +281,9 @@ export const QuestionCard = ({
         detail: resolved ?? baseSummary.detail,
     };
 
-    // Right slot: the lifecycle status (Answered / Awaiting / …) over the
-    // relative time or answer countdown, plus a BIG chevron. Mirrors the
-    // overlay's "live status on the right" with the expand affordance.
+    // Status (Answered / Awaiting / …) + relative time / answer countdown
+    // sit ABOVE the card, right-aligned (see `statusAbove`). The card's own
+    // right slot is just the big expand chevron.
     const timeNode = answerDeadlineLabel ? (
         <span
             className={cn(
@@ -281,39 +296,39 @@ export const QuestionCard = ({
         </span>
     ) : relativeTime ? (
         <span
-            className="text-[10px] font-mono text-[color:var(--overlay-card-desc)] whitespace-nowrap"
+            className="text-[10px] font-mono text-muted-foreground whitespace-nowrap"
             title={createdAt ? new Date(createdAt).toLocaleString() : undefined}
         >
             {relativeTime}
         </span>
     ) : null;
 
-    const rightSlot = (
-        <div className="flex items-center gap-2">
-            {(lifecycle || timeNode) && (
-                <div className="flex flex-col items-end gap-0.5 leading-none">
-                    {lifecycle && (
-                        <span
-                            className={cn(
-                                "text-[9px] uppercase tracking-wider font-poppins font-semibold",
-                                "px-1.5 py-0.5 rounded border whitespace-nowrap",
-                                lifecycleMeta[lifecycle].cls,
-                            )}
-                        >
-                            {lifecycleMeta[lifecycle].label}
-                        </span>
-                    )}
-                    {timeNode}
-                </div>
-            )}
-            <ChevronDown
-                className={cn(
-                    "h-6 w-6 shrink-0 text-[color:var(--overlay-card-desc)] transition-transform duration-200",
-                    !isCollapsed && "rotate-180",
+    const statusAbove =
+        !forceExpanded && (lifecycle || timeNode) ? (
+            <div className="flex items-center justify-end gap-2 pr-0.5 pb-1 leading-none">
+                {lifecycle && (
+                    <span
+                        className={cn(
+                            "text-[9px] uppercase tracking-wider font-poppins font-semibold",
+                            "px-1.5 py-0.5 rounded border whitespace-nowrap",
+                            lifecycleMeta[lifecycle].cls,
+                        )}
+                    >
+                        {lifecycleMeta[lifecycle].label}
+                    </span>
                 )}
-                strokeWidth={2.5}
-            />
-        </div>
+                {timeNode}
+            </div>
+        ) : null;
+
+    const rightSlot = forceExpanded ? undefined : (
+        <ChevronDown
+            className={cn(
+                "h-6 w-6 shrink-0 text-[color:var(--overlay-card-desc)] transition-transform duration-200",
+                !isCollapsed && "rotate-180",
+            )}
+            strokeWidth={2.5}
+        />
     );
 
     // Once a question is RESOLVED (locked / answered) its config children
@@ -328,73 +343,88 @@ export const QuestionCard = ({
     const shareRow = shareable && thisQuestion;
 
     return (
-        <div
-            className={cn(
-                // Match the on-map QuestionOverlayCard treatment: sharp
-                // corners, a subtle NEUTRAL outline (not category-tinted), a
-                // real shadow for lift, and a surface only a hair above the
-                // drawer background — so the shadow does the separating, not
-                // a contrasting block. Margins/inset are owned by the list
-                // container (QuestionSidebar) so the card sits flush in the
-                // configure dialog too.
-                "relative overflow-hidden border shadow-lg",
-                "border-sidebar-border bg-sidebar-accent",
-                className,
-            )}
-        >
-            {/* Collapsed header = the same Jet-Lag-show overlay chrome the
-                pending-answer card uses (solid category-colour icon block,
-                big coloured label, status on the right). Borderless +
-                square-cornered here; the wrapper supplies the rounded,
-                category-tinted border so the whole thing reads as one card.
-                The configure dialog (`forceExpanded`) keeps it static — no
-                chevron, no collapse. */}
-            <QuestionOverlayCard
-                categoryId={category ?? ""}
-                summary={cardSummary}
-                error={lifecycle === "not-sent"}
-                right={forceExpanded ? undefined : rightSlot}
-                onClick={forceExpanded ? undefined : toggleCollapse}
-                ariaLabel={
-                    forceExpanded
-                        ? undefined
-                        : isCollapsed
-                          ? "Expand question details"
-                          : "Collapse question details"
-                }
-                className="rounded-none border-0 shadow-none bg-transparent"
-            />
+        <div className="relative">
+            {/* Lifecycle status + time live ABOVE the card, right-aligned. */}
+            {statusAbove}
             <div
                 className={cn(
-                    "overflow-hidden transition-all duration-200 max-h-[200rem] pb-2",
-                    isCollapsed && !forceExpanded && "max-h-0",
+                    // Match the on-map QuestionOverlayCard treatment: sharp
+                    // corners, a subtle NEUTRAL outline (not category-tinted),
+                    // a real shadow for lift, and a surface only a hair above
+                    // the drawer background — so the shadow does the
+                    // separating, not a contrasting block. Margins/inset are
+                    // owned by the list container (QuestionSidebar) so the
+                    // card sits flush in the configure dialog too.
+                    "relative overflow-hidden border shadow-lg",
+                    "border-sidebar-border bg-sidebar-accent",
+                    className,
                 )}
             >
-                {/* Expanded: a static map highlighting this question's
-                    resulting area (the part of the play region still
-                    consistent with the answer). Suppressed in the configure
-                    dialog, which already embeds the interactive picker.
-                    Mounted only while expanded so each collapsed card isn't
-                    running its own MapLibre instance. Skipped for PHOTO —
-                    it eliminates nothing (the engine would just highlight
-                    the whole play area), and the photo card's own image
-                    below IS the outcome. */}
-                {!forceExpanded &&
-                    thisQuestion &&
-                    !isCollapsed &&
-                    category !== "photo" && (
-                        <div className="px-2 pt-2">
-                            <QuestionOutcomeMap question={thisQuestion} />
-                        </div>
+                {/* Header = the same Jet-Lag-show overlay chrome the
+                    pending-answer card uses (solid category-colour icon
+                    block, big coloured label). Borderless + square-cornered
+                    here; the wrapper supplies the border so the whole thing
+                    reads as one card. Right slot = the expand chevron. The
+                    configure dialog (`forceExpanded`) keeps it static. */}
+                <QuestionOverlayCard
+                    categoryId={category ?? ""}
+                    summary={cardSummary}
+                    error={lifecycle === "not-sent"}
+                    right={rightSlot}
+                    onClick={forceExpanded ? undefined : toggleCollapse}
+                    ariaLabel={
+                        forceExpanded
+                            ? undefined
+                            : isCollapsed
+                              ? "Expand question details"
+                              : "Collapse question details"
+                    }
+                    className="rounded-none border-0 shadow-none bg-transparent"
+                />
+                {/* Smooth height animation via the grid-rows 0fr→1fr trick
+                    (animates to the real content height, unlike a max-h
+                    guess). The body stays mounted through the close
+                    transition (see `bodyMounted`) so both directions are
+                    smooth, then unmounts. */}
+                <div
+                    className={cn(
+                        "grid transition-[grid-template-rows] duration-300 ease-out",
+                        isCollapsed && !forceExpanded
+                            ? "grid-rows-[0fr]"
+                            : "grid-rows-[1fr]",
                     )}
-                {(showChildren || shareRow) && (
-                    <SidebarMenu>
-                        {shareRow && (
-                            <ShareQuestionRow question={thisQuestion!} />
+                >
+                    <div className="overflow-hidden">
+                        {bodyMounted && (
+                            <div className="pb-2">
+                                {/* Expanded: a static map highlighting this
+                                    question's resulting area. Suppressed in
+                                    the configure dialog (already embeds the
+                                    interactive picker) and for PHOTO (its own
+                                    image below IS the outcome). */}
+                                {!forceExpanded &&
+                                    thisQuestion &&
+                                    category !== "photo" && (
+                                        <div className="px-2 pt-2">
+                                            <QuestionOutcomeMap
+                                                question={thisQuestion}
+                                            />
+                                        </div>
+                                    )}
+                                {(showChildren || shareRow) && (
+                                    <SidebarMenu>
+                                        {shareRow && (
+                                            <ShareQuestionRow
+                                                question={thisQuestion!}
+                                            />
+                                        )}
+                                        {showChildren && children}
+                                    </SidebarMenu>
+                                )}
+                            </div>
                         )}
-                        {showChildren && children}
-                    </SidebarMenu>
-                )}
+                    </div>
+                </div>
             </div>
         </div>
     );
