@@ -12,8 +12,6 @@ import { Input } from "@/components/ui/input";
 import { betaGateDisabled, betaUnlocked, checkBetaCode } from "@/lib/beta";
 import { cn } from "@/lib/utils";
 
-import { HideSeekMark } from "./JetLagLogo";
-
 /**
  * Private-beta unlock gate. Renders the app underneath at all times and
  * overlays a non-dismissible Dialog until the access code is entered (or
@@ -58,7 +56,6 @@ export function BetaGate({ children }: { children: React.ReactNode }) {
                     )}
                     overlayClassName="z-[2000] bg-black/70 backdrop-blur-sm"
                 >
-                    <HideSeekMark size={48} />
                     <span className="inline-flex items-center rounded-full border border-jetlag-yellow/60 bg-jetlag-yellow/10 px-3 py-1 text-[10px] font-display font-extrabold uppercase tracking-[0.16em] text-jetlag-yellow">
                         Private beta
                     </span>

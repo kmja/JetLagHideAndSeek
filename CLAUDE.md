@@ -295,8 +295,9 @@ description, on the same `px-6` inset, with the **New question** CTA to
 the right of the title (not a full-width bar). The role/SEEKER chip is
 gone. The empty state shows just text — **no logo icon** (removed v593).
 
-The shared `HideSeekMark` logomark (used in `Welcome`/`BetaGate`) was
-realigned in v593 to the favicon/landing-scene layout (sun centred,
+The shared `HideSeekMark` logomark (now used in `Welcome` only — dropped
+from the empty state and the `BetaGate` in v593/v594) was realigned in
+v593 to the favicon/landing-scene layout (sun centred,
 mountain apex at the sun's centre, base spanning the full bottom) — the
 pre-v593 mark had the sun high and the base inset; that was the "old"
 look. Brand red `hsl(5 69% 55%)`.
@@ -333,7 +334,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v593`. Use `git log` for the per-version detail;
+build stamp. Current: `v594`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
