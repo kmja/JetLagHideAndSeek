@@ -291,9 +291,11 @@ end-point share), the configure dialog (`forceExpanded`), and photo.
 
 The questions drawer header (`QuestionSidebar.tsx`) matches the settings
 drawer's (v593): a small `text-lg font-semibold` title + a muted
-description, on the same `px-6` inset, with the **New question** CTA to
-the right of the title (not a full-width bar). The role/SEEKER chip is
-gone. The empty state shows just text — **no logo icon** (removed v593).
+description, on the same `px-6` inset. The single **New question** CTA is
+the standard primary `Button` (sentence case, normal size — v595); it
+sits to the right of the title WHEN there are questions, and moves INTO
+the empty-state box (as the lone CTA) when the list is empty. The
+role/SEEKER chip is gone, and the empty state has **no logo icon**.
 
 The shared `HideSeekMark` logomark (now used in `Welcome` only — dropped
 from the empty state and the `BetaGate` in v593/v594) was realigned in
@@ -334,7 +336,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v594`. Use `git log` for the per-version detail;
+build stamp. Current: `v595`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

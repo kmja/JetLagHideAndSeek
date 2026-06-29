@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
+import { Button } from "@/components/ui/button";
 import {
     Sidebar,
     SidebarContent,
@@ -114,12 +115,39 @@ export const QuestionSidebar = () => {
         }
     };
 
+    // Standard primary button (sentence case, normal size) — the single
+    // New-question CTA. Shown in the header WHEN there are questions; when
+    // the list is empty it moves INTO the empty state as the lone CTA.
+    // (Don't block on `$isLoading`: that flag also goes high for ambient
+    // station-finder fetches which can take many seconds. Only the
+    // in-flight answer rule and the hiding-period gate warrant blocking.)
+    const newQuestionButton = (
+        <AddQuestionDialog>
+            <Button
+                type="button"
+                data-tutorial-id="add-questions-buttons"
+                disabled={hidingRunning || hasPendingAnswer}
+                title={
+                    hidingRunning
+                        ? "Hiding period — wait for the timer or end it manually to start asking"
+                        : hasPendingAnswer
+                          ? "Waiting for the hider to answer your previous question"
+                          : undefined
+                }
+            >
+                <Plus strokeWidth={2.5} />
+                New question
+            </Button>
+        </AddQuestionDialog>
+    );
+
     const innerContent = (
         <>
             {/* Header matches the settings drawer's: a small
                 `text-lg font-semibold` title + a muted description, on the
                 same `px-6` inset. The New-question CTA sits to the right of
-                the title (settings has no header action). */}
+                the title — but ONLY when there are questions; in the empty
+                state it lives inside the empty box instead. */}
             <div className="px-6 pt-4">
                 <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1.5">
@@ -131,40 +159,7 @@ export const QuestionSidebar = () => {
                             answered.
                         </p>
                     </div>
-                    <AddQuestionDialog>
-                        <button
-                            type="button"
-                            data-tutorial-id="add-questions-buttons"
-                            // Don't block on `$isLoading`: that flag also
-                            // goes high for ambient station-finder fetches
-                            // (rulebook place data), which can take many
-                            // seconds. The seeker should still be able to add
-                            // a question during those — only the in-flight
-                            // answer rule (`hasPendingAnswer`) and the
-                            // hiding-period gate actually warrant blocking.
-                            disabled={hidingRunning || hasPendingAnswer}
-                            title={
-                                hidingRunning
-                                    ? "Hiding period — wait for the timer or end it manually to start asking"
-                                    : hasPendingAnswer
-                                      ? "Waiting for the hider to answer your previous question"
-                                      : undefined
-                            }
-                            className={cn(
-                                "shrink-0 flex items-center justify-center gap-1.5",
-                                "py-2 px-3 rounded-md",
-                                "bg-primary text-primary-foreground",
-                                "hover:bg-primary/90 active:bg-primary/80",
-                                "font-poppins font-bold uppercase tracking-wider text-[11px]",
-                                "transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                "disabled:opacity-50 disabled:cursor-not-allowed",
-                            )}
-                        >
-                            <Plus className="w-4 h-4" strokeWidth={2.5} />
-                            New question
-                        </button>
-                    </AddQuestionDialog>
+                    {questionsNewestFirst.length > 0 && newQuestionButton}
                 </div>
             </div>
             {/* The cards own no margin; the list insets them (px-6, matching
@@ -181,16 +176,19 @@ export const QuestionSidebar = () => {
                             <div
                                 className={cn(
                                     "rounded-md border-2 border-dashed border-border",
-                                    "px-4 py-8 flex flex-col items-center text-center gap-3",
+                                    "px-4 py-8 flex flex-col items-center text-center gap-4",
                                 )}
                             >
-                                <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
-                                    No questions yet
+                                <div className="space-y-1.5">
+                                    <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
+                                        No questions yet
+                                    </div>
+                                    <p className="text-xs text-muted-foreground leading-snug max-w-[24ch]">
+                                        Ask your first question to start
+                                        narrowing down where the hider is.
+                                    </p>
                                 </div>
-                                <p className="text-xs text-muted-foreground leading-snug max-w-[22ch]">
-                                    Tap <span className="font-semibold text-foreground">NEW QUESTION</span> in
-                                    the bottom nav to ask your first one.
-                                </p>
+                                {newQuestionButton}
                             </div>
                         </SidebarGroupContent>
                     </SidebarGroup>
