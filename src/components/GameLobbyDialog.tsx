@@ -511,7 +511,7 @@ export function GameLobbyDialog() {
                     )}
                 >
                     {$manualOpen && (
-                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                     )}
                 {/* Minimal header — brand mark + wordmark on the
                     left, notifications icon button top-right. The

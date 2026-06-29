@@ -162,7 +162,7 @@ export const QuestionSidebar = () => {
             {/* The cards own no margin; the list insets them (px-4) so
                 their left edge lines up with the header, and spaces them
                 (gap-3) with a clear gap below the header (pt-3). */}
-            <SidebarContent className="px-4 pt-3 gap-3 pb-2">
+            <SidebarContent className="px-4 pt-3 gap-5 pb-2">
                 {questionsNewestFirst.length === 0 ? (
                     // Empty state — separates "no questions yet"
                     // from "list failed to load" or "list still
@@ -231,7 +231,7 @@ export const QuestionSidebar = () => {
                         <VaulDrawer.Title className="sr-only">
                             Questions
                         </VaulDrawer.Title>
-                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                         <div className="flex flex-col w-full overflow-y-auto">
                             {innerContent}
                         </div>

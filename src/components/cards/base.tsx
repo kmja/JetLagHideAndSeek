@@ -213,34 +213,18 @@ export const QuestionCard = ({
                 : createdAt
                   ? "awaiting"
                   : "not-sent";
-    const lifecycleMeta: Record<
-        Lifecycle,
-        { label: string; cls: string }
-    > = {
-        vetoed: {
-            label: "Vetoed",
-            cls: "bg-destructive/15 text-destructive border-destructive/30",
-        },
+    // Plain coloured TEXT — no pill (no bg / border). The status reads as
+    // a small label above the card.
+    const lifecycleMeta: Record<Lifecycle, { label: string; cls: string }> = {
+        vetoed: { label: "Vetoed", cls: "text-destructive" },
         randomized: {
             label: "Randomized",
-            cls: "bg-[hsl(265,60%,60%)]/15 text-[hsl(265,60%,72%)] border-[hsl(265,60%,60%)]/30",
+            cls: "text-[hsl(265,60%,72%)]",
         },
-        "in-progress": {
-            label: "In progress",
-            cls: "bg-primary/15 text-primary border-primary/30",
-        },
-        "not-sent": {
-            label: "Not sent",
-            cls: "bg-muted text-muted-foreground border-border",
-        },
-        awaiting: {
-            label: "Awaiting answer",
-            cls: "bg-warning/15 text-warning border-warning/30",
-        },
-        answered: {
-            label: "Answered",
-            cls: "bg-success/15 text-success border-success/30",
-        },
+        "in-progress": { label: "In progress", cls: "text-primary" },
+        "not-sent": { label: "Not sent", cls: "text-muted-foreground" },
+        awaiting: { label: "Awaiting answer", cls: "text-warning" },
+        answered: { label: "Answered", cls: "text-success" },
     };
 
     const toggleCollapse = () => {
@@ -305,12 +289,11 @@ export const QuestionCard = ({
 
     const statusAbove =
         !forceExpanded && (lifecycle || timeNode) ? (
-            <div className="flex items-center justify-end gap-2 pr-0.5 pb-1 leading-none">
+            <div className="flex items-center justify-end gap-2 pr-1 pb-1.5 leading-none">
                 {lifecycle && (
                     <span
                         className={cn(
-                            "text-[9px] uppercase tracking-wider font-poppins font-semibold",
-                            "px-1.5 py-0.5 rounded border whitespace-nowrap",
+                            "text-[10px] uppercase tracking-wider font-poppins font-bold whitespace-nowrap",
                             lifecycleMeta[lifecycle].cls,
                         )}
                     >

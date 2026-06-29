@@ -292,7 +292,7 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                             "pb-[env(safe-area-inset-bottom)]",
                         )}
                     >
-                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                        <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                         <div className="px-4 pt-3 pb-2 border-b border-border shrink-0">
                             <VaulDrawer.Title className="flex items-center gap-2 text-lg font-semibold">
                                 <BookOpen className="w-5 h-5" />

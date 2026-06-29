@@ -45,7 +45,7 @@ export function AppSettingsDrawer() {
             <VaulDrawer.Portal>
                 <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
                 <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex h-auto max-h-[85vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
-                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                     <div className="overflow-y-auto px-6 pt-4 pb-6">
                         <div className="space-y-1.5">
                             <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">

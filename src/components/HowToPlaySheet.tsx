@@ -66,7 +66,7 @@ export function HowToPlaySheet({
                         "pb-[env(safe-area-inset-bottom)]",
                     )}
                 >
-                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                     <div className="overflow-y-auto px-6 pt-4 pb-6 space-y-5">
                         <header>
                             <SectionPill>Rulebook cheat-sheet</SectionPill>

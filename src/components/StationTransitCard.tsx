@@ -107,7 +107,7 @@ export function StationTransitCard() {
         >
             <VaulDrawer.Portal>
                 <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
-                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
+                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                     <div className="overflow-y-auto px-5 pt-3 pb-6">
                         <div className="flex items-start gap-2.5">
                             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15">

@@ -239,11 +239,13 @@ subtle NEUTRAL `border-sidebar-border` outline (not category-tinted), a
 drawer background** — so the shadow/border separate it, not a contrasting
 block. The card owns no margin; the list (`QuestionSidebar`'s
 `SidebarContent`, `px-4 pt-3 gap-3`) insets it so its left edge lines up
-with the header and spaces the rows. The lifecycle chip (Answered /
-Awaiting / …) + relative time / answer countdown sit **above** the card,
-right-aligned (`statusAbove`); the card's own right slot is just a **big
-`ChevronDown`** (rotates on expand) — there's no small left chevron
-anymore. **No delete/trash button at all** — sent questions are
+with the header and spaces the rows (`gap-5`). The lifecycle label
+(Answered / Awaiting / …, **plain coloured text — no pill**) + relative
+time / answer countdown sit **above** the card, right-aligned
+(`statusAbove`); the card's own right slot is just a **big `ChevronDown`**
+(rotates on expand) — there's no small left chevron anymore. The vaul
+drawer handles are `bg-foreground/25` (visible in both themes; the old
+`bg-muted` was near-invisible in light mode). **No delete/trash button at all** — sent questions are
 never deletable (it would desync the hider); discarding an
 un-sent draft is the configure dialog's Cancel button's job.
 `forceExpanded` (the configure dialog) renders the header static (no
@@ -258,10 +260,17 @@ for a still-draft one), so the highlight matches the big map exactly.
 Marking is **consistent across every type and matches the big map**: the
 play-area boundary is the canonical red `PLAY_AREA_COLOR` stroke (same as
 every other map), and the resulting area is shown by DIMMING everything
-outside it (`holedMask`, the main map's elimination-mask language) with a
-white edge — no per-category fill colour. The map is `pointer-events-none`
-(so it never steals drawer scroll) and shows a **`animate-pulse`
-skeleton** until both the geometry is computed and the tiles paint.
+outside it (`holedMask`, the main map's elimination-mask language) AND a
+translucent **white fill INSIDE** it + a white edge — the inside-brighten
+is what makes the kept area legible on dark near-black tiles (dimming
+alone is invisible there); no per-category fill colour. The static view is
+**snapshotted to a PNG** (`canvas.toDataURL`, needs `preserveDrawingBuffer`)
+and cached per theme+question+framing, so RE-expanding a card shows a cheap
+`<img>` with no MapLibre instance; the first render also **defers the
+MapLibre mount ~350 ms** so the card's expand animation stays smooth
+instead of fighting GL init. The map is `pointer-events-none` (so it never
+steals drawer scroll) and shows an **`animate-pulse` skeleton** until both
+the geometry is computed and the tiles paint.
 Mounted only while expanded (so collapsed cards aren't each running a
 MapLibre instance) and suppressed in the configure dialog (which already
 embeds the interactive picker). Spatial types read cached play-area
@@ -312,7 +321,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v591`. Use `git log` for the per-version detail;
+build stamp. Current: `v592`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
