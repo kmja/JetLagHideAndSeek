@@ -339,7 +339,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v598`. Use `git log` for the per-version detail;
+build stamp. Current: `v599`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -375,7 +375,14 @@ the headline arcs since the v414 rulebook-audit pass:
   big bold uppercase label in the deepened category colour, live status
   (countdown / retry / answered) on the right. Theme-aware via CSS vars
   (see Theming above). "Not sent" only happens on an offline copy
-  failure → its action is **Retry**, not Share.
+  failure → its action is **Retry**, not Share. **Answered state is
+  STICKY (v599):** when the hider answers, the seeker's
+  `PendingAnswerOverlay` switches to a green answered card showing the
+  resolved answer (via the now-exported `answeredDetail` from
+  `cards/base.tsx`) and **stays put** — it no longer auto-dismisses after
+  a beat. Its right slot offers two actions: **Details** (opens the
+  questions panel + retires the overlay) and **Dismiss** (just closes
+  it). Asking the next question replaces it.
 - **A sent/answered question can't be deleted** (it would desync from
   the hider). As of v585 `cards/base.tsx` has **no delete control at
   all** — the earlier "swap the trash for a disabled lock in online

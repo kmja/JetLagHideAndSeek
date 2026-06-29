@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -20,6 +20,7 @@ import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import type { Question, ThermometerQuestion } from "@/maps/schema";
 
+import { answeredDetail } from "./cards/base";
 import {
     QuestionOverlayCard,
     summarizeQuestion,
@@ -75,25 +76,19 @@ export function PendingAnswerOverlay({
         }
         if (prevKey !== null) {
             // The previously-pending question is gone. Two reasons:
-            //   - ANSWERED: drag flipped false, still EXISTS → celebrate.
+            //   - ANSWERED: drag flipped false, still EXISTS → switch to
+            //     the answered state and KEEP it on screen. It no longer
+            //     auto-dismisses — the seeker decides when it goes away by
+            //     tapping "Details" or "Dismiss" (see `rightSlot`). This
+            //     gives them a beat to register the answer instead of the
+            //     card vanishing on its own.
             //   - DISCARDED: a cancelled draft was removed → show nothing.
             const stillExists = questions
                 .get()
                 .some((q) => q.key === prevKey);
             if (stillExists) {
                 setPhase("answered");
-                const answeredTimer = window.setTimeout(
-                    () => setPhase("closing"),
-                    1100,
-                );
-                const closeTimer = window.setTimeout(() => {
-                    setDisplayed(null);
-                    setPhase("active");
-                }, 1700);
-                return () => {
-                    window.clearTimeout(answeredTimer);
-                    window.clearTimeout(closeTimer);
-                };
+                return;
             }
             setDisplayed(null);
             setPhase("active");
@@ -102,6 +97,27 @@ export function PendingAnswerOverlay({
         setDisplayed(null);
         setPhase("active");
     }, [pending?.key]);
+
+    // Dismiss the persistent answered card: play the slide-up/fade close
+    // transition, then unmount. Used by the "Dismiss" action and by
+    // "Details" (which also opens the questions panel).
+    const closeTimerRef = useRef<number | null>(null);
+    const dismissAnswered = () => {
+        if (preview) return;
+        setPhase("closing");
+        if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = window.setTimeout(() => {
+            setDisplayed(null);
+            setPhase("active");
+        }, 500);
+    };
+    useEffect(
+        () => () => {
+            if (closeTimerRef.current)
+                window.clearTimeout(closeTimerRef.current);
+        },
+        [],
+    );
 
     // Gallery override: force a phase + question so the static gallery
     // can show the otherwise-transient "answered" celebration.
@@ -141,17 +157,35 @@ export function PendingAnswerOverlay({
     const waiting = phShown === "active" && !notYetSent && !overdue;
     const answered = phShown === "answered" || phShown === "closing";
 
+    // The live (now-answered) copy of the displayed question, so the
+    // answered card can show the hider's RESOLVED answer rather than the
+    // generic prompt. Falls back to the displayed snapshot.
+    const liveShown =
+        $questions.find((q) => q.key === dShown.key) ?? dShown;
+    const resolvedAnswer = answered ? answeredDetail(liveShown) : null;
+
     const summary = summarizeQuestion(dShown);
     // Failed send → full-card error state with an explanatory detail line.
+    // Answered → swap the generic prompt for the hider's resolved answer.
     const cardSummary = notYetSent
         ? { ...summary, detail: "Couldn't send to the hider — tap retry" }
-        : summary;
+        : answered && resolvedAnswer
+          ? { ...summary, detail: resolvedAnswer }
+          : summary;
 
-    // Tap anywhere on the card → open the questions panel for full detail.
+    // Open the questions panel for full detail (the answered card's
+    // "Details" action and the active-card tap target both use this).
     const openDetails = () => {
+        if (preview) return;
         const sb = SidebarContext.get();
         if (sb.isMobile) sb.setOpenMobile(true);
         else sb.setOpen(true);
+    };
+    // "Details" on the answered card: open the panel AND retire the
+    // overlay (the panel now shows the full answered card).
+    const openDetailsAndDismiss = () => {
+        openDetails();
+        dismissAnswered();
     };
 
     const stampSent = () => {
@@ -250,9 +284,42 @@ export function PendingAnswerOverlay({
             </span>
         </button>
     ) : answered ? (
-        <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-success">
-            Answered!
-        </span>
+        // Persistent answered state — the card no longer vanishes on its
+        // own. Prompt the seeker to open the full detail or dismiss it.
+        <div className="flex flex-col gap-1.5">
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    openDetailsAndDismiss();
+                }}
+                className={cn(
+                    "flex items-center gap-1 pl-2.5 pr-1.5 py-1.5 rounded-md",
+                    "bg-success text-success-foreground hover:bg-success/90 transition-colors",
+                    "text-[11px] font-poppins font-bold uppercase tracking-wide",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+            >
+                Details
+                <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
+            </button>
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    dismissAnswered();
+                }}
+                className={cn(
+                    "flex items-center justify-center gap-1 px-2.5 py-1 rounded-md",
+                    "text-[11px] font-poppins font-semibold uppercase tracking-wide",
+                    "text-[color:var(--overlay-card-desc)] hover:bg-foreground/10 transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+            >
+                <X className="w-3 h-3" strokeWidth={2.5} />
+                Dismiss
+            </button>
+        </div>
     ) : null;
 
     return (
@@ -275,10 +342,19 @@ export function PendingAnswerOverlay({
             <QuestionOverlayCard
                 categoryId={dShown.id}
                 summary={cardSummary}
+                eyebrow={
+                    answered ? (
+                        <span className="text-success">Answered</span>
+                    ) : undefined
+                }
                 answered={answered}
                 error={notYetSent}
-                onClick={openDetails}
-                ariaLabel="Open question details"
+                onClick={answered ? openDetailsAndDismiss : openDetails}
+                ariaLabel={
+                    answered
+                        ? "Open answered question details"
+                        : "Open question details"
+                }
                 right={rightSlot}
             />
         </div>

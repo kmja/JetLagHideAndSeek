@@ -50,7 +50,7 @@ function formatRelativeTime(timestamp: number, now: number): string {
  * null for types/states with no concise answer to show — the caller falls
  * back to the generic question prompt then.
  */
-function answeredDetail(q: Question): string | null {
+export function answeredDetail(q: Question): string | null {
     const d = q.data as Record<string, unknown>;
     switch (q.id) {
         case "radius":
