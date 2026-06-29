@@ -399,8 +399,13 @@ export const customStations = persistentAtom<CustomStation[]>(
 // hiding zones with identical names). Defaults ON: a single merged zone
 // per station is what players expect, and it declutters the map. The
 // toggle in the zone options can turn it back off.
+//
+// v576: key bumped from "removeDuplicates" → "mergeDuplicateStations" so
+// the default-ON reaches everyone. The old key persisted `false` for
+// long-time users (the original fork defaulted off), which silently
+// overrode the v561 default flip — they kept seeing duplicate zones.
 export const mergeDuplicates = persistentAtom<boolean>(
-    "removeDuplicates",
+    "mergeDuplicateStations",
     true,
     {
         encode: JSON.stringify,

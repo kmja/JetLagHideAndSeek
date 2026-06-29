@@ -40,7 +40,8 @@ function approxMeters(a: number[], b: number[]): number {
  * the same hub ONLY when they share a NORMALISED name (diacritics,
  * bracketed qualifiers, and mode/direction words stripped — so
  * "Schous plass", "Schous plass [Trikk]" and "Schous Plass stasjon" all
- * match) AND their hiding zones overlap (centres within `radius`).
+ * match) AND they're reasonably near (within `max(radius, 800 m)` — big
+ * enough that a hub's spread-out same-named nodes still collapse).
  *
  * Crucially this is name-based, never proximity-alone: two DIFFERENTLY-
  * named stations that merely sit close together (a train station and a
@@ -62,6 +63,13 @@ export function mergeDuplicateStation(
     if (n <= 1) return places;
 
     const radiusM = turf.convertLength(radius, units, "meters");
+    // Same-named nodes merge when within this distance. A big transit hub
+    // (e.g. Oslo's Nationaltheatret: metro + tram + bus + train nodes)
+    // spreads its same-named nodes a few hundred metres apart, so a small
+    // hiding radius alone wouldn't collapse them. Union-find still chains,
+    // so a hub spread over more than this via intermediate nodes merges
+    // too. Differently-named stations are never affected.
+    const sameNameMergeM = Math.max(radiusM, 800);
     const coords = places.map((p) => p.geometry.coordinates);
     const names = places.map((p) => normalizeStationName(p.properties?.name));
 
@@ -81,9 +89,10 @@ export function mergeDuplicateStation(
     for (let i = 0; i < n; i++) {
         if (names[i] === "") continue; // unnamed nodes never merge
         for (let j = i + 1; j < n; j++) {
-            // Same normalised name + overlapping zones → duplicate stop.
+            // Same normalised name + reasonably near → duplicate stop.
             if (names[i] !== names[j]) continue;
-            if (approxMeters(coords[i], coords[j]) <= radiusM) union(i, j);
+            if (approxMeters(coords[i], coords[j]) <= sameNameMergeM)
+                union(i, j);
         }
     }
 
