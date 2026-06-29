@@ -1,7 +1,10 @@
 import { recordBytes, startMeter, stopMeter } from "@/lib/bandwidthMeter";
 import { mapGeoLocation, polyGeoJSON, polyGeoJSONHydrated } from "@/lib/context";
 import { devLog } from "@/lib/devLog";
-import { gameStartPosition } from "@/lib/gameSetup";
+import {
+    allowedTransit,
+    gameStartPosition,
+} from "@/lib/gameSetup";
 import {
     gameSize,
     HIDING_PERIOD_MINUTES,
@@ -22,7 +25,7 @@ import {
     loadTilePackForPlayArea,
 } from "@/lib/tilePack";
 import { preloadTilesForPlayArea } from "@/lib/tilePreload";
-import { getOverpassData } from "@/maps/api/overpass";
+import { getOverpassData, overpassFailureCount } from "@/maps/api/overpass";
 import {
     buildHsrQuery,
     getCachedCategory,
@@ -307,10 +310,20 @@ function runTransitPreload(): void {
     // are full first-class overlays now, so they belong in the
     // preload list too.
     const hsrQuery = size !== "large" ? buildHsrQuery() : null;
-    // `modes` is typed for fetchTransitRoutesFeatures (route-mode
-    // subset); `steps` is the broader TransitPreloadStep set the
-    // UI tracks (route modes + hsr + arrivals).
-    const modes = ["subway", "bus", "ferry", "train", "tram"] as const;
+    // v583: warm ONLY the modes this game actually allows. Warming all
+    // five regardless (the old behaviour) fired Overpass queries for modes
+    // the player can't even use — wasted requests that helped trip the
+    // per-IP rate limit. `allowedTransit` is the game's enabled set;
+    // intersect it with the route-mode universe (stable order). Empty
+    // (shouldn't happen) falls back to all five.
+    const ALL_MODES = ["subway", "bus", "ferry", "train", "tram"] as const;
+    const allowed = allowedTransit.get();
+    const modes =
+        allowed.length > 0
+            ? ALL_MODES.filter((m) => allowed.includes(m))
+            : [...ALL_MODES];
+    // `steps` is the broader TransitPreloadStep set the UI tracks (route
+    // modes + hsr).
     const steps: TransitPreloadStep[] = hsrQuery
         ? ["hsr", ...modes]
         : [...modes];
@@ -325,61 +338,75 @@ function runTransitPreload(): void {
         });
     };
 
-    const transitPromises: Promise<unknown>[] = [];
     // v367: track whether ANY transit query actually returned data, so a
     // total failure (Overpass down) doesn't mark the bucket "Downloaded".
-    // Like references, the modes swallow their own errors, so the old
-    // unconditional timestamp lied on a failed preload.
+    // v583: also snapshot the Overpass failure counter. A city like Oslo
+    // has its subway/ferry shards cron-prewarmed but NOT bus/train/tram,
+    // so those modes go LIVE during preload and can be rate-limited —
+    // returning an empty result indistinguishable from a genuinely
+    // transit-less mode. If any warm hit the rate-limit/outage path we
+    // must NOT claim the bucket is cached: otherwise the panel says
+    // "Downloaded", the user toggles that overlay, it goes to Overpass
+    // live, and they hit the very rate-limit errors this guards against.
     let anyTransitData = false;
+    const failuresBefore = overpassFailureCount();
 
-    if (hsrQuery) {
-        transitPromises.push(
-            getOverpassData(
-                hsrQuery,
-                undefined,
-                CacheType.ZONE_CACHE,
-                undefined,
-                false,
-                undefined,
-                true,
-            )
-                .then((d) => {
-                    if (
-                        d &&
-                        Array.isArray((d as { elements?: unknown[] }).elements) &&
-                        (d as { elements: unknown[] }).elements.length > 0
-                    ) {
-                        anyTransitData = true;
-                    }
-                })
-                .catch(() => {})
-                .finally(() => markDone("hsr")),
-        );
-    }
+    // Serialize the warms. Firing five heavy `relation[route];out skel
+    // geom` queries in parallel against one Overpass instance is itself a
+    // reliable way to get rate-limited; one at a time lets each either hit
+    // R2 fast or make a single live request the mirrors tolerate. Silent
+    // throughout — a background warm must not splatter error toasts; the
+    // failure is reported honestly via the bucket badge instead.
+    void (async () => {
+        if (hsrQuery) {
+            try {
+                const d = await getOverpassData(
+                    hsrQuery,
+                    undefined,
+                    CacheType.ZONE_CACHE,
+                    undefined,
+                    false,
+                    undefined,
+                    true,
+                );
+                if (
+                    d &&
+                    Array.isArray((d as { elements?: unknown[] }).elements) &&
+                    (d as { elements: unknown[] }).elements.length > 0
+                ) {
+                    anyTransitData = true;
+                }
+            } catch {
+                /* swallow — surfaced via the badge gate below */
+            } finally {
+                markDone("hsr");
+            }
+        }
 
-    for (const mode of modes) {
-        transitPromises.push(
-            fetchTransitRoutesFeatures(mode)
-                .then((fc) => {
-                    if (fc?.features && fc.features.length > 0) {
-                        anyTransitData = true;
-                    }
-                })
-                .catch(() => {})
-                .finally(() => markDone(mode)),
-        );
-    }
+        for (const mode of modes) {
+            try {
+                const fc = await fetchTransitRoutesFeatures(mode, true);
+                if (fc?.features && fc.features.length > 0) {
+                    anyTransitData = true;
+                }
+            } catch {
+                /* swallow */
+            } finally {
+                markDone(mode);
+            }
+        }
 
-    void Promise.allSettled(transitPromises).then(() => {
         preloadBucketBytes.set({
             ...preloadBucketBytes.get(),
             transit: stopMeter("transit"),
         });
-        // Only mark "Downloaded" if at least one mode returned data. A
-        // genuinely transit-less area (no rail/bus/tram/ferry at all)
-        // honestly stays un-badged, which beats a green badge over a
-        // failed fetch.
-        if (anyTransitData) {
+        // Badge "Downloaded" only when a warm landed data AND no warm hit
+        // the rate-limit/outage path. A genuinely transit-less area
+        // honestly stays un-badged; a partially-warmed city (Oslo:
+        // subway/ferry cached, bus/train/tram rate-limited) also stays
+        // un-badged so the panel never promises data that isn't cached.
+        const rateLimited = overpassFailureCount() > failuresBefore;
+        if (anyTransitData && !rateLimited) {
             preloadBucketTimestamps.set({
                 ...preloadBucketTimestamps.get(),
                 transit: Date.now(),
@@ -390,7 +417,7 @@ function runTransitPreload(): void {
             transit: false,
         });
         preloadTransitProgress.set(null);
-    });
+    })();
 
     // Transit arrival times — the Travel Times overlay. We can't fire
     // this synchronously because it needs (a) the station list, which

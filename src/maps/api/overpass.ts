@@ -43,6 +43,20 @@ import type {
 } from "./types";
 import { CacheType } from "./types";
 
+/**
+ * Monotonic counter of "all mirrors timed out or rate-limited" events —
+ * i.e. every time `getOverpassData` falls through every tier and returns
+ * an empty result because nothing answered (the rate-limit / outage path,
+ * NOT a query that legitimately matched zero elements).
+ *
+ * Background callers that need to know whether a warm actually succeeded
+ * (the transit preload, which can't otherwise distinguish a rate-limited
+ * empty from a genuinely transit-less mode) snapshot this before/after and
+ * treat an increase as "the warm failed — don't claim it's cached".
+ */
+let _overpassFailureCount = 0;
+export const overpassFailureCount = (): number => _overpassFailureCount;
+
 export const getOverpassData = async (
     query: string,
     loadingText?: string,
@@ -277,6 +291,10 @@ export const getOverpassData = async (
         }
     }
 
+    // No mirror answered — rate-limited / outage. Bump the failure
+    // counter (see overpassFailureCount) so background warmers can tell
+    // this apart from a query that legitimately matched zero elements.
+    _overpassFailureCount++;
     if (!silent) {
         toast.error(
             "Could not load data from Overpass (all mirrors timed out or rate-limited). Try again in a minute.",

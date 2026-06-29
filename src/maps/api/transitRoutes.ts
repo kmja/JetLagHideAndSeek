@@ -153,7 +153,10 @@ function requestWarmTransit(relationId: number, mode: string): void {
     });
 }
 
-async function fetchTransitRelations(routeType: string): Promise<unknown> {
+async function fetchTransitRelations(
+    routeType: string,
+    silent = false,
+): Promise<unknown> {
     // v386: try the STABLE relation-id-keyed endpoint first when the play
     // area is a single OSM relation (the common case). The worker derives
     // the bbox SERVER-SIDE from the boundary it already has in R2 and
@@ -227,6 +230,9 @@ async function fetchTransitRelations(routeType: string): Promise<unknown> {
         undefined,
         CacheType.ZONE_CACHE,
         190_000,
+        false,
+        undefined,
+        silent,
     );
 }
 
@@ -237,8 +243,13 @@ async function fetchTransitRelations(routeType: string): Promise<unknown> {
  */
 export async function fetchTransitRoutesFeatures(
     mode: TransitMode,
+    /** Background callers (the preload pass) pass `true` so a
+     *  rate-limited / failed warm doesn't pop the user-facing
+     *  "Could not load data from Overpass" toast — the preload reports
+     *  the failure honestly via its bucket badge instead. */
+    silent = false,
 ): Promise<GeoJSON.FeatureCollection> {
-    const data = await fetchTransitRelations(mode);
+    const data = await fetchTransitRelations(mode, silent);
     const elements = (
         ((data as { elements?: unknown }).elements ?? []) as Array<{
             type: string;
