@@ -9,6 +9,18 @@ import { allowedTransit } from "@/lib/gameSetup";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
 import { selectedMapStation } from "@/lib/journey/state";
 
+/** Pretty label for an inferred transit mode. */
+const MODE_LABELS: Record<string, string> = {
+    subway: "Metro",
+    tram: "Tram",
+    light_rail: "Light rail",
+    train: "Train",
+    bus: "Bus",
+    ferry: "Ferry",
+};
+const modeLabel = (m: string) =>
+    MODE_LABELS[m] ?? m.charAt(0).toUpperCase() + m.slice(1);
+
 /**
  * Map-first trip info. Opens when the user taps a station / candidate
  * hiding zone on the map (`selectedMapStation`), and plans a trip TO
@@ -105,6 +117,18 @@ export function StationTransitCard() {
                                 <VaulDrawer.Description className="mt-0.5 text-xs text-muted-foreground">
                                     Your route from where you are now
                                 </VaulDrawer.Description>
+                                {station?.modes && station.modes.length > 0 && (
+                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                        {station.modes.map((m) => (
+                                            <span
+                                                key={m}
+                                                className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-poppins font-semibold uppercase tracking-wide bg-primary/15 text-primary"
+                                            >
+                                                {modeLabel(m)}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                             <button
                                 type="button"

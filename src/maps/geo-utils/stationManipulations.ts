@@ -24,6 +24,30 @@ function normalizeStationName(raw: string | undefined | null): string {
         .trim();
 }
 
+/** Infer a transit mode from a station node's OSM tags. Order matters:
+ *  subway nodes are also tagged `railway=station`, so check the specific
+ *  modes first. Returns null when nothing recognisable. */
+export function inferStationMode(
+    tags: Record<string, unknown> | undefined | null,
+): string | null {
+    if (!tags) return null;
+    const s = (k: string) => (typeof tags[k] === "string" ? tags[k] : "");
+    if (s("station") === "subway" || s("subway") === "yes") return "subway";
+    if (s("railway") === "tram_stop" || s("tram") === "yes") return "tram";
+    if (s("railway") === "light_rail" || s("light_rail") === "yes")
+        return "light_rail";
+    if (s("amenity") === "ferry_terminal" || s("ferry") === "yes")
+        return "ferry";
+    if (s("highway") === "bus_stop" || s("bus") === "yes") return "bus";
+    if (
+        s("railway") === "station" ||
+        s("railway") === "halt" ||
+        s("train") === "yes"
+    )
+        return "train";
+    return null;
+}
+
 /** Cheap equirectangular metres between two [lng,lat] points — accurate
  *  enough at the sub-kilometre scale this clustering works on, and far
  *  cheaper than `turf.distance` across an O(n²) pass. */
@@ -118,9 +142,22 @@ export function mergeDuplicateStation(
                 .map((i) => places[i].properties?.name)
                 .find((nm) => nm && String(nm).trim()) ??
             first.properties?.name;
+        // Union of transit modes across every node in the cluster (a hub
+        // can be metro + tram + bus + train at once).
+        const modes = Array.from(
+            new Set(
+                idxs
+                    .map((i) => inferStationMode(places[i].properties))
+                    .filter((m): m is string => Boolean(m)),
+            ),
+        );
         merged.push({
             ...first,
-            properties: { ...first.properties, name },
+            properties: {
+                ...first.properties,
+                name,
+                ...(modes.length ? { modes } : {}),
+            },
             geometry: { type: "Point", coordinates: [avgLng, avgLat] },
         } as StationPlace);
     }

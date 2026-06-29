@@ -36,6 +36,8 @@ import {
     drawingQuestionKey,
     followMe,
     hiderMode,
+    hidingRadius,
+    hidingRadiusUnits,
     hidingZonesGeoJSON,
     mapContext,
     mapGeoJSON,
@@ -287,7 +289,7 @@ const STATION_TAP_LAYERS = [
 function stationFromFeature(
     f: maplibregl.MapGeoJSONFeature,
     clickLngLat: maplibregl.LngLat,
-): { lat: number; lng: number; name?: string } | null {
+): { lat: number; lng: number; name?: string; modes?: string[] } | null {
     const props = (f.properties ?? {}) as Record<string, unknown>;
     // Name: travel-time labels expose `name` directly; hiding-zone
     // circles nest the station under `properties` (a stringified place).
@@ -300,11 +302,28 @@ function stationFromFeature(
             nested.properties.name) ||
         undefined;
 
+    // Transit modes (aggregated in the merge). On point features they sit
+    // on `properties.modes`; on circle polygons they're under the nested
+    // place's properties. MapLibre may stringify the array.
+    const rawModes =
+        (props.modes as unknown) ??
+        (nested?.properties as { modes?: unknown } | undefined)?.modes;
+    let modes: string[] | undefined;
+    if (Array.isArray(rawModes)) modes = rawModes as string[];
+    else if (typeof rawModes === "string") {
+        try {
+            const p = JSON.parse(rawModes);
+            if (Array.isArray(p)) modes = p as string[];
+        } catch {
+            /* ignore */
+        }
+    }
+
     // Coordinates.
     if (f.geometry?.type === "Point") {
         const [lng, lat] = f.geometry.coordinates as [number, number];
         if (Number.isFinite(lat) && Number.isFinite(lng))
-            return { lat, lng, name };
+            return { lat, lng, name, modes };
     }
     // Circle / polygon — prefer the embedded station center, else
     // centroid, else the click point.
@@ -312,17 +331,17 @@ function stationFromFeature(
         | [number, number]
         | undefined;
     if (center && Number.isFinite(center[1]) && Number.isFinite(center[0])) {
-        return { lat: center[1], lng: center[0], name };
+        return { lat: center[1], lng: center[0], name, modes };
     }
     try {
         const c = turf.centroid(f as never);
         const [lng, lat] = c.geometry.coordinates as [number, number];
         if (Number.isFinite(lat) && Number.isFinite(lng))
-            return { lat, lng, name };
+            return { lat, lng, name, modes };
     } catch {
         /* fall through to click point */
     }
-    return { lat: clickLngLat.lat, lng: clickLngLat.lng, name };
+    return { lat: clickLngLat.lat, lng: clickLngLat.lng, name, modes };
 }
 
 /** MapLibre stringifies nested feature properties; parse defensively. */
@@ -346,7 +365,35 @@ export function Map({ className }: MapProps) {
     const $hiderMode = useStore(hiderMode);
     const $hidingZones = useStore(hidingZonesGeoJSON);
     const $showHidingZones = useStore(displayHidingZones);
+    const $selectedStation = useStore(selectedMapStation);
+    const $hidingRadius = useStore(hidingRadius);
+    const $hidingRadiusUnits = useStore(hidingRadiusUnits);
     const $travelTimes = useStore(travelTimesFC);
+    // The selected station's hiding-zone circle, for the prominent
+    // "selected" highlight layer. Recomputed only when the selection or
+    // radius changes.
+    const selectedZoneFC = useMemo(() => {
+        if (!$selectedStation) return null;
+        try {
+            const circle = turf.circle(
+                [$selectedStation.lng, $selectedStation.lat],
+                $hidingRadius,
+                { steps: 128, units: $hidingRadiusUnits },
+            );
+            const dot = turf.point([
+                $selectedStation.lng,
+                $selectedStation.lat,
+            ]);
+            return turf.featureCollection([circle, dot]);
+        } catch {
+            return null;
+        }
+    }, [
+        $selectedStation?.lat,
+        $selectedStation?.lng,
+        $hidingRadius,
+        $hidingRadiusUnits,
+    ]);
     // Transit-route overlays per mode — shared with HiderBackgroundMap via
     // the useTransitRouteOverlays hook (fetch) + TransitRouteLayers
     // (render), so the seeker and hider maps never drift on transit.
@@ -1508,6 +1555,56 @@ export function Map({ className }: MapProps) {
                         </Source>
                     )}
                 </FadeOverlay>
+
+                {/* Selected hiding-zone highlight — a prominent ring +
+                    fill + dot for the station tapped open in the transit
+                    card, so it stands out from the faint candidate field.
+                    Drawn above the hiding-zones overlay. */}
+                {selectedZoneFC && (
+                    <Source
+                        id="selected-zone"
+                        type="geojson"
+                        data={selectedZoneFC}
+                    >
+                        <Layer
+                            id="selected-zone-fill"
+                            type="fill"
+                            filter={[
+                                "any",
+                                ["==", ["geometry-type"], "Polygon"],
+                                ["==", ["geometry-type"], "MultiPolygon"],
+                            ]}
+                            paint={{
+                                "fill-color": "hsl(45, 90%, 55%)",
+                                "fill-opacity": 0.18,
+                            }}
+                        />
+                        <Layer
+                            id="selected-zone-line"
+                            type="line"
+                            filter={[
+                                "any",
+                                ["==", ["geometry-type"], "Polygon"],
+                                ["==", ["geometry-type"], "MultiPolygon"],
+                            ]}
+                            paint={{
+                                "line-color": "hsl(45, 95%, 55%)",
+                                "line-width": 3,
+                            }}
+                        />
+                        <Layer
+                            id="selected-zone-dot"
+                            type="circle"
+                            filter={["==", ["geometry-type"], "Point"]}
+                            paint={{
+                                "circle-radius": 7,
+                                "circle-color": "hsl(45, 95%, 55%)",
+                                "circle-stroke-color": "#1F2F3F",
+                                "circle-stroke-width": 2.5,
+                            }}
+                        />
+                    </Source>
+                )}
 
                 {/* Travel-times overlay — populated by
                     TravelTimesOverlay (mounted as a sibling in

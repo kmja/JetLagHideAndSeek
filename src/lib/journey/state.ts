@@ -126,4 +126,7 @@ export const selectedMapStation = atom<{
     lat: number;
     lng: number;
     name?: string;
+    /** Transit modes serving this station (subway/tram/train/bus/ferry/…),
+     *  aggregated across the merged OSM nodes. */
+    modes?: string[];
 } | null>(null);

@@ -1238,18 +1238,24 @@ function styleStations(
         case "no-overlap":
             return safeUnion(turf.featureCollection(circles));
 
-        case "stations":
-            // Station dots + the faint hiding-zone extent fill + name
-            // labels: ship BOTH the circle polygons (Map paints a faint
-            // fill + outline) and their centre points (dot + label).
+        case "stations": {
+            // Dots + name labels + a single UNIONED extent fill. Filling
+            // each circle separately compounds opacity where zones overlap
+            // (4+ overlapping zones turn the basemap into an opaque wash);
+            // unioning paints the covered area exactly once at a uniform
+            // faint opacity, and its outline becomes the clean envelope of
+            // the possible-hiding area rather than crisscrossing arcs.
+            const union = safeUnion(turf.featureCollection(circles));
             return turf.featureCollection([
-                ...circles,
+                ...(union ? [union as Feature] : []),
                 ...circles.map((c) => c.properties as Feature),
             ]);
+        }
 
         default:
-            // "zones": circles for the fill/outline, plus centre points so
-            // the name labels (Point-filtered symbol layer) render here too.
+            // "zones": individual circles (per-zone fill + outline) plus
+            // centre points so the name labels render here too. This view
+            // deliberately shows each zone distinctly.
             return turf.featureCollection([
                 ...circles,
                 ...circles.map((c) => c.properties as Feature),
