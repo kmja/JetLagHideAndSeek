@@ -100,9 +100,12 @@ export function StationTransitCard() {
                 if (!o) close();
             }}
             shouldScaleBackground={false}
+            // Non-modal so the map behind stays interactive: you can tap
+            // another zone to switch the selection without closing the
+            // card first. No dark scrim for the same reason.
+            modal={false}
         >
             <VaulDrawer.Portal>
-                <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/40" />
                 <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
                     <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-muted" />
                     <div className="overflow-y-auto px-5 pt-3 pb-6">

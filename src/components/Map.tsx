@@ -1032,14 +1032,73 @@ export function Map({ className }: MapProps) {
     // Map-first trip planning. A tap on a hiding-zone or travel-time
     // feature resolves the station beneath it and opens the station
     // transit card (StationTransitCard, mounted by SeekerPage/HiderPage).
+    // Voronoi-like fallback: the nearest hiding-zone station whose zone
+    // contains the tap (within the hiding radius). Lets a tap ANYWHERE
+    // inside a zone select its station — generous in sparse areas, and it
+    // resolves to the nearest centre where zones overlap — without
+    // computing/rendering Voronoi polygons (just an O(N) distance scan over
+    // the station points already in the overlay).
+    const nearestZoneStation = (
+        lngLat: maplibregl.LngLat,
+    ): { lat: number; lng: number; name?: string; modes?: string[] } | null => {
+        if (!$showHidingZones || !$hidingZones?.features?.length) return null;
+        const radiusM = turf.convertLength(
+            $hidingRadius,
+            $hidingRadiusUnits,
+            "meters",
+        );
+        const click = turf.point([lngLat.lng, lngLat.lat]);
+        let best: {
+            d: number;
+            lat: number;
+            lng: number;
+            name?: string;
+            modes?: string[];
+        } | null = null;
+        for (const f of $hidingZones.features) {
+            if (f.geometry?.type !== "Point") continue;
+            const [lng, lat] = f.geometry.coordinates as [number, number];
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+            const d = turf.distance(click, turf.point([lng, lat]), {
+                units: "meters",
+            });
+            if (d > radiusM) continue;
+            if (!best || d < best.d) {
+                const props = (f.properties ?? {}) as Record<string, unknown>;
+                best = {
+                    d,
+                    lat,
+                    lng,
+                    name:
+                        typeof props.name === "string" ? props.name : undefined,
+                    modes: Array.isArray(props.modes)
+                        ? (props.modes as string[])
+                        : undefined,
+                };
+            }
+        }
+        return best
+            ? { lat: best.lat, lng: best.lng, name: best.name, modes: best.modes }
+            : null;
+    };
+
     const handleStationTap = (
         e: maplibregl.MapLayerMouseEvent | maplibregl.MapMouseEvent,
     ) => {
         const features = (e as maplibregl.MapLayerMouseEvent).features;
-        if (!features || features.length === 0) return;
-        const f = features[0];
-        const station = stationFromFeature(f, e.lngLat);
-        if (station) selectedMapStation.set(station);
+        if (features && features.length > 0) {
+            const station = stationFromFeature(features[0], e.lngLat);
+            if (station) {
+                selectedMapStation.set(station);
+                return;
+            }
+        }
+        // No direct hit on a dot/label — fall back to the zone the tap
+        // lands in. Skipped while drawing a question (a tap there is
+        // placing geometry, not picking a station).
+        if ($drawingQuestionKey !== null) return;
+        const nearest = nearestZoneStation(e.lngLat);
+        if (nearest) selectedMapStation.set(nearest);
     };
 
     // Live blue "you are here" dot, always shown on the seeker map (like
