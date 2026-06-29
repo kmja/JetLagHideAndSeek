@@ -12,6 +12,7 @@ import {
     polyGeoJSON,
     trainStations,
 } from "@/lib/context";
+import { zoneBufferKm } from "@/lib/houseRules";
 import {
     fetchBorders0Land,
     fetchBorders1States,
@@ -537,14 +538,19 @@ export const adjustPerMeasuring = async (
     if (question.type === "sea-level") {
         const region = await seaLevelDeterminer(question);
         if (!region) return mapData;
-        return modifyMapData(mapData, region, question.hiderCloser);
+        return modifyMapData(
+            mapData,
+            region,
+            question.hiderCloser,
+            zoneBufferKm(),
+        );
     }
 
     const buffer = await bufferedDeterminer(question);
 
     if (buffer === false) return mapData;
 
-    return modifyMapData(mapData, buffer, question.hiderCloser);
+    return modifyMapData(mapData, buffer, question.hiderCloser, zoneBufferKm());
 };
 
 export const hiderifyMeasuring = async (question: MeasuringQuestion) => {

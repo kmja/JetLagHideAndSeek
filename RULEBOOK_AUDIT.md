@@ -90,6 +90,35 @@ rulebook. The rule itself is now a **House Rule toggle**
 (`alternateQuestionTypes`, off by default → rulebook). When on, the
 AddQuestionDialog category tiles re-enable the v395 alternation gate.
 
+### C2 · Zone-radius elimination buffer ✅ v600
+The rulebook scopes radar/thermometer/measuring to the hider's **exact
+location at answer time**, not their zone (radar is explicit: p234 — a
+radar covering part of the zone but not the hider's point is a *miss*).
+Because the hider may roam their whole zone until the endgame
+(p347/p351), an unlucky sequence of relative answers given from
+different points inside the zone can geometrically carve away the true
+hiding spot. The elimination engine treats every answer as an exact
+point constraint, so by default it can over-eliminate this way.
+
+New **House Rule toggle** `zoneRadiusBuffer` (off by default → rulebook).
+When on, each relative cut is widened by the hiding-zone radius
+(`hidingRadius`): a region is only eliminated when it's inconsistent for
+the ENTIRE zone (no point within the radius could have produced the
+answer). Implementation:
+- `zoneBufferKm()` (`src/lib/houseRules.ts`) returns the active buffer in
+  km (0 when the rule is off, so the engine is byte-identical to before).
+- `modifyMapData` (`geo-utils/operators.ts`) gained an optional
+  `zoneBufferKm` arg: keep-inside dilates the kept region outward;
+  keep-outside erodes the EXCLUDED region inward (full erosion → nothing
+  eliminated). `radius.ts` + `measuring.ts` pass it through;
+  `thermometer.ts` buffers the chosen Voronoi half directly (it doesn't
+  use `modifyMapData`). Hider auto-grading + planning previews are
+  untouched — only the seeker's elimination widens.
+- Tests: `tests/operators.test.ts` (widen / shrink / full-erode / no-op).
+- The trade-off is a looser map (eliminates a little less per question);
+  the physical win condition (enter zone → freeze spot → find hider)
+  remains the ultimate safety net either way.
+
 ## Notes
 - All scoring now flows through one formula:
   `max(0, (foundAt − hidingEndsAt) + hiddenCreditMs − hiddenDebitMs)`,

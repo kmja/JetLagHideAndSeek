@@ -1,6 +1,7 @@
 import * as turf from "@turf/turf";
 
 import { hiderMode } from "@/lib/context";
+import { zoneBufferKm } from "@/lib/houseRules";
 import { arcBuffer, modifyMapData } from "@/maps/geo-utils";
 import type { RadiusQuestion } from "@/maps/schema";
 
@@ -17,7 +18,7 @@ export const adjustPerRadius = async (
         question.unit,
     );
 
-    return modifyMapData(mapData, circle, question.within);
+    return modifyMapData(mapData, circle, question.within, zoneBufferKm());
 };
 
 export const hiderifyRadius = (question: RadiusQuestion) => {

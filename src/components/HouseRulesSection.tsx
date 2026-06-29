@@ -4,6 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
     alternateQuestionTypes,
     askOncePerQuestion,
+    zoneRadiusBuffer,
 } from "@/lib/houseRules";
 import { cn } from "@/lib/utils";
 
@@ -22,10 +23,15 @@ import { cn } from "@/lib/utils";
  *   • Ask once per question — hard-blocks repeat asks. Off by default
  *     because the rulebook explicitly allows repeats at N× cost
  *     (p65). Some tables prefer the variety-forcing block.
+ *   • Buffer eliminations by zone radius — widens radar/thermometer/
+ *     measuring cuts by the hiding-zone radius so a roaming hider's true
+ *     zone can't be eliminated by unlucky answer timing. Off by default
+ *     because the rulebook scopes these to the hider's exact point (p234).
  */
 export function HouseRulesSection() {
     const $alternate = useStore(alternateQuestionTypes);
     const $askOnce = useStore(askOncePerQuestion);
+    const $zoneBuffer = useStore(zoneRadiusBuffer);
 
     return (
         <div className="pt-3 mt-3 border-t border-border">
@@ -50,6 +56,13 @@ export function HouseRulesSection() {
                     rulebookDefault="Repeats allowed at N× cost (p65)"
                     checked={$askOnce}
                     onChange={(v) => askOncePerQuestion.set(v)}
+                />
+                <Row
+                    label="Buffer eliminations by zone radius"
+                    description="Radar, thermometer and measuring eliminate at the zone level, widened by your hiding-zone radius — so a moving hider can never get their true zone carved away by unlucky question timing."
+                    rulebookDefault="Exact-point cuts (rulebook p234)"
+                    checked={$zoneBuffer}
+                    onChange={(v) => zoneRadiusBuffer.set(v)}
                 />
             </div>
         </div>

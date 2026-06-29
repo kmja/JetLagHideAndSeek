@@ -36,9 +36,46 @@ export const modifyMapData = (
         | FeatureCollection<Polygon | MultiPolygon>
         | Feature<Polygon | MultiPolygon>,
     withinModifications: boolean,
+    /**
+     * Optional hiding-zone radius (km) for the `zoneRadiusBuffer` house
+     * rule. When > 0 the question's constraint region is widened by this
+     * amount so the cut is interpreted at the ZONE level rather than as an
+     * exact point: a region is only eliminated when no point within the
+     * radius could satisfy the answer. 0 / omitted = the original exact
+     * behaviour. See `src/lib/houseRules.ts`.
+     */
+    zoneBufferKm = 0,
 ) => {
-    const safeModifications =
+    let safeModifications =
         "features" in modifications ? safeUnion(modifications) : modifications;
+
+    if (zoneBufferKm > 0) {
+        // KEEP-INSIDE (within): dilate the kept region outward — a zone
+        // counts as consistent if any point within its radius lands
+        // inside. KEEP-OUTSIDE: erode the EXCLUDED region inward by the
+        // same amount (its complement dilates), so a zone is only
+        // eliminated when it sits entirely inside the excluded shape.
+        try {
+            const buffered = turf.buffer(
+                safeModifications as Feature<Polygon | MultiPolygon>,
+                withinModifications ? zoneBufferKm : -zoneBufferKm,
+                { units: "kilometers" },
+            ) as Feature<Polygon | MultiPolygon> | undefined;
+            if (withinModifications) {
+                if (buffered) safeModifications = buffered;
+            } else {
+                // Eroded to nothing → the excluded region vanishes, so
+                // nothing is eliminated: return the map unchanged.
+                if (!buffered || buffered.geometry == null) {
+                    return safeUnion(mapData);
+                }
+                safeModifications = buffered;
+            }
+        } catch {
+            // Buffer failed (degenerate geometry) — fall back to the exact
+            // cut rather than dropping the question's elimination.
+        }
+    }
 
     if (withinModifications) {
         return turf.intersect(
