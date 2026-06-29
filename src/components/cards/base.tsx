@@ -44,6 +44,52 @@ function formatRelativeTime(timestamp: number, now: number): string {
     return `${diffDay}d ago`;
 }
 
+/**
+ * The hider's resolved answer, as a short human line for an ANSWERED
+ * card's detail row (e.g. "Inside the radius", "Hider is closer"). Returns
+ * null for types/states with no concise answer to show — the caller falls
+ * back to the generic question prompt then.
+ */
+function answeredDetail(q: Question): string | null {
+    const d = q.data as Record<string, unknown>;
+    switch (q.id) {
+        case "radius":
+            return d.within ? "Inside the radius" : "Outside the radius";
+        case "measuring":
+            return d.hiderCloser ? "Hider is closer" : "Hider is further";
+        case "thermometer":
+            return d.warmer ? "Warmer after the move" : "Colder after the move";
+        case "matching":
+            if (typeof d.lengthComparison === "string") {
+                const c = d.lengthComparison;
+                return c === "same"
+                    ? "Same name length"
+                    : `Hider's name is ${c}`;
+            }
+            return d.same ? "Same as you" : "Different from you";
+        case "tentacles": {
+            const loc = d.location as
+                | { properties?: { name?: unknown } }
+                | false
+                | null
+                | undefined;
+            if (!loc) return "None within range";
+            const name = loc.properties?.name;
+            return typeof name === "string" && name.trim()
+                ? `Nearest: ${name}`
+                : "Found one nearby";
+        }
+        case "photo":
+            return d.declined
+                ? "Hider couldn't answer"
+                : d.photoUrl || d.photoUri
+                  ? "Photo received"
+                  : "Answered";
+        default:
+            return null;
+    }
+}
+
 /** hex (#rrggbb) → rgba() string, for the show-style category tinting
  *  (mirrors the pending-answer overlay). */
 function hexToRgba(hex: string, alpha: number): string {
@@ -60,7 +106,6 @@ export const QuestionCard = ({
     questionKey,
     className,
     category,
-    summary,
     createdAt,
     collapsed,
     forceExpanded,
@@ -217,17 +262,21 @@ export const QuestionCard = ({
     };
 
     // Show-style summary (same engine as the pending-answer overlay) so the
-    // collapsed card reads identically to the on-map overlay. For a resolved
-    // question we swap the generic prompt for the card's own one-liner
-    // (e.g. "5 km · Inside") — more useful in a log than "Inside or
-    // outside the radius?".
+    // collapsed card reads identically to the on-map overlay. While a
+    // question is still awaiting / draft we keep the overlay's generic
+    // prompt ("Inside or outside the radius?"); once it's ANSWERED we swap
+    // in the resolved answer ("Inside the radius", "Hider is closer", …) so
+    // the log says what the hider actually replied at a glance.
     const baseSummary: QuestionSummary = summarizeQuestion(
         thisQuestion ?? { id: category ?? "", data: {} },
     );
-    const summaryText = typeof summary === "string" ? summary : undefined;
+    const resolved =
+        lifecycle === "answered" && thisQuestion
+            ? answeredDetail(thisQuestion)
+            : null;
     const cardSummary: QuestionSummary = {
         ...baseSummary,
-        detail: summaryText ?? baseSummary.detail,
+        detail: resolved ?? baseSummary.detail,
     };
 
     // Right slot: the lifecycle status (Answered / Awaiting / …) over the

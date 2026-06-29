@@ -224,6 +224,10 @@ shared `QuestionOverlayCard` chrome — the same Jet-Lag-show lower-third
 the pending-answer / hider-unanswered overlays use (solid category-colour
 square icon block on the left, big bold uppercase `summarizeQuestion`
 label in the deepened category colour, live status on the right). The
+detail line under the label shows the overlay's generic prompt while a
+question is awaiting/draft, then swaps to the hider's **resolved answer**
+once answered ("Inside the radius", "Hider is closer", "Warmer after the
+move", "Nearest: …", …) via `answeredDetail()` in `cards/base.tsx`. The
 wrapper supplies a rounded, category-tinted border + the `--overlay-card`
 bg so the whole thing reads as one card. Right slot = lifecycle chip
 (Answered / Awaiting / …) over the relative time / answer countdown, plus
@@ -282,7 +286,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v585`. Use `git log` for the per-version detail;
+build stamp. Current: `v586`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

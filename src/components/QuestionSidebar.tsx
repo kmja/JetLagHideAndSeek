@@ -42,8 +42,6 @@ export const QuestionSidebar = () => {
     const $autoSave = useStore(autoSave);
     const $isLoading = useStore(isLoading);
     const $mobileOpen = useStore(questionsDrawerOpen);
-    const $playerRole = useStore(playerRole);
-    const $gameCode = useStore(currentGameCode);
 
     // Newest-first display order. The store keeps questions in insertion
     // order so we don't mutate it — just iterate in reverse for the UI.
