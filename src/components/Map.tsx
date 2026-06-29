@@ -859,8 +859,108 @@ export function Map({ className }: MapProps) {
                 console.warn("Map holedMask failed:", e);
             }
             if (myGen !== eliminationGenRef.current) return; // stale
+            // v598: clip each pending (draft) PREVIEW to the remaining area
+            // (`working`, the cumulative result of the ANSWERED questions)
+            // so a new question's footprint doesn't extend into regions
+            // already eliminated. Polygons (tentacles/thermometer) are
+            // intersected; line outlines (matching/measuring) are split to
+            // the runs that fall inside the remaining area. Pure visual —
+            // the actual elimination already intersects correctly.
+            const clipToWorking = (
+                feat: GeoJSON.Feature,
+                area: GeoJSON.FeatureCollection | GeoJSON.Feature,
+            ): GeoJSON.Feature[] => {
+                const areaFeats: GeoJSON.Feature[] =
+                    (area as GeoJSON.FeatureCollection).type ===
+                    "FeatureCollection"
+                        ? (area as GeoJSON.FeatureCollection).features
+                        : [area as GeoJSON.Feature];
+                const polyAreas = areaFeats.filter(
+                    (af) =>
+                        af.geometry?.type === "Polygon" ||
+                        af.geometry?.type === "MultiPolygon",
+                );
+                if (polyAreas.length === 0) return [feat];
+                const gtype = feat.geometry?.type;
+                try {
+                    if (gtype === "Polygon" || gtype === "MultiPolygon") {
+                        const out: GeoJSON.Feature[] = [];
+                        for (const af of polyAreas) {
+                            const inter = turf.intersect(
+                                turf.featureCollection([
+                                    feat as never,
+                                    af as never,
+                                ]),
+                            );
+                            if (inter) out.push(inter as GeoJSON.Feature);
+                        }
+                        return out;
+                    }
+                    if (
+                        gtype === "LineString" ||
+                        gtype === "MultiLineString"
+                    ) {
+                        const lines =
+                            gtype === "LineString"
+                                ? [
+                                      (feat.geometry as GeoJSON.LineString)
+                                          .coordinates,
+                                  ]
+                                : (
+                                      feat.geometry as GeoJSON.MultiLineString
+                                  ).coordinates;
+                        const inside = (c: number[]) =>
+                            polyAreas.some((af) => {
+                                try {
+                                    return turf.booleanPointInPolygon(
+                                        c as [number, number],
+                                        af as never,
+                                    );
+                                } catch {
+                                    return false;
+                                }
+                            });
+                        const out: GeoJSON.Feature[] = [];
+                        for (const coords of lines) {
+                            let run: number[][] = [];
+                            const flush = () => {
+                                if (run.length >= 2) {
+                                    out.push(
+                                        turf.lineString(
+                                            run,
+                                            feat.properties ?? {},
+                                        ),
+                                    );
+                                }
+                                run = [];
+                            };
+                            for (const c of coords) {
+                                if (inside(c)) run.push(c);
+                                else flush();
+                            }
+                            flush();
+                        }
+                        return out;
+                    }
+                } catch {
+                    /* fall through to unclipped */
+                }
+                return [feat];
+            };
+            const clippedPending: Record<string, GeoJSON.Feature[]> = {};
+            for (const [color, feats] of Object.entries(pendingByCategory)) {
+                const out: GeoJSON.Feature[] = [];
+                for (const f of feats) {
+                    try {
+                        out.push(...clipToWorking(f, working as never));
+                    } catch {
+                        out.push(f);
+                    }
+                }
+                if (out.length) clippedPending[color] = out;
+            }
             questionFinishedMapData.set(working);
-            setEliminationResult({ mask, pendingByCategory });
+            setEliminationResult({ mask, pendingByCategory: clippedPending });
             setMaskComputed(true); // v381: signal the reveal gate
         })();
         // `mapLoaded` is a dep so the mask re-applies the moment

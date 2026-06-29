@@ -107,7 +107,14 @@ export function RotateHiderDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-md">
+            {/* This dialog is launched from the lobby drawer (RoundEndSection
+                lives inside GameLobbyDialog), whose content sits at z-[1055].
+                The shared DialogContent/overlay default to z-[1050], so it
+                would open BEHIND the lobby — raise both above it. */}
+            <DialogContent
+                className="sm:max-w-md z-[1060]"
+                overlayClassName="z-[1060]"
+            >
                 <DialogHeader>
                     <DialogTitle className="font-inter-tight">
                         Start new round
