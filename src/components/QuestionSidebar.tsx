@@ -159,7 +159,10 @@ export const QuestionSidebar = () => {
                     </button>
                 </AddQuestionDialog>
             </div>
-            <SidebarContent>
+            {/* The cards own no margin; the list insets them (px-4) so
+                their left edge lines up with the header, and spaces them
+                (gap-3) with a clear gap below the header (pt-3). */}
+            <SidebarContent className="px-4 pt-3 gap-3 pb-2">
                 {questionsNewestFirst.length === 0 ? (
                     // Empty state — separates "no questions yet"
                     // from "list failed to load" or "list still
@@ -169,7 +172,7 @@ export const QuestionSidebar = () => {
                         <SidebarGroupContent>
                             <div
                                 className={cn(
-                                    "mx-2 my-2 rounded-md border-2 border-dashed border-border",
+                                    "rounded-md border-2 border-dashed border-border",
                                     "px-4 py-8 flex flex-col items-center text-center gap-3",
                                 )}
                             >

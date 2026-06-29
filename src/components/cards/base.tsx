@@ -90,17 +90,6 @@ function answeredDetail(q: Question): string | null {
     }
 }
 
-/** hex (#rrggbb) → rgba() string, for the show-style category tinting
- *  (mirrors the pending-answer overlay). */
-function hexToRgba(hex: string, alpha: number): string {
-    const h = hex.replace("#", "");
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 export const QuestionCard = ({
     children,
     questionKey,
@@ -133,8 +122,6 @@ export const QuestionCard = ({
     );
     const $questions = useStore(questions);
     const $gameSize = useStore(gameSize);
-
-    const categoryMeta = category ? CATEGORIES[category] : undefined;
 
     // Resolve the live Question from the store so we can build a fresh
     // share URL (config may have changed since add-time). Thermometer in
@@ -332,15 +319,17 @@ export const QuestionCard = ({
     return (
         <div
             className={cn(
-                "relative mx-2 my-1.5 overflow-hidden rounded-xl border shadow-md",
-                "bg-[var(--overlay-card)]",
+                // Match the on-map QuestionOverlayCard treatment: sharp
+                // corners, a subtle NEUTRAL outline (not category-tinted), a
+                // real shadow for lift, and a surface only a hair above the
+                // drawer background — so the shadow does the separating, not
+                // a contrasting block. Margins/inset are owned by the list
+                // container (QuestionSidebar) so the card sits flush in the
+                // configure dialog too.
+                "relative overflow-hidden border shadow-lg",
+                "border-sidebar-border bg-sidebar-accent",
                 className,
             )}
-            style={
-                categoryMeta
-                    ? { borderColor: hexToRgba(categoryMeta.color, 0.45) }
-                    : undefined
-            }
         >
             {/* Collapsed header = the same Jet-Lag-show overlay chrome the
                 pending-answer card uses (solid category-colour icon block,

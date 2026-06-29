@@ -228,8 +228,13 @@ detail line under the label shows the overlay's generic prompt while a
 question is awaiting/draft, then swaps to the hider's **resolved answer**
 once answered ("Inside the radius", "Hider is closer", "Warmer after the
 move", "Nearest: …", …) via `answeredDetail()` in `cards/base.tsx`. The
-wrapper supplies a rounded, category-tinted border + the `--overlay-card`
-bg so the whole thing reads as one card. Right slot = lifecycle chip
+card adopts the on-map overlay's treatment (v588): **sharp corners, a
+subtle NEUTRAL `border-sidebar-border` outline (not category-tinted), a
+`shadow-lg` lift, and a `bg-sidebar-accent` surface only a hair above the
+drawer background** — so the shadow/border separate it, not a contrasting
+block. The card owns no margin; the list (`QuestionSidebar`'s
+`SidebarContent`, `px-4 pt-3 gap-3`) insets it so its left edge lines up
+with the header and spaces the rows. Right slot = lifecycle chip
 (Answered / Awaiting / …) over the relative time / answer countdown, plus
 a **big `ChevronDown`** (rotates on expand) — there's no small left
 chevron anymore. **No delete/trash button at all** — sent questions are
@@ -289,7 +294,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v587`. Use `git log` for the per-version detail;
+build stamp. Current: `v588`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
