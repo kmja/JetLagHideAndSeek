@@ -121,7 +121,7 @@ export const QuestionSidebar = () => {
     // (Don't block on `$isLoading`: that flag also goes high for ambient
     // station-finder fetches which can take many seconds. Only the
     // in-flight answer rule and the hiding-period gate warrant blocking.)
-    const newQuestionButton = (
+    const newQuestionButton = (label: string) => (
         <AddQuestionDialog>
             <Button
                 type="button"
@@ -136,7 +136,7 @@ export const QuestionSidebar = () => {
                 }
             >
                 <Plus strokeWidth={2.5} />
-                New question
+                {label}
             </Button>
         </AddQuestionDialog>
     );
@@ -159,7 +159,8 @@ export const QuestionSidebar = () => {
                             answered.
                         </p>
                     </div>
-                    {questionsNewestFirst.length > 0 && newQuestionButton}
+                    {questionsNewestFirst.length > 0 &&
+                        newQuestionButton("New")}
                 </div>
             </div>
             {/* The cards own no margin; the list insets them (px-6, matching
@@ -188,7 +189,7 @@ export const QuestionSidebar = () => {
                                         narrowing down where the hider is.
                                     </p>
                                 </div>
-                                {newQuestionButton}
+                                {newQuestionButton("Ask first question")}
                             </div>
                         </SidebarGroupContent>
                     </SidebarGroup>
