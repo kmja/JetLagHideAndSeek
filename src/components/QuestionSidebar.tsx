@@ -23,12 +23,10 @@ import {
     triggerLocalRefresh,
 } from "@/lib/context";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
-import { playerRole } from "@/lib/hiderRole";
-import { currentGameCode } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
-import { HideSeekMark, RoleChip } from "./JetLagLogo";
+import { HideSeekMark } from "./JetLagLogo";
 import {
     MatchingQuestionComponent,
     MeasuringQuestionComponent,
@@ -125,63 +123,45 @@ export const QuestionSidebar = () => {
                 <h2 className="font-display font-extrabold text-2xl uppercase leading-none" style={{ letterSpacing: "-0.02em" }}>
                     Questions
                 </h2>
-                {$playerRole && (
-                    <RoleChip
-                        role={$playerRole}
-                        tag={$gameCode ?? undefined}
-                    />
-                )}
+                {/* New-question CTA lives in the header now (where the role
+                    tag used to sit) at its natural width — not a full-width
+                    bar — so the question list reads as the panel's content. */}
+                <AddQuestionDialog>
+                    <button
+                        type="button"
+                        data-tutorial-id="add-questions-buttons"
+                        // Don't block on `$isLoading`: that flag also goes
+                        // high for ambient station-finder fetches (rulebook
+                        // place data), which can take many seconds. The
+                        // seeker should still be able to add a question
+                        // during those — only the in-flight answer rule
+                        // (`hasPendingAnswer`) and the hiding-period gate
+                        // actually warrant blocking.
+                        disabled={hidingRunning || hasPendingAnswer}
+                        title={
+                            hidingRunning
+                                ? "Hiding period — wait for the timer or end it manually to start asking"
+                                : hasPendingAnswer
+                                  ? "Waiting for the hider to answer your previous question"
+                                  : undefined
+                        }
+                        className={cn(
+                            "shrink-0 flex items-center justify-center gap-1.5",
+                            "py-2 px-3 rounded-md",
+                            "bg-primary text-primary-foreground",
+                            "hover:bg-primary/90 active:bg-primary/80",
+                            "font-poppins font-bold uppercase tracking-wider text-[11px]",
+                            "transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            "disabled:opacity-50 disabled:cursor-not-allowed",
+                        )}
+                    >
+                        <Plus className="w-4 h-4" strokeWidth={2.5} />
+                        New question
+                    </button>
+                </AddQuestionDialog>
             </div>
             <SidebarContent>
-                <SidebarGroup>
-                    <SidebarGroupContent>
-                        <SidebarMenu data-tutorial-id="add-questions-buttons">
-                            <SidebarMenuItem>
-                                <AddQuestionDialog>
-                                    <button
-                                        type="button"
-                                        // Don't block on `$isLoading`: that
-                                        // flag also goes high for ambient
-                                        // station-finder fetches (rulebook
-                                        // place data), which can take many
-                                        // seconds. The seeker should still
-                                        // be able to add a question during
-                                        // those — only the in-flight
-                                        // answer rule (`hasPendingAnswer`)
-                                        // and the hiding-period gate
-                                        // actually warrant blocking.
-                                        disabled={
-                                            hidingRunning || hasPendingAnswer
-                                        }
-                                        title={
-                                            hidingRunning
-                                                ? "Hiding period — wait for the timer or end it manually to start asking"
-                                                : hasPendingAnswer
-                                                  ? "Waiting for the hider to answer your previous question"
-                                                  : undefined
-                                        }
-                                        className={cn(
-                                            "w-full flex items-center justify-center gap-2",
-                                            "py-3 px-4 rounded-md",
-                                            "bg-primary text-primary-foreground",
-                                            "hover:bg-primary/90 active:bg-primary/80",
-                                            "font-poppins font-bold uppercase tracking-wider text-xs",
-                                            "transition-colors",
-                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                            "disabled:opacity-50 disabled:cursor-not-allowed",
-                                        )}
-                                    >
-                                        <Plus
-                                            className="w-4 h-4"
-                                            strokeWidth={2.5}
-                                        />
-                                        New question
-                                    </button>
-                                </AddQuestionDialog>
-                            </SidebarMenuItem>
-                        </SidebarMenu>
-                    </SidebarGroupContent>
-                </SidebarGroup>
                 {questionsNewestFirst.length === 0 ? (
                     // Empty state — separates "no questions yet"
                     // from "list failed to load" or "list still

@@ -217,7 +217,38 @@ A lazily-loaded (`React.lazy` in `LatLngPicker`) **MapLibre** inline map embedde
 
 ## Card base (cards/base.tsx)
 
-Expand/collapse transition: `duration-200` (was 1000ms, was slow). Chevron rotation: `transition-transform duration-200`.
+Expand/collapse transition: `duration-200` (was 1000ms, was slow).
+
+**Collapsed look (v585):** every question card's collapsed header IS the
+shared `QuestionOverlayCard` chrome — the same Jet-Lag-show lower-third
+the pending-answer / hider-unanswered overlays use (solid category-colour
+square icon block on the left, big bold uppercase `summarizeQuestion`
+label in the deepened category colour, live status on the right). The
+wrapper supplies a rounded, category-tinted border + the `--overlay-card`
+bg so the whole thing reads as one card. Right slot = lifecycle chip
+(Answered / Awaiting / …) over the relative time / answer countdown, plus
+a **big `ChevronDown`** (rotates on expand) — there's no small left
+chevron anymore. **No delete/trash button at all** — sent questions are
+never deletable (it would desync the hider); discarding an
+un-sent draft is the configure dialog's Cancel button's job.
+`forceExpanded` (the configure dialog) renders the header static (no
+chevron, no collapse).
+
+**Expanded look (v585):** below the header, a static non-interactive
+`QuestionOutcomeMap` (`QuestionOutcomeMap.tsx`) highlights that one
+question's **resulting area** — it reuses the main map's elimination
+engine (`applyQuestionsToMapGeoData` against a clone of the play-area
+boundary for an answered question; `determinePlanningPolygon` footprint
+for a still-draft one), so the highlight matches the big map exactly.
+Mounted only while expanded (so collapsed cards aren't each running a
+MapLibre instance) and suppressed in the configure dialog (which already
+embeds the interactive picker). Spatial types read cached play-area
+references, degrading to "show the whole play area" on any failure.
+
+The questions drawer header (`QuestionSidebar.tsx`) puts the **New
+question** CTA at its natural width up in the title row (where the role
+tag used to sit) — not a full-width bar — and the role/SEEKER chip is
+gone from this panel.
 
 ## Current state
 
@@ -251,7 +282,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v584`. Use `git log` for the per-version detail;
+build stamp. Current: `v585`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -279,9 +310,11 @@ the headline arcs since the v414 rulebook-audit pass:
   (countdown / retry / answered) on the right. Theme-aware via CSS vars
   (see Theming above). "Not sent" only happens on an offline copy
   failure → its action is **Retry**, not Share.
-- **In an online game a sent/answered question can't be deleted** (it
-  would desync from the hider) — `cards/base.tsx` swaps the trash for a
-  disabled lock.
+- **A sent/answered question can't be deleted** (it would desync from
+  the hider). As of v585 `cards/base.tsx` has **no delete control at
+  all** — the earlier "swap the trash for a disabled lock in online
+  games" treatment is gone; discarding an un-sent draft is the configure
+  dialog's Cancel.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
   overlay at once via a `preview` prop on each overlay (shadows its
   atoms, writes nothing global), plus a light/dark toggle. The debug

@@ -1,26 +1,15 @@
 import { useStore } from "@nanostores/react";
-import { Copy, Lock, Share2, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { VscChevronDown } from "react-icons/vsc";
+import { ChevronDown, Copy, Share2 } from "lucide-react";
+import { useState } from "react";
 import { toast } from "react-toastify";
 
+import { QuestionOutcomeMap } from "@/components/QuestionOutcomeMap";
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-    SidebarGroup,
-    SidebarGroupContent,
-    SidebarGroupLabel,
-    SidebarMenu,
-} from "@/components/ui/sidebar-l";
+    QuestionOverlayCard,
+    type QuestionSummary,
+    summarizeQuestion,
+} from "@/components/questionOverlayCard";
+import { SidebarMenu } from "@/components/ui/sidebar-l";
 import { useNow } from "@/hooks/useNow";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
@@ -70,20 +59,19 @@ export const QuestionCard = ({
     children,
     questionKey,
     className,
-    label,
-    sub,
     category,
     summary,
     createdAt,
     collapsed,
     forceExpanded,
     locked,
-    setLocked,
     setCollapsed,
 }: {
     children: React.ReactNode;
     questionKey: number;
     className?: string;
+    /** Legacy props — kept for call-site compatibility. The collapsed
+     *  header now derives its label/sub from `summarizeQuestion`. */
     label?: string;
     sub?: string;
     category?: CategoryId;
@@ -99,20 +87,9 @@ export const QuestionCard = ({
         forceExpanded ? false : (collapsed ?? true),
     );
     const $questions = useStore(questions);
-    const $isLoading = useStore(isLoading);
     const $gameSize = useStore(gameSize);
-    const $mpEnabled = useStore(multiplayerEnabled);
 
     const categoryMeta = category ? CATEGORIES[category] : undefined;
-    const CategoryIcon = categoryMeta?.icon;
-
-    // In an online game a question that's already been SENT to the hider
-    // (createdAt stamped) or ANSWERED (locked) can't be deleted — the
-    // hider still has it on their side, so removing it here would desync
-    // the two devices. `forceExpanded` is the configure dialog, where the
-    // draft hasn't been committed yet, so deletion stays allowed there.
-    const sentToHider = createdAt !== undefined || locked === true;
-    const deletionLocked = $mpEnabled && sentToHider && !forceExpanded;
 
     // Resolve the live Question from the store so we can build a fresh
     // share URL (config may have changed since add-time). Thermometer in
@@ -235,229 +212,134 @@ export const QuestionCard = ({
     };
 
     const toggleCollapse = () => {
-        if (setCollapsed) {
-            setCollapsed(!isCollapsed);
-        }
-        setIsCollapsed((prevState) => !prevState);
+        if (setCollapsed) setCollapsed(!isCollapsed);
+        setIsCollapsed((prev) => !prev);
     };
 
-    return (
-        <>
-            <SidebarGroup
-                className={cn(
-                    "overflow-hidden rounded-xl mx-2 my-1.5 shadow-sm",
-                    category && "border-2",
-                    className,
-                )}
-                style={
-                    categoryMeta
-                        ? { borderColor: hexToRgba(categoryMeta.color, 0.45) }
-                        : undefined
-                }
-            >
-                {/* Jet-Lag-show-style skin: a faint category wash behind the
-                    whole card, matching the pending-answer overlay. */}
-                {categoryMeta && (
-                    <div
-                        className="absolute inset-0 pointer-events-none"
-                        style={{
-                            backgroundColor: hexToRgba(
-                                categoryMeta.color,
-                                0.08,
-                            ),
-                        }}
-                        aria-hidden
-                    />
-                )}
-                {/* Header row + summary. When collapsed we wrap the whole
-                    visible band in a click-target div so any tap (not just
-                    the chevron / label / summary) expands the card.
-                    Action buttons (trash) stop propagation on their own. */}
-                <div
-                    className={cn(
-                        "relative",
-                        isCollapsed && "cursor-pointer",
-                    )}
-                    onClick={isCollapsed ? toggleCollapse : undefined}
-                    role={isCollapsed ? "button" : undefined}
-                    aria-expanded={!isCollapsed}
-                >
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleCollapse();
-                        }}
-                        className={cn(
-                            "absolute top-2 left-2 text-white border rounded-md transition-transform duration-200 hover:bg-white/10",
-                            isCollapsed && "-rotate-90",
-                        )}
-                        aria-label={isCollapsed ? "Expand" : "Collapse"}
-                    >
-                        <VscChevronDown />
-                    </button>
-                    {/* Trash button — top-right of the header. Stops
-                        propagation so tapping it doesn't also toggle the
-                        collapsed state. Opens the existing confirm
-                        AlertDialog before actually removing the question.
+    // Show-style summary (same engine as the pending-answer overlay) so the
+    // collapsed card reads identically to the on-map overlay. For a resolved
+    // question we swap the generic prompt for the card's own one-liner
+    // (e.g. "5 km · Inside") — more useful in a log than "Inside or
+    // outside the radius?".
+    const baseSummary: QuestionSummary = summarizeQuestion(
+        thisQuestion ?? { id: category ?? "", data: {} },
+    );
+    const summaryText = typeof summary === "string" ? summary : undefined;
+    const cardSummary: QuestionSummary = {
+        ...baseSummary,
+        detail: summaryText ?? baseSummary.detail,
+    };
 
-                        In an online game a sent/answered question can't be
-                        deleted (it would desync from the hider); we swap the
-                        trash for a disabled lock instead. */}
-                    {deletionLocked ? (
-                        <button
-                            type="button"
-                            onClick={(e) => e.stopPropagation()}
-                            disabled
-                            aria-label="Sent questions can't be deleted in an online game"
-                            title="Sent to the hider — can't be deleted in an online game"
-                            className={cn(
-                                "absolute top-2 right-2 w-6 h-6",
-                                "flex items-center justify-center rounded-md",
-                                "text-muted-foreground/40 cursor-not-allowed",
-                            )}
-                        >
-                            <Lock className="w-3 h-3" />
-                        </button>
-                    ) : (
-                        <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <button
-                                    type="button"
-                                    onClick={(e) => e.stopPropagation()}
-                                    disabled={$isLoading}
-                                    aria-label="Delete question"
-                                    title="Delete question"
-                                    className={cn(
-                                        "absolute top-2 right-2 w-6 h-6",
-                                        "flex items-center justify-center rounded-md",
-                                        "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-                                        "transition-colors",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                        "disabled:opacity-40 disabled:cursor-not-allowed",
-                                    )}
-                                >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                        Are you absolutely sure?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        This action cannot be undone. This
-                                        will permanently delete the question.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel>
-                                        Cancel
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                        onClick={() => {
-                                            questions.set(
-                                                $questions.filter(
-                                                    (q) =>
-                                                        q.key !== questionKey,
-                                                ),
-                                            );
-                                        }}
-                                        className="mb-2 sm:mb-0"
-                                    >
-                                        Delete Question
-                                    </AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                    )}
-                    <SidebarGroupLabel
-                        className="ml-8 mr-10 flex items-center gap-2 rounded-sm transition-colors"
-                    >
-                        {CategoryIcon && (
-                            <span
-                                className="inline-flex items-center justify-center w-6 h-6 rounded-md shrink-0 shadow-sm"
-                                style={{
-                                    backgroundColor: categoryMeta!.color,
-                                }}
-                                aria-hidden="true"
-                            >
-                                <CategoryIcon
-                                    size={14}
-                                    strokeWidth={2.5}
-                                    className="text-white"
-                                />
-                            </span>
-                        )}
+    // Right slot: the lifecycle status (Answered / Awaiting / …) over the
+    // relative time or answer countdown, plus a BIG chevron. Mirrors the
+    // overlay's "live status on the right" with the expand affordance.
+    const timeNode = answerDeadlineLabel ? (
+        <span
+            className={cn(
+                "text-[10px] font-mono tabular-nums whitespace-nowrap",
+                remainingSec === 0 ? "text-destructive" : "text-primary",
+            )}
+            title="Hider's answer window (rulebook p5/p32)"
+        >
+            {answerDeadlineLabel}
+        </span>
+    ) : relativeTime ? (
+        <span
+            className="text-[10px] font-mono text-[color:var(--overlay-card-desc)] whitespace-nowrap"
+            title={createdAt ? new Date(createdAt).toLocaleString() : undefined}
+        >
+            {relativeTime}
+        </span>
+    ) : null;
+
+    const rightSlot = (
+        <div className="flex items-center gap-2">
+            {(lifecycle || timeNode) && (
+                <div className="flex flex-col items-end gap-0.5 leading-none">
+                    {lifecycle && (
                         <span
-                            className="font-display font-extrabold uppercase tracking-tight"
-                            style={
-                                categoryMeta
-                                    ? { color: categoryMeta.color }
-                                    : undefined
-                            }
-                        >
-                            {label} {sub && `(${sub})`}
-                        </span>
-                        {lifecycle && (
-                            <span
-                                className={cn(
-                                    "ml-auto text-[9px] uppercase tracking-wider font-poppins font-semibold",
-                                    "px-1.5 py-0.5 rounded border shrink-0",
-                                    lifecycleMeta[lifecycle].cls,
-                                )}
-                            >
-                                {lifecycleMeta[lifecycle].label}
-                            </span>
-                        )}
-                        {answerDeadlineLabel && (
-                            <span
-                                className={cn(
-                                    "text-[10px] font-mono tabular-nums shrink-0",
-                                    !lifecycle && "ml-auto",
-                                    remainingSec === 0
-                                        ? "text-destructive"
-                                        : "text-primary",
-                                )}
-                                title="Hider's answer window (rulebook p5/p32)"
-                            >
-                                {answerDeadlineLabel}
-                            </span>
-                        )}
-                        {!answerDeadlineLabel && relativeTime && (
-                            <span
-                                className={cn(
-                                    "text-[10px] text-muted-foreground font-mono shrink-0",
-                                    !lifecycle && "ml-auto",
-                                )}
-                                title={new Date(createdAt!).toLocaleString()}
-                            >
-                                {relativeTime}
-                            </span>
-                        )}
-                    </SidebarGroupLabel>
-                    {summary && isCollapsed && (
-                        <div className="ml-[3.25rem] mr-10 -mt-1 pb-2 text-xs text-muted-foreground truncate">
-                            {summary}
-                        </div>
-                    )}
-                    <SidebarGroupContent
-                        className={cn(
-                            "overflow-hidden transition-all duration-200 max-h-[100rem]", // 100rem is arbitrary
-                            isCollapsed && "max-h-0",
-                        )}
-                    >
-                        <SidebarMenu>
-                            {shareable && thisQuestion && (
-                                <ShareQuestionRow question={thisQuestion} />
+                            className={cn(
+                                "text-[9px] uppercase tracking-wider font-poppins font-semibold",
+                                "px-1.5 py-0.5 rounded border whitespace-nowrap",
+                                lifecycleMeta[lifecycle].cls,
                             )}
-                            {children}
-                        </SidebarMenu>
-                    </SidebarGroupContent>
+                        >
+                            {lifecycleMeta[lifecycle].label}
+                        </span>
+                    )}
+                    {timeNode}
                 </div>
-            </SidebarGroup>
-        </>
+            )}
+            <ChevronDown
+                className={cn(
+                    "h-6 w-6 shrink-0 text-[color:var(--overlay-card-desc)] transition-transform duration-200",
+                    !isCollapsed && "rotate-180",
+                )}
+                strokeWidth={2.5}
+            />
+        </div>
+    );
+
+    return (
+        <div
+            className={cn(
+                "relative mx-2 my-1.5 overflow-hidden rounded-xl border shadow-md",
+                "bg-[var(--overlay-card)]",
+                className,
+            )}
+            style={
+                categoryMeta
+                    ? { borderColor: hexToRgba(categoryMeta.color, 0.45) }
+                    : undefined
+            }
+        >
+            {/* Collapsed header = the same Jet-Lag-show overlay chrome the
+                pending-answer card uses (solid category-colour icon block,
+                big coloured label, status on the right). Borderless +
+                square-cornered here; the wrapper supplies the rounded,
+                category-tinted border so the whole thing reads as one card.
+                The configure dialog (`forceExpanded`) keeps it static — no
+                chevron, no collapse. */}
+            <QuestionOverlayCard
+                categoryId={category ?? ""}
+                summary={cardSummary}
+                error={lifecycle === "not-sent"}
+                right={forceExpanded ? undefined : rightSlot}
+                onClick={forceExpanded ? undefined : toggleCollapse}
+                ariaLabel={
+                    forceExpanded
+                        ? undefined
+                        : isCollapsed
+                          ? "Expand question details"
+                          : "Collapse question details"
+                }
+                className="rounded-none border-0 shadow-none bg-transparent"
+            />
+            <div
+                className={cn(
+                    "overflow-hidden transition-all duration-200 max-h-[200rem]",
+                    isCollapsed && !forceExpanded && "max-h-0",
+                )}
+            >
+                {/* Expanded: a static map highlighting this question's
+                    resulting area (the part of the play region still
+                    consistent with the answer). Suppressed in the configure
+                    dialog, which already embeds the interactive picker.
+                    Mounted only while expanded so each collapsed card isn't
+                    running its own MapLibre instance. */}
+                {!forceExpanded && thisQuestion && !isCollapsed && (
+                    <div className="px-2 pt-2">
+                        <QuestionOutcomeMap question={thisQuestion} />
+                    </div>
+                )}
+                <SidebarMenu>
+                    {shareable && thisQuestion && (
+                        <ShareQuestionRow question={thisQuestion} />
+                    )}
+                    {children}
+                </SidebarMenu>
+            </div>
+        </div>
     );
 };
 
