@@ -336,7 +336,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v596`. Use `git log` for the per-version detail;
+build stamp. Current: `v597`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -348,6 +348,15 @@ the headline arcs since the v414 rulebook-audit pass:
   one type that dead-ended). **Veto / Randomize** are playable in the
   answer dialog; Randomize auto-grades a random substitute for the
   spatial types and swaps to a different photo subtype for photo.
+  **Randomize SPLIT (v597):** the hider still overwrites the question in
+  place over the wire, but the SEEKER's `mergeIncomingQuestion`
+  (`multiplayer/store.ts`) splits a `randomized` answer into TWO list
+  entries — the ORIGINAL kept as asked (`randomizedAway:true`, eliminates
+  nothing, shown "Randomized") + the SUBSTITUTE as a separate answered
+  entry (`substituteFor` label, key = original+1000, eliminates normally).
+  Idempotent on re-send/snapshot; degrades to the single substitute entry
+  on a fresh reconnect where the original's subtype is no longer local.
+  `randomizedAway` is skipped by the elimination engine (like `vetoed`).
 - **Photo pipeline** — capture → crop/censor editor
   (`PhotoCensorDialog.tsx`, non-destructive undo/redo, redaction baked
   into the exported JPEG) → `preparePhotoForSend` (`src/lib/photo.ts`):

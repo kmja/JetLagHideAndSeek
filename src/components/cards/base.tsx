@@ -128,6 +128,16 @@ export const QuestionCard = ({
     // its "started" phase has nothing to share yet — its share row is
     // contributed by the card itself once finished.
     const thisQuestion = $questions.find((q) => q.key === questionKey);
+    // Randomize-split flags (v597): the ORIGINAL redirected-away question
+    // and the SUBSTITUTE that was auto-answered in its place.
+    const splitFlags = thisQuestion?.data as
+        | { randomizedAway?: boolean; substituteFor?: string }
+        | undefined;
+    const isRandomizedAway = splitFlags?.randomizedAway === true;
+    const substituteFor =
+        typeof splitFlags?.substituteFor === "string"
+            ? splitFlags.substituteFor
+            : null;
     const thermStatus =
         thisQuestion?.id === "thermometer"
             ? (thisQuestion.data as { status?: string }).status ?? "finished"
@@ -262,7 +272,12 @@ export const QuestionCard = ({
             : null;
     const cardSummary: QuestionSummary = {
         ...baseSummary,
-        detail: resolved ?? baseSummary.detail,
+        // The redirected original shows it was swapped out by Randomize
+        // (it carries no answer of its own); the substitute keeps its
+        // resolved answer.
+        detail: isRandomizedAway
+            ? "Randomized — a substitute was answered"
+            : resolved ?? baseSummary.detail,
     };
 
     // Eyebrow line INSIDE the card, above the big label. Most questions
@@ -273,11 +288,12 @@ export const QuestionCard = ({
     const eyebrow = forceExpanded
         ? undefined
         : lifecycle === "answered"
-          ? relativeTime
+          ? relativeTime || substituteFor
               ? (
                     <span className="text-muted-foreground" title={
                         createdAt ? new Date(createdAt).toLocaleString() : undefined
                     }>
+                        {substituteFor ? "Substitute · " : ""}
                         {relativeTime}
                     </span>
                 )
@@ -386,12 +402,20 @@ export const QuestionCard = ({
                                     image below IS the outcome). */}
                                 {!forceExpanded &&
                                     thisQuestion &&
-                                    category !== "photo" && (
+                                    category !== "photo" &&
+                                    !isRandomizedAway && (
                                         <div className="px-2 pt-2">
                                             <QuestionOutcomeMap
                                                 question={thisQuestion}
                                             />
                                         </div>
+                                    )}
+                                {!forceExpanded && isRandomizedAway && (
+                                    <div className="px-5 pt-3 text-xs text-muted-foreground leading-snug">
+                                        The hider played Randomize on this
+                                        question and answered a different one
+                                        instead — see the substitute below.
+                                    </div>
                                     )}
                                 {(showChildren || shareRow) && (
                                     <SidebarMenu>

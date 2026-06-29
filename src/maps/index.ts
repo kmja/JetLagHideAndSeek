@@ -142,7 +142,13 @@ export async function applyQuestionsToMapGeoData(
         // Vetoed questions carry no answer — the hider played the Veto
         // card — so they must eliminate NOTHING (the schema-default
         // answer like `within:true` would otherwise mask the map).
-        if ((question.data as { vetoed?: boolean }).vetoed) {
+        // `randomizedAway` is the same case: the ORIGINAL question that
+        // Randomize redirected away (its auto-answered substitute is a
+        // separate question that does the elimination).
+        if (
+            (question.data as { vetoed?: boolean }).vetoed ||
+            (question.data as { randomizedAway?: boolean }).randomizedAway
+        ) {
             continue;
         }
 

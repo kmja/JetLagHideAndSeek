@@ -489,7 +489,50 @@ function mergeIncomingQuestion(raw: unknown) {
     // Seeker side: upsert into `questions`.
     const current = questions.get();
     const idx = current.findIndex((q) => q.key === parsed.key);
-    if (idx >= 0) {
+    const dat = parsed.data as Record<string, unknown>;
+    if (dat.randomized === true && dat.randomizedAway !== true && idx >= 0) {
+        // Randomize SPLIT (v597): the hider overwrote the original question
+        // in place with the auto-answered substitute. Present BOTH in the
+        // seeker's list: keep the ORIGINAL as asked (redirected away, no
+        // answer, eliminates nothing) and add the SUBSTITUTE as a separate
+        // answered entry. Idempotent — re-running on a re-send / snapshot
+        // upserts the same two keys. Only possible while we still hold the
+        // original locally (its subtype is gone from the wire payload); a
+        // fresh reconnect with no local original falls through to the
+        // single-entry behaviour below.
+        const localOrig = current[idx];
+        const subKey = parsed.key + 1000; // real keys ∈ [0,1) → no collision
+        const originalEntry = {
+            ...localOrig,
+            data: {
+                ...(localOrig.data as Record<string, unknown>),
+                drag: false,
+                randomized: true,
+                randomizedAway: true,
+            },
+        } as Question;
+        const subData = { ...dat };
+        const fromLabel = subData.randomizedFrom;
+        delete subData.randomized;
+        delete subData.randomizedFrom;
+        const substituteEntry = {
+            ...parsed,
+            key: subKey,
+            data: {
+                ...subData,
+                randomized: false,
+                ...(typeof fromLabel === "string"
+                    ? { substituteFor: fromLabel }
+                    : {}),
+            },
+        } as Question;
+        const next: Questions = [...current];
+        next[idx] = originalEntry;
+        const subIdx = next.findIndex((q) => q.key === subKey);
+        if (subIdx >= 0) next[subIdx] = substituteEntry;
+        else next.push(substituteEntry);
+        questions.set(next);
+    } else if (idx >= 0) {
         const next: Questions = [...current];
         next[idx] = parsed;
         questions.set(next);

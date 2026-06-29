@@ -145,6 +145,14 @@ const ordinaryBaseQuestionSchema = z.object({
      *  for the log. */
     randomized: z.boolean().optional(),
     randomizedFrom: z.string().optional(),
+    /** Seeker-side randomize SPLIT (v597): the ORIGINAL question, kept as
+     *  asked but redirected away by Randomize — it carries no answer and
+     *  eliminates nothing. The auto-answered substitute is a separate
+     *  question (see `substituteFor`). */
+    randomizedAway: z.boolean().optional(),
+    /** Seeker-side randomize SPLIT: on the SUBSTITUTE question, the label
+     *  of the original question it stands in for. */
+    substituteFor: z.string().optional(),
 });
 
 const getDefaultUnit = () => {
@@ -557,6 +565,8 @@ const photoQuestionSchema = z.object({
     vetoed: z.boolean().optional(),
     randomized: z.boolean().optional(),
     randomizedFrom: z.string().optional(),
+    randomizedAway: z.boolean().optional(),
+    substituteFor: z.string().optional(),
 });
 
 export const questionSchema = z.union([
