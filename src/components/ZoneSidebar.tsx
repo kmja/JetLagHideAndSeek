@@ -1236,6 +1236,9 @@ function styleStations(
             return { type: "FeatureCollection", features: [] };
 
         case "no-overlap":
+            // safeUnion → turf.union throws on an empty collection; guard.
+            if (circles.length === 0)
+                return { type: "FeatureCollection", features: [] };
             return safeUnion(turf.featureCollection(circles));
 
         case "stations": {
@@ -1245,9 +1248,16 @@ function styleStations(
             // unioning paints the covered area exactly once at a uniform
             // faint opacity, and its outline becomes the clean envelope of
             // the possible-hiding area rather than crisscrossing arcs.
-            const union = safeUnion(turf.featureCollection(circles));
+            // turf.union (inside safeUnion) needs ≥2 geometries, so only
+            // union when there are at least 2 circles; 1 → that circle; 0 →
+            // no fill. (A bare 0/1 case otherwise threw "Must have at least
+            // 2 geometries" → the map error boundary.)
+            const union =
+                circles.length >= 2
+                    ? (safeUnion(turf.featureCollection(circles)) as Feature)
+                    : (circles[0] ?? null);
             return turf.featureCollection([
-                ...(union ? [union as Feature] : []),
+                ...(union ? [union] : []),
                 ...circles.map((c) => c.properties as Feature),
             ]);
         }
