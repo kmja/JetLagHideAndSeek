@@ -270,11 +270,13 @@ function buildStyle(
 }
 
 /** Overlay layers a tap can resolve to a station for the station
- *  transit card. The hiding-zone circle fill + station points (the
- *  candidate zones the seeker scans) and the travel-time labels (the
- *  reachable stations) are all valid targets. */
+ *  transit card. We target the per-station POINTS (via an invisible
+ *  larger hit-circle for an easy tap target), NOT the zone fill — the
+ *  stations overlay's fill is a single UNIONED polygon with no per-station
+ *  data, so tapping it used to resolve to the union's centroid (often out
+ *  at sea). The travel-time dots/labels are also valid targets. */
 const STATION_TAP_LAYERS = [
-    "hiding-zones-fill",
+    "hiding-zones-hit",
     "hiding-zones-points",
     "travel-times-dot",
     "travel-times-labels",
@@ -1516,6 +1518,22 @@ export function Map({ className }: MapProps) {
                                     },
                                 }}
                             />
+                            {/* Invisible larger hit target on each station
+                                point so a tap near the dot opens the
+                                transit card. The visible dots are tiny; the
+                                zone fill is a single union with no
+                                per-station data, so this is the tap target
+                                (see STATION_TAP_LAYERS). */}
+                            <Layer
+                                id="hiding-zones-hit"
+                                type="circle"
+                                filter={["==", ["geometry-type"], "Point"]}
+                                paint={{
+                                    "circle-radius": 16,
+                                    "circle-color": "#000000",
+                                    "circle-opacity": 0,
+                                }}
+                            />
                             {/* Station name labels. Reads `name` off the
                                 centre point features the zone overlay ships
                                 alongside the circles. Hidden when zoomed out
@@ -1575,8 +1593,8 @@ export function Map({ className }: MapProps) {
                                 ["==", ["geometry-type"], "MultiPolygon"],
                             ]}
                             paint={{
-                                "fill-color": "hsl(45, 90%, 55%)",
-                                "fill-opacity": 0.18,
+                                "fill-color": "#ffffff",
+                                "fill-opacity": 0.16,
                             }}
                         />
                         <Layer
@@ -1588,7 +1606,7 @@ export function Map({ className }: MapProps) {
                                 ["==", ["geometry-type"], "MultiPolygon"],
                             ]}
                             paint={{
-                                "line-color": "hsl(45, 95%, 55%)",
+                                "line-color": "#ffffff",
                                 "line-width": 3,
                             }}
                         />
@@ -1598,7 +1616,7 @@ export function Map({ className }: MapProps) {
                             filter={["==", ["geometry-type"], "Point"]}
                             paint={{
                                 "circle-radius": 7,
-                                "circle-color": "hsl(45, 95%, 55%)",
+                                "circle-color": "#ffffff",
                                 "circle-stroke-color": "#1F2F3F",
                                 "circle-stroke-width": 2.5,
                             }}
