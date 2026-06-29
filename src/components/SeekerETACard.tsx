@@ -136,7 +136,7 @@ export function SeekerETACard() {
             className={cn(
                 "rounded-md border px-3 py-2 flex items-start gap-2.5",
                 tone === "comfortable" &&
-                    "border-emerald-500/40 bg-emerald-500/10",
+                    "border-success/40 bg-success/10",
                 tone === "heads-up" &&
                     "border-yellow-500/40 bg-yellow-500/10",
                 tone === "imminent" &&

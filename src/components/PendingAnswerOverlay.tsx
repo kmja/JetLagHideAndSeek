@@ -250,7 +250,7 @@ export function PendingAnswerOverlay({
             </span>
         </button>
     ) : answered ? (
-        <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-emerald-500">
+        <span className="text-xs uppercase tracking-[0.12em] font-poppins font-black text-success">
             Answered!
         </span>
     ) : null;

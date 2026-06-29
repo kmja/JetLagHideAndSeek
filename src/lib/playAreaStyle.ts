@@ -18,7 +18,10 @@
  *     maps deliberately stay fill-free (the basemap + elimination mask
  *     carry the inside/outside cue there) and only wear the stroke.
  */
-export const PLAY_AREA_COLOR = "hsl(2, 70%, 54%)";
+// The one brand red — identical to `--primary` / `--accent-red`
+// (hsl(5 69% 55%)) so the boundary and the primary buttons are the same
+// red. (Was hsl(2 70% 54%), a hair off, before the v591 colour unify.)
+export const PLAY_AREA_COLOR = "hsl(5, 69%, 55%)";
 export const PLAY_AREA_FILL_OPACITY = 0.15;
 export const PLAY_AREA_LINE_WIDTH = 2;
 export const PLAY_AREA_LINE_OPACITY = 0.9;

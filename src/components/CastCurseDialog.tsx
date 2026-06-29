@@ -568,7 +568,7 @@ export function CastCurseDialog({
                                     : fizzleRule &&
                                         settled !== null &&
                                         !fizzles
-                                      ? "border-emerald-500/60 bg-emerald-500/10"
+                                      ? "border-success/60 bg-success/10"
                                       : "border-yellow-500/40 bg-yellow-500/5",
                             )}
                         >
@@ -580,7 +580,7 @@ export function CastCurseDialog({
                                         : fizzleRule &&
                                             settled !== null &&
                                             !fizzles
-                                          ? "text-emerald-400"
+                                          ? "text-success"
                                           : "text-yellow-500",
                                 )}
                             >
@@ -684,7 +684,7 @@ export function CastCurseDialog({
                                                 ? "border-primary text-primary"
                                                 : fizzles
                                                   ? "border-destructive text-destructive"
-                                                  : "border-emerald-400 text-emerald-400",
+                                                  : "border-success text-success",
                                             rolling &&
                                                 "animate-[jlDiceTumble_300ms_ease-in-out_infinite]",
                                             reveal &&
@@ -727,7 +727,7 @@ export function CastCurseDialog({
                                                 moves to discard.
                                             </span>
                                         ) : (
-                                            <span className="text-emerald-400 font-semibold">
+                                            <span className="text-success font-semibold">
                                                 🎉 The curse stands — cast it
                                                 on the seekers.
                                             </span>

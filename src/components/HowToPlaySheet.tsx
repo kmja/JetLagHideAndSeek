@@ -2,6 +2,7 @@ import { BookOpen } from "lucide-react";
 import { useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
+import { CATEGORIES } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 
 import { SectionPill, SizeBadge } from "./JetLagLogo";
@@ -143,37 +144,37 @@ export function HowToPlaySheet({
                             </p>
                             <ul className="text-sm divide-y divide-border rounded-md border border-border overflow-hidden">
                                 <CatRow
-                                    color="#7d8087"
+                                    color={CATEGORIES.matching.color}
                                     label="Matching"
                                     template="Is your nearest ___ the same as mine?"
                                     cost="draw 3, keep 1"
                                 />
                                 <CatRow
-                                    color="#9dc99e"
+                                    color={CATEGORIES.measuring.color}
                                     label="Measuring"
                                     template="Closer or further to ___ than me?"
                                     cost="draw 3, keep 1"
                                 />
                                 <CatRow
-                                    color="#f5a888"
+                                    color={CATEGORIES.radius.color}
                                     label="Radar"
                                     template="Are you within ___ of me?"
                                     cost="draw 2, keep 1"
                                 />
                                 <CatRow
-                                    color="#f5d268"
+                                    color={CATEGORIES.thermometer.color}
                                     label="Thermometer"
                                     template="After traveling ___, am I hotter or colder?"
                                     cost="draw 2, keep 1"
                                 />
                                 <CatRow
-                                    color="#7fbcd6"
+                                    color={CATEGORIES.photo.color}
                                     label="Photo"
                                     template="Send me a photo of ___."
                                     cost="draw 1, keep 1"
                                 />
                                 <CatRow
-                                    color="#b09cd5"
+                                    color={CATEGORIES.tentacles.color}
                                     label="Tentacles"
                                     template="Within ___ km of me, which ___ are you nearest to?"
                                     cost="draw 4, keep 2"

@@ -1258,7 +1258,7 @@ function RosterCard({
                                             className={cn(
                                                 "text-[9px] font-display font-extrabold uppercase tracking-[0.10em]",
                                                 "rounded-[3px] px-1 py-[1px] leading-none",
-                                                "bg-[hsl(var(--accent-yellow))] text-[hsl(var(--sidebar-background))]",
+                                                "bg-accent-yellow text-[hsl(var(--sidebar-background))]",
                                             )}
                                             title="Main hider — answers questions and plays the deck."
                                         >
@@ -1286,10 +1286,10 @@ function RosterCard({
                                             className={cn(
                                                 "text-[10px] uppercase tracking-[0.08em] font-display font-extrabold",
                                                 "rounded-[3px] px-2 py-1 leading-none",
-                                                "bg-[hsl(var(--accent-yellow)/0.15)] text-[hsl(var(--accent-yellow))]",
+                                                "bg-[hsl(var(--accent-yellow)/0.15)] text-accent-yellow",
                                                 "border border-[hsl(var(--accent-yellow))/0.4]",
                                                 "hover:bg-[hsl(var(--accent-yellow)/0.25)]",
-                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-yellow))]",
+                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-yellow",
                                             )}
                                             title="Promote to main hider (you become a co-hider)"
                                         >
@@ -1452,12 +1452,12 @@ function MidGameInfoSection({
                         "w-full flex items-center gap-2.5",
                         "rounded-md border-2 px-3 py-2.5 text-left transition-colors",
                         sharing
-                            ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-300"
+                            ? "border-success/60 bg-success/10 text-success"
                             : "border-border bg-secondary/40 text-muted-foreground",
                     )}
                 >
                     {sharing ? (
-                        <Radio className="w-4 h-4 shrink-0 text-emerald-400" />
+                        <Radio className="w-4 h-4 shrink-0 text-success" />
                     ) : (
                         <RadioReceiver className="w-4 h-4 shrink-0" />
                     )}

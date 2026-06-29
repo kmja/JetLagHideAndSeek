@@ -60,8 +60,8 @@ export function PWAInstallButton() {
                 className={cn(
                     "w-full flex items-center justify-center gap-2",
                     "px-3 py-2 rounded-md",
-                    "bg-emerald-500/10 border border-emerald-500/40",
-                    "text-sm font-semibold text-emerald-500",
+                    "bg-success/10 border border-success/40",
+                    "text-sm font-semibold text-success",
                 )}
             >
                 <CheckCircle2 className="w-4 h-4" />

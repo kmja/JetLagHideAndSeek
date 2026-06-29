@@ -400,7 +400,7 @@ export function RoleChip({
                         "rounded-[3px] px-1 py-[1px]",
                         "font-display font-extrabold uppercase text-[8px]",
                         "tabular-nums tracking-[0.08em]",
-                        "bg-[hsl(var(--accent-yellow))] text-[hsl(var(--sidebar-background))]",
+                        "bg-accent-yellow text-[hsl(var(--sidebar-background))]",
                     )}
                 >
                     {tag}

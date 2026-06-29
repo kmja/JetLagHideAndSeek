@@ -235,11 +235,11 @@ export const QuestionCard = ({
         },
         awaiting: {
             label: "Awaiting answer",
-            cls: "bg-[hsl(var(--accent-yellow))]/15 text-[hsl(var(--accent-yellow))] border-[hsl(var(--accent-yellow))]/30",
+            cls: "bg-warning/15 text-warning border-warning/30",
         },
         answered: {
             label: "Answered",
-            cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+            cls: "bg-success/15 text-success border-success/30",
         },
     };
 

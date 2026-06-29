@@ -10,7 +10,7 @@ import Map, {
     Source,
 } from "react-map-gl/maplibre";
 
-import { buildMarkerHtml, type CategoryId } from "@/lib/categories";
+import { buildMarkerHtml, CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     handleMapLibreError,
     installMissingImageHandler,
@@ -237,7 +237,7 @@ export function HiderMap({
                             id="hm-radius-fill"
                             type="fill"
                             paint={{
-                                "fill-color": "#f5a888",
+                                "fill-color": CATEGORIES.radius.color,
                                 "fill-opacity": 0.15,
                             }}
                         />
@@ -245,7 +245,7 @@ export function HiderMap({
                             id="hm-radius-line"
                             type="line"
                             paint={{
-                                "line-color": "#f5a888",
+                                "line-color": CATEGORIES.radius.color,
                                 "line-width": 2,
                             }}
                         />
@@ -263,7 +263,7 @@ export function HiderMap({
                             id="hm-thermometer-line"
                             type="line"
                             paint={{
-                                "line-color": "#f5d268",
+                                "line-color": CATEGORIES.thermometer.color,
                                 "line-width": 3,
                                 "line-dasharray": [3, 2],
                             }}
@@ -546,7 +546,7 @@ const hiderPinSvg = `
 
 const thermometerArrowSvg = `
 <svg width="20" height="20" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-  <polygon points="10,1 18,17 10,13 2,17" fill="#f5d268" stroke="#3a3a2a" stroke-width="1.2" stroke-linejoin="round"/>
+  <polygon points="10,1 18,17 10,13 2,17" fill="${CATEGORIES.thermometer.color}" stroke="#3a3a2a" stroke-width="1.2" stroke-linejoin="round"/>
 </svg>
 `.trim();
 

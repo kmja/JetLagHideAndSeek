@@ -35,7 +35,7 @@ export function PresenceChip() {
 
     const tone =
         $status === "open"
-            ? "bg-emerald-400/20 text-emerald-300 border-emerald-400/40"
+            ? "bg-success/20 text-success border-success/40"
             : $status === "reconnecting" || $status === "connecting"
               ? "bg-yellow-400/20 text-yellow-300 border-yellow-400/40"
               : "bg-muted/40 text-muted-foreground border-border";

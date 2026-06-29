@@ -562,7 +562,7 @@ function RosterGroup({
     const dotColor =
         tone === "seeker"
             ? "bg-primary"
-            : "bg-[hsl(var(--accent-yellow))]";
+            : "bg-accent-yellow";
     return (
         <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 space-y-1">
             <div className="flex items-center gap-1.5">
@@ -590,7 +590,7 @@ function RosterGroup({
                                     className={cn(
                                         "text-[9px] font-display font-extrabold uppercase tracking-[0.10em]",
                                         "rounded-[3px] px-1 py-[1px] leading-none",
-                                        "bg-[hsl(var(--accent-yellow))] text-[hsl(var(--sidebar-background))]",
+                                        "bg-accent-yellow text-[hsl(var(--sidebar-background))]",
                                     )}
                                 >
                                     {e.badge}

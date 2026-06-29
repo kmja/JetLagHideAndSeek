@@ -263,11 +263,11 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                         <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
                             Hidden for
                         </span>
-                        <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-[#1F2F3F]">
+                        <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
                             {display}
                         </span>
                         <span
-                            className="absolute inset-y-0 right-0 w-2.5 bg-[#E4322B]"
+                            className="absolute inset-y-0 right-0 w-2.5 bg-primary"
                             aria-hidden
                         />
                     </div>

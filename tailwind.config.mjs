@@ -36,6 +36,26 @@ export default {
     				DEFAULT: 'hsl(var(--destructive))',
     				foreground: 'hsl(var(--destructive-foreground))'
     			},
+    			success: {
+    				DEFAULT: 'hsl(var(--success))',
+    				foreground: 'hsl(var(--success-foreground))'
+    			},
+    			warning: {
+    				DEFAULT: 'hsl(var(--warning))',
+    				foreground: 'hsl(var(--warning-foreground))'
+    			},
+    			info: {
+    				DEFAULT: 'hsl(var(--info))',
+    				foreground: 'hsl(var(--info-foreground))'
+    			},
+    			// Supporting brand accents (box / dice / card-stripe palette).
+    			// Promoted from raw `hsl(var(--accent-*))` arbitrary values so
+    			// `bg-accent-yellow` / `text-accent-purple` / `…/15` all work.
+    			'accent-yellow': 'hsl(var(--accent-yellow))',
+    			'accent-orange': 'hsl(var(--accent-orange))',
+    			'accent-red': 'hsl(var(--accent-red))',
+    			'accent-peach': 'hsl(var(--accent-peach))',
+    			'accent-purple': 'hsl(var(--accent-purple))',
     			border: 'hsl(var(--border))',
     			input: 'hsl(var(--input))',
     			ring: 'hsl(var(--ring))',

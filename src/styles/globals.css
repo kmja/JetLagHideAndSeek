@@ -453,6 +453,15 @@ div.leaflet-control-attribution.leaflet-control {
         --accent-foreground: 222.2 47.4% 11.2%;
         --destructive: 0 84.2% 50%;
         --destructive-foreground: 0 0% 100%;
+        /* Semantic STATE colours (alongside destructive). Tuned to read as
+         * `text-success` etc. on a LIGHT surface, so darker than the dark
+         * variant. success ≈ emerald, warning ≈ amber, info ≈ blue. */
+        --success: 160 84% 32%;
+        --success-foreground: 0 0% 100%;
+        --warning: 38 92% 45%;
+        --warning-foreground: 0 0% 100%;
+        --info: 217 91% 52%;
+        --info-foreground: 0 0% 100%;
         --border: 214.3 31.8% 85%; /* darker than shadcn default so borders are visible */
         --input: 214.3 31.8% 85%;
         --ring: 5 69% 55%; /* match primary so focus rings carry brand */
@@ -517,6 +526,14 @@ div.leaflet-control-attribution.leaflet-control {
          * comfortably legible. */
         --destructive: 0 72% 51%;
         --destructive-foreground: 210 40% 98%;
+        /* Semantic STATE colours — brightened for `text-success` etc. to
+         * read on a DARK surface (mirrors the destructive lift above). */
+        --success: 158 64% 52%;
+        --success-foreground: 222.2 84% 4.9%;
+        --warning: 38 92% 58%;
+        --warning-foreground: 222.2 84% 4.9%;
+        --info: 217 91% 65%;
+        --info-foreground: 222.2 84% 4.9%;
         --border: 217.2 32.6% 17.5%;
         --input: 217.2 32.6% 17.5%;
         --ring: 5 69% 55%; /* match primary so focus rings carry brand */
@@ -595,7 +612,7 @@ div.leaflet-control-attribution.leaflet-control {
 .bg-jetlag-trail {
     background: linear-gradient(
         90deg,
-        hsl(2 70% 54%) 0%,
+        hsl(5 69% 55%) 0%,
         hsl(18 85% 75%) 50%,
         hsl(44 87% 64%) 100%
     );
@@ -604,10 +621,10 @@ div.leaflet-control-attribution.leaflet-control {
     color: hsl(44 87% 64%);
 }
 .bg-jetlag-red {
-    background: hsl(2 70% 54%);
+    background: hsl(5 69% 55%);
 }
 .text-jetlag-red {
-    color: hsl(2 70% 54%);
+    color: hsl(5 69% 55%);
 }
 
 /* Section-header pill — the dark-navy tag with white bold tracked uppercase

@@ -370,7 +370,7 @@ function ParticipantRow({
                 <span
                     className={cn(
                         "w-2 h-2 rounded-full shrink-0",
-                        p.online ? "bg-emerald-400" : "bg-muted-foreground/40",
+                        p.online ? "bg-success" : "bg-muted-foreground/40",
                     )}
                     aria-hidden="true"
                 />
@@ -403,7 +403,7 @@ function ParticipantRow({
                         className={cn(
                             "w-3 h-3",
                             gpsAt
-                                ? "text-emerald-400"
+                                ? "text-success"
                                 : "text-muted-foreground/60",
                         )}
                         aria-hidden="true"

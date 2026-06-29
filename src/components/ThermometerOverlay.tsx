@@ -186,7 +186,7 @@ export function ThermometerOverlay({
                             className={cn(
                                 "h-full transition-[width] duration-300 ease-out",
                                 reachedTarget
-                                    ? "bg-emerald-500"
+                                    ? "bg-success"
                                     : "bg-primary",
                             )}
                             style={{ width: `${progressPct.toFixed(1)}%` }}
@@ -212,7 +212,7 @@ export function ThermometerOverlay({
                             "font-poppins font-semibold",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             reachedTarget
-                                ? "bg-emerald-500 text-white hover:bg-emerald-500/90"
+                                ? "bg-success text-white hover:bg-success/90"
                                 : "bg-secondary text-muted-foreground cursor-not-allowed",
                         )}
                     >

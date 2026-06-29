@@ -271,9 +271,13 @@ export function QuestionOverlayCard({
     // `deep` (saturated/dark) reads on a LIGHT card; the original pastel
     // `base` reads on a DARK card. We expose both as CSS vars so the
     // label + timer can switch on `.dark` without knowing the theme.
-    // `error` / `answered` override the category colour entirely.
-    const deep = error ? "#dc2626" : answered ? "#10b981" : deepColor(base);
-    const bright = error ? "#f87171" : answered ? "#34d399" : base;
+    // `error` / `answered` override the category colour entirely — routed
+    // through the semantic state tokens (theme-aware) instead of literals.
+    const stateColor = error
+        ? "hsl(var(--destructive))"
+        : "hsl(var(--success))";
+    const deep = error || answered ? stateColor : deepColor(base);
+    const bright = error || answered ? stateColor : base;
     const Icon = summary.icon ?? meta?.icon ?? Hourglass;
     const interactive = Boolean(onClick);
 
