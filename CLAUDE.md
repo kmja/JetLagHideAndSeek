@@ -347,7 +347,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v613`. Use `git log` for the per-version detail;
+build stamp. Current: `v614`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -396,7 +396,11 @@ the headline arcs since the v414 rulebook-audit pass:
   (shared `QuestionOverlayCard`, fires on the awaiting→answered
   transition), and the main map flashes the **newly-eliminated slice** in
   brand red and fades it into the dark mask (`Map.tsx` diffs the previous
-  vs. new remaining region) so an answer reads as a deliberate beat. If
+  vs. new remaining region) so an answer reads as a deliberate beat. The
+  flash **blinks on-off-on-off (two pulses) then fades out slowly**
+  (~1.7 s) — a timed step sequence in `triggerEliminationFlash` with a
+  per-step transition duration (`eliminationFlash.fadeMs`: snappy for the
+  blinks, long for the final fade). If
   the answer lands while the app is **backgrounded**, the flash is deferred
   and **replayed on return to the foreground** (v612 — `Map.tsx` snapshots
   the remaining area on `visibilitychange→hidden` and diffs it against the

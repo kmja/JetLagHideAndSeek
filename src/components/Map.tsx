@@ -659,6 +659,9 @@ export function Map({ className }: MapProps) {
     const [eliminationFlash, setEliminationFlash] = useState<{
         feature: GeoJSON.Feature;
         visible: boolean;
+        /** Transition duration (ms) for THIS step — short for the crisp
+         *  blinks, long for the final fade-out. */
+        fadeMs: number;
     } | null>(null);
     useEffect(
         () => () => {
@@ -694,21 +697,42 @@ export function Map({ className }: MapProps) {
     const triggerEliminationFlash = (delta: GeoJSON.Feature) => {
         flashTimersRef.current.forEach((t) => window.clearTimeout(t));
         flashTimersRef.current = [];
-        setEliminationFlash({ feature: delta, visible: true });
-        // Next paint: drop opacity to 0 so the fill-opacity transition
-        // fades the red wash out. Then unmount once the fade has run.
+        // Blink the red wash on-off-on-off (two quick pulses), then leave
+        // it on once more and fade it out slowly (~2x the old fade) so the
+        // seeker really has time to register the eliminated slice. Each
+        // step sets `visible` + the transition duration for that step:
+        // snappy for the blinks, long for the final fade.
+        const BLINK = 200; // ms between blink toggles
+        const BLINK_FADE = 110; // crisp on/off transition
+        const FINAL_FADE = 1700; // ~2x the previous 850 ms fade-out
+        // [delay, visible, fadeMs]
+        const steps: Array<[number, boolean, number]> = [
+            [0, true, BLINK_FADE], // on  (pulse 1)
+            [BLINK, false, BLINK_FADE], // off
+            [BLINK * 2, true, BLINK_FADE], // on  (pulse 2)
+            [BLINK * 3, false, BLINK_FADE], // off
+            [BLINK * 4, true, BLINK_FADE], // on  (settle before the fade)
+            [BLINK * 5, false, FINAL_FADE], // slow fade-out
+        ];
+        for (const [delay, visible, fadeMs] of steps) {
+            flashTimersRef.current.push(
+                window.setTimeout(() => {
+                    setEliminationFlash((f) =>
+                        f ? { ...f, visible, fadeMs } : null,
+                    );
+                }, delay),
+            );
+        }
+        // Unmount once the final fade has fully run.
         flashTimersRef.current.push(
             window.setTimeout(
-                () =>
-                    setEliminationFlash((f) =>
-                        f ? { ...f, visible: false } : null,
-                    ),
-                70,
+                () => setEliminationFlash(null),
+                BLINK * 5 + FINAL_FADE + 100,
             ),
         );
-        flashTimersRef.current.push(
-            window.setTimeout(() => setEliminationFlash(null), 1000),
-        );
+        // Kick off with the first "on" already applied so step 0's
+        // setTimeout(0) isn't the very first paint (avoids a 1-frame gap).
+        setEliminationFlash({ feature: delta, visible: true, fadeMs: BLINK_FADE });
     };
     // v612: if an answer lands while the app is BACKGROUNDED, the flash
     // would play (and its timers expire) before the seeker ever sees it.
@@ -1978,7 +2002,9 @@ export function Map({ className }: MapProps) {
                                 "fill-opacity": eliminationFlash.visible
                                     ? 0.5
                                     : 0,
-                                "fill-opacity-transition": { duration: 850 },
+                                "fill-opacity-transition": {
+                                    duration: eliminationFlash.fadeMs,
+                                },
                             }}
                         />
                         <Layer
@@ -1990,7 +2016,9 @@ export function Map({ className }: MapProps) {
                                 "line-opacity": eliminationFlash.visible
                                     ? 0.9
                                     : 0,
-                                "line-opacity-transition": { duration: 850 },
+                                "line-opacity-transition": {
+                                    duration: eliminationFlash.fadeMs,
+                                },
                             }}
                         />
                     </Source>
