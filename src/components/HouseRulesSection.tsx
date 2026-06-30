@@ -1,4 +1,7 @@
 import { useStore } from "@nanostores/react";
+import { ChevronDown, Plus } from "lucide-react";
+import { useState } from "react";
+import type { WritableAtom } from "nanostores";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -10,9 +13,15 @@ import { cn } from "@/lib/utils";
 
 /**
  * "House rules" — opt-in deviations from the printed Hide + Seek
- * rulebook, surfaced in the Settings drawer. Defaults match the
- * rulebook; turning a toggle on locks the table to a stricter house
- * variant for the rest of the game.
+ * rulebook, surfaced in the lobby (host-authoritative, synced to the
+ * room). Defaults match the rulebook; turning a toggle on locks the
+ * table to a stricter house variant for the rest of the game.
+ *
+ * Only ACTIVE (enabled) rules show by default; the inactive ones are
+ * collapsed behind an "Add a house rule" expander so the section stays
+ * compact when the table plays vanilla. A read-only viewer (a non-host
+ * guest) never sees the expander — just the active rules, or a "playing
+ * by the rulebook" note when none are on.
  *
  * Persistent atoms live in `src/lib/houseRules.ts`.
  *
@@ -42,48 +51,114 @@ export function HouseRulesSection({
     const $alternate = useStore(alternateQuestionTypes);
     const $askOnce = useStore(askOncePerQuestion);
     const $zoneBuffer = useStore(zoneRadiusBuffer);
+    const [showInactive, setShowInactive] = useState(false);
 
-    const set = (atom: typeof alternateQuestionTypes, v: boolean) => {
+    const set = (atom: WritableAtom<boolean>, v: boolean) => {
         atom.set(v);
         onAfterChange?.();
     };
+
+    const rules: {
+        atom: WritableAtom<boolean>;
+        checked: boolean;
+        label: string;
+        description: string;
+        rulebookDefault: string;
+    }[] = [
+        {
+            atom: alternateQuestionTypes,
+            checked: $alternate,
+            label: "Alternate question categories",
+            description:
+                "You can't ask two questions of the same category in a row.",
+            rulebookDefault: "No alternation (rulebook)",
+        },
+        {
+            atom: askOncePerQuestion,
+            checked: $askOnce,
+            label: "Ask once per question",
+            description:
+                "Each subtype / preset can only be asked once per game. Hard block instead of paying the rulebook's repeat cost.",
+            rulebookDefault: "Repeats allowed at N× cost (p65)",
+        },
+        {
+            atom: zoneRadiusBuffer,
+            checked: $zoneBuffer,
+            label: "Buffer eliminations by zone radius",
+            description:
+                "Radar, thermometer and measuring eliminate at the zone level, widened by your hiding-zone radius — so a moving hider can never get their true zone carved away by unlucky question timing.",
+            rulebookDefault: "Exact-point cuts (rulebook p234)",
+        },
+    ];
+
+    const active = rules.filter((r) => r.checked);
+    const inactive = rules.filter((r) => !r.checked);
+    // Active rules always show. Inactive ones stay collapsed; only an
+    // editor can expand to enable more (a read-only guest can't toggle
+    // anything, so the rulebook defaults are noise for them).
+    const expandable = !readOnly && inactive.length > 0;
+    const visible = showInactive ? rules : active;
 
     return (
         <div className="pt-3 mt-3 border-t border-border">
             <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
                 House rules
             </div>
-            <p className="text-xs text-muted-foreground mb-3 leading-snug">
-                Deviations from the printed rulebook. Defaults follow the
-                rulebook.
-                {readOnly && " The host sets these for the whole table."}
-            </p>
-            <div className="space-y-3">
-                <Row
-                    label="Alternate question categories"
-                    description="You can't ask two questions of the same category in a row."
-                    rulebookDefault="No alternation (rulebook)"
-                    checked={$alternate}
-                    readOnly={readOnly}
-                    onChange={(v) => set(alternateQuestionTypes, v)}
-                />
-                <Row
-                    label="Ask once per question"
-                    description="Each subtype / preset can only be asked once per game. Hard block instead of paying the rulebook's repeat cost."
-                    rulebookDefault="Repeats allowed at N× cost (p65)"
-                    checked={$askOnce}
-                    readOnly={readOnly}
-                    onChange={(v) => set(askOncePerQuestion, v)}
-                />
-                <Row
-                    label="Buffer eliminations by zone radius"
-                    description="Radar, thermometer and measuring eliminate at the zone level, widened by your hiding-zone radius — so a moving hider can never get their true zone carved away by unlucky question timing."
-                    rulebookDefault="Exact-point cuts (rulebook p234)"
-                    checked={$zoneBuffer}
-                    readOnly={readOnly}
-                    onChange={(v) => set(zoneRadiusBuffer, v)}
-                />
-            </div>
+
+            {active.length === 0 && !showInactive ? (
+                <p className="text-xs text-muted-foreground leading-snug">
+                    Playing by the printed rulebook — no house rules active.
+                    {readOnly && " The host sets these for the whole table."}
+                </p>
+            ) : (
+                <p className="text-xs text-muted-foreground mb-3 leading-snug">
+                    Deviations from the printed rulebook. Defaults follow the
+                    rulebook.
+                    {readOnly && " The host sets these for the whole table."}
+                </p>
+            )}
+
+            {visible.length > 0 && (
+                <div className="space-y-3">
+                    {visible.map((r) => (
+                        <Row
+                            key={r.label}
+                            label={r.label}
+                            description={r.description}
+                            rulebookDefault={r.rulebookDefault}
+                            checked={r.checked}
+                            readOnly={readOnly}
+                            onChange={(v) => set(r.atom, v)}
+                        />
+                    ))}
+                </div>
+            )}
+
+            {expandable && (
+                <button
+                    type="button"
+                    onClick={() => setShowInactive((s) => !s)}
+                    className={cn(
+                        "mt-3 inline-flex items-center gap-1.5 text-xs font-poppins font-semibold",
+                        "text-muted-foreground hover:text-foreground transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm",
+                    )}
+                >
+                    {showInactive ? (
+                        <>
+                            <ChevronDown className="w-3.5 h-3.5 rotate-180 transition-transform" />
+                            Hide rulebook defaults
+                        </>
+                    ) : (
+                        <>
+                            <Plus className="w-3.5 h-3.5" />
+                            {active.length > 0
+                                ? `Add another house rule (${inactive.length})`
+                                : "Add a house rule"}
+                        </>
+                    )}
+                </button>
+            )}
         </div>
     );
 }
