@@ -11,7 +11,6 @@ import MapGL, {
     Layer,
     type MapRef,
     Marker,
-    ScaleControl,
     Source,
     type ViewStateChangeEvent,
 } from "react-map-gl/maplibre";
@@ -54,7 +53,7 @@ import {
     mapLibreContext,
     mapLibreViewport,
 } from "@/lib/featureFlags";
-import { playArea } from "@/lib/gameSetup";
+import { hidingPeriodEndsAt, playArea } from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
 import { createMapShim } from "@/lib/mapShim";
@@ -325,6 +324,30 @@ export function Map({ className }: MapProps) {
     const everPaintedTileRef = useRef(false);
 
     const $theme = useStore(resolvedTheme);
+    // v616: during the hiding period the HiderTimer sits bottom-LEFT (and
+    // the Map-options chip is pushed up above it), so the nav controls
+    // (follow-me / reset) dodge to the bottom-RIGHT, which is free then.
+    // Once seeking starts the timer moves bottom-right, so the nav controls
+    // come back to the bottom-left. A one-shot timeout flips at the
+    // deadline — no 1 Hz tick needed.
+    const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const [inHidingPeriod, setInHidingPeriod] = useState(
+        () => $hidingEndsAt != null && Date.now() < $hidingEndsAt,
+    );
+    useEffect(() => {
+        if ($hidingEndsAt == null) {
+            setInHidingPeriod(false);
+            return;
+        }
+        const ms = $hidingEndsAt - Date.now();
+        if (ms <= 0) {
+            setInHidingPeriod(false);
+            return;
+        }
+        setInHidingPeriod(true);
+        const t = window.setTimeout(() => setInHidingPeriod(false), ms);
+        return () => window.clearTimeout(t);
+    }, [$hidingEndsAt]);
     // v241: rebuild style when the resolved PMTiles URL flips (e.g.
     // fallback from our worker to the demo bucket on tile error).
     const $pmtilesUrl = useStore(pmtilesUrl);
@@ -1608,12 +1631,13 @@ export function Map({ className }: MapProps) {
                 onMouseEnter={() => setStationHover(true)}
                 onMouseLeave={() => setStationHover(false)}
             >
-                <AttributionControl compact />
-                {/* Zoom buttons removed in v101 — they overlap
-                    the in-app Map options chip on small phones
-                    and pinch-to-zoom covers the same affordance
-                    natively. */}
-                <ScaleControl />
+                {/* Attribution moved to the top-left (v616) so it's out of
+                    the way of the bottom controls. Zoom buttons removed in
+                    v101 — they overlap the in-app Map options chip on small
+                    phones and pinch-to-zoom covers it natively. The scale
+                    ruler was removed in v616 (it sat where the Map-options
+                    chip now lives, bottom-left). */}
+                <AttributionControl compact position="top-left" />
 
                 {/* Transit-route overlays — shared with the hider map
                     via TransitRouteLayers so colours + behaviour match
@@ -2262,11 +2286,15 @@ export function Map({ className }: MapProps) {
             </MapGL>
 
             {/* Classic map controls: follow-me toggle + reset
-                rotation/tilt. Stacked bottom-left of the map so they
-                don't compete with the map-options chip top-right. */}
+                rotation/tilt. Dodge to whichever bottom corner is free:
+                bottom-right during the hiding period (timer + Map-options
+                chip own the bottom-left then), bottom-left while seeking
+                (the clock owns the bottom-right). */}
             <MapNavControls
                 mapRef={mapRef}
-                className="left-3 bottom-20"
+                className={
+                    inHidingPeriod ? "right-3 bottom-7" : "left-3 bottom-24"
+                }
             />
 
             {/* Context menu — absolutely-positioned at the

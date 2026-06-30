@@ -41,6 +41,7 @@ import {
     participants,
 } from "@/lib/multiplayer/session";
 import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
+import { receivedCurses } from "@/lib/seekerInbound";
 
 /**
  * Round / game lifecycle actions, shared by the seeker (BottomNav)
@@ -104,6 +105,9 @@ export function startNewRound() {
     questions.set([]);
     disabledStations.set([]);
     permanentOverlay.set(null);
+    // Curses are per-round — clear any the seeker was still under so they
+    // don't carry into the new round.
+    receivedCurses.set([]);
     // Hider-side: inbox, hand, discard, hiding zone, hiding spot,
     // found-at — all wiped.
     resetHiderRoundState();
@@ -205,6 +209,7 @@ export function startNewGame() {
     questions.set([]);
     disabledStations.set([]);
     permanentOverlay.set(null);
+    receivedCurses.set([]);
     resetHiderRoundState();
     roundFoundAt.set(null);
     // v318: fresh game = fresh leaderboard. `startNewRound` does

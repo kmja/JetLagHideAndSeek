@@ -177,13 +177,17 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
 
 There is **no "More" slot** anymore, and the hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card (the standalone "Game"/countdown drawer was retired in v270).
 
-## Map display controls (top-right)
+## Map display controls (bottom-left, v616)
 
-`MapDisplayControls.tsx` — a **single compact "Map options" chip** (`Layers` icon, `h-14/w-14`, with an active-count badge) that opens a **Popover** containing:
+`MapDisplayControls.tsx` — a **single compact "Map options" chip** (`Layers` icon, `h-14/w-14`, with an active-count badge) that opens a **Popover** (`side="top" align="start"` → opens up + left-aligned) containing:
 - **Basemap** — Map / Satellite segmented switch.
 - **Overlays** — Hiding zones + Travel times toggles.
 - **Export** — Save image.
 - **Transit overlays** — per-mode toggles (rail / subway / bus / ferry / train / tram), gated on `allowedTransit`.
+
+**Position (v616):** moved from top-right to **bottom-left**. `SeekerPage` owns the wrapper (`absolute left-2 md:left-4 z-[1030]`); it sits at `bottom-7 md:bottom-8` while seeking and is **pushed UP to `bottom-28`** during the hiding period so it clears the `HiderTimer`, which sits bottom-LEFT during hiding (and bottom-RIGHT while seeking). `inHidingPeriod` is computed in both `SeekerPage` and `Map.tsx` via a one-shot `setTimeout` on `hidingPeriodEndsAt` (no per-second tick). During hiding, `Map.tsx`'s `MapNavControls` dodges to bottom-RIGHT so it doesn't collide with the pushed-up chip. The old MapLibre `ScaleControl` ruler (which sat bottom-left where the chip now lives) was **removed** in v616.
+
+**Attribution (v616):** the MapLibre `AttributionControl` moved to **`position="top-left"`** (out of the way of the bottom controls). In **dark mode** the default bright-white attribution pill + "i" toggle are re-skinned to a translucent dark chip with muted text (`.dark .maplibregl-ctrl-attrib*` rules in `globals.css`; the collapsed toggle uses `filter: invert(1)`). License-clean: OSM's "© OpenStreetMap contributors" and Protomaps' "Protomaps © OpenStreetMap" credits only require presence + legibility, not a colour.
 
 (The hider's sibling `HiderMapDisplayControls` is a trimmed version of the same popover + a "Reachable zones" toggle; see the Trip-planning section.)
 
@@ -347,7 +351,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v615`. Use `git log` for the per-version detail;
+build stamp. Current: `v616`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -421,6 +425,9 @@ the headline arcs since the v414 rulebook-audit pass:
   (`curseDurationMs` per game size, name table + "for the next N min/h"
   parse); and gives open-ended curses a manual **Clear curse** button
   (we trust the seekers' word, since clearing them is a real-world task).
+  **Curses are per-round (v616):** `startNewRound` AND `startNewGame`
+  (`roundActions.ts`) clear `receivedCurses` so a curse the seeker was
+  still under doesn't bleed into the next round/game.
 - **A sent/answered question can't be deleted** (it would desync from
   the hider). As of v585 `cards/base.tsx` has **no delete control at
   all** — the earlier "swap the trash for a disabled lock in online

@@ -456,6 +456,33 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
+/* ── MapLibre attribution: dark-mode toning (v616) ──
+ *
+ * MapLibre's default attribution is a bright white pill (near-black text
+ * + a white round "i" toggle). Over our dark Protomaps/satellite basemap
+ * that glares. In dark mode we re-skin it to a translucent dark chip with
+ * muted text, and flip the collapsed "i" button so the dark glyph reads
+ * as light on the dark chip.
+ *
+ * License note: both required credits — OSM's "© OpenStreetMap
+ * contributors" (raster) and Protomaps' "Protomaps © OpenStreetMap"
+ * (vector basemap, set per-source in protomapsStyle.ts) — only require
+ * the credit be PRESENT and LEGIBLE, not any particular colour, so muting
+ * the chrome is license-clean. */
+.dark .maplibregl-ctrl-attrib,
+.dark .maplibregl-ctrl-attrib.maplibregl-compact {
+    background-color: rgba(15, 23, 31, 0.6);
+}
+.dark .maplibregl-ctrl-attrib,
+.dark .maplibregl-ctrl-attrib a {
+    color: hsl(var(--muted-foreground));
+}
+/* Collapsed compact toggle: the default white circle + dark "i" both flip
+ * under invert() → a dark circle with a light "i", matching the chip. */
+.dark .maplibregl-ctrl-attrib-button {
+    filter: invert(1);
+}
+
 @layer base {
     :root,
     .light {

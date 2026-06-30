@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
@@ -127,6 +127,27 @@ export function SeekerPage() {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const gameStarted = $hidingEndsAt !== null;
 
+    // v616: during the hiding period the HiderTimer sits bottom-LEFT, so
+    // the bottom-left Map-options chip is pushed up above it. A one-shot
+    // timeout flips this at the deadline (no per-second tick).
+    const [inHidingPeriod, setInHidingPeriod] = useState(
+        () => $hidingEndsAt != null && Date.now() < $hidingEndsAt,
+    );
+    useEffect(() => {
+        if ($hidingEndsAt == null) {
+            setInHidingPeriod(false);
+            return;
+        }
+        const ms = $hidingEndsAt - Date.now();
+        if (ms <= 0) {
+            setInHidingPeriod(false);
+            return;
+        }
+        setInHidingPeriod(true);
+        const t = window.setTimeout(() => setInHidingPeriod(false), ms);
+        return () => window.clearTimeout(t);
+    }, [$hidingEndsAt]);
+
     // When the pending-answer overlay occupies the top of the map, slide
     // the top-right controls (map options + trip planner) down so they
     // don't collide with it.
@@ -215,10 +236,9 @@ export function SeekerPage() {
                             (white clock + gold "time to beat" strip),
                             matching the Jet Lag show. */}
                         <HiderTimer />
-                        {/* Top-right cluster: map-options chip +
-                            trip-planner launcher. Slides down when the
-                            pending-answer overlay is pinned to the top so
-                            the two don't overlap on narrow screens. */}
+                        {/* Top-right: trip-planner launcher. Slides down
+                            when the pending-answer overlay is pinned to the
+                            top so they don't overlap on narrow screens. */}
                         <div
                             className={cn(
                                 "absolute right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2",
@@ -228,13 +248,26 @@ export function SeekerPage() {
                                     : "top-2",
                             )}
                         >
-                            <MapDisplayControls />
-                            {/* Trip planner launcher — small pill sitting
-                                under the map-options chip. Opens the
+                            {/* Trip planner launcher — opens the
                                 bottom-drawer SeekerTripPlannerSheet which
                                 fetches a journey from live GPS to the
                                 typed place. */}
                             <SeekerTripPlannerLauncher />
+                        </div>
+                        {/* Map-options chip — bottom-left (v616). Pushed UP
+                            above the HiderTimer while it sits bottom-left
+                            during the hiding period; drops to the corner
+                            once seeking starts. */}
+                        <div
+                            className={cn(
+                                "absolute left-2 md:left-4 z-[1030] group-[.fullscreen]:hidden",
+                                "transition-[bottom] duration-300 ease-out",
+                                inHidingPeriod
+                                    ? "bottom-28"
+                                    : "bottom-7 md:bottom-8",
+                            )}
+                        >
+                            <MapDisplayControls />
                         </div>
                         <div className="bottom-5 right-2 mx-auto mb-2 w-fit absolute z-[1030] group-[.fullscreen]:hidden hidden md:block">
                             <OptionDrawers />

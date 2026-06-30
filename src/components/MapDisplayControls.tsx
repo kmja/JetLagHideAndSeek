@@ -31,9 +31,11 @@ import { showTravelTimes } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
- * Top-right cluster — a single compact "Map options" chip with a
- * popover containing basemap toggle, hiding-zone toggle, and per-mode
- * transit overlay toggles.
+ * Bottom-left cluster (v616) — a single compact "Map options" chip
+ * with a popover (opening up + left-aligned) containing basemap
+ * toggle, hiding-zone toggle, and per-mode transit overlay toggles.
+ * Positioned by its parent in SeekerPage; pushed up above the
+ * HiderTimer during the hiding period.
  *
  * v266: the room-code pill that used to sit above this got removed
  * per user feedback — players reach the room code via the lobby
@@ -85,7 +87,7 @@ export function MapDisplayControls() {
         (Number($tram && showTramBtn) || 0);
 
     return (
-        <div className="flex flex-col gap-2 items-end">
+        <div className="flex flex-col gap-2 items-start">
             {/* Map options — single popover with all display toggles. */}
             <Popover>
                 <PopoverTrigger asChild>
@@ -125,7 +127,8 @@ export function MapDisplayControls() {
                     </button>
                 </PopoverTrigger>
                 <PopoverContent
-                    align="end"
+                    side="top"
+                    align="start"
                     className="w-[260px] p-3 bg-card border-2 border-border shadow-xl space-y-3"
                 >
                     {/* Map / Satellite */}
