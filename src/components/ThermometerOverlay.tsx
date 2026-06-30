@@ -1,16 +1,23 @@
 import { useStore } from "@nanostores/react";
 import { distance, point } from "@turf/turf";
-import { Flag, Thermometer } from "lucide-react";
+import { Flag } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
+import { CATEGORIES } from "@/lib/categories";
 import {
     questionModified,
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import { seekerResendQuestion } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 import type { Question, ThermometerQuestion } from "@/maps/schema";
+
+import { QuestionOverlayCard } from "./questionOverlayCard";
+
+const THERM_COLOR = CATEGORIES.thermometer?.color ?? "#f5d268";
 
 /**
  * Floating distance-meter shown on top of the map while any thermometer
@@ -112,7 +119,21 @@ export function ThermometerOverlay({
         data.lngB = pos.lng;
         data.status = "finished";
         data.distance = target.sig;
+        // Stamp createdAt NOW — finishing is the moment the question is
+        // actually sent, so this starts the hider's answer window and
+        // flips the seeker's PendingAnswerOverlay out of the "not sent"
+        // state into a clean "waiting for answer" countdown. (The started
+        // phase deliberately had no createdAt — the seeker was still
+        // moving.) Without this the question read as never-sent and no
+        // overlay appeared.
+        (data as { createdAt?: number }).createdAt = Date.now();
         questionModified();
+        // Push the FINISHED question to the hider. At start we only sent a
+        // "started" placeholder; the hider can't answer until they receive
+        // this finished version with the end point + distance.
+        if (multiplayerEnabled.get()) {
+            seekerResendQuestion(started.key);
+        }
         toast.success(
             `Thermometer ended at ${target.label}. Sent to the hider.`,
             { autoClose: 3500 },
@@ -127,101 +148,113 @@ export function ThermometerOverlay({
             ? Math.min(100, (travelKm / targetKm) * 100)
             : 0;
 
+    // Match the show-style chrome of the other question overlays: the
+    // shared QuestionOverlayCard (solid category icon block + big label +
+    // status), with the live travelled distance as the hero label and the
+    // progress bar + End action attached below in the same surface.
+    const distanceLabel =
+        travelKm === null
+            ? gpsError
+                ? "No GPS"
+                : "Locating…"
+            : formatTravel(travelKm);
+    const eyebrow = (
+        <span className="text-[color:var(--cat-label)]">
+            Thermometer{target ? ` · target ${target.label}` : ""}
+        </span>
+    );
+    const detail =
+        travelKm === null
+            ? undefined
+            : !target
+              ? "Distance from where you started"
+              : reachedTarget
+                ? "Target reached — end below"
+                : `${formatRemaining(target.km - travelKm)} to go`;
+
     return (
         <div
             className={cn(
                 "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1030]",
                 "bottom-[calc(96px+env(safe-area-inset-bottom))] md:bottom-20",
-                "max-w-[90vw] w-[340px]",
+                "max-w-[92vw] w-[min(92vw,420px)]",
+                // v446: fade + rise in instead of popping onto the map.
+                "animate-in fade-in slide-in-from-bottom-2 duration-200",
             )}
         >
-            <div
-                className={cn(
-                    "pointer-events-auto",
-                    "px-3.5 py-2.5 rounded-2xl",
-                    "bg-background/95 backdrop-blur-md shadow-lg",
-                    "border border-primary/40",
-                    "space-y-2",
-                    // v446: fade + rise in instead of popping onto the map.
-                    "animate-in fade-in slide-in-from-bottom-2 duration-200",
-                )}
-            >
-                <div className="flex items-center gap-2">
-                    <Thermometer className="w-4 h-4 text-primary shrink-0" />
-                    <span className="text-xs uppercase tracking-wider font-poppins font-semibold text-muted-foreground">
-                        Thermometer
-                    </span>
-                    {target && (
-                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/80 ml-auto">
-                            Target {target.label}
-                        </span>
-                    )}
-                </div>
-                <div className="flex items-baseline gap-2">
-                    <span className="text-base font-poppins font-bold tabular-nums text-primary">
-                        {travelKm === null
-                            ? gpsError
-                                ? "no GPS"
-                                : "locating…"
-                            : formatTravel(travelKm)}
-                    </span>
-                    {target && travelKm !== null && (
-                        <span className="text-xs text-muted-foreground tabular-nums">
-                            of {target.label}
-                            {!reachedTarget && (
-                                <>
-                                    {" · "}
-                                    {formatRemaining(
-                                        target.km - travelKm,
-                                    )}{" "}
-                                    to go
-                                </>
-                            )}
-                        </span>
-                    )}
-                </div>
+            {/* One cohesive overlay card: the QuestionOverlayCard header
+                (its own border/shadow stripped) sits inside a wrapper that
+                owns the border + shadow, with the progress bar and End
+                action attached beneath so it reads as a single unit. */}
+            <div className="overflow-hidden border border-[color:var(--overlay-card-border)] bg-[var(--overlay-card)] shadow-xl">
+                <QuestionOverlayCard
+                    categoryId="thermometer"
+                    eyebrow={eyebrow}
+                    summary={{ bigLabel: distanceLabel, detail }}
+                    className="!border-0 !shadow-none"
+                    right={
+                        target ? (
+                            <div className="flex flex-col items-center leading-none">
+                                <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-[color:var(--overlay-card-desc)] mb-0.5">
+                                    Target
+                                </span>
+                                <span className="text-xl font-poppins font-black tabular-nums leading-none text-[color:var(--cat-label)]">
+                                    {target.label}
+                                </span>
+                            </div>
+                        ) : undefined
+                    }
+                />
+
                 {target && (
-                    <div className="h-1.5 w-full bg-secondary/60 rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full bg-foreground/10">
                         <div
                             className={cn(
                                 "h-full transition-[width] duration-300 ease-out",
-                                reachedTarget
-                                    ? "bg-success"
-                                    : "bg-primary",
+                                reachedTarget && "bg-success",
                             )}
-                            style={{ width: `${progressPct.toFixed(1)}%` }}
+                            style={{
+                                width: `${progressPct.toFixed(1)}%`,
+                                ...(reachedTarget
+                                    ? {}
+                                    : { backgroundColor: THERM_COLOR }),
+                            }}
                         />
                     </div>
                 )}
+
                 {target && (
-                    <button
-                        type="button"
-                        onClick={endThermometer}
-                        disabled={!reachedTarget || !pos}
-                        title={
-                            !pos
-                                ? "Waiting for GPS"
-                                : reachedTarget
-                                  ? `End thermometer at ${target.label} and send to the hider`
-                                  : `Move ${formatRemaining(
-                                        target.km - (travelKm ?? 0),
-                                    )} more to enable`
-                        }
-                        className={cn(
-                            "w-full flex items-center justify-center gap-1.5 py-2 rounded-md text-xs",
-                            "font-poppins font-semibold",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            reachedTarget
-                                ? "bg-success text-white hover:bg-success/90"
-                                : "bg-secondary text-muted-foreground cursor-not-allowed",
-                        )}
-                    >
-                        <Flag className="w-3.5 h-3.5" />
-                        End thermometer &amp; send question
-                    </button>
+                    <div className="pointer-events-auto p-2">
+                        <button
+                            type="button"
+                            onClick={endThermometer}
+                            disabled={!reachedTarget || !pos}
+                            title={
+                                !pos
+                                    ? "Waiting for GPS"
+                                    : reachedTarget
+                                      ? `End thermometer at ${target.label} and send to the hider`
+                                      : `Move ${formatRemaining(
+                                            target.km - (travelKm ?? 0),
+                                        )} more to enable`
+                            }
+                            className={cn(
+                                "flex w-full items-center justify-center gap-1.5 rounded-md py-2.5 text-xs",
+                                "font-poppins font-bold uppercase tracking-wide",
+                                "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                reachedTarget
+                                    ? "bg-success text-white hover:bg-success/90"
+                                    : "bg-foreground/10 text-muted-foreground cursor-not-allowed",
+                            )}
+                        >
+                            <Flag className="h-3.5 w-3.5" strokeWidth={2.5} />
+                            End thermometer &amp; send question
+                        </button>
+                    </div>
                 )}
+
                 {!target && travelKm !== null && (
-                    <p className="text-[10px] text-muted-foreground leading-snug">
+                    <p className="px-4 pb-3 pt-1 text-[11px] leading-snug text-[color:var(--overlay-card-desc)]">
                         Legacy thermometer — finish from the question
                         card&apos;s preset picker.
                     </p>

@@ -18,6 +18,8 @@ import {
     triggerLocalRefresh,
 } from "@/lib/context";
 import { type GameSize, gameSize } from "@/lib/gameSetup";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import { seekerResendQuestion } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 import type { ThermometerQuestion } from "@/maps/schema";
 
@@ -143,7 +145,16 @@ export const ThermometerQuestionComponent = ({
                         data.lngB = finishLng;
                         data.status = "finished";
                         data.distance = preset.sig;
+                        // Finishing is the real "send" — stamp createdAt to
+                        // start the hider's answer window (and flip the
+                        // seeker's pending overlay into a clean waiting
+                        // state) and push the finished question so the hider
+                        // can answer. Mirrors the ThermometerOverlay path.
+                        (data as { createdAt?: number }).createdAt = Date.now();
                         questionModified();
+                        if (multiplayerEnabled.get()) {
+                            seekerResendQuestion(questionKey);
+                        }
                         toast.success(
                             `Thermometer finished at ${preset.label}`,
                             { autoClose: 2000 },
