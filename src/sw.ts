@@ -296,7 +296,9 @@ self.addEventListener("push", (event: PushEvent) => {
                 body,
                 tag,
                 icon: "/android-chrome-192x192.png",
-                badge: "/favicon-32x32.png",
+                // Monochrome transparent silhouette (see notifications.ts) —
+                // a colour favicon renders as a solid rounded square here.
+                badge: "/notification-badge.png",
                 data: { url: "/" },
             });
         })(),

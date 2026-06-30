@@ -347,7 +347,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v611`. Use `git log` for the per-version detail;
+build stamp. Current: `v612`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -396,7 +396,20 @@ the headline arcs since the v414 rulebook-audit pass:
   (shared `QuestionOverlayCard`, fires on the awaiting→answered
   transition), and the main map flashes the **newly-eliminated slice** in
   brand red and fades it into the dark mask (`Map.tsx` diffs the previous
-  vs. new remaining region) so an answer reads as a deliberate beat.
+  vs. new remaining region) so an answer reads as a deliberate beat. If
+  the answer lands while the app is **backgrounded**, the flash is deferred
+  and **replayed on return to the foreground** (v612 — `Map.tsx` snapshots
+  the remaining area on `visibilitychange→hidden` and diffs it against the
+  current area when visible again, so the seeker doesn't miss the beat).
+- **OS notifications** (`src/lib/notifications.ts` `notify()` →
+  `registration.showNotification`, mirrored in `src/sw.ts`'s push handler)
+  use a **monochrome transparent badge** (`public/notification-badge.png`,
+  white sun+mountain silhouette) — Android renders the small status-bar
+  icon from the alpha channel and tints it, so a colour favicon showed as
+  a solid rounded square. **Curses over the wire** (`curseReceived` in
+  `multiplayer/store.ts`) now append to `receivedCurses` (the atom
+  `CurseInbox` renders), not just fire a notification — previously a curse
+  push surfaced nothing in-app (v612).
 - **A sent/answered question can't be deleted** (it would desync from
   the hider). As of v585 `cards/base.tsx` has **no delete control at
   all** — the earlier "swap the trash for a disabled lock in online

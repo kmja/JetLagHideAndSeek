@@ -710,6 +710,41 @@ export function Map({ className }: MapProps) {
             window.setTimeout(() => setEliminationFlash(null), 1000),
         );
     };
+    // v612: if an answer lands while the app is BACKGROUNDED, the flash
+    // would play (and its timers expire) before the seeker ever sees it.
+    // So when hidden, we skip the immediate flash and instead snapshot the
+    // remaining area; on returning to the foreground we diff that baseline
+    // against the now-current remaining area and flash everything that was
+    // eliminated while away — the elimination "beat" the seeker missed.
+    const hiddenBaselineRef = useRef<GeoJSON.Feature | null>(null);
+    useEffect(() => {
+        const onVis = () => {
+            if (document.visibilityState === "hidden") {
+                hiddenBaselineRef.current = prevWorkingRef.current;
+                return;
+            }
+            const baseline = hiddenBaselineRef.current;
+            hiddenBaselineRef.current = null;
+            if (!baseline) return;
+            try {
+                const a = asPolygonFeature(baseline);
+                const b = asPolygonFeature(prevWorkingRef.current);
+                if (a && b) {
+                    const delta = turf.difference(
+                        turf.featureCollection([a as never, b as never]),
+                    ) as GeoJSON.Feature | null;
+                    if (delta && turf.area(delta) > 1) {
+                        triggerEliminationFlash(delta);
+                    }
+                }
+            } catch (e) {
+                console.warn("Map foreground elimination-flash failed:", e);
+            }
+        };
+        document.addEventListener("visibilitychange", onVis);
+        return () => document.removeEventListener("visibilitychange", onVis);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     // v381: maskComputed is declared+reset higher up (next to the reveal
     // gate). The setMaskComputed(true) signal fires inside the async
     // elimination effect below, when setEliminationResult lands.
@@ -843,7 +878,13 @@ export function Map({ className }: MapProps) {
                             turf.featureCollection([a as never, b as never]),
                         ) as GeoJSON.Feature | null;
                         if (delta && turf.area(delta) > 1) {
-                            triggerEliminationFlash(delta);
+                            // While backgrounded, don't fire now (it'd
+                            // expire unseen) — the visibilitychange→visible
+                            // handler replays the cumulative delta from the
+                            // hidden baseline instead.
+                            if (document.visibilityState !== "hidden") {
+                                triggerEliminationFlash(delta);
+                            }
                         }
                     }
                 }

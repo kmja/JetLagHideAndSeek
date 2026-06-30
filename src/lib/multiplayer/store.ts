@@ -56,6 +56,7 @@ import {
     askOncePerQuestion,
     zoneRadiusBuffer,
 } from "@/lib/houseRules";
+import { receivedCurses } from "@/lib/seekerInbound";
 import {
     type Question,
     type Questions,
@@ -987,6 +988,23 @@ function handleServerMessage(msg: ServerMessage) {
             }
             return;
         case "curseReceived":
+            // Surface the curse in the seeker's CurseInbox overlay, not
+            // just as an OS notification. The wire path previously only
+            // notified, so opening the app showed nothing — mirror the
+            // share-link path (AnswerLinkReader) and append to
+            // `receivedCurses` (the atom CurseInbox renders from). The
+            // hider never receives their own cast (server excludes the
+            // caster), and CurseInbox only mounts on the seeker surface.
+            receivedCurses.set([
+                ...receivedCurses.get(),
+                {
+                    name: msg.curse.name,
+                    description: msg.curse.description,
+                    castingCost: msg.curse.castingCost,
+                    receivedAt: Date.now(),
+                    acknowledged: false,
+                },
+            ]);
             notify({
                 title: msg.curse.name,
                 body: msg.curse.description,

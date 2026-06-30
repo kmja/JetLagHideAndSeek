@@ -166,7 +166,11 @@ export function notify(opts: NotifyOptions): boolean {
         body: opts.body,
         tag: opts.tag,
         icon: "/android-chrome-192x192.png",
-        badge: "/favicon-32x32.png",
+        // Monochrome transparent silhouette — Android renders the small
+        // status-bar/badge icon from the ALPHA channel and tints it, so a
+        // full-colour favicon showed as a solid rounded square. This is a
+        // white sun+mountain on transparent.
+        badge: "/notification-badge.png",
         // The SW's `notificationclick` handler focuses the app from this.
         data: { url: "/" },
     };
