@@ -345,6 +345,14 @@ function handleClientMessage(msg: ClientMessage) {
             return;
         }
 
+        case "cancelEndgame": {
+            if (s.state.setup.endgameStartedAt !== null) {
+                s.state.setup.endgameStartedAt = null;
+                inject({ t: "setupChanged", setup: s.state.setup });
+            }
+            return;
+        }
+
         case "setHideZone": {
             // Hider committed a zone. In the real worker this fans out
             // to co-hiders only; in the demo we have no co-hiders, so

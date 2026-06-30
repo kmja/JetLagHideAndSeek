@@ -73,7 +73,11 @@ import {
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
-import { seekerMarkFound, seekerRotateHider } from "@/lib/multiplayer/store";
+import {
+    hiderCancelEndgame,
+    seekerMarkFound,
+    seekerRotateHider,
+} from "@/lib/multiplayer/store";
 
 import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
@@ -298,20 +302,50 @@ export function HiderHomeContent() {
                 <section
                     className={cn(
                         "rounded-md border-2 border-yellow-500 bg-yellow-500/15",
-                        "px-4 py-3 mb-4 flex items-start gap-3 animate-pulse",
+                        "px-4 py-3 mb-4 flex flex-col gap-3",
                     )}
                 >
-                    <Flag className="w-5 h-5 shrink-0 text-yellow-400 mt-0.5" />
-                    <div className="flex-1 space-y-1">
-                        <div className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-400">
-                            Endgame — lock down now
+                    <div className="flex items-start gap-3 animate-pulse">
+                        <Flag className="w-5 h-5 shrink-0 text-yellow-400 mt-0.5" />
+                        <div className="flex-1 space-y-1">
+                            <div className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-400">
+                                Endgame — lock down now
+                            </div>
+                            <p className="text-sm text-foreground leading-snug">
+                                The seeker says they&apos;ve reached your zone.
+                                If they&apos;re right, commit to a single hiding
+                                spot below — once you do, you can&apos;t move
+                                until the round ends. If they&apos;re at the
+                                wrong place, refute it and keep moving.
+                            </p>
                         </div>
-                        <p className="text-sm text-foreground leading-snug">
-                            The seeker just triggered the endgame. Stay put and
-                            commit to a single hiding spot — once you do, you
-                            can&apos;t move until the round ends.
-                        </p>
                     </div>
+                    {/* Wrong-station escape hatch (rulebook p43): the
+                        endgame only begins when the seekers are actually
+                        in the hider's zone, and the hider is the authority
+                        on that. Refuting clears the endgame for everyone
+                        and tells the seekers to keep searching. */}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="self-start border-yellow-500/60 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15"
+                        onClick={async () => {
+                            const ok = await appConfirm({
+                                title: "They're not in your zone?",
+                                description:
+                                    "Tells the seekers they haven't reached your zone yet, so they keep searching — and you keep your freedom to move. Only do this if they're genuinely at the wrong place.",
+                                confirmLabel: "Refute endgame",
+                            });
+                            if (!ok) return;
+                            hiderCancelEndgame();
+                            toast.info("Endgame refuted — seekers notified.", {
+                                autoClose: 2500,
+                            });
+                        }}
+                    >
+                        <LockOpen className="w-3.5 h-3.5 mr-1" />
+                        They&apos;re not in my zone
+                    </Button>
                 </section>
             )}
 

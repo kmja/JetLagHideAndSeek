@@ -129,14 +129,14 @@ export function StationTransitCard({
     const handleStartEndgame = async () => {
         const ok = await appConfirm({
             title: "Start the endgame here?",
-            description: `Tells the hider to lock to a final spot${
-                station?.name ? ` — you've reached ${station.name}` : ""
-            }. Only do this once you're actually inside the hider's zone.`,
+            description: `Tells the hider you've reached their zone${
+                station?.name ? ` — ${station.name}` : ""
+            }, so they must lock to a final spot. If you've got the wrong zone, the hider can refute it and you keep searching. Only declare it once you're actually inside the hider's zone and off transit.`,
             confirmLabel: "Start endgame",
         });
         if (!ok) return;
         seekerStartEndgame();
-        toast.success("Endgame started — hider notified.", {
+        toast.success("Endgame declared — hider notified.", {
             autoClose: 2500,
         });
         close();
@@ -202,21 +202,31 @@ export function StationTransitCard({
                         </div>
 
                         {canTriggerEndgame && (
-                            <button
-                                type="button"
-                                onClick={handleStartEndgame}
-                                className={cn(
-                                    "mt-3 flex w-full items-center justify-center gap-2 rounded-md px-3 py-2.5",
-                                    "border-2 border-yellow-500/60 bg-yellow-500/15",
-                                    "text-yellow-600 dark:text-yellow-300",
-                                    "hover:bg-yellow-500/25 active:bg-yellow-500/30 transition-colors",
-                                    "text-xs font-poppins font-bold uppercase tracking-wider",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                )}
-                            >
-                                <Flag className="h-4 w-4" strokeWidth={2.5} />
-                                Start endgame here
-                            </button>
+                            <div className="mt-3 space-y-1.5">
+                                <button
+                                    type="button"
+                                    onClick={handleStartEndgame}
+                                    className={cn(
+                                        "flex w-full items-center justify-center gap-2 rounded-md px-3 py-2.5",
+                                        "border-2 border-yellow-500/60 bg-yellow-500/15",
+                                        "text-yellow-600 dark:text-yellow-300",
+                                        "hover:bg-yellow-500/25 active:bg-yellow-500/30 transition-colors",
+                                        "text-xs font-poppins font-bold uppercase tracking-wider",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    )}
+                                >
+                                    <Flag
+                                        className="h-4 w-4"
+                                        strokeWidth={2.5}
+                                    />
+                                    Start endgame here
+                                </button>
+                                <p className="text-[11px] leading-snug text-muted-foreground text-center px-1">
+                                    Declare you&apos;ve reached this zone. The
+                                    hider locks to a final spot — or refutes it
+                                    if you&apos;re at the wrong place.
+                                </p>
+                            </div>
                         )}
                     </div>
                 </VaulDrawer.Content>

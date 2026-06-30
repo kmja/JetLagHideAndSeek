@@ -417,6 +417,21 @@ export function seekerStartEndgame() {
 }
 
 /**
+ * Hider → room: refute a wrong endgame claim (rulebook p43 — the
+ * endgame only begins when the seekers are actually in the hider's
+ * zone, and the hider is the authority on that). Clears the local
+ * stamp and tells the server, which resets the canonical timestamp
+ * and broadcasts so the seekers' "endgame armed" UI reverts and they
+ * keep searching. Solo / offline just flips the local atom back.
+ */
+export function hiderCancelEndgame() {
+    if (endgameStartedAt.get() === null) return;
+    endgameStartedAt.set(null);
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "cancelEndgame" });
+}
+
+/**
  * Push the local seeker's GPS fix to the room. Per rulebook p5 the
  * hider sees every seeker's live location for the round; this is the
  * outbound side of that. The server forwards only to hide-team
@@ -927,7 +942,27 @@ function handleServerMessage(msg: ServerMessage) {
                 if (role === "hider" || role === "coHider") {
                     notify({
                         title: "Endgame — lock down",
-                        body: "The seeker is closing in. Commit to a stationary spot.",
+                        body: "The seeker says they're in your zone. Commit to a final spot — or refute it if they're wrong.",
+                        tag: "endgame",
+                    });
+                }
+            }
+            // Endgame got refuted (number → null) mid-round: the hider
+            // told the room the seekers aren't actually in their zone.
+            // Let the seekers know so they keep searching instead of
+            // standing around an armed-but-now-cleared endgame UI. (A
+            // new round/game clears endgame via different paths, so this
+            // only fires on a genuine in-round cancel.)
+            if (
+                prevEndgameAt !== null &&
+                msg.setup.endgameStartedAt === null &&
+                msg.setup.hidingPeriodEndsAt !== null
+            ) {
+                const role = playerRole.get();
+                if (role === "seeker") {
+                    notify({
+                        title: "Not the right zone",
+                        body: "The hider says you haven't reached their zone yet. Keep searching.",
                         tag: "endgame",
                     });
                 }

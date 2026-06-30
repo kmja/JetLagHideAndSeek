@@ -62,12 +62,12 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         const ok = await appConfirm({
             title: "Trigger endgame?",
             description:
-                "The hider sees a banner asking them to lock down to a final spot. Only do this when you're closing in.",
+                "Tells the hider you've reached their zone, so they lock down to a final spot. If you've got the wrong zone, the hider can refute it and you keep searching. Tip: you can also declare it by tapping the zone on the map.",
             confirmLabel: "Trigger endgame",
         });
         if (!ok) return;
         seekerStartEndgame();
-        toast.success("Endgame triggered — hider notified.", {
+        toast.success("Endgame declared — hider notified.", {
             autoClose: 2500,
         });
     };

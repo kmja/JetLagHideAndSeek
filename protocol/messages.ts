@@ -179,6 +179,21 @@ export interface CMsgStartEndgame {
 }
 
 /**
+ * Hider → server: cancel a mistakenly-triggered endgame ("you're not
+ * in my zone yet"). Per the rulebook (p43) the endgame only truly
+ * begins when the seekers are physically inside the hider's ACTUAL
+ * zone and off transit — a seeker's `startEndgame` is just a *claim*.
+ * The hider, who alone knows their zone, can refute a wrong claim:
+ * the server resets `setup.endgameStartedAt` to null and broadcasts a
+ * setupChanged so the seekers' "endgame armed" UI reverts and they
+ * keep searching, while the hider regains movement freedom. Only the
+ * hide team may send this; idempotent if the endgame isn't armed.
+ */
+export interface CMsgCancelEndgame {
+    t: "cancelEndgame";
+}
+
+/**
  * Seeker → server: live location update. Per rulebook p5, every
  * seeker is expected to share their location with the hider for the
  * duration of the round. The app broadcasts the seeker's watchPosition
@@ -236,6 +251,7 @@ export type ClientMessage =
     | CMsgPromoteCoHider
     | CMsgSetHideZone
     | CMsgStartEndgame
+    | CMsgCancelEndgame
     | CMsgSeekerLocation
     | CMsgPing
     | CMsgCastCurse

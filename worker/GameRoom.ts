@@ -330,6 +330,8 @@ export class GameRoom {
                 return this.handleSetHideZone(socket, msg.zone);
             case "startEndgame":
                 return this.handleStartEndgame(socket, msg.at);
+            case "cancelEndgame":
+                return this.handleCancelEndgame(socket);
             case "loc":
                 return this.handleSeekerLocation(
                     socket,
@@ -744,6 +746,56 @@ export class GameRoom {
         if (typeof at !== "number" || !Number.isFinite(at)) return;
         this.game.setup.endgameStartedAt = at;
         this.broadcast({ t: "setupChanged", setup: this.game.setup });
+        // The hider may be on a train with the app backgrounded — the
+        // socket broadcast alone won't surface anything. Push to any
+        // offline hide-team member so they get the lock-down signal the
+        // instant it's claimed (mirrors the curse push path).
+        this.state.waitUntil(this.pushEndgameToOfflineHideTeam());
+    }
+
+    /**
+     * Hider refutes a wrong endgame claim (seekers went to the wrong
+     * zone). Reset the stamp and broadcast so the seekers' "endgame
+     * armed" UI reverts. Hide-team only — a seeker can't cancel their
+     * own claim this way (they'd just not have triggered it).
+     */
+    private handleCancelEndgame(socket: WebSocket) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const sender = this.game.participants.find(
+            (p) => p.id === conn.participantId,
+        );
+        if (!sender || (sender.role !== "hider" && sender.role !== "coHider"))
+            return;
+        if (this.game.setup.endgameStartedAt === null) return;
+        this.game.setup.endgameStartedAt = null;
+        this.broadcast({ t: "setupChanged", setup: this.game.setup });
+    }
+
+    private async pushEndgameToOfflineHideTeam() {
+        const vapidKeysStr = (this.env as { VAPID_KEYS?: string }).VAPID_KEYS;
+        const vapidPublicKey = (this.env as { VAPID_PUBLIC_KEY?: string })
+            .VAPID_PUBLIC_KEY;
+        if (!vapidKeysStr || !vapidPublicKey) return;
+        const vapidKeys = parseVapidKeys(vapidKeysStr);
+        if (!vapidKeys) return;
+        for (const [pid, sub] of this.pushSubscriptions.entries()) {
+            const p = this.game.participants.find((q) => q.id === pid);
+            if (!p || (p.role !== "hider" && p.role !== "coHider") || p.online)
+                continue;
+            const result = await sendWebPush(
+                sub,
+                {
+                    title: "Endgame — lock down",
+                    body: "The seeker says they're in your zone. Commit to a final spot, or open the app to refute it.",
+                    tag: "endgame",
+                },
+                vapidKeys,
+                vapidPublicKey,
+                "mailto:karl.mj.andersson@gmail.com",
+            );
+            if (result === "gone") this.pushSubscriptions.delete(pid);
+        }
     }
 
     /**
