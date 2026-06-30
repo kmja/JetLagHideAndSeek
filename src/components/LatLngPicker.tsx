@@ -9,12 +9,7 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { allowGooglePlusCodes, isLoading } from "@/lib/context";
 import type { ImpactMode } from "@/lib/questionImpact";
 import { cn } from "@/lib/utils";
-import {
-    determineName,
-    geocode,
-    ICON_COLORS,
-    reverseGeocode,
-} from "@/maps/api";
+import { determineName, geocode, ICON_COLORS } from "@/maps/api";
 
 import { Button } from "./ui/button";
 import {
@@ -462,32 +457,6 @@ export const LatitudeLongitude = ({
         Number.isFinite(longitude) &&
         !(latitude === 0 && longitude === 0);
 
-    // Resolve the coordinates to a friendly "near X" label via Nominatim.
-    // Debounced + cached inside reverseGeocode itself, so dragging a marker
-    // around won't fire a request per pixel.
-    const [nearby, setNearby] = useState<string | null>(null);
-    useEffect(() => {
-        if (
-            typeof latitude !== "number" ||
-            typeof longitude !== "number" ||
-            Number.isNaN(latitude) ||
-            Number.isNaN(longitude)
-        ) {
-            setNearby(null);
-            return;
-        }
-        let cancelled = false;
-        const timer = window.setTimeout(() => {
-            reverseGeocode(latitude, longitude).then((name) => {
-                if (!cancelled) setNearby(name);
-            });
-        }, 400);
-        return () => {
-            cancelled = true;
-            window.clearTimeout(timer);
-        };
-    }, [latitude, longitude]);
-
     return (
         <>
             <SidebarMenuItem
@@ -497,34 +466,11 @@ export const LatitudeLongitude = ({
                     $isLoading && "opacity-60",
                 )}
             >
+                {/* v611: the "LOCATION — near X" header was removed from
+                    the configure dialogs — the map itself shows where you
+                    are, so the reverse-geocoded label was redundant. */}
                 {!inlineEdit && (
-                    <div
-                        className={cn(
-                            "flex justify-between items-baseline gap-2",
-                            $isLoading && "opacity-50",
-                        )}
-                    >
-                        <div className="text-xs uppercase tracking-wider font-poppins font-semibold text-muted-foreground shrink-0">
-                            {label}
-                        </div>
-                        <div className="text-xs text-foreground/80 truncate min-w-0 text-right">
-                            {nearby ? (
-                                <>
-                                    near{" "}
-                                    <span className="font-medium">
-                                        {nearby}
-                                    </span>
-                                </>
-                            ) : (
-                                <span className="text-muted-foreground italic">
-                                    locating…
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                )}
-                {!inlineEdit && (
-                    <div className="mt-2 space-y-2">
+                    <div className="space-y-2">
                         {mapReady ? (
                             <Suspense
                                 fallback={

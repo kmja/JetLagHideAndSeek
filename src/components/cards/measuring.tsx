@@ -213,110 +213,10 @@ export const MeasuringQuestionComponent = ({
                     setCustomDialogOpen(false);
                 }}
             />
-            <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
-                <Select
-                    trigger="Measuring Type"
-                    options={Object.fromEntries(
-                        measuringQuestionSchema.options
-                            .filter((x) => x.description === NO_GROUP)
-                            .flatMap((x) =>
-                                determineUnionizedStrings(x.shape.type),
-                            )
-                            .map((x) => [
-                                (x._def as any).value,
-                                cleanDescription(x.description),
-                            ])
-                            .filter(
-                                ([value, _]) =>
-                                    (!usedMeasuringTypes.has(value as string) ||
-                                        value === data.type) &&
-                                    (isSubtypeAllowed(value as string, $gameSize) ||
-                                        value === data.type),
-                            ),
-                    )}
-                    groups={measuringQuestionSchema.options
-                        .filter((x) => x.description !== NO_GROUP)
-                        .map((x) => [
-                            x.description,
-                            Object.fromEntries(
-                                determineUnionizedStrings(x.shape.type)
-                                    .map((x) => [
-                                        (x._def as any).value,
-                                        cleanDescription(x.description),
-                                    ])
-                                    .filter(
-                                        ([value, _]) =>
-                                            !usedMeasuringTypes.has(
-                                                value as string,
-                                            ) || value === data.type,
-                                    ),
-                            ),
-                        ])
-                        .reduce(
-                            (acc, [key, value]) => {
-                                const values = {
-                                    disabled: !$displayHidingZones,
-                                    options: value,
-                                };
-
-                                if (acc[key]) {
-                                    acc[key].options = {
-                                        ...acc[key].options,
-                                        ...value,
-                                    };
-                                } else {
-                                    acc[key] = values;
-                                }
-
-                                return acc;
-                            },
-                            {} as Record<
-                                string,
-                                {
-                                    disabled: boolean;
-                                    options: Record<string, string>;
-                                }
-                            >,
-                        )}
-                    value={data.type}
-                    onValueChange={async (value) => {
-                        if (value === "custom-measure") {
-                            if ($customInitPref === "ask") {
-                                setCustomDialogOpen(true);
-                                return;
-                            }
-                            if ($customInitPref === "blank") {
-                                if (!(data as any).geo) {
-                                    (data as any).geo = {
-                                        type: "FeatureCollection",
-                                        features: [],
-                                    };
-                                } else {
-                                    (data as any).geo.features = [];
-                                }
-                            } else if ($customInitPref === "prefill") {
-                                const boundary =
-                                    await determineMeasuringBoundary(data);
-                                if (!(data as any).geo) {
-                                    (data as any).geo = {
-                                        type: "FeatureCollection",
-                                        features: [],
-                                    };
-                                }
-                                (data as any).geo.features = boundary
-                                    ? boundary
-                                    : [];
-                            }
-                            data.type = value;
-                            questionModified();
-                            return;
-                        }
-                        data.type = value;
-                        questionModified();
-                    }}
-                    disabled={!isQuestionEditable(data) || $isLoading}
-                />
-            </SidebarMenuItem>
+            {/* v611: the subtype dropdown was removed from the configure
+                dialog — the subtype is already chosen in the picker step,
+                and the header ("Measuring · Peak") + the nearest-reference
+                box already name it, so the dropdown was redundant clutter. */}
             {questionSpecific}
 
             {/* "Your nearest reference" preview — only in the configure
@@ -353,29 +253,10 @@ export const MeasuringQuestionComponent = ({
                     questionModified();
                 }}
             />
-            {/* v346: manual reference-point fallback. When the automatic
-                "nearest X" lookup fails (data path down + not cached) the
-                seeker can drop the reference on the map themselves; the
-                elimination then arcs from that point. sea-level is a
-                contour, not a point-distance, so it's excluded. */}
-            {forceExpanded && data.drag && data.type !== "sea-level" && (
-                <ManualReferenceControl
-                    seekerLat={data.lat}
-                    seekerLng={data.lng}
-                    value={data.manualReference}
-                    disabled={!isQuestionEditable(data) || $isLoading}
-                    onChange={(ref) => {
-                        if (ref) {
-                            data.manualReference = ref;
-                        } else {
-                            delete (
-                                data as { manualReference?: unknown }
-                            ).manualReference;
-                        }
-                        questionModified();
-                    }}
-                />
-            )}
+            {/* v611: the "Reference didn't load? Set it on the map
+                manually." fallback was removed from the configure dialog
+                per design — the nearest-reference lookup is reliable enough
+                that the extra control was noise. */}
             <ManualAnswerDisclosure compact={compactAnswer}>
                 <div className="flex gap-2 items-center p-2">
                     <Label

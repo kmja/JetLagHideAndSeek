@@ -30,7 +30,11 @@ import type {
 } from "geojson";
 import { useEffect, useMemo, useState } from "react";
 
-import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
+import {
+    mapGeoJSON,
+    polyGeoJSON,
+    questionFinishedMapData,
+} from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
 import { arcBufferToPoint } from "@/maps/geo-utils";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
@@ -83,18 +87,57 @@ function resolveFamily(typeRaw: string): ResolvedFamily {
 }
 
 function usePlayAreaPolygon(): Feature<Polygon | MultiPolygon> | null {
+    // Prefer the REMAINING area (play area minus everything already
+    // eliminated by answered questions) so the closer/further (and
+    // matching same/different) impact regions don't extend into parts of
+    // the map that are already ruled out — the preview then matches the
+    // big map. Falls back to the full play area before any elimination
+    // has run / while it's still computing.
+    const $maskData = useStore(questionFinishedMapData);
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $polyGeoJSON = useStore(polyGeoJSON);
     return useMemo(() => {
-        const fc = ($mapGeoJSON ?? $polyGeoJSON) as FeatureCollection | null;
-        if (!fc || !fc.features?.length) return null;
-        const f = fc.features[0];
-        const g = f?.geometry;
-        if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) {
-            return null;
+        const src = ($maskData ?? $mapGeoJSON ?? $polyGeoJSON) as
+            | Feature
+            | FeatureCollection
+            | null;
+        return toSinglePolygon(src);
+    }, [$maskData, $mapGeoJSON, $polyGeoJSON]);
+}
+
+/** Collapse a Feature / FeatureCollection to ONE polygon feature
+ *  (unioning the parts of a multi-feature remaining area). */
+function toSinglePolygon(
+    src: Feature | FeatureCollection | null,
+): Feature<Polygon | MultiPolygon> | null {
+    if (!src) return null;
+    if (src.type === "Feature") {
+        const g = src.geometry;
+        if (g && (g.type === "Polygon" || g.type === "MultiPolygon")) {
+            return src as Feature<Polygon | MultiPolygon>;
         }
-        return f as Feature<Polygon | MultiPolygon>;
-    }, [$mapGeoJSON, $polyGeoJSON]);
+        return null;
+    }
+    if (src.type === "FeatureCollection") {
+        const polys = src.features.filter(
+            (f) =>
+                f.geometry &&
+                (f.geometry.type === "Polygon" ||
+                    f.geometry.type === "MultiPolygon"),
+        ) as Feature<Polygon | MultiPolygon>[];
+        if (polys.length === 0) return null;
+        if (polys.length === 1) return polys[0];
+        try {
+            return (
+                (turf.union(
+                    turf.featureCollection(polys as never),
+                ) as Feature<Polygon | MultiPolygon>) ?? polys[0]
+            );
+        } catch {
+            return polys[0];
+        }
+    }
+    return null;
 }
 
 /** Voronoi cell around the seeker's nearest candidate, clipped to the

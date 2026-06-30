@@ -652,18 +652,18 @@ export function InlineLocationPicker({
                                         ? {
                                               "fill-pattern":
                                                   "match-no-pattern",
-                                              "fill-opacity": 0.7,
+                                              "fill-opacity": 0.4,
                                           }
                                         : impactMode === "measuring"
                                           ? {
                                                 "fill-pattern":
                                                     "measure-no-pattern",
-                                                "fill-opacity": 0.7,
+                                                "fill-opacity": 0.4,
                                             }
                                           : {
                                                 "fill-color":
                                                     "hsl(0, 75%, 50%)",
-                                                "fill-opacity": 0.22,
+                                                "fill-opacity": 0.18,
                                             }
                                 }
                             />
@@ -683,18 +683,18 @@ export function InlineLocationPicker({
                                         ? {
                                               "fill-pattern":
                                                   "match-yes-pattern",
-                                              "fill-opacity": 0.85,
+                                              "fill-opacity": 0.55,
                                           }
                                         : impactMode === "measuring"
                                           ? {
                                                 "fill-pattern":
                                                     "measure-yes-pattern",
-                                                "fill-opacity": 0.85,
+                                                "fill-opacity": 0.55,
                                             }
                                           : {
                                                 "fill-color":
                                                     "hsl(140, 65%, 48%)",
-                                                "fill-opacity": 0.3,
+                                                "fill-opacity": 0.25,
                                             }
                                 }
                             />
@@ -702,13 +702,16 @@ export function InlineLocationPicker({
                                 id="impact-yes-line"
                                 type="line"
                                 paint={{
+                                    // Lighter fills now → lean on a crisp
+                                    // boundary line so the closer/further
+                                    // (same/different) divide stays legible.
                                     "line-color":
                                         impactMode === "matching" ||
                                         impactMode === "measuring"
-                                            ? "hsl(220, 8%, 60%)"
+                                            ? "hsl(220, 10%, 92%)"
                                             : "hsl(140, 65%, 32%)",
-                                    "line-width": 1.5,
-                                    "line-opacity": 0.7,
+                                    "line-width": 2.5,
+                                    "line-opacity": 0.95,
                                 }}
                             />
                         </Source>

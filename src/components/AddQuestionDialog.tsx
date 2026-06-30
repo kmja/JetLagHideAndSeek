@@ -317,8 +317,20 @@ export const AddQuestionDialog = ({
     // Question types that don't mount a picker (thermometer / photo with
     // no LL config) bypass the gate via `pendingUsesPicker`.
     const [pickerReady, setPickerReady] = React.useState(false);
+    // v611: unified loading. Hold ONE skeleton over the whole configure
+    // body until the picker signals ready (reference resolved + impact +
+    // tiles painted), so the dialog reveals all its info at once instead
+    // of the reference box, then the map, popping in separately. The
+    // timeout is a deadlock backstop: if the picker never readies (e.g.
+    // GPS denied → the map never mounts and the manual place-search lives
+    // under the skeleton), reveal anyway so the user isn't stuck.
+    const [revealAnyway, setRevealAnyway] = React.useState(false);
     React.useEffect(() => {
         setPickerReady(false);
+        setRevealAnyway(false);
+        if (pendingKey === null) return;
+        const t = window.setTimeout(() => setRevealAnyway(true), 6000);
+        return () => window.clearTimeout(t);
     }, [pendingKey]);
     const pendingUsesPicker =
         pendingQuestion?.id === "matching" ||
@@ -1133,7 +1145,33 @@ export const AddQuestionDialog = ({
                             <DialogTitle>Configure question</DialogTitle>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0">
+                        <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0 relative">
+                            {/* v611: single unified loading veil. The card
+                                content mounts underneath (so the picker can
+                                load) but is held invisible until ready, then
+                                the whole dialog reveals at once. */}
+                            {pendingUsesPicker &&
+                                !pickerReady &&
+                                !revealAnyway && (
+                                    <div
+                                        className="absolute inset-0 z-[1] px-6 py-3 space-y-3"
+                                        aria-hidden
+                                    >
+                                        <div className="h-[4.5rem] rounded-md bg-muted animate-pulse" />
+                                        <div className="h-12 rounded-md bg-muted animate-pulse" />
+                                        <div className="h-[40vh] rounded-md bg-muted animate-pulse" />
+                                    </div>
+                                )}
+                            <div
+                                className={cn(
+                                    "transition-opacity duration-200",
+                                    pendingUsesPicker &&
+                                        !pickerReady &&
+                                        !revealAnyway
+                                        ? "opacity-0"
+                                        : "opacity-100",
+                                )}
+                            >
                             {pendingQuestion &&
                                 (() => {
                                     const q = pendingQuestion;
@@ -1196,6 +1234,7 @@ export const AddQuestionDialog = ({
                                             return null;
                                     }
                                 })()}
+                            </div>
                         </div>
 
                         <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
