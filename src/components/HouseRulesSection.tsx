@@ -28,10 +28,25 @@ import { cn } from "@/lib/utils";
  *     zone can't be eliminated by unlucky answer timing. Off by default
  *     because the rulebook scopes these to the hider's exact point (p234).
  */
-export function HouseRulesSection() {
+export function HouseRulesSection({
+    readOnly = false,
+    onAfterChange,
+}: {
+    /** Render the toggles disabled (e.g. a non-host in the lobby — only
+     *  the host edits the table's rules). */
+    readOnly?: boolean;
+    /** Called after a toggle flips, so the lobby can push the change to
+     *  peers via `hostPushSetup`. Omitted in solo / settings contexts. */
+    onAfterChange?: () => void;
+} = {}) {
     const $alternate = useStore(alternateQuestionTypes);
     const $askOnce = useStore(askOncePerQuestion);
     const $zoneBuffer = useStore(zoneRadiusBuffer);
+
+    const set = (atom: typeof alternateQuestionTypes, v: boolean) => {
+        atom.set(v);
+        onAfterChange?.();
+    };
 
     return (
         <div className="pt-3 mt-3 border-t border-border">
@@ -41,6 +56,7 @@ export function HouseRulesSection() {
             <p className="text-xs text-muted-foreground mb-3 leading-snug">
                 Deviations from the printed rulebook. Defaults follow the
                 rulebook.
+                {readOnly && " The host sets these for the whole table."}
             </p>
             <div className="space-y-3">
                 <Row
@@ -48,21 +64,24 @@ export function HouseRulesSection() {
                     description="You can't ask two questions of the same category in a row."
                     rulebookDefault="No alternation (rulebook)"
                     checked={$alternate}
-                    onChange={(v) => alternateQuestionTypes.set(v)}
+                    readOnly={readOnly}
+                    onChange={(v) => set(alternateQuestionTypes, v)}
                 />
                 <Row
                     label="Ask once per question"
                     description="Each subtype / preset can only be asked once per game. Hard block instead of paying the rulebook's repeat cost."
                     rulebookDefault="Repeats allowed at N× cost (p65)"
                     checked={$askOnce}
-                    onChange={(v) => askOncePerQuestion.set(v)}
+                    readOnly={readOnly}
+                    onChange={(v) => set(askOncePerQuestion, v)}
                 />
                 <Row
                     label="Buffer eliminations by zone radius"
                     description="Radar, thermometer and measuring eliminate at the zone level, widened by your hiding-zone radius — so a moving hider can never get their true zone carved away by unlucky question timing."
                     rulebookDefault="Exact-point cuts (rulebook p234)"
                     checked={$zoneBuffer}
-                    onChange={(v) => zoneRadiusBuffer.set(v)}
+                    readOnly={readOnly}
+                    onChange={(v) => set(zoneRadiusBuffer, v)}
                 />
             </div>
         </div>
@@ -75,24 +94,29 @@ function Row({
     rulebookDefault,
     checked,
     onChange,
+    readOnly = false,
 }: {
     label: string;
     description: string;
     rulebookDefault: string;
     checked: boolean;
     onChange: (next: boolean) => void;
+    readOnly?: boolean;
 }) {
     return (
         <label
             className={cn(
-                "flex items-start gap-3 cursor-pointer select-none",
+                "flex items-start gap-3 select-none",
                 "rounded-md border border-border px-3 py-2.5",
-                "hover:bg-accent/40 transition-colors",
+                readOnly
+                    ? "cursor-default opacity-90"
+                    : "cursor-pointer hover:bg-accent/40 transition-colors",
             )}
         >
             <Checkbox
                 checked={checked}
-                onCheckedChange={(v) => onChange(v === true)}
+                disabled={readOnly}
+                onCheckedChange={(v) => !readOnly && onChange(v === true)}
                 className="mt-0.5 shrink-0"
             />
             <span className="flex-1 min-w-0">

@@ -97,6 +97,26 @@ export interface SetupState {
      * Optional for back-compat.
      */
     adjacentLocations?: unknown[];
+    /**
+     * Table-wide house rules (Settings → House rules, surfaced in the
+     * lobby). Host-authoritative: the host edits them in the lobby and
+     * pushes the whole setup; every device mirrors them so the whole
+     * room plays by the same deviations from the printed rulebook.
+     * Optional for back-compat — snapshots from older deployments land
+     * without it and each device keeps its local values.
+     */
+    houseRules?: HouseRulesState;
+}
+
+/**
+ * The opt-in house-rule toggles shared across the room. Each defaults
+ * OFF to the printed rulebook; see `src/lib/houseRules.ts` for the
+ * per-rule semantics.
+ */
+export interface HouseRulesState {
+    alternateQuestionTypes: boolean;
+    askOncePerQuestion: boolean;
+    zoneRadiusBuffer: boolean;
 }
 
 /**

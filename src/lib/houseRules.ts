@@ -24,10 +24,13 @@ import { hidingRadius, hidingRadiusUnits } from "@/lib/context";
  *     prevents an aggressive seeker from grinding the same question
  *     for cards.
  *
- * Persistent so the table's preference survives reloads; not synced
- * over multiplayer — the host's setting governs the room because the
- * picker UI lives on the seeker device, but the hider's draw multi-
- * plier is derived locally from the inbox.
+ * Persistent so the table's preference survives reloads. Host-
+ * authoritative over multiplayer (v601): the host edits them in the
+ * lobby (`GameLobbyDialog` → `HouseRulesSection`), which writes these
+ * atoms and pushes the whole setup to peers via `hostPushSetup`; every
+ * device mirrors `setup.houseRules` back onto these atoms in
+ * `multiplayer/store.ts`, so the whole room plays by the same rules.
+ * Guests see the toggles read-only.
  */
 export const alternateQuestionTypes = persistentAtom<boolean>(
     "houseRule:alternateQuestionTypes",

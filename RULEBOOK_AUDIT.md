@@ -119,6 +119,20 @@ answer). Implementation:
   the physical win condition (enter zone → freeze spot → find hider)
   remains the ultimate safety net either way.
 
+### House rules are now host-synced via the lobby ✅ v601
+House rules moved out of the per-device Settings drawer into the
+**lobby** (`GameLobbyDialog` → `HouseRulesSection`), because they govern
+the whole table, not one device. They're **host-authoritative**: the
+host edits them in the lobby (guests see them read-only), which writes
+the local atoms and pushes the whole setup via `hostPushSetup`. The new
+optional `SetupState.houseRules` field rides the existing `start` /
+`setupChanged` / welcome-snapshot path (the server treats setup as an
+opaque blob, so no worker change), and every device mirrors it back onto
+its atoms in `multiplayer/store.ts` (`applyHouseRules`). Solo play keeps
+local editing (the lone player is the host). Back-compat: setups from
+older deployments arrive without the field and each device keeps its
+local values.
+
 ## Notes
 - All scoring now flows through one formula:
   `max(0, (foundAt − hidingEndsAt) + hiddenCreditMs − hiddenDebitMs)`,

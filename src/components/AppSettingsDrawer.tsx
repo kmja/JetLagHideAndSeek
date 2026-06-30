@@ -2,7 +2,6 @@ import { useStore } from "@nanostores/react";
 import { BookOpen } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
-import { HouseRulesSection } from "@/components/HouseRulesSection";
 import { HowToPlaySheet } from "@/components/HowToPlaySheet";
 import { PreloadChoicesPanel } from "@/components/PreloadChoicesPanel";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
@@ -101,7 +100,10 @@ export function AppSettingsDrawer() {
                                 </div>
                             </div>
 
-                            <HouseRulesSection />
+                            {/* House rules moved to the lobby (v601) — they
+                                affect the whole table, not just this device,
+                                so they're host-edited there and synced to all
+                                players. */}
 
                             {$setupCompleted && (
                                 <div className="pt-3 mt-3 border-t border-border">

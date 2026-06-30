@@ -76,6 +76,7 @@ import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
 import { TransitStep } from "./GameSetupDialog";
+import { HouseRulesSection } from "./HouseRulesSection";
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
@@ -1012,6 +1013,20 @@ export function GameLobbyDialog() {
                             </span>
                         </label>
                     )}
+
+                    {/* House rules — table-wide deviations from the
+                        printed rulebook. Host-authoritative: a toggle
+                        writes the local atom and pushes the whole setup
+                        to peers (hostPushSetup), and incoming setups
+                        mirror the values back, so every device plays by
+                        the same rules. Guests see them read-only. Moved
+                        here from the per-device Settings drawer in v601
+                        because they govern the whole game, not one
+                        device. */}
+                    <HouseRulesSection
+                        readOnly={!isHost}
+                        onAfterChange={hostPushSetup}
+                    />
 
                     {/* v318: leaderboard — surfaces the rolling
                         round results once at least one round has

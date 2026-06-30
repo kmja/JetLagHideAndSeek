@@ -52,6 +52,11 @@ import {
     roundFoundAt,
 } from "@/lib/hiderRole";
 import {
+    alternateQuestionTypes,
+    askOncePerQuestion,
+    zoneRadiusBuffer,
+} from "@/lib/houseRules";
+import {
     type Question,
     type Questions,
     questionSchema,
@@ -383,6 +388,13 @@ export function hostPushSetup() {
         // Adjacent areas folded into the play area, so the hide team's
         // boundary matches the host's instead of being primary-only.
         adjacentLocations: additionalMapGeoLocations.get(),
+        // Table-wide house rules — host-authoritative, so the whole room
+        // plays by the same deviations (edited from the lobby).
+        houseRules: {
+            alternateQuestionTypes: alternateQuestionTypes.get(),
+            askOncePerQuestion: askOncePerQuestion.get(),
+            zoneRadiusBuffer: zoneRadiusBuffer.get(),
+        },
     };
     getTransport().send({ t: "start", setup });
 }
@@ -669,6 +681,20 @@ function applyRoundStarted(roster: GameState["participants"]) {
     reconcileLocalRoleFromPresence(roster);
 }
 
+/**
+ * Mirror the host's table-wide house rules onto the local toggle atoms.
+ * Host-authoritative: a received setup overwrites whatever this device
+ * had so the whole room plays by the same rules. No-op when the setup
+ * predates house-rule sync (older deployments) — the device keeps its
+ * local values.
+ */
+function applyHouseRules(hr: SetupState["houseRules"]) {
+    if (!hr) return;
+    alternateQuestionTypes.set(hr.alternateQuestionTypes);
+    askOncePerQuestion.set(hr.askOncePerQuestion);
+    zoneRadiusBuffer.set(hr.zoneRadiusBuffer);
+}
+
 /** Apply a server snapshot wholesale to the local stores. */
 function applySnapshot(state: GameState) {
     // Setup
@@ -692,6 +718,7 @@ function applySnapshot(state: GameState) {
             >,
         );
     }
+    applyHouseRules(state.setup.houseRules);
     // Questions — merge by key, replacing existing entries.
     const incomingQs: Question[] = [];
     for (const raw of state.questions) {
@@ -887,6 +914,7 @@ function handleServerMessage(msg: ServerMessage) {
                     >,
                 );
             }
+            applyHouseRules(msg.setup.houseRules);
             // Endgame just got armed (null → number). Hider needs to
             // know immediately — rulebook p43 says they lock down to
             // a final spot the instant this fires.
