@@ -108,7 +108,7 @@ Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib
 
 **Hider reach overlay** (`HiderReachOverlay.tsx` + `hiderReachFC` shadow atom): mirror of `TravelTimesOverlay`, anchored at live GPS. Uses `fetchAreaStations` (mode-aware Overpass scan capped at 180 stops) → existing `/api/journey/arrivals` → filters to reachable-before-`hidingPeriodEndsAt`. Painted by `HiderBackgroundMap` as circle dots + HH:MM labels. Toggle in `HiderMapDisplayControls` ("Reachable zones"). Auto-disables once a zone is committed.
 
-**Hider trip-plan card** (`HiderTripPlanCard.tsx`): rendered inside `HiderHome`'s `hiding`/`grace` branches under the zone picker once `hidingZone` is set — calls `/api/travel/plan` from live GPS to the committed station, renders via the shared `JourneyCard`. Re-fetches on zone/mode change or when the **settled** GPS origin moves past the trip re-plan threshold — both trip planners (hider card + seeker sheet) gate on `useStableGpsOrigin` (`src/hooks/useStableGpsOrigin.ts`, default 150 m) so position jitter while standing still no longer re-runs the plan effect (which used to abort the in-flight request every tick and make the card reload constantly).
+**Hider trip-plan card** (`HiderTripPlanCard.tsx`): rendered inside `HiderHome`'s `hiding`/`grace` branches under the zone picker once `hidingZone` is set — calls `/api/travel/plan` from live GPS to the committed station, renders via the shared `JourneyCard`. **Plan-once + manual Refresh (v620):** both trip planners (hider card + seeker sheet) plan ONCE when a GPS fix first arrives and re-plan only on zone/destination change, mode change, or the `JourneyCard` **Refresh** button (which reads the current GPS via `lastKnownPosition.get()` at plan time). GPS coordinate changes are deliberately excluded from the plan effect's deps/signature (only a `hasGps` boolean drives the initial plan) — the earlier `useStableGpsOrigin` 150 m-threshold approach still re-planned constantly in dense cities where a stationary fix routinely jumps >150 m (urban multipath, reported in a Bucharest game). `useStableGpsOrigin` is now unused (kept in `src/hooks/` for reference).
 
 **Seeker trip planner** (`SeekerTripPlannerSheet.tsx`): Vaul drawer, text input → `forwardGeocodeOne` (or `lat,lng` paste) → `JourneyCard` for the journey from live GPS. Open state in `seekerTripPlannerOpen`. **v617: the "Search place" launcher pill was removed** (it sat top-right of the map) — the sheet stays mounted but currently has no in-app entry point; re-add a launcher if trip search is wanted back.
 
@@ -359,7 +359,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v619`. Use `git log` for the per-version detail;
+build stamp. Current: `v620`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

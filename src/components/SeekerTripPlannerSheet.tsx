@@ -5,7 +5,6 @@ import { Drawer as VaulDrawer } from "vaul";
 
 import { JourneyCard } from "@/components/JourneyCard";
 import { Button } from "@/components/ui/button";
-import { useStableGpsOrigin } from "@/hooks/useStableGpsOrigin";
 import { lastKnownPosition } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
 import {
@@ -39,9 +38,13 @@ export function SeekerTripPlannerSheet() {
     const open = useStore(seekerTripPlannerOpen);
     const $gps = useStore(lastKnownPosition);
     const $allowed = useStore(allowedTransit);
-    // Jitter-proof origin: only changes once the seeker actually moves
-    // past the threshold, so standing still doesn't re-plan.
-    const origin = useStableGpsOrigin($gps);
+    // We only need to know IF we have a fix to trigger the first plan —
+    // NOT the live coordinates. Re-planning on coordinate changes is what
+    // made the card reload constantly: a city GPS fix can jump hundreds of
+    // metres while standing still (urban multipath), past any sane
+    // movement threshold. So we plan once when a fix is available and
+    // re-plan only on Refresh / destination / mode changes (see effect).
+    const hasGps = $gps != null;
 
     const [query, setQuery] = useState("");
     const [destination, setDestination] = useState<TravelPlace | null>(null);
@@ -76,17 +79,19 @@ export function SeekerTripPlannerSheet() {
         }
     }, [open]);
 
-    // Re-plan when the destination, allowed modes, the settled origin, or
-    // a manual Refresh change — NOT on raw GPS drift. The origin comes
-    // from `useStableGpsOrigin`, which only moves once the seeker has
-    // travelled past the threshold; a few metres of jitter every few
-    // seconds leaves it (and the signature) unchanged, so the effect
-    // doesn't re-run and the in-flight route request isn't aborted +
-    // restarted (which previously made the card reload constantly).
+    // Plan ONCE per (destination, modes, refresh) — GPS is deliberately
+    // NOT in the signature or the deps, so a jittering city fix can't
+    // re-run this. We read the freshest `lastKnownPosition` lazily at plan
+    // time (so Refresh always recomputes from where you are now). The
+    // effect re-fires only when: the destination changes, the allowed
+    // modes change, the user taps Refresh (nonce), or a GPS fix first
+    // becomes available (`hasGps` false→true) to drive the initial plan.
     useEffect(() => {
-        if (!open || !destination || !origin) return;
-        const sig = `${destination.lat},${destination.lng}|${origin.lat},${origin.lng}|${$allowed.join(",")}|${nonce}`;
+        if (!open || !destination || !hasGps) return;
+        const sig = `${destination.lat},${destination.lng}|${$allowed.join(",")}|${nonce}`;
         if (lastSigRef.current === sig) return;
+        const gps = lastKnownPosition.get();
+        if (!gps) return;
         lastSigRef.current = sig;
         let cancelled = false;
         const controller = new AbortController();
@@ -95,7 +100,7 @@ export function SeekerTripPlannerSheet() {
         (async () => {
             const resp: PlanResponse | null = await fetchTripPlan(
                 {
-                    origin: { lat: origin.lat, lng: origin.lng },
+                    origin: { lat: gps.lat, lng: gps.lng },
                     destination,
                     departAt: Date.now(),
                     modes: $allowed,
@@ -122,15 +127,7 @@ export function SeekerTripPlannerSheet() {
             controller.abort();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
-        open,
-        destination?.lat,
-        destination?.lng,
-        origin?.lat,
-        origin?.lng,
-        $allowed,
-        nonce,
-    ]);
+    }, [open, destination?.lat, destination?.lng, $allowed, nonce, hasGps]);
 
     const search = async () => {
         const q = query.trim();

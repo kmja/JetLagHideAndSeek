@@ -2,7 +2,6 @@ import { useStore } from "@nanostores/react";
 import { useEffect, useRef, useState } from "react";
 
 import { JourneyCard } from "@/components/JourneyCard";
-import { useStableGpsOrigin } from "@/hooks/useStableGpsOrigin";
 import { lastKnownPosition } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
@@ -17,11 +16,11 @@ import { tripRouteFC } from "@/lib/journey/state";
  *
  * Lifecycle: mounts when the hider has committed a zone (parent
  * is responsible for gating on `hidingZone !== null`). The fetch
- * re-fires whenever the settled GPS origin moves past the trip
- * re-plan threshold (`useStableGpsOrigin`) OR the zone identity
- * changes OR the user taps refresh — GPS jitter while standing
- * still is filtered out so it doesn't burn proxy quota or abort
- * the in-flight request.
+ * runs ONCE when a GPS fix is first available and re-fires only when
+ * the zone identity or allowed modes change, or the user taps Refresh
+ * (which recomputes from the current GPS). GPS coordinate changes are
+ * deliberately ignored: a city fix can jump hundreds of metres while
+ * standing still, which used to re-plan endlessly (v620).
  *
  * The card is *intentionally* a present-tense plan. We don't
  * pre-compute "what would happen if you started at hiding-period
@@ -34,9 +33,13 @@ export function HiderTripPlanCard() {
     const $gps = useStore(lastKnownPosition);
     const $zone = useStore(hidingZone);
     const $allowed = useStore(allowedTransit);
-    // Jitter-proof origin: only changes once the hider actually moves
-    // past the threshold, so a standing phone doesn't re-plan.
-    const origin = useStableGpsOrigin($gps);
+    // We only need to know IF we have a fix to drive the first plan — NOT
+    // the live coordinates. A city GPS fix can jump hundreds of metres
+    // while standing still (urban multipath), past any sane movement
+    // threshold, which made the card reload constantly. So we plan once
+    // when a fix is available and re-plan only on Refresh / zone / mode
+    // changes (see effect).
+    const hasGps = $gps != null;
 
     const [journey, setJourney] = useState<Journey | null>(null);
     const [source, setSource] = useState<string | undefined>(undefined);
@@ -52,14 +55,17 @@ export function HiderTripPlanCard() {
     const lastSigRef = useRef<string | null>(null);
 
     useEffect(() => {
-        if (!$zone || !origin) return;
+        if (!$zone || !hasGps) return;
         const zoneKey = `${$zone.stationLat},${$zone.stationLng}`;
-        // The origin only changes once the hider has actually moved past
-        // the threshold (see useStableGpsOrigin), so it's in the signature:
-        // a real move re-plans, but GPS jitter while standing still leaves
-        // the signature unchanged — no re-run, no aborted in-flight fetch.
-        const sig = `${zoneKey}|${origin.lat},${origin.lng}|${$allowed.join(",")}|${nonce}`;
+        // GPS is deliberately NOT in the signature or deps — a jittering
+        // city fix can't re-run this. We read the freshest
+        // `lastKnownPosition` lazily at plan time (so Refresh recomputes
+        // from where you are now). Re-fires only on zone / mode / Refresh
+        // changes, or a GPS fix first becoming available (initial plan).
+        const sig = `${zoneKey}|${$allowed.join(",")}|${nonce}`;
         if (lastSigRef.current === sig) return;
+        const gps = lastKnownPosition.get();
+        if (!gps) return;
         lastSigRef.current = sig;
 
         let cancelled = false;
@@ -70,7 +76,7 @@ export function HiderTripPlanCard() {
         (async () => {
             const resp = await fetchTripPlan(
                 {
-                    origin: { lat: origin.lat, lng: origin.lng },
+                    origin: { lat: gps.lat, lng: gps.lng },
                     destination: {
                         lat: $zone.stationLat,
                         lng: $zone.stationLng,
@@ -103,14 +109,7 @@ export function HiderTripPlanCard() {
             controller.abort();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
-        $zone?.stationLat,
-        $zone?.stationLng,
-        origin?.lat,
-        origin?.lng,
-        $allowed,
-        nonce,
-    ]);
+    }, [$zone?.stationLat, $zone?.stationLng, $allowed, nonce, hasGps]);
 
     // Mirror the planned journey onto the map route overlay; clear it
     // when the card unmounts (zone uncommitted / new round).
