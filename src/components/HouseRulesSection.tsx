@@ -20,8 +20,8 @@ import { cn } from "@/lib/utils";
  * Only ACTIVE (enabled) rules show by default; the inactive ones are
  * collapsed behind an "Add a house rule" expander so the section stays
  * compact when the table plays vanilla. A read-only viewer (a non-host
- * guest) never sees the expander — just the active rules, or a "playing
- * by the rulebook" note when none are on.
+ * guest) never sees the expander — just the active rules, and nothing
+ * at all (the whole section unmounts) when none are on.
  *
  * Persistent atoms live in `src/lib/houseRules.ts`.
  *
@@ -99,18 +99,18 @@ export function HouseRulesSection({
     const expandable = !readOnly && inactive.length > 0;
     const visible = showInactive ? rules : active;
 
+    // Nothing to say when no rules are active: a read-only viewer sees
+    // nothing at all, and an editor just gets the "add a rule" expander
+    // (no "playing by the rulebook" note — that's the implicit default).
+    if (readOnly && active.length === 0) return null;
+
     return (
         <div className="pt-3 mt-3 border-t border-border">
             <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
                 House rules
             </div>
 
-            {active.length === 0 && !showInactive ? (
-                <p className="text-xs text-muted-foreground leading-snug">
-                    Playing by the printed rulebook — no house rules active.
-                    {readOnly && " The host sets these for the whole table."}
-                </p>
-            ) : (
+            {visible.length > 0 && (
                 <p className="text-xs text-muted-foreground mb-3 leading-snug">
                     Deviations from the printed rulebook. Defaults follow the
                     rulebook.
