@@ -269,7 +269,13 @@ every other map), and the resulting area is shown by DIMMING everything
 outside it (`holedMask`, the main map's elimination-mask language) AND a
 translucent **white fill INSIDE** it + a white edge — the inside-brighten
 is what makes the kept area legible on dark near-black tiles (dimming
-alone is invisible there); no per-category fill colour. The static view is
+alone is invisible there); no per-category fill colour. The base tiles
+come from the **shared `buildStyle`** (`src/lib/mapStyle.ts`, extracted
+from `Map.tsx`) so the preview's basemap matches the main map EXACTLY —
+same light/dark Protomaps flavor, Thunderforest layer, and crucially the
+**satellite overlay** (v609: without this the preview was a much darker
+bare-Protomaps view than the satellite-brightened main map in dark mode).
+The static view is
 **snapshotted to a PNG** (`canvas.toDataURL`, needs `preserveDrawingBuffer`)
 and cached per theme+question+framing, so RE-expanding a card shows a cheap
 `<img>` with no MapLibre instance; the first render also **defers the
@@ -339,7 +345,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v608`. Use `git log` for the per-version detail;
+build stamp. Current: `v609`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

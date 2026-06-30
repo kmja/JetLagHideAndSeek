@@ -5,7 +5,14 @@ import * as turf from "@turf/turf";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
-import { mapGeoJSON, polyGeoJSON } from "@/lib/context";
+import {
+    baseTileLayer,
+    mapGeoJSON,
+    polyGeoJSON,
+    thunderforestApiKey,
+} from "@/lib/context";
+import { satelliteView } from "@/lib/gameSetup";
+import { buildStyle } from "@/lib/mapStyle";
 import {
     PLAY_AREA_COLOR,
     PLAY_AREA_LINE_OPACITY,
@@ -14,7 +21,6 @@ import {
 import {
     handleMapLibreError,
     installMissingImageHandler,
-    protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import {
@@ -76,6 +82,12 @@ export function QuestionOutcomeMap({
     const $theme = useStore(resolvedTheme);
     const $mapGeoJSON = useStore(mapGeoJSON);
     const $polyGeoJSON = useStore(polyGeoJSON);
+    // Mirror the main map's base exactly (tile layer + satellite overlay),
+    // so the preview isn't a darker bare-Protomaps view when satellite is
+    // on / a Thunderforest layer is picked.
+    const $tileKey = useStore(baseTileLayer);
+    const $satellite = useStore(satelliteView);
+    const $tfKey = useStore(thunderforestApiKey);
     const darkTiles = $theme === "dark";
 
     const base = $mapGeoJSON || $polyGeoJSON;
@@ -144,8 +156,11 @@ export function QuestionOutcomeMap({
         const b = [bbox.minLng, bbox.minLat, bbox.maxLng, bbox.maxLat]
             .map((n) => n.toFixed(3))
             .join(",");
-        return `${darkTiles ? "d" : "l"}|${sig}|${b}`;
-    }, [darkTiles, sig, bbox]);
+        // Include the base-style identity (theme + tile layer + satellite)
+        // so a cached PNG isn't reused after the user changes the basemap.
+        const baseSig = `${darkTiles ? "d" : "l"}${$satellite ? "+s" : ""}|${$tileKey}`;
+        return `${baseSig}|${sig}|${b}`;
+    }, [darkTiles, $satellite, $tileKey, sig, bbox]);
 
     // Cache hit → show the static PNG, skip MapLibre entirely.
     const cachedImage = cacheKey ? imageCache.get(cacheKey) : undefined;
@@ -284,8 +299,14 @@ export function QuestionOutcomeMap({
     };
 
     const mapStyle = useMemo(
-        () => protomapsMapLibreStyle(darkTiles ? "dark" : "light"),
-        [darkTiles],
+        () =>
+            buildStyle(
+                $tileKey,
+                $satellite,
+                $tfKey ?? "",
+                darkTiles ? "dark" : "light",
+            ),
+        [$tileKey, $satellite, $tfKey, darkTiles],
     );
 
     const center = bbox
