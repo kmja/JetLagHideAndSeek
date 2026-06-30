@@ -285,8 +285,8 @@ export function PendingAnswerOverlay({
         </button>
     ) : answered ? (
         // Persistent answered state — the card no longer vanishes on its
-        // own. Tapping the card opens the full detail; this is just the
-        // Dismiss action.
+        // own. Tapping the card opens the full detail; this is just a big
+        // X to dismiss.
         <button
             type="button"
             onClick={(e) => {
@@ -294,15 +294,14 @@ export function PendingAnswerOverlay({
                 dismissAnswered();
             }}
             aria-label="Dismiss"
+            title="Dismiss"
             className={cn(
-                "flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md",
-                "text-[11px] font-poppins font-semibold uppercase tracking-wide",
-                "text-[color:var(--overlay-card-desc)] hover:bg-foreground/10 transition-colors",
+                "flex items-center justify-center rounded-md p-1.5",
+                "text-[color:var(--overlay-card-desc)] hover:bg-foreground/10 hover:text-[color:var(--overlay-card-fg)] transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
         >
-            <X className="w-3.5 h-3.5" strokeWidth={2.5} />
-            Dismiss
+            <X className="w-6 h-6" strokeWidth={2.5} />
         </button>
     ) : null;
 

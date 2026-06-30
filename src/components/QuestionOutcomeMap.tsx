@@ -95,6 +95,13 @@ export function QuestionOutcomeMap({
     // Defer mounting MapLibre so the expand animation runs against a cheap
     // skeleton, not a synchronous GL init.
     const [mountMap, setMountMap] = useState(false);
+    // The captured snapshot of THIS render. We keep the skeleton "veil"
+    // over the live map until this is set, then swap straight to the PNG —
+    // so the map's fit-to-bounds jitter is never visible. `revealLive` is
+    // the fallback when the capture can't happen (toDataURL blocked), so
+    // the veil can't hang forever.
+    const [capturedUrl, setCapturedUrl] = useState<string | null>(null);
+    const [revealLive, setRevealLive] = useState(false);
 
     const sig = useMemo(() => {
         const d = question.data as Record<string, unknown>;
@@ -233,14 +240,27 @@ export function QuestionOutcomeMap({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [bbox, mountMap]);
 
-    // Skeleton until BOTH geometry + tiles are ready; hard fallback so a
-    // stuck tile fetch can't pin it forever.
+    // Hard fallback so a stuck tile fetch can't pin the veil forever.
     useEffect(() => {
         if (cachedImage || tilesReady) return;
         const t = window.setTimeout(() => setTilesReady(true), 4000);
         return () => window.clearTimeout(t);
     }, [tilesReady, cachedImage]);
-    const loading = !cachedImage && (computing || !mountMap || !tilesReady);
+
+    // Veil-reveal fallback: once tiles have settled, give the snapshot a
+    // short grace period to capture. If it can't (toDataURL blocked, blank
+    // buffer), reveal the live map anyway so the veil never hangs.
+    useEffect(() => {
+        if (cachedImage || capturedUrl || !tilesReady) return;
+        const t = window.setTimeout(() => setRevealLive(true), 900);
+        return () => window.clearTimeout(t);
+    }, [tilesReady, cachedImage, capturedUrl]);
+
+    // The final static image to show (cached from a prior expand, or just
+    // captured this render). Keep the skeleton veil up until we have it —
+    // or until the live-map fallback fires.
+    const staticImg = cachedImage ?? capturedUrl;
+    const skeletonVisible = !staticImg && !revealLive;
 
     // Once the static view has settled, snapshot it to a PNG and cache it
     // (for the NEXT expand). We keep showing the live map this time — no
@@ -254,6 +274,9 @@ export function QuestionOutcomeMap({
             if (url && url.length > 2048) {
                 imageCache.set(cacheKey, url);
                 captured.current = true;
+                // Swap the veil straight to this final image — no live-map
+                // reveal, so the fit jitter is never shown.
+                setCapturedUrl(url);
             }
         } catch {
             /* GL toDataURL can throw — just skip caching */
@@ -296,15 +319,28 @@ export function QuestionOutcomeMap({
         );
     }
 
-    if (cachedImage) {
+    // A snapshot is ready (cached from a prior expand, or just captured
+    // this render) → show the static PNG and skip the live map entirely.
+    // No fit jitter ever reaches the user: the veil covered the live map
+    // until this image existed.
+    if (staticImg) {
         return (
             <div className={containerCls}>
                 <img
-                    src={cachedImage}
+                    src={staticImg}
                     alt="Question outcome"
                     className="h-full w-full object-cover"
                     draggable={false}
                 />
+                {(failed || !outcome) && (
+                    <div className="absolute inset-x-0 bottom-0 flex justify-center pb-1.5">
+                        <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-poppins text-muted-foreground backdrop-blur-sm">
+                            {failed
+                                ? "Couldn't render this outcome"
+                                : "No resulting area"}
+                        </span>
+                    </div>
+                )}
             </div>
         );
     }
@@ -407,13 +443,15 @@ export function QuestionOutcomeMap({
                 </MapGL>
             )}
 
-            {/* Loading skeleton — through the expand animation, geometry
-                compute, and first tile paint. */}
-            {loading && (
+            {/* Veil — covers the live map through the expand animation,
+                geometry compute, tile paint AND the fit-to-bounds settle,
+                lifting only once the final snapshot is ready (or the
+                live-map fallback fires). Keeps the jitter off-screen. */}
+            {skeletonVisible && (
                 <div className="absolute inset-0 animate-pulse bg-muted" />
             )}
 
-            {!loading && (failed || !outcome) && (
+            {revealLive && (failed || !outcome) && (
                 <div className="absolute inset-x-0 bottom-0 flex justify-center pb-1.5">
                     <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-poppins text-muted-foreground backdrop-blur-sm">
                         {failed

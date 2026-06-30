@@ -282,7 +282,7 @@ export function SeekerPage() {
                     <LocationPauseWatcher />
                     <HidingZoneOptionsSync />
                     <LocationPauseBanner />
-                    <StationTransitCard />
+                    <StationTransitCard allowEndgame />
                     <AppConfirmHost />
                     <AppPromptHost />
                     <GameStartWatcher />

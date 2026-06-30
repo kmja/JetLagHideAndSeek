@@ -1,13 +1,22 @@
 import { useStore } from "@nanostores/react";
-import { MapPin, X } from "lucide-react";
+import { Flag, MapPin, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { JourneyCard } from "@/components/JourneyCard";
+import { appConfirm } from "@/lib/confirm";
 import { lastKnownPosition } from "@/lib/context";
-import { allowedTransit } from "@/lib/gameSetup";
+import {
+    allowedTransit,
+    endgameStartedAt,
+    hidingPeriodEndsAt,
+} from "@/lib/gameSetup";
+import { roundFoundAt } from "@/lib/hiderRole";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
 import { selectedMapStation } from "@/lib/journey/state";
+import { seekerStartEndgame } from "@/lib/multiplayer/store";
+import { cn } from "@/lib/utils";
 
 /** Pretty label for an inferred transit mode. */
 const MODE_LABELS: Record<string, string> = {
@@ -34,10 +43,21 @@ const modeLabel = (m: string) =>
  * them separate avoids conflating "could the hider have made it" with
  * "how do I, the seeker, get there now".
  */
-export function StationTransitCard() {
+export function StationTransitCard({
+    allowEndgame = false,
+}: {
+    /** Seeker surface only: show the "Start endgame here" action, which
+     *  declares the seekers have entered THIS candidate zone (rulebook
+     *  p43 — the endgame begins once seekers reach the hider's zone). The
+     *  hider's copy of this card never gets it. */
+    allowEndgame?: boolean;
+} = {}) {
     const station = useStore(selectedMapStation);
     const $gps = useStore(lastKnownPosition);
     const $allowed = useStore(allowedTransit);
+    const $endsAt = useStore(hidingPeriodEndsAt);
+    const $endgame = useStore(endgameStartedAt);
+    const $found = useStore(roundFoundAt);
 
     const [planning, setPlanning] = useState(false);
     const [journey, setJourney] = useState<Journey | null>(null);
@@ -92,6 +112,35 @@ export function StationTransitCard() {
     }, [station?.lat, station?.lng, $gps?.lat, $gps?.lng, $allowed.join(",")]);
 
     const close = () => selectedMapStation.set(null);
+
+    // Endgame trigger is offered only on the seeker surface, once the
+    // hiding period is over and before the endgame is armed / the hider is
+    // found. Per the rulebook the endgame starts when the seekers reach
+    // the hider's zone — selecting that zone's station here is the natural
+    // place to declare it.
+    const canTriggerEndgame =
+        allowEndgame &&
+        station !== null &&
+        $endsAt !== null &&
+        Date.now() >= $endsAt &&
+        $endgame === null &&
+        $found === null;
+
+    const handleStartEndgame = async () => {
+        const ok = await appConfirm({
+            title: "Start the endgame here?",
+            description: `Tells the hider to lock to a final spot${
+                station?.name ? ` — you've reached ${station.name}` : ""
+            }. Only do this once you're actually inside the hider's zone.`,
+            confirmLabel: "Start endgame",
+        });
+        if (!ok) return;
+        seekerStartEndgame();
+        toast.success("Endgame started — hider notified.", {
+            autoClose: 2500,
+        });
+        close();
+    };
 
     return (
         <VaulDrawer.Root
@@ -151,6 +200,24 @@ export function StationTransitCard() {
                                 error={error}
                             />
                         </div>
+
+                        {canTriggerEndgame && (
+                            <button
+                                type="button"
+                                onClick={handleStartEndgame}
+                                className={cn(
+                                    "mt-3 flex w-full items-center justify-center gap-2 rounded-md px-3 py-2.5",
+                                    "border-2 border-yellow-500/60 bg-yellow-500/15",
+                                    "text-yellow-600 dark:text-yellow-300",
+                                    "hover:bg-yellow-500/25 active:bg-yellow-500/30 transition-colors",
+                                    "text-xs font-poppins font-bold uppercase tracking-wider",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                )}
+                            >
+                                <Flag className="h-4 w-4" strokeWidth={2.5} />
+                                Start endgame here
+                            </button>
+                        )}
                     </div>
                 </VaulDrawer.Content>
             </VaulDrawer.Portal>

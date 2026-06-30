@@ -459,9 +459,11 @@ export const AddQuestionDialog = ({
             (q.data as { createdAt?: number }).createdAt = Date.now();
             questionModified();
             seekerResendQuestion(q.key);
-            if (isHiderConnected()) {
-                toast.success("Sent to hider", { autoClose: 1500 });
-            } else {
+            // Successful send is silent now — the pending-answer overlay
+            // already shows the question is out and counting down, so a
+            // "Sent to hider" toast was redundant noise. The offline case
+            // still toasts because delivery is genuinely deferred.
+            if (!isHiderConnected()) {
                 toast.info(
                     "Sent — hider's currently offline, they'll receive it on reconnect.",
                     { autoClose: 2500 },
