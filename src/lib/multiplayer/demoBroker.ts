@@ -283,9 +283,24 @@ function handleClientMessage(msg: ClientMessage) {
             // the bot hider's auto-answer.
             const q = msg.question as { key?: number; id?: string; data?: Record<string, unknown> };
             if (typeof q?.key !== "number") return;
-            s.state.questions.push(msg.question);
+            // UPSERT by key — matches the real worker's handleAddQuestion.
+            // A re-send (e.g. a thermometer going started → finished) must
+            // REPLACE the stored copy, not push a duplicate. The old push
+            // left two same-key entries; the bot then auto-answered the
+            // FIRST (stale "started") one, reverting the question to an
+            // "active, completed" thermometer.
+            const exIdx = s.state.questions.findIndex(
+                (raw) => (raw as { key?: number })?.key === q.key,
+            );
+            if (exIdx >= 0) s.state.questions[exIdx] = msg.question;
+            else s.state.questions.push(msg.question);
             inject({ t: "qAdded", question: msg.question });
-            scheduleBotAnswer(q.key);
+            // Don't auto-answer a thermometer that's still running — it
+            // isn't a real question until the seeker finishes the move.
+            const isStartedTherm =
+                q?.id === "thermometer" &&
+                (q.data as { status?: string })?.status === "started";
+            if (!isStartedTherm) scheduleBotAnswer(q.key);
             return;
         }
 
@@ -425,6 +440,20 @@ function scheduleBotAnswer(key: number) {
             (raw) => (raw as { key?: number })?.key === key,
         );
         if (idx < 0) return;
+        // Guard: never auto-answer a thermometer still in its "started"
+        // phase (its finished re-send hasn't landed yet) — answering it
+        // would revert it to an "active, completed" thermometer.
+        const cur = state.state.questions[idx] as {
+            id?: string;
+            data?: { status?: string };
+        };
+        if (
+            cur?.id === "thermometer" &&
+            cur.data?.status === "started"
+        ) {
+            state.answerTimers.delete(key);
+            return;
+        }
         const merged = mergeQuestionData(state.state.questions[idx], {
             drag: false,
         });

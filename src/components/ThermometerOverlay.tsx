@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import { CATEGORIES } from "@/lib/categories";
 import {
+    pendingOverlayActive,
     questionModified,
     questions,
     triggerLocalRefresh,
@@ -88,6 +89,16 @@ export function ThermometerOverlay({
         );
         return () => navigator.geolocation.clearWatch(id);
     }, [started?.key]);
+
+    // Occupy the top-of-map overlay slot like the pending-answer card, so
+    // the top-right controls slide down out of the way. (A started
+    // thermometer is excluded from PendingAnswerOverlay, so the two never
+    // fight over this slot.) Skip in the gallery preview.
+    useEffect(() => {
+        if (preview) return;
+        pendingOverlayActive.set(Boolean(started));
+        return () => pendingOverlayActive.set(false);
+    }, [Boolean(started), preview]);
 
     if (!started) return null;
 
@@ -175,11 +186,12 @@ export function ThermometerOverlay({
     return (
         <div
             className={cn(
-                "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1030]",
-                "bottom-[calc(96px+env(safe-area-inset-bottom))] md:bottom-20",
-                "max-w-[92vw] w-[min(92vw,420px)]",
-                // v446: fade + rise in instead of popping onto the map.
-                "animate-in fade-in slide-in-from-bottom-2 duration-200",
+                "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1031]",
+                // Top-of-map, matching the pending-answer overlay slot.
+                "top-2 md:top-4",
+                "max-w-[92vw] w-[min(92vw,460px)]",
+                // Fade + drop in from the top instead of popping onto the map.
+                "animate-in fade-in slide-in-from-top-2 duration-200",
             )}
         >
             {/* One cohesive overlay card: the QuestionOverlayCard header
