@@ -28,10 +28,66 @@
                 }
             })();
         </script>
+        <!-- maximum-scale=1 + user-scalable=no stop the *page* from
+             pinch / double-tap zooming (the map keeps its own zoom — that's
+             handled inside MapLibre's canvas, not page-level). Covers
+             Android + desktop browsers; iOS Safari ignores user-scalable,
+             so the inline script below also blocks its gesture events. -->
         <meta
             name="viewport"
-            content="width=device-width, initial-scale=1, viewport-fit=cover"
+            content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
         />
+        <script>
+            // iOS Safari ignores `user-scalable=no`, so block its page
+            // pinch-zoom gesture events directly. These are Safari-only
+            // events that fire ON TOP of touch events; MapLibre's pinch is
+            // driven by touch events, not these, so the map still zooms.
+            (function () {
+                var stop = function (e) {
+                    e.preventDefault();
+                };
+                ["gesturestart", "gesturechange", "gestureend"].forEach(
+                    function (t) {
+                        document.addEventListener(t, stop, { passive: false });
+                    },
+                );
+                // Kill the iOS double-tap-to-zoom on the page chrome, but
+                // NOT on the map (its own double-tap zoom must keep working).
+                // Only a real double-tap counts: two taps within 300 ms AND
+                // in nearly the same spot — so two quick taps on different
+                // controls aren't swallowed.
+                var lastTime = 0;
+                var lastX = 0;
+                var lastY = 0;
+                document.addEventListener(
+                    "touchend",
+                    function (e) {
+                        var t = e.changedTouches && e.changedTouches[0];
+                        var now = Date.now();
+                        var x = t ? t.clientX : 0;
+                        var y = t ? t.clientY : 0;
+                        var sameSpot =
+                            Math.abs(x - lastX) < 30 &&
+                            Math.abs(y - lastY) < 30;
+                        if (
+                            now - lastTime <= 300 &&
+                            sameSpot &&
+                            !(
+                                e.target &&
+                                e.target.closest &&
+                                e.target.closest(".maplibregl-map")
+                            )
+                        ) {
+                            e.preventDefault();
+                        }
+                        lastTime = now;
+                        lastX = x;
+                        lastY = y;
+                    },
+                    { passive: false },
+                );
+            })();
+        </script>
         <!-- v469: SVG mark (red pyramid + white circle, box-cover style)
              is preferred by modern browsers; the .ico / PNG fallbacks
              below cover older browsers + the PWA home-screen icon. -->
