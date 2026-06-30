@@ -347,7 +347,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v614`. Use `git log` for the per-version detail;
+build stamp. Current: `v615`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -413,7 +413,14 @@ the headline arcs since the v414 rulebook-audit pass:
   a solid rounded square. **Curses over the wire** (`curseReceived` in
   `multiplayer/store.ts`) now append to `receivedCurses` (the atom
   `CurseInbox` renders), not just fire a notification — previously a curse
-  push surfaced nothing in-app (v612).
+  push surfaced nothing in-app (v612). **Seeker curse UI (v615):**
+  `CurseInbox` drops the casting cost (it's the hider's concern); shows the
+  `DiceRoller` ONLY for curses that make the seekers roll
+  (`curseRequiresDice`, `src/lib/curseMeta.ts` — a name set + description
+  fallback); auto-clears time-limited curses on a live countdown
+  (`curseDurationMs` per game size, name table + "for the next N min/h"
+  parse); and gives open-ended curses a manual **Clear curse** button
+  (we trust the seekers' word, since clearing them is a real-world task).
 - **A sent/answered question can't be deleted** (it would desync from
   the hider). As of v585 `cards/base.tsx` has **no delete control at
   all** — the earlier "swap the trash for a disabled lock in online

@@ -1,7 +1,14 @@
 import { useStore } from "@nanostores/react";
-import { Check, Skull, X, Zap } from "lucide-react";
-import { useState } from "react";
+import { Check, Hourglass, Skull, X, Zap } from "lucide-react";
+import { useEffect, useState } from "react";
 
+import { useNow } from "@/hooks/useNow";
+import {
+    curseDurationMs,
+    curseRequiresDice,
+    formatCurseCountdown,
+} from "@/lib/curseMeta";
+import { gameSize } from "@/lib/gameSetup";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -29,10 +36,51 @@ import { SectionPill } from "./JetLagLogo";
  */
 export function CurseInbox() {
     const $curses = useStore(receivedCurses);
+    const $gameSize = useStore(gameSize);
     const [dialogCurse, setDialogCurse] = useState<ReceivedCurse | null>(null);
 
     const unack = $curses.filter((c) => !c.acknowledged);
     const active = $curses.filter((c) => c.acknowledged && !c.dismissed);
+
+    // Per-curse derived metadata (memo-free; cheap string ops).
+    const meta = (c: ReceivedCurse) => {
+        const durationMs = curseDurationMs(c, $gameSize);
+        return {
+            requiresDice: curseRequiresDice(c),
+            durationMs,
+            expiresAt: durationMs != null ? c.receivedAt + durationMs : null,
+        };
+    };
+
+    // 1 Hz tick to drive the countdowns + auto-clear. Only ticks while
+    // there's a live timed curse to watch (visibility-aware).
+    const anyTimed = $curses.some(
+        (c) => !c.dismissed && meta(c).expiresAt != null,
+    );
+    const now = useNow(anyTimed);
+
+    // Auto-clear time-limited curses the moment their timer runs out — a
+    // duration curse ("for the next N minutes") shouldn't linger needing a
+    // manual dismiss. Marks them dismissed (same as the manual clear).
+    useEffect(() => {
+        const expired = $curses.filter((c) => {
+            if (c.dismissed) return false;
+            const e = meta(c).expiresAt;
+            return e != null && now >= e;
+        });
+        if (expired.length === 0) return;
+        const ids = new Set(expired.map((c) => c.receivedAt));
+        receivedCurses.set(
+            receivedCurses
+                .get()
+                .map((c) =>
+                    ids.has(c.receivedAt)
+                        ? { ...c, acknowledged: true, dismissed: true }
+                        : c,
+                ),
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [now, $curses, $gameSize]);
 
     if (unack.length === 0 && active.length === 0) return null;
 
@@ -66,6 +114,7 @@ export function CurseInbox() {
     const resolvedDialog = dialogCurse
         ? ($curses.find((c) => c.receivedAt === dialogCurse.receivedAt) ?? null)
         : null;
+    const dlgMeta = resolvedDialog ? meta(resolvedDialog) : null;
 
     return (
         <>
@@ -86,29 +135,43 @@ export function CurseInbox() {
                     role="status"
                     aria-live="polite"
                 >
-                    {active.map((curse) => (
-                        <button
-                            key={curse.receivedAt}
-                            type="button"
-                            onClick={() => setDialogCurse(curse)}
-                            aria-label={`Active curse: ${curse.name}. Tap to roll dice.`}
-                            title={`${curse.name} — tap to roll dice`}
-                            className={cn(
-                                "flex items-center gap-2.5 max-w-[200px]",
-                                "rounded-lg pl-3 pr-2.5 py-2 shadow-lg",
-                                "bg-[#5b4f96] hover:bg-[#6a5dab] transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
-                            )}
-                        >
-                            <span className="min-w-0 font-inter-tight font-black uppercase tracking-tight text-xs leading-tight text-white text-left">
-                                {curse.name}
-                            </span>
-                            <Skull
-                                className="w-5 h-5 text-white shrink-0"
-                                strokeWidth={2.25}
-                            />
-                        </button>
-                    ))}
+                    {active.map((curse) => {
+                        const m = meta(curse);
+                        const remaining =
+                            m.expiresAt != null
+                                ? formatCurseCountdown(m.expiresAt - now)
+                                : null;
+                        return (
+                            <button
+                                key={curse.receivedAt}
+                                type="button"
+                                onClick={() => setDialogCurse(curse)}
+                                aria-label={`Active curse: ${curse.name}. Tap for details.`}
+                                title={`${curse.name} — tap for details`}
+                                className={cn(
+                                    "flex items-center gap-2.5 max-w-[220px]",
+                                    "rounded-lg pl-3 pr-2.5 py-2 shadow-lg",
+                                    "bg-[#5b4f96] hover:bg-[#6a5dab] transition-colors",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70",
+                                )}
+                            >
+                                <span className="min-w-0 flex flex-col text-left">
+                                    <span className="min-w-0 font-inter-tight font-black uppercase tracking-tight text-xs leading-tight text-white truncate">
+                                        {curse.name}
+                                    </span>
+                                    {remaining && (
+                                        <span className="text-[10px] tabular-nums text-white/75 leading-none mt-0.5">
+                                            {remaining} left
+                                        </span>
+                                    )}
+                                </span>
+                                <Skull
+                                    className="w-5 h-5 text-white shrink-0"
+                                    strokeWidth={2.25}
+                                />
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 
@@ -158,11 +221,20 @@ export function CurseInbox() {
                                 <p className="text-xs text-foreground/80 mt-1 leading-snug">
                                     {curse.description}
                                 </p>
-                                {curse.castingCost && (
-                                    <p className="text-[11px] text-muted-foreground mt-1 leading-snug italic">
-                                        Casting cost: {curse.castingCost}
-                                    </p>
-                                )}
+                                {/* Casting cost is the hider's concern, not
+                                    the seeker's — omitted. Timed curses show
+                                    a live "clears in" countdown instead. */}
+                                {(() => {
+                                    const e = meta(curse).expiresAt;
+                                    if (e == null) return null;
+                                    return (
+                                        <p className="text-[11px] text-purple-300 mt-1 leading-snug inline-flex items-center gap-1 tabular-nums">
+                                            <Hourglass className="w-3 h-3" />
+                                            Clears in{" "}
+                                            {formatCurseCountdown(e - now)}
+                                        </p>
+                                    );
+                                })()}
                             </div>
                             <button
                                 type="button"
@@ -182,7 +254,9 @@ export function CurseInbox() {
                         </div>
                         <div className="flex items-center justify-between mt-2 gap-2">
                             <span className="text-[11px] text-purple-400/70 italic">
-                                Tap card to roll dice
+                                {meta(curse).requiresDice
+                                    ? "Tap card to roll dice"
+                                    : "Tap card for details"}
                             </span>
                             <Button
                                 type="button"
@@ -217,14 +291,18 @@ export function CurseInbox() {
                         </DialogTitle>
                     </DialogHeader>
 
-                    {/* Curse description */}
+                    {/* Curse description (no casting cost — that's the
+                        hider's concern). Timed curses show a live "clears
+                        in" countdown. */}
                     <div className="space-y-1.5">
                         <p className="text-sm text-foreground/80 leading-snug">
                             {resolvedDialog?.description}
                         </p>
-                        {resolvedDialog?.castingCost && (
-                            <p className="text-xs text-muted-foreground italic">
-                                Casting cost: {resolvedDialog.castingCost}
+                        {dlgMeta?.expiresAt != null && (
+                            <p className="text-xs text-purple-300 inline-flex items-center gap-1 tabular-nums">
+                                <Hourglass className="w-3 h-3" />
+                                Clears automatically in{" "}
+                                {formatCurseCountdown(dlgMeta.expiresAt - now)}
                             </p>
                         )}
                     </div>
@@ -259,7 +337,9 @@ export function CurseInbox() {
                         </div>
                     )}
 
-                    <DiceRoller />
+                    {/* Dice only for curses that actually make the seekers
+                        roll. */}
+                    {dlgMeta?.requiresDice && <DiceRoller />}
 
                     <div className="flex gap-2">
                         {resolvedDialog && !resolvedDialog.acknowledged ? (
@@ -274,15 +354,27 @@ export function CurseInbox() {
                                 <Check className="w-4 h-4" />
                                 I understand
                             </Button>
+                        ) : dlgMeta?.expiresAt != null ? (
+                            // Timed curse: clears itself, no manual action
+                            // needed — show the countdown instead of a
+                            // clear button.
+                            <div className="flex-1 flex items-center justify-center gap-1.5 text-sm text-purple-300 tabular-nums">
+                                <Hourglass className="w-4 h-4" />
+                                Clears in{" "}
+                                {formatCurseCountdown(dlgMeta.expiresAt - now)}
+                            </div>
                         ) : (
+                            // Open-ended curse: cleared by doing the task in
+                            // the real world — trust the seekers' word.
                             <Button
                                 variant="outline"
-                                className="flex-1 text-muted-foreground"
+                                className="flex-1 gap-1.5"
                                 onClick={() =>
                                     dismiss(resolvedDialog!.receivedAt)
                                 }
                             >
-                                Curse expired
+                                <Check className="w-4 h-4" />
+                                Clear curse
                             </Button>
                         )}
                         <Button
