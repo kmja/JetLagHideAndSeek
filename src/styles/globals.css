@@ -7,6 +7,12 @@ body {
     margin: 0;
     width: 100%;
     height: 100%;
+    /* Disable the browser's pull-to-refresh (and the rubber-band
+       overscroll glow/bounce) so a downward swipe at the top of a panel
+       or the map doesn't reload the whole app. `none` also stops scroll
+       chaining to the document. Inner scroll areas (drawers, the
+       questions list) still scroll normally. */
+    overscroll-behavior: none;
 }
 
 .leaflet-container {
