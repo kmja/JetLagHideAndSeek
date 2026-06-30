@@ -12,6 +12,7 @@
  * by their existing `top-2`/`top-[72px]` classes.
  */
 
+import { DebugLaunchButton } from "@/components/DebugLaunchButton";
 import { HideSeekWordmark } from "@/components/JetLagLogo";
 import { NotificationsIconButton } from "@/components/NotificationsToggle";
 import { cn } from "@/lib/utils";
@@ -39,9 +40,11 @@ export function SeekerTopBar() {
                 "group-[.fullscreen]:hidden",
             )}
         >
-            {/* Spacer so the wordmark stays optically centred even
-                with the notif button on the right. */}
-            <div className="w-10 h-10" aria-hidden />
+            {/* Debug launcher (v617) — lives in the header now; the old
+                floating bottom-left chip collided with the Map-options
+                chip moved there in v616. Also balances the notif button
+                on the right so the wordmark stays optically centred. */}
+            <DebugLaunchButton />
 
             <HideSeekWordmark className="text-white" />
 

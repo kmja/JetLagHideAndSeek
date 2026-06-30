@@ -117,7 +117,10 @@ export function HiderPage() {
             <AppConfirmHost />
             <AppPromptHost />
             <Suspense fallback={null}>
-                <DebugPhaseControls />
+                {/* In-game: HiderShell's HiderTopBar (visible on every
+                    viewport) carries the debug launcher, so no floating
+                    chip here. */}
+                <DebugPhaseControls floating="never" />
                 <StaleSessionPrompt />
                 {/* Game settings + new-game wizard. Mounted on
                     the hider page so the hider has the same access

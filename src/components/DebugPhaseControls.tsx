@@ -63,7 +63,21 @@ type Phase =
     | "answered-yes"
     | "answered-no";
 
-export function DebugPhaseControls() {
+/**
+ * Where the legacy floating "debug" chip should appear:
+ *   "always"  — every viewport (used on /welcome, which has no header)
+ *   "desktop" — desktop only; mobile reaches it via the header
+ *               `DebugLaunchButton` (seeker page: header is md:hidden)
+ *   "never"   — header always present (hider page) so no floating chip
+ * v617: the panel + actions are unchanged; this only gates the launcher.
+ */
+type DebugFloating = "always" | "desktop" | "never";
+
+export function DebugPhaseControls({
+    floating = "always",
+}: {
+    floating?: DebugFloating;
+} = {}) {
     const open = useStore(debugPanelOpen);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
@@ -532,7 +546,7 @@ export function DebugPhaseControls() {
     }, []);
     if (!mounted || typeof document === "undefined") return null;
 
-    const triggerButton = !open && (
+    const triggerButton = !open && floating !== "never" && (
         <button
             type="button"
             onClick={() => debugPanelOpen.set(true)}
@@ -541,11 +555,15 @@ export function DebugPhaseControls() {
                 // v271: moved from right → left so it doesn't collide
                 // with the HiderTimer that lives at bottom-right.
                 "fixed bottom-20 left-3 z-[9999] pointer-events-auto",
-                "flex items-center gap-1 px-2 py-1 rounded-md",
+                "items-center gap-1 px-2 py-1 rounded-md",
                 "bg-background/80 border border-border/60",
                 "text-[11px] font-mono text-muted-foreground/40",
                 "hover:text-muted-foreground hover:bg-secondary/80 hover:border-border transition-colors",
                 "shadow-sm",
+                // v617: on the seeker page the floating chip is desktop-only
+                // (mobile reaches the panel via the header DebugLaunchButton),
+                // since the bottom-left corner now holds the Map-options chip.
+                floating === "desktop" ? "hidden md:flex" : "flex",
                 // v353: amber-tint the launcher while GPS is spoofed so a
                 // forgotten spoof can't masquerade as broken real GPS.
                 $spoof && "text-amber-400 border-amber-400/60 bg-amber-950/40",
@@ -556,7 +574,7 @@ export function DebugPhaseControls() {
         </button>
     );
 
-    if (!open) return createPortal(triggerButton, document.body);
+    if (!open) return triggerButton ? createPortal(triggerButton, document.body) : null;
 
     const content = (
         <div

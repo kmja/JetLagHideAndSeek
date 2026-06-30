@@ -750,10 +750,15 @@ export function GameLobbyDialog() {
                             onOpenChange={setTransitEditOpen}
                         >
                             <DialogContent
+                                // Raise above the lobby drawer (content
+                                // z-[1055]) — the default dialog z-[1050]
+                                // would open BEHIND it (see CLAUDE.md
+                                // z-index ladder).
                                 className={cn(
                                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                                    "sm:max-w-md",
+                                    "sm:max-w-md z-[1060]",
                                 )}
+                                overlayClassName="z-[1060]"
                             >
                                 <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em]">
                                     Transit modes

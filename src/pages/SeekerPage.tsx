@@ -31,7 +31,6 @@ import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
 import { SeekerTopBar } from "@/components/SeekerTopBar";
-import { SeekerTripPlannerLauncher } from "@/components/SeekerTripPlannerLauncher";
 import { SeekerTripPlannerSheet } from "@/components/SeekerTripPlannerSheet";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
@@ -44,7 +43,6 @@ import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useReleaseStuckBodyLock } from "@/hooks/useReleaseStuckBodyLock";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
-import { pendingOverlayActive } from "@/lib/context";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 import { cn } from "@/lib/utils";
@@ -148,11 +146,6 @@ export function SeekerPage() {
         return () => window.clearTimeout(t);
     }, [$hidingEndsAt]);
 
-    // When the pending-answer overlay occupies the top of the map, slide
-    // the top-right controls (map options + trip planner) down so they
-    // don't collide with it.
-    const $pendingOverlay = useStore(pendingOverlayActive);
-
     // Safety net for the lobby→in-game branch swap below: if the lobby
     // drawer was still open when the game started (e.g. a guest getting
     // the host's setupChanged push), it unmounts without closing and can
@@ -239,21 +232,6 @@ export function SeekerPage() {
                         {/* Top-right: trip-planner launcher. Slides down
                             when the pending-answer overlay is pinned to the
                             top so they don't overlap on narrow screens. */}
-                        <div
-                            className={cn(
-                                "absolute right-2 z-[1030] group-[.fullscreen]:hidden flex flex-col items-end gap-2",
-                                "transition-[top] duration-300 ease-out",
-                                $pendingOverlay
-                                    ? "top-[5.5rem] md:top-[6rem]"
-                                    : "top-2",
-                            )}
-                        >
-                            {/* Trip planner launcher — opens the
-                                bottom-drawer SeekerTripPlannerSheet which
-                                fetches a journey from live GPS to the
-                                typed place. */}
-                            <SeekerTripPlannerLauncher />
-                        </div>
                         {/* Map-options chip — bottom-left (v616). Pushed UP
                             above the HiderTimer while it sits bottom-left
                             during the hiding period; drops to the corner
@@ -301,7 +279,10 @@ export function SeekerPage() {
                         <RolePicker />
                         <AnswerLinkReader />
                         <CurseInbox />
-                        <DebugPhaseControls />
+                        {/* In-game: the debug launcher lives in the
+                            mobile header (SeekerTopBar). The floating chip
+                            stays only on desktop, which has no header. */}
+                        <DebugPhaseControls floating="desktop" />
                         <StaleSessionPrompt />
                         <GoGoGoOverlay />
                         <SeekingStartOverlay />

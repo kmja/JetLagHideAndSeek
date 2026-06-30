@@ -110,7 +110,7 @@ Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib
 
 **Hider trip-plan card** (`HiderTripPlanCard.tsx`): rendered inside `HiderHome`'s `hiding`/`grace` branches under the zone picker once `hidingZone` is set — calls `/api/travel/plan` from live GPS to the committed station, renders via the shared `JourneyCard`. Re-fetches on zone/mode change or when the **settled** GPS origin moves past the trip re-plan threshold — both trip planners (hider card + seeker sheet) gate on `useStableGpsOrigin` (`src/hooks/useStableGpsOrigin.ts`, default 150 m) so position jitter while standing still no longer re-runs the plan effect (which used to abort the in-flight request every tick and make the card reload constantly).
 
-**Seeker trip planner** (`SeekerTripPlannerSheet.tsx` + launcher pill): Vaul drawer in the top-right cluster of `SeekerPage`. Text input → `forwardGeocodeOne` (or `lat,lng` paste) → `JourneyCard` for the journey from live GPS. Open state in `seekerTripPlannerOpen`.
+**Seeker trip planner** (`SeekerTripPlannerSheet.tsx`): Vaul drawer, text input → `forwardGeocodeOne` (or `lat,lng` paste) → `JourneyCard` for the journey from live GPS. Open state in `seekerTripPlannerOpen`. **v617: the "Search place" launcher pill was removed** (it sat top-right of the map) — the sheet stays mounted but currently has no in-app entry point; re-add a launcher if trip search is wanted back.
 
 ### Subtype picker (matching/measuring/tentacles)
 `src/lib/subtypes.ts` defines `SUBTYPES` with `validSizes: GameSize[]` per entry. `-full` suffixed types (e.g. `aquarium-full`) are Small+Medium only — not available in Large games. Use `isSubtypeAllowed(value, size)` to filter dropdowns, `getSubtypes(categoryId, size)` for the step-2 picker tiles. Use `cleanDescription(desc)` to strip `" Question"` and `" (Small+Medium Games)"` suffixes from schema descriptions.
@@ -151,8 +151,7 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
     <main>
       <div> {/* map container */}
         <SidebarTriggerL />                  {/* top-left, desktop only */}
-        <MapDisplayControls />               {/* top-right; slides DOWN when a question overlay is shown */}
-        <SeekerTripPlannerLauncher />        {/* top-right, under controls */}
+        <MapDisplayControls />               {/* bottom-left (v616); pushed up above HiderTimer during hiding */}
         <HiderTimer />                       {/* bottom-left (hiding) / bottom-right (seeking), raised off the bottom so the basemap attribution stays visible */}
         <PendingAnswerOverlay />             {/* TOP-center: the show-style pending-answer card (v559) */}
         <ThermometerOverlay /> <TravelTimesOverlay />
@@ -351,7 +350,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v616`. Use `git log` for the per-version detail;
+build stamp. Current: `v617`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -437,7 +436,18 @@ the headline arcs since the v414 rulebook-audit pass:
   overlay at once via a `preview` prop on each overlay (shadows its
   atoms, writes nothing global), plus a light/dark toggle. The debug
   panel (`DebugPhaseControls`) is also mounted on the `/welcome` landing
-  page now.
+  page now. **Debug launcher in the header (v617):** the panel's launcher
+  is the inline `DebugLaunchButton` (`Bug` icon, left slot of
+  `SeekerTopBar`/`HiderTopBar`) — it replaced the floating bottom-left
+  "debug" chip, which now collided with the Map-options chip moved there
+  in v616. `DebugLaunchButton` only imports `debugPanelOpen` +
+  `spoofedPosition` (featherweight) so the header stays out of the heavy
+  lazy debug bundle. `DebugPhaseControls` takes a `floating` prop
+  (`"always"` default / `"desktop"` / `"never"`) gating the legacy
+  floating chip: seeker in-game uses `"desktop"` (mobile has the header,
+  desktop has no header), hider in-game uses `"never"` (HiderTopBar shows
+  on every viewport), and the pre-game lobbies + `/welcome` keep
+  `"always"` (no header there).
 
 Still enforced from the v414 audit (see `RULEBOOK_AUDIT.md`): Overflowing
 Chalice draw boost, Move powerup pause/freeze/re-anchor, thermometer

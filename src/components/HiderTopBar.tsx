@@ -1,3 +1,4 @@
+import { DebugLaunchButton } from "@/components/DebugLaunchButton";
 import { HideSeekWordmark } from "@/components/JetLagLogo";
 import { NotificationsIconButton } from "@/components/NotificationsToggle";
 import { cn } from "@/lib/utils";
@@ -32,7 +33,7 @@ export function HiderTopBar() {
                 "flex items-center justify-between gap-2",
             )}
         >
-            <div className="w-10 h-10" aria-hidden />
+            <DebugLaunchButton />
             <HideSeekWordmark className="text-white" />
             <NotificationsIconButton className="w-10 h-10 !bg-white/10 !border-white/30 !text-white hover:!bg-white/20" />
         </header>
