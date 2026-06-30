@@ -359,7 +359,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v620`. Use `git log` for the per-version detail;
+build stamp. Current: `v621`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -436,6 +436,34 @@ the headline arcs since the v414 rulebook-audit pass:
   **Curses are per-round (v616):** `startNewRound` AND `startNewGame`
   (`roundActions.ts`) clear `receivedCurses` so a curse the seeker was
   still under doesn't bleed into the next round/game.
+  **In-app curse ENFORCEMENT (v621):** three curses whose effect is
+  "block the seekers from asking" are now enforced by the question UI,
+  not just displayed — `src/lib/curseEnforcement.ts` is the single source
+  (`computeAskingRestrictions(curses, {onTransit, spottyCategory})` →
+  `{disabledCategories, blockedAll, reason, needsSpottyRoll}`):
+  - **Drained Brain** — the hider picks **3 categories** at cast time
+    (`CastCurseDialog` multi-select, gates the cast); they ride the curse
+    payload's new optional `disabledCategories: string[]` field (added to
+    both `protocol/messages.ts CursePayload` and `shareLinks
+    SharedCursePayload`, carried over the wire AND the `?c=` link) and stay
+    greyed out in the seeker's `AddQuestionDialog` tiles for the run.
+  - **Spotty Memory** — the seeker rolls a d6 in the `CurseInbox` dialog
+    (`DiceRoller` gained an `onSettle` cb; roll → `SPOTTY_DIE_CATEGORIES`
+    index → `spottyMemoryCategory` atom); that one category is disabled
+    until the next question is asked, when `CurseInbox`'s question-count
+    effect clears it to force a re-roll. Before rolling, asking is blocked
+    entirely (`needsSpottyRoll`).
+  - **Urban Explorer** — a seeker self-declared `seekerOnTransit` toggle
+    (in the curse dialog; the app has no reliable on-transit signal) blocks
+    ALL asking while on.
+  The gate is applied in `AddQuestionDialog` (per-tile `curseReason()` +
+  a full-block notice) and `BottomNav` (New-question button disabled on
+  `blockedAll`). These three are "rest of your run" curses → NOT manually
+  clearable in `CurseInbox` (would drop the enforcement); they lift at
+  round end. `seekerOnTransit` + `spottyMemoryCategory` reset per round in
+  `roundActions`. The dice/movement curses (Jammed Door, Gambler's Feet,
+  Endless Tumble, Right Turn) stay real-world — the app's only role is the
+  existing dice roller.
 - **A sent/answered question can't be deleted** (it would desync from
   the hider). As of v585 `cards/base.tsx` has **no delete control at
   all** — the earlier "swap the trash for a disabled lock in online

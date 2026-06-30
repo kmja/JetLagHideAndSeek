@@ -1,8 +1,18 @@
 import { useStore } from "@nanostores/react";
-import { Check, Hourglass, Skull, X, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Ban, Check, Hourglass, Skull, Train, X, Zap } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { useNow } from "@/hooks/useNow";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { questions } from "@/lib/context";
+import {
+    CURSE_DRAINED_BRAIN,
+    CURSE_SPOTTY_MEMORY,
+    CURSE_URBAN_EXPLORER,
+    seekerOnTransit,
+    spottyMemoryCategory,
+    SPOTTY_DIE_CATEGORIES,
+} from "@/lib/curseEnforcement";
 import {
     curseDurationMs,
     curseRequiresDice,
@@ -23,6 +33,17 @@ import { DiceRoller } from "./DiceRoller";
 import { SectionPill } from "./JetLagLogo";
 
 /**
+ * App-enforced curses that last "for the rest of your run" — the seeker
+ * can't manually clear them (that would just drop the enforcement); they
+ * lift at round end when `receivedCurses` is wiped.
+ */
+const ENFORCED_REST_OF_RUN = new Set<string>([
+    CURSE_DRAINED_BRAIN,
+    CURSE_SPOTTY_MEMORY,
+    CURSE_URBAN_EXPLORER,
+]);
+
+/**
  * Two-part curse UI for the seeker:
  *
  * 1. Notification banners (unacknowledged) — full card with curse text.
@@ -37,10 +58,37 @@ import { SectionPill } from "./JetLagLogo";
 export function CurseInbox() {
     const $curses = useStore(receivedCurses);
     const $gameSize = useStore(gameSize);
+    const $onTransit = useStore(seekerOnTransit);
+    const $spottyCategory = useStore(spottyMemoryCategory);
+    const $questions = useStore(questions);
     const [dialogCurse, setDialogCurse] = useState<ReceivedCurse | null>(null);
 
     const unack = $curses.filter((c) => !c.acknowledged);
     const active = $curses.filter((c) => c.acknowledged && !c.dismissed);
+
+    // Spotty Memory re-rolls each question: the disabled category holds
+    // until the seekers ask their next question, then they must roll
+    // again. Detect a new question by watching the seeker question count
+    // and clear the rolled category so the curse card forces a fresh roll.
+    const spottyActive = $curses.some(
+        (c) => !c.dismissed && c.name === CURSE_SPOTTY_MEMORY,
+    );
+    const prevQCountRef = useRef($questions.length);
+    useEffect(() => {
+        const grew = $questions.length > prevQCountRef.current;
+        prevQCountRef.current = $questions.length;
+        if (grew && spottyActive && spottyMemoryCategory.get() != null) {
+            spottyMemoryCategory.set(null);
+        }
+    }, [$questions.length, spottyActive]);
+
+    // When Spotty Memory clears entirely, drop any lingering rolled
+    // category so it doesn't leak into a later curse.
+    useEffect(() => {
+        if (!spottyActive && spottyMemoryCategory.get() != null) {
+            spottyMemoryCategory.set(null);
+        }
+    }, [spottyActive]);
 
     // Per-curse derived metadata (memo-free; cheap string ops).
     const meta = (c: ReceivedCurse) => {
@@ -337,9 +385,130 @@ export function CurseInbox() {
                         </div>
                     )}
 
-                    {/* Dice only for curses that actually make the seekers
-                        roll. */}
-                    {dlgMeta?.requiresDice && <DiceRoller />}
+                    {/* ── Enforced-curse controls ──
+                        Spotty Memory rolls a d6 → disabled category;
+                        Urban Explorer toggles the on-transit block;
+                        Drained Brain shows its locked-out categories.
+                        Other dice curses get the plain roller. */}
+                    {resolvedDialog?.name === CURSE_SPOTTY_MEMORY ? (
+                        <div className="space-y-2">
+                            <DiceRoller
+                                onSettle={(v) =>
+                                    spottyMemoryCategory.set(
+                                        SPOTTY_DIE_CATEGORIES[v - 1],
+                                    )
+                                }
+                            />
+                            <div className="rounded-sm border border-purple-500/40 bg-purple-500/5 px-2.5 py-2 text-xs leading-snug">
+                                {$spottyCategory ? (
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <Ban className="w-3.5 h-3.5 text-purple-300 shrink-0" />
+                                        <span>
+                                            Disabled now:{" "}
+                                            <span className="font-bold">
+                                                {
+                                                    CATEGORIES[$spottyCategory]
+                                                        .label
+                                                }
+                                            </span>
+                                            . You&apos;ll re-roll after your
+                                            next question.
+                                        </span>
+                                    </span>
+                                ) : (
+                                    "Roll the die to see which category is disabled for your next question. You can't ask until you roll."
+                                )}
+                            </div>
+                        </div>
+                    ) : resolvedDialog?.name === CURSE_URBAN_EXPLORER ? (
+                        <button
+                            type="button"
+                            onClick={() => seekerOnTransit.set(!$onTransit)}
+                            aria-pressed={$onTransit}
+                            className={cn(
+                                "w-full rounded-sm border-2 px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors",
+                                $onTransit
+                                    ? "border-purple-400 bg-purple-500/20"
+                                    : "border-border bg-background/40 hover:border-purple-500/50",
+                            )}
+                        >
+                            <Train
+                                className={cn(
+                                    "w-4 h-4 shrink-0",
+                                    $onTransit
+                                        ? "text-purple-200"
+                                        : "text-muted-foreground",
+                                )}
+                            />
+                            <span className="flex-1 min-w-0">
+                                <span className="block text-xs font-semibold">
+                                    {$onTransit
+                                        ? "On transit — questions blocked"
+                                        : "I'm on transit / in a station"}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground leading-snug">
+                                    Turn this on while you&apos;re on transit
+                                    or in a station — asking is blocked until
+                                    you turn it off.
+                                </span>
+                            </span>
+                            <span
+                                className={cn(
+                                    "shrink-0 w-9 h-5 rounded-full transition-colors relative",
+                                    $onTransit
+                                        ? "bg-purple-400"
+                                        : "bg-muted-foreground/40",
+                                )}
+                            >
+                                <span
+                                    className={cn(
+                                        "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all",
+                                        $onTransit ? "left-[18px]" : "left-0.5",
+                                    )}
+                                />
+                            </span>
+                        </button>
+                    ) : resolvedDialog?.name === CURSE_DRAINED_BRAIN &&
+                      resolvedDialog.disabledCategories &&
+                      resolvedDialog.disabledCategories.length > 0 ? (
+                        <div className="rounded-sm border border-purple-500/40 bg-purple-500/5 px-2.5 py-2">
+                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-purple-300 mb-1.5">
+                                Disabled for the rest of the run
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {resolvedDialog.disabledCategories.map((id) => {
+                                    const meta =
+                                        CATEGORIES[id as CategoryId];
+                                    if (!meta) return null;
+                                    const Icon = meta.icon;
+                                    return (
+                                        <span
+                                            key={id}
+                                            className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/40 px-2.5 py-1 text-[11px] font-semibold"
+                                        >
+                                            <span
+                                                className="inline-flex items-center justify-center w-4 h-4 rounded-sm shrink-0"
+                                                style={{
+                                                    backgroundColor:
+                                                        meta.color,
+                                                }}
+                                                aria-hidden="true"
+                                            >
+                                                <Icon
+                                                    size={10}
+                                                    strokeWidth={2.5}
+                                                    className="text-white"
+                                                />
+                                            </span>
+                                            {meta.label}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ) : dlgMeta?.requiresDice ? (
+                        <DiceRoller />
+                    ) : null}
 
                     <div className="flex gap-2">
                         {resolvedDialog && !resolvedDialog.acknowledged ? (
@@ -362,6 +531,17 @@ export function CurseInbox() {
                                 <Hourglass className="w-4 h-4" />
                                 Clears in{" "}
                                 {formatCurseCountdown(dlgMeta.expiresAt - now)}
+                            </div>
+                        ) : resolvedDialog &&
+                          ENFORCED_REST_OF_RUN.has(resolvedDialog.name) ? (
+                            // App-enforced "rest of your run" curses (Drained
+                            // Brain / Spotty Memory / Urban Explorer): NOT
+                            // manually clearable — clearing would just remove
+                            // the enforcement. They lift automatically at
+                            // round end (receivedCurses is wiped).
+                            <div className="flex-1 flex items-center justify-center gap-1.5 text-xs text-muted-foreground leading-snug text-center">
+                                Active for the rest of the run — lifts when the
+                                round ends.
                             </div>
                         ) : (
                             // Open-ended curse: cleared by doing the task in

@@ -13,11 +13,13 @@ import {
     DialogFooter,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     canPayDiscardCost,
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
+import { CURSE_DRAINED_BRAIN } from "@/lib/curseEnforcement";
 import { gameSize } from "@/lib/gameSetup";
 import type { CurseCard } from "@/lib/hiderDeck";
 import {
@@ -92,6 +94,12 @@ export function CastCurseDialog({
      *  (e.g. "Discard 2 cards"). Empty until they pick; the cast
      *  button stays gated until the right count is chosen. */
     const [costSelectedIds, setCostSelectedIds] = useState<string[]>([]);
+    /** Drained Brain only: the 3 categories the hider picks to disable
+     *  on the seekers for the rest of the run. */
+    const [drainedCategories, setDrainedCategories] = useState<CategoryId[]>(
+        [],
+    );
+    const isDrainedBrain = card?.name === CURSE_DRAINED_BRAIN;
     const fizzleRule = card ? DICE_FIZZLE[card.name] : undefined;
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
@@ -163,6 +171,7 @@ export function CastCurseDialog({
             setShowFizzleEffect(false);
             setLastShareResult(null);
             setCostSelectedIds([]);
+            setDrainedCategories([]);
         }
     }, [open, card?.id]);
 
@@ -226,7 +235,23 @@ export function CastCurseDialog({
         // Discard casting costs must be payable AND paid (the hider has
         // designated the cards) before the curse can be cast.
         costSatisfiable &&
-        costPaid;
+        costPaid &&
+        // Drained Brain: exactly 3 categories must be chosen before the
+        // curse can be cast (it disables those 3 on the seekers).
+        (!isDrainedBrain || drainedCategories.length === 3);
+
+    const toggleDrainedCategory = (id: CategoryId) => {
+        setDrainedCategories((curr) => {
+            if (curr.includes(id)) return curr.filter((x) => x !== id);
+            if (curr.length >= 3) return curr; // cap at 3
+            return [...curr, id];
+        });
+    };
+
+    /** The enforcement params carried in the cast payload (Drained Brain
+     *  only). Undefined for every other curse. */
+    const enforceParams = (): { disabledCategories?: string[] } =>
+        isDrainedBrain ? { disabledCategories: drainedCategories } : {};
 
     const roll = () => {
         if (rolling) return;
@@ -329,6 +354,7 @@ export function CastCurseDialog({
                 name: card.name,
                 description: card.description,
                 castingCost: card.castingCost ?? null,
+                ...enforceParams(),
             });
             payCostDiscards();
             discardCard(card.id);
@@ -344,6 +370,7 @@ export function CastCurseDialog({
                 name: card.name,
                 description: card.description,
                 castingCost: card.castingCost ?? null,
+                ...enforceParams(),
             });
             const result = await shareOrCopy({
                 title: `${card.name} cast on you`,
@@ -396,6 +423,7 @@ export function CastCurseDialog({
                 name: card.name,
                 description: card.description,
                 castingCost: card.castingCost ?? null,
+                ...enforceParams(),
             });
             try {
                 await navigator.clipboard.writeText(url);
@@ -546,6 +574,69 @@ export function CastCurseDialog({
                             semantics (sr-only label still works). */}
                         <p>{renderBodyText(card.description, $gameSize)}</p>
                     </DialogDescription>
+
+                    {/* Drained Brain: pick the 3 categories to disable on
+                        the seekers. The app ENFORCES these — the chosen
+                        categories are greyed out in the seekers' New
+                        question picker for the rest of the run. */}
+                    {isDrainedBrain && (
+                        <div className="rounded-sm border-2 border-purple-500/40 bg-purple-500/5 px-3 py-2.5">
+                            <div className="flex items-center justify-between mb-1.5">
+                                <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-purple-300">
+                                    Pick 3 categories to disable
+                                </span>
+                                <span className="text-[11px] tabular-nums text-muted-foreground">
+                                    {drainedCategories.length} / 3
+                                </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {(
+                                    Object.keys(CATEGORIES) as CategoryId[]
+                                ).map((id) => {
+                                    const sel =
+                                        drainedCategories.includes(id);
+                                    const meta = CATEGORIES[id];
+                                    const Icon = meta.icon;
+                                    return (
+                                        <button
+                                            key={id}
+                                            type="button"
+                                            onClick={() =>
+                                                toggleDrainedCategory(id)
+                                            }
+                                            aria-pressed={sel}
+                                            className={cn(
+                                                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                                                sel
+                                                    ? "border-purple-400 bg-purple-500/25 text-purple-100"
+                                                    : "border-border bg-background/40 text-foreground/80 hover:border-purple-500/50",
+                                            )}
+                                        >
+                                            <span
+                                                className="inline-flex items-center justify-center w-4 h-4 rounded-sm shrink-0"
+                                                style={{
+                                                    backgroundColor:
+                                                        meta.color,
+                                                }}
+                                                aria-hidden="true"
+                                            >
+                                                <Icon
+                                                    size={10}
+                                                    strokeWidth={2.5}
+                                                    className="text-white"
+                                                />
+                                            </span>
+                                            {meta.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground leading-snug mt-2">
+                                These stay disabled for the seekers for the
+                                rest of your run — the app enforces it.
+                            </p>
+                        </div>
+                    )}
 
                     {card.castingCost && (
                         // One unified "Casting cost" box. For curses

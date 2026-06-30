@@ -20,6 +20,12 @@ import {
 import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
+    computeAskingRestrictions,
+    seekerOnTransit,
+    spottyMemoryCategory,
+} from "@/lib/curseEnforcement";
+import { receivedCurses } from "@/lib/seekerInbound";
+import {
     addQuestion,
     defaultCustomQuestions,
     defaultUnit,
@@ -276,6 +282,16 @@ export const AddQuestionDialog = ({
     const $gameSize = useStore(gameSize);
     // v355: country-aware labels on the admin-division subtype tiles.
     const $mapGeo = useStore(mapGeoLocation);
+    // Curse enforcement (v621): some active curses block certain question
+    // categories (Drained Brain / Spotty Memory) or all asking (Urban
+    // Explorer on transit, or Spotty Memory before the seekers roll).
+    const $curses = useStore(receivedCurses);
+    const $onTransit = useStore(seekerOnTransit);
+    const $spottyCategory = useStore(spottyMemoryCategory);
+    const curseBlock = computeAskingRestrictions($curses, {
+        onTransit: $onTransit,
+        spottyCategory: $spottyCategory,
+    });
     const [open, setOpen] = React.useState(false);
     // Step 2 of the add flow: when the user picks a category that has
     // multiple subtypes (matching / measuring / tentacles / photo), we
@@ -742,6 +758,16 @@ export const AddQuestionDialog = ({
                         <DrawerTitle>Add Question</DrawerTitle>
                         <DrawerDescription>Pick a category.</DrawerDescription>
 
+                        {/* Curse block notice (v621) — when an active curse
+                            disables all asking (Urban Explorer on transit /
+                            Spotty Memory before rolling), explain why every
+                            tile is greyed out. */}
+                        {curseBlock.blockedAll && curseBlock.reason && (
+                            <div className="mt-2 rounded-sm border-2 border-purple-500/50 bg-purple-500/10 px-3 py-2 text-xs text-purple-200 leading-snug">
+                                {curseBlock.reason}
+                            </div>
+                        )}
+
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                             {(() => {
                                 // Rulebook (p38): "Tentacle questions cannot be used
@@ -777,6 +803,19 @@ export const AddQuestionDialog = ({
                                     $alternate && lastQuestionType === "photo";
                                 const tentaclesBlockedByLast =
                                     $alternate && lastQuestionType === "tentacles";
+                                // Curse gating (v621): a full block (Urban
+                                // Explorer on transit / Spotty Memory before
+                                // rolling) disables every tile; otherwise just
+                                // the specific cursed categories (Drained Brain
+                                // / Spotty Memory's current roll).
+                                const curseReason = (
+                                    cat: CategoryId,
+                                ): string | undefined =>
+                                    curseBlock.blockedAll
+                                        ? curseBlock.reason
+                                        : curseBlock.disabledCategories.has(cat)
+                                          ? "Disabled by an active curse."
+                                          : undefined;
                                 return (
                                     <>
                                         <CategoryTile
@@ -789,13 +828,17 @@ export const AddQuestionDialog = ({
                                                 );
                                                 setSubtypePickerFor("matching");
                                             }}
-                                            disabled={matchingBlockedByLast}
+                                            disabled={
+                                                matchingBlockedByLast ||
+                                                curseReason("matching") !==
+                                                    undefined
+                                            }
                                             blockedReason={
                                                 matchingBlockedByLast
                                                     ? alternationReason(
                                                           "matching",
                                                       )
-                                                    : undefined
+                                                    : curseReason("matching")
                                             }
                                         />
                                         <CategoryTile
@@ -810,13 +853,17 @@ export const AddQuestionDialog = ({
                                                     "measuring",
                                                 );
                                             }}
-                                            disabled={measuringBlockedByLast}
+                                            disabled={
+                                                measuringBlockedByLast ||
+                                                curseReason("measuring") !==
+                                                    undefined
+                                            }
                                             blockedReason={
                                                 measuringBlockedByLast
                                                     ? alternationReason(
                                                           "measuring",
                                                       )
-                                                    : undefined
+                                                    : curseReason("measuring")
                                             }
                                         />
                                         <CategoryTile
@@ -826,11 +873,15 @@ export const AddQuestionDialog = ({
                                                 if (runAddRadius())
                                                     promoteLastQuestion();
                                             }}
-                                            disabled={radiusBlockedByLast}
+                                            disabled={
+                                                radiusBlockedByLast ||
+                                                curseReason("radius") !==
+                                                    undefined
+                                            }
                                             blockedReason={
                                                 radiusBlockedByLast
                                                     ? alternationReason("radar")
-                                                    : undefined
+                                                    : curseReason("radius")
                                             }
                                         />
                                         <CategoryTile
@@ -848,7 +899,9 @@ export const AddQuestionDialog = ({
                                             }}
                                             disabled={
                                                 thermInProgress ||
-                                                thermometerBlockedByLast
+                                                thermometerBlockedByLast ||
+                                                curseReason("thermometer") !==
+                                                    undefined
                                             }
                                             blockedReason={
                                                 thermInProgress
@@ -857,7 +910,9 @@ export const AddQuestionDialog = ({
                                                       ? alternationReason(
                                                             "thermometer",
                                                         )
-                                                      : undefined
+                                                      : curseReason(
+                                                            "thermometer",
+                                                        )
                                             }
                                         />
                                         <CategoryTile
@@ -866,11 +921,15 @@ export const AddQuestionDialog = ({
                                             onClick={() => {
                                                 setSubtypePickerFor("photo");
                                             }}
-                                            disabled={photoBlockedByLast}
+                                            disabled={
+                                                photoBlockedByLast ||
+                                                curseReason("photo") !==
+                                                    undefined
+                                            }
                                             blockedReason={
                                                 photoBlockedByLast
                                                     ? alternationReason("photo")
-                                                    : undefined
+                                                    : curseReason("photo")
                                             }
                                         />
                                         <CategoryTile
@@ -887,7 +946,9 @@ export const AddQuestionDialog = ({
                                             }}
                                             disabled={
                                                 tentacleBlockedSize ||
-                                                tentaclesBlockedByLast
+                                                tentaclesBlockedByLast ||
+                                                curseReason("tentacles") !==
+                                                    undefined
                                             }
                                             blockedReason={
                                                 tentacleBlockedSize
@@ -896,7 +957,9 @@ export const AddQuestionDialog = ({
                                                       ? alternationReason(
                                                             "tentacles",
                                                         )
-                                                      : undefined
+                                                      : curseReason(
+                                                            "tentacles",
+                                                        )
                                             }
                                         />
                                     </>

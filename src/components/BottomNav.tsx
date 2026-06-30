@@ -4,10 +4,16 @@ import { List, Plus, Settings, Users } from "lucide-react";
 import { useNow } from "@/hooks/useNow";
 import { questions, questionsDrawerOpen } from "@/lib/context";
 import {
+    computeAskingRestrictions,
+    seekerOnTransit,
+    spottyMemoryCategory,
+} from "@/lib/curseEnforcement";
+import {
     hidingPeriodEndsAt,
     moreSheetOpen,
 } from "@/lib/gameSetup";
 import { lobbyManualOpen, participants } from "@/lib/multiplayer/session";
+import { receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
@@ -26,6 +32,17 @@ export const BottomNav = () => {
     const $questions = useStore(questions);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $participants = useStore(participants);
+    // Curse enforcement (v621): some active curses block ALL asking
+    // (Urban Explorer on transit, or Spotty Memory before the seekers
+    // roll). Partial category blocks are handled inside AddQuestionDialog;
+    // only a full block disables the New-question button here.
+    const $curses = useStore(receivedCurses);
+    const $onTransit = useStore(seekerOnTransit);
+    const $spottyCategory = useStore(spottyMemoryCategory);
+    const curseBlock = computeAskingRestrictions($curses, {
+        onTransit: $onTransit,
+        spottyCategory: $spottyCategory,
+    });
 
     // Tick state at 1 Hz while a hiding period is active so the
     // New-question button stays accurately disabled across the
@@ -113,16 +130,24 @@ export const BottomNav = () => {
                             "hover:bg-primary/90 active:bg-primary/80",
                             "transition-colors font-poppins",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            (hiding || hasPendingAnswer) && "opacity-50",
+                            (hiding ||
+                                hasPendingAnswer ||
+                                curseBlock.blockedAll) &&
+                                "opacity-50",
                         )}
-                        disabled={hiding || hasPendingAnswer}
+                        disabled={
+                            hiding || hasPendingAnswer || curseBlock.blockedAll
+                        }
                         aria-label="Add question"
                         title={
                             hiding
                                 ? "Hiding period — wait for the timer or end it manually to start asking"
                                 : hasPendingAnswer
                                   ? "Waiting for the hider to answer your previous question"
-                                  : "Add a question"
+                                  : curseBlock.blockedAll
+                                    ? (curseBlock.reason ??
+                                      "Asking is blocked by an active curse")
+                                    : "Add a question"
                         }
                     >
                         <Plus className="w-5 h-5" strokeWidth={2.5} />

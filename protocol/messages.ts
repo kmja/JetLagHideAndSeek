@@ -428,6 +428,13 @@ export interface CursePayload {
     name: string;
     description: string;
     castingCost: string | null;
+    /**
+     * Curse-specific enforcement params chosen by the hider at cast time.
+     * Currently only Drained Brain, which carries the 3 question-category
+     * ids the seekers can no longer ask for the rest of the run. Optional
+     * + back-compat: absent for every other curse and older clients.
+     */
+    disabledCategories?: string[];
 }
 
 /** Push subscription stored by the client for server-side delivery. */

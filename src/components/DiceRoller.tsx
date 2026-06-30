@@ -9,7 +9,13 @@ import { cn } from "@/lib/utils";
  * roll again. Stays compact so it can live alongside the hand panel
  * during the seeking phase without competing for attention.
  */
-export function DiceRoller() {
+export function DiceRoller({
+    onSettle,
+}: {
+    /** Called with the final value once a roll settles. Used by curses
+     *  that map the roll to an effect (e.g. Spotty Memory → category). */
+    onSettle?: (value: number) => void;
+} = {}) {
     const [value, setValue] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
 
@@ -21,11 +27,13 @@ export function DiceRoller() {
         const start = Date.now();
         const tick = () => {
             const elapsed = Date.now() - start;
-            setValue(1 + Math.floor(Math.random() * 6));
+            const next = 1 + Math.floor(Math.random() * 6);
+            setValue(next);
             if (elapsed < 400) {
                 window.setTimeout(tick, 60);
             } else {
                 setRolling(false);
+                onSettle?.(next);
             }
         };
         tick();

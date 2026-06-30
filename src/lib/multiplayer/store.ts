@@ -1076,6 +1076,10 @@ function handleServerMessage(msg: ServerMessage) {
                     name: msg.curse.name,
                     description: msg.curse.description,
                     castingCost: msg.curse.castingCost,
+                    // Carry curse-specific enforcement params (Drained
+                    // Brain's chosen categories) so the seeker's question
+                    // UI can gate the right categories.
+                    disabledCategories: msg.curse.disabledCategories,
                     receivedAt: Date.now(),
                     acknowledged: false,
                 },

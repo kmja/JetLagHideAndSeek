@@ -115,6 +115,13 @@ export interface SharedCursePayload {
     description: string;
     /** Casting requirement, if any. */
     castingCost: string | null;
+    /**
+     * Curse-specific enforcement params the hider picks at cast time.
+     * Currently only Drained Brain (the 3 question-category ids the
+     * seekers can't ask for the rest of the run). Carried verbatim
+     * through the `?c=` link's JSON; absent for every other curse.
+     */
+    disabledCategories?: string[];
 }
 
 /**

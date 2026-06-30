@@ -41,6 +41,10 @@ import {
     displayName as displayNameAtom,
     participants,
 } from "@/lib/multiplayer/session";
+import {
+    seekerOnTransit,
+    spottyMemoryCategory,
+} from "@/lib/curseEnforcement";
 import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
 import { receivedCurses } from "@/lib/seekerInbound";
 
@@ -107,8 +111,11 @@ export function startNewRound() {
     disabledStations.set([]);
     permanentOverlay.set(null);
     // Curses are per-round — clear any the seeker was still under so they
-    // don't carry into the new round.
+    // don't carry into the new round, plus the enforcement state derived
+    // from them (Spotty Memory roll, Urban Explorer on-transit flag).
     receivedCurses.set([]);
+    spottyMemoryCategory.set(null);
+    seekerOnTransit.set(false);
     // Hider-side: inbox, hand, discard, hiding zone, hiding spot,
     // found-at — all wiped.
     resetHiderRoundState();
@@ -215,6 +222,8 @@ export function startNewGame() {
     disabledStations.set([]);
     permanentOverlay.set(null);
     receivedCurses.set([]);
+    spottyMemoryCategory.set(null);
+    seekerOnTransit.set(false);
     resetHiderRoundState();
     roundFoundAt.set(null);
     // v318: fresh game = fresh leaderboard. `startNewRound` does
