@@ -8,6 +8,7 @@ import {
 } from "@/lib/context";
 import {
     closingInWarningLevel,
+    endgameConfirmedAt,
     endgameStartedAt,
     gameSize,
     gameStartFiredFor,
@@ -131,6 +132,10 @@ export function startNewRound() {
     hiddenDebitMs.set(0);
     locationGraceStartedAt.set(null);
     gamePausedForLocationAt.set(null);
+    // Endgame is per-round — clear both the seeker's claim and the
+    // hider's confirmation so the new round doesn't open mid-endgame.
+    endgameStartedAt.set(null);
+    endgameConfirmedAt.set(null);
 }
 
 /**
@@ -227,6 +232,8 @@ export function startNewGame() {
     hiddenDebitMs.set(0);
     locationGraceStartedAt.set(null);
     gamePausedForLocationAt.set(null);
+    endgameStartedAt.set(null);
+    endgameConfirmedAt.set(null);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);

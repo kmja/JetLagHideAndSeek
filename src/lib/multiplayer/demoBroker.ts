@@ -108,6 +108,7 @@ function defaultSetup(): SetupState {
         gameSize: "medium",
         hidingPeriodEndsAt: null,
         endgameStartedAt: null,
+        endgameConfirmedAt: null,
         mapGeoLocation: null,
     };
 }
@@ -340,6 +341,7 @@ function handleClientMessage(msg: ClientMessage) {
         case "startEndgame": {
             if (s.state.setup.endgameStartedAt === null) {
                 s.state.setup.endgameStartedAt = msg.at;
+                s.state.setup.endgameConfirmedAt = null;
                 inject({ t: "setupChanged", setup: s.state.setup });
             }
             return;
@@ -348,6 +350,18 @@ function handleClientMessage(msg: ClientMessage) {
         case "cancelEndgame": {
             if (s.state.setup.endgameStartedAt !== null) {
                 s.state.setup.endgameStartedAt = null;
+                s.state.setup.endgameConfirmedAt = null;
+                inject({ t: "setupChanged", setup: s.state.setup });
+            }
+            return;
+        }
+
+        case "confirmEndgame": {
+            if (
+                s.state.setup.endgameStartedAt !== null &&
+                s.state.setup.endgameConfirmedAt == null
+            ) {
+                s.state.setup.endgameConfirmedAt = Date.now();
                 inject({ t: "setupChanged", setup: s.state.setup });
             }
             return;

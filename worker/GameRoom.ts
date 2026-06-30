@@ -53,6 +53,7 @@ function emptySetup(): SetupState {
         gameSize: "medium",
         hidingPeriodEndsAt: null,
         endgameStartedAt: null,
+        endgameConfirmedAt: null,
         mapGeoLocation: null,
     };
 }
@@ -332,6 +333,8 @@ export class GameRoom {
                 return this.handleStartEndgame(socket, msg.at);
             case "cancelEndgame":
                 return this.handleCancelEndgame(socket);
+            case "confirmEndgame":
+                return this.handleConfirmEndgame(socket);
             case "loc":
                 return this.handleSeekerLocation(
                     socket,
@@ -745,6 +748,8 @@ export class GameRoom {
         if (this.game.setup.endgameStartedAt !== null) return;
         if (typeof at !== "number" || !Number.isFinite(at)) return;
         this.game.setup.endgameStartedAt = at;
+        // A fresh claim starts unconfirmed — the hider responds next.
+        this.game.setup.endgameConfirmedAt = null;
         this.broadcast({ t: "setupChanged", setup: this.game.setup });
         // The hider may be on a train with the app backgrounded — the
         // socket broadcast alone won't surface anything. Push to any
@@ -754,8 +759,28 @@ export class GameRoom {
     }
 
     /**
+     * Hider confirms the seekers really are in their zone (positive
+     * response to the claim). Stamps `endgameConfirmedAt` so the
+     * seekers' UI flips from "waiting" to "you're in the right zone".
+     * Hide-team only; requires an active claim.
+     */
+    private handleConfirmEndgame(socket: WebSocket) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const sender = this.game.participants.find(
+            (p) => p.id === conn.participantId,
+        );
+        if (!sender || (sender.role !== "hider" && sender.role !== "coHider"))
+            return;
+        if (this.game.setup.endgameStartedAt === null) return;
+        if (this.game.setup.endgameConfirmedAt != null) return;
+        this.game.setup.endgameConfirmedAt = Date.now();
+        this.broadcast({ t: "setupChanged", setup: this.game.setup });
+    }
+
+    /**
      * Hider refutes a wrong endgame claim (seekers went to the wrong
-     * zone). Reset the stamp and broadcast so the seekers' "endgame
+     * zone). Reset both stamps and broadcast so the seekers' "endgame
      * armed" UI reverts. Hide-team only — a seeker can't cancel their
      * own claim this way (they'd just not have triggered it).
      */
@@ -769,6 +794,7 @@ export class GameRoom {
             return;
         if (this.game.setup.endgameStartedAt === null) return;
         this.game.setup.endgameStartedAt = null;
+        this.game.setup.endgameConfirmedAt = null;
         this.broadcast({ t: "setupChanged", setup: this.game.setup });
     }
 
@@ -909,6 +935,7 @@ export class GameRoom {
         // with last round's "endgame in progress" banner already
         // armed on the hider's screen.
         this.game.setup.endgameStartedAt = null;
+        this.game.setup.endgameConfirmedAt = null;
         // New round, new hide — drop the old zone secret. The new
         // hider will push a fresh one once they commit it.
         this.hidingZone = null;

@@ -194,6 +194,19 @@ export interface CMsgCancelEndgame {
 }
 
 /**
+ * Hider → server: confirm a seeker's endgame claim ("yes, you're in my
+ * zone"). The server stamps `setup.endgameConfirmedAt` and broadcasts a
+ * setupChanged so the seekers flip from "waiting for the hider" to
+ * "you're in the right zone — find them". The tabletop rules leave this
+ * positive confirmation implicit; the app makes it explicit so a remote
+ * seeker isn't left guessing what the hider's silence means. Hide-team
+ * only; idempotent if there's no active claim or it's already confirmed.
+ */
+export interface CMsgConfirmEndgame {
+    t: "confirmEndgame";
+}
+
+/**
  * Seeker → server: live location update. Per rulebook p5, every
  * seeker is expected to share their location with the hider for the
  * duration of the round. The app broadcasts the seeker's watchPosition
@@ -252,6 +265,7 @@ export type ClientMessage =
     | CMsgSetHideZone
     | CMsgStartEndgame
     | CMsgCancelEndgame
+    | CMsgConfirmEndgame
     | CMsgSeekerLocation
     | CMsgPing
     | CMsgCastCurse

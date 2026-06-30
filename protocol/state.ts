@@ -69,13 +69,26 @@ export interface SetupState {
     /** Unix ms; null before the host starts the game. */
     hidingPeriodEndsAt: number | null;
     /**
-     * Unix ms when the seeker has triggered the endgame ("I'm close —
-     * lock down"). Null during normal seeking. The hider's UI surfaces
-     * a banner when this flips so they know to commit to their final
-     * spot per the rulebook (p43). Server keeps it in SetupState so it
-     * rides in the welcome snapshot for late joiners.
+     * Unix ms when the seeker has *claimed* the endgame ("we're in your
+     * zone"). Null during normal seeking. The hider's UI surfaces a
+     * banner when this flips so they know to commit to their final spot
+     * per the rulebook (p43). Server keeps it in SetupState so it rides
+     * in the welcome snapshot for late joiners. A claim is provisional
+     * until the hider responds (see `endgameConfirmedAt`).
      */
     endgameStartedAt: number | null;
+    /**
+     * Unix ms when the HIDER confirmed the seekers really are in their
+     * zone (responding to the seeker's claim). Null while the claim is
+     * still pending OR after a refute. The seeker's UI flips from
+     * "waiting for the hider to confirm" to "you're in the right zone,
+     * find them" when this is set. The tabletop rules leave this
+     * implicit (co-located players just talk); the app makes the
+     * positive confirmation explicit so a remote seeker isn't left
+     * guessing whether the hider's silence means "yes" or "not looking
+     * at my phone". Optional for back-compat with older snapshots.
+     */
+    endgameConfirmedAt?: number | null;
     /**
      * Full Photon OSM feature for the host's selected play area
      * (`OpenStreetMap` on the client). Carries the extent / osm_id

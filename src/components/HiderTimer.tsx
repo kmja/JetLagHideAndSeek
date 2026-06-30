@@ -8,6 +8,7 @@ import { appConfirm } from "@/lib/confirm";
 import { shareFoundLink } from "@/lib/foundShare";
 import {
     effectiveHiddenDebitMs,
+    endgameConfirmedAt,
     endgameStartedAt,
     formatTimeRemaining,
     hiddenCreditMs,
@@ -40,6 +41,7 @@ export interface HiderTimerPreview {
     endsAt: number | null;
     setupCompleted?: boolean;
     endgameStartedAt?: number | null;
+    endgameConfirmedAt?: number | null;
     foundAt?: number | null;
     roundLog?: ReturnType<typeof roundLog.get>;
 }
@@ -48,12 +50,14 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     let $endsAt = useStore(hidingPeriodEndsAt);
     let $setupCompleted = useStore(setupCompleted);
     let $endgameStartedAt = useStore(endgameStartedAt);
+    let $endgameConfirmedAt = useStore(endgameConfirmedAt);
     let $foundAt = useStore(roundFoundAt);
     let $roundLog = useStore(roundLog);
     if (preview) {
         $endsAt = preview.endsAt;
         $setupCompleted = preview.setupCompleted ?? true;
         $endgameStartedAt = preview.endgameStartedAt ?? null;
+        $endgameConfirmedAt = preview.endgameConfirmedAt ?? null;
         $foundAt = preview.foundAt ?? null;
         $roundLog = preview.roundLog ?? [];
     }
@@ -186,19 +190,31 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                         </button>
                     ) : (
                         <>
+                            {/* Provisional until the hider responds. Once
+                                they confirm, flip to a green "in the zone"
+                                badge so the seekers know they've got the
+                                right place (the positive signal the
+                                tabletop rules leave implicit). */}
                             <div
                                 className={cn(
                                     "flex items-center gap-1.5",
-                                    "px-2 py-1 rounded-md",
-                                    "bg-yellow-500/15 border-2 border-yellow-500/70",
-                                    "text-yellow-300",
+                                    "px-2 py-1 rounded-md border-2",
                                     "animate-in fade-in duration-200",
+                                    $endgameConfirmedAt != null
+                                        ? "bg-success/15 border-success/70 text-success"
+                                        : "bg-yellow-500/15 border-yellow-500/70 text-yellow-300",
                                 )}
-                                title="Endgame triggered — the hider has been told to lock to a final spot."
+                                title={
+                                    $endgameConfirmedAt != null
+                                        ? "Hider confirmed — you're in the right zone. Find them!"
+                                        : "Waiting for the hider to confirm you've reached their zone."
+                                }
                             >
                                 <Flag className="w-3 h-3" strokeWidth={2.5} />
                                 <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.15em]">
-                                    Endgame armed
+                                    {$endgameConfirmedAt != null
+                                        ? "In the zone"
+                                        : "Awaiting hider"}
                                 </span>
                             </div>
                             <button

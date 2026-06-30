@@ -469,6 +469,23 @@ export const endgameStartedAt = persistentAtom<number | null>(
 );
 
 /**
+ * Unix ms when the HIDER confirmed the seekers really are in their zone
+ * (positive response to the seeker's endgame claim in `endgameStartedAt`).
+ * Null while the claim is still pending or after a refute. The seeker UI
+ * flips from "waiting for the hider to confirm" to "you're in the right
+ * zone — find them" when this is set. Persisted alongside
+ * `endgameStartedAt` so a reload keeps the resolved state.
+ */
+export const endgameConfirmedAt = persistentAtom<number | null>(
+    "endgameConfirmedAt",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
  * Volatile celebration trigger — unix ms set the moment the hiding
  * period actually starts (after the boundary load completes). The
  * GoGoGoOverlay component watches this and shows the catchphrase

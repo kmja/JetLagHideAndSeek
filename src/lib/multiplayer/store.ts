@@ -39,6 +39,7 @@ import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
     gameSize,
+    endgameConfirmedAt,
     endgameStartedAt,
     hidingPeriodEndsAt,
     playArea,
@@ -381,6 +382,7 @@ export function hostPushSetup() {
         gameSize: gameSize.get(),
         hidingPeriodEndsAt: hidingPeriodEndsAt.get(),
         endgameStartedAt: endgameStartedAt.get(),
+        endgameConfirmedAt: endgameConfirmedAt.get(),
         // Ship the full Photon OSM feature so the hide team's
         // settings dialog can show the host's area instead of
         // its persisted Japan default. Half a KB on the wire,
@@ -412,8 +414,25 @@ export function seekerStartEndgame() {
     if (endgameStartedAt.get() !== null) return;
     const at = Date.now();
     endgameStartedAt.set(at);
+    // A fresh claim starts unconfirmed — the hider responds next.
+    endgameConfirmedAt.set(null);
     if (!multiplayerEnabled.get()) return;
     getTransport().send({ t: "startEndgame", at });
+}
+
+/**
+ * Hider → room: confirm a seeker's endgame claim ("yes, you're in my
+ * zone"). Stamps the local confirmed atom and tells the server, which
+ * broadcasts so the seekers flip from "waiting" to "you're in the right
+ * zone — find them". Solo / offline just flips the local atom (the
+ * seeker is the same device, so this is mostly a no-op there).
+ */
+export function hiderConfirmEndgame() {
+    if (endgameStartedAt.get() === null) return;
+    if (endgameConfirmedAt.get() != null) return;
+    endgameConfirmedAt.set(Date.now());
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "confirmEndgame" });
 }
 
 /**
@@ -427,6 +446,7 @@ export function seekerStartEndgame() {
 export function hiderCancelEndgame() {
     if (endgameStartedAt.get() === null) return;
     endgameStartedAt.set(null);
+    endgameConfirmedAt.set(null);
     if (!multiplayerEnabled.get()) return;
     getTransport().send({ t: "cancelEndgame" });
 }
@@ -684,9 +704,10 @@ function applyRoundStarted(roster: GameState["participants"]) {
     // The hiding-period clock restarts per round; the seeker re-arms
     // it via the GO GO GO flow and pushes it back over `setupChanged`.
     hidingPeriodEndsAt.set(null);
-    // Endgame flag is per-round — clear it so the new round doesn't
+    // Endgame flags are per-round — clear them so the new round doesn't
     // open with last round's lockdown banner stuck on.
     endgameStartedAt.set(null);
+    endgameConfirmedAt.set(null);
     // Per-seeker live positions are scoped to the previous round —
     // the new round restarts the broadcast.
     seekerLocations.set({});
@@ -719,6 +740,7 @@ function applySnapshot(state: GameState) {
     gameSize.set(state.setup.gameSize);
     hidingPeriodEndsAt.set(state.setup.hidingPeriodEndsAt);
     endgameStartedAt.set(state.setup.endgameStartedAt);
+    endgameConfirmedAt.set(state.setup.endgameConfirmedAt ?? null);
     if (state.setup.mapGeoLocation) {
         mapGeoLocation.set(
             state.setup.mapGeoLocation as OpenStreetMap,
@@ -916,6 +938,8 @@ function handleServerMessage(msg: ServerMessage) {
             hidingPeriodEndsAt.set(msg.setup.hidingPeriodEndsAt);
             const prevEndgameAt = endgameStartedAt.get();
             endgameStartedAt.set(msg.setup.endgameStartedAt);
+            const prevEndgameConfirmedAt = endgameConfirmedAt.get();
+            endgameConfirmedAt.set(msg.setup.endgameConfirmedAt ?? null);
             if (msg.setup.mapGeoLocation) {
                 mapGeoLocation.set(
                     msg.setup.mapGeoLocation as OpenStreetMap,
@@ -963,6 +987,22 @@ function handleServerMessage(msg: ServerMessage) {
                     notify({
                         title: "Not the right zone",
                         body: "The hider says you haven't reached their zone yet. Keep searching.",
+                        tag: "endgame",
+                    });
+                }
+            }
+            // Hider confirmed the claim (confirmed null → number) — tell
+            // the seekers they're in the right zone so they switch from
+            // "waiting on the hider" to actively hunting the final spot.
+            if (
+                prevEndgameConfirmedAt == null &&
+                msg.setup.endgameConfirmedAt != null
+            ) {
+                const role = playerRole.get();
+                if (role === "seeker") {
+                    notify({
+                        title: "You're in the zone",
+                        body: "The hider has locked down — you're in the right zone. Find them!",
                         tag: "endgame",
                     });
                 }
