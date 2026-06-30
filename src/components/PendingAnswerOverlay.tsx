@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { ChevronRight, RefreshCw, X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -285,41 +285,25 @@ export function PendingAnswerOverlay({
         </button>
     ) : answered ? (
         // Persistent answered state — the card no longer vanishes on its
-        // own. Prompt the seeker to open the full detail or dismiss it.
-        <div className="flex flex-col gap-1.5">
-            <button
-                type="button"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    openDetailsAndDismiss();
-                }}
-                className={cn(
-                    "flex items-center gap-1 pl-2.5 pr-1.5 py-1.5 rounded-md",
-                    "bg-success text-success-foreground hover:bg-success/90 transition-colors",
-                    "text-[11px] font-poppins font-bold uppercase tracking-wide",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-            >
-                Details
-                <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.5} />
-            </button>
-            <button
-                type="button"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    dismissAnswered();
-                }}
-                className={cn(
-                    "flex items-center justify-center gap-1 px-2.5 py-1 rounded-md",
-                    "text-[11px] font-poppins font-semibold uppercase tracking-wide",
-                    "text-[color:var(--overlay-card-desc)] hover:bg-foreground/10 transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-            >
-                <X className="w-3 h-3" strokeWidth={2.5} />
-                Dismiss
-            </button>
-        </div>
+        // own. Tapping the card opens the full detail; this is just the
+        // Dismiss action.
+        <button
+            type="button"
+            onClick={(e) => {
+                e.stopPropagation();
+                dismissAnswered();
+            }}
+            aria-label="Dismiss"
+            className={cn(
+                "flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md",
+                "text-[11px] font-poppins font-semibold uppercase tracking-wide",
+                "text-[color:var(--overlay-card-desc)] hover:bg-foreground/10 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+        >
+            <X className="w-3.5 h-3.5" strokeWidth={2.5} />
+            Dismiss
+        </button>
     ) : null;
 
     return (

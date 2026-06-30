@@ -25,7 +25,7 @@ import {
     Trees,
     Waves,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { cn } from "@/lib/utils";
@@ -285,6 +285,21 @@ export function QuestionOverlayCard({
     const Icon = summary.icon ?? meta?.icon ?? Hourglass;
     const interactive = Boolean(onClick);
 
+    // Fire the one-shot celebratory flash only on the moment a question
+    // flips from awaiting → answered (not on every mount/re-render, so an
+    // already-answered card opened later in the list stays calm).
+    const [justAnswered, setJustAnswered] = useState(false);
+    const prevAnswered = useRef(answered);
+    useEffect(() => {
+        if (answered && !prevAnswered.current) {
+            setJustAnswered(true);
+            const t = window.setTimeout(() => setJustAnswered(false), 750);
+            prevAnswered.current = answered;
+            return () => window.clearTimeout(t);
+        }
+        prevAnswered.current = answered;
+    }, [answered]);
+
     return (
         <div
             role={interactive ? "button" : undefined}
@@ -322,6 +337,8 @@ export function QuestionOverlayCard({
                 interactive &&
                     "cursor-pointer select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "transition-transform duration-200",
+                justAnswered &&
+                    "animate-[jlAnsweredCard_750ms_ease-out] z-[1]",
                 className,
             )}
         >

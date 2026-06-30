@@ -742,6 +742,69 @@ export function Map({ className }: MapProps) {
         pendingByCategory: Record<string, GeoJSON.Feature[]>;
     }>({ mask: null, pendingByCategory: {} });
     const eliminationGenRef = useRef(0);
+
+    // Newly-eliminated-area flash. When an answer narrows the remaining
+    // region, we diff the previous remaining polygon against the new one
+    // and briefly wash the slice that was just ruled out in brand red,
+    // then fade it into the dark mask — so an answer reads as a
+    // deliberate "this is gone" moment instead of a silent redraw.
+    const prevWorkingRef = useRef<GeoJSON.Feature | null>(null);
+    const prevInnerRef = useRef<unknown>(null);
+    const flashTimersRef = useRef<number[]>([]);
+    const [eliminationFlash, setEliminationFlash] = useState<{
+        feature: GeoJSON.Feature;
+        visible: boolean;
+    } | null>(null);
+    useEffect(
+        () => () => {
+            flashTimersRef.current.forEach((t) => window.clearTimeout(t));
+        },
+        [],
+    );
+    // Collapse a remaining-region Feature/FeatureCollection to one
+    // polygon feature so turf.difference can diff two of them.
+    const asPolygonFeature = (
+        x: unknown,
+    ): GeoJSON.Feature | null => {
+        if (!x || typeof x !== "object") return null;
+        const g = x as GeoJSON.Feature | GeoJSON.FeatureCollection;
+        if (g.type === "FeatureCollection") {
+            const polys = g.features.filter(
+                (f) =>
+                    f.geometry?.type === "Polygon" ||
+                    f.geometry?.type === "MultiPolygon",
+            );
+            if (polys.length === 0) return null;
+            if (polys.length === 1) return polys[0];
+            try {
+                return turf.union(
+                    turf.featureCollection(polys as never),
+                ) as GeoJSON.Feature;
+            } catch {
+                return polys[0];
+            }
+        }
+        return g.type === "Feature" ? g : null;
+    };
+    const triggerEliminationFlash = (delta: GeoJSON.Feature) => {
+        flashTimersRef.current.forEach((t) => window.clearTimeout(t));
+        flashTimersRef.current = [];
+        setEliminationFlash({ feature: delta, visible: true });
+        // Next paint: drop opacity to 0 so the fill-opacity transition
+        // fades the red wash out. Then unmount once the fade has run.
+        flashTimersRef.current.push(
+            window.setTimeout(
+                () =>
+                    setEliminationFlash((f) =>
+                        f ? { ...f, visible: false } : null,
+                    ),
+                70,
+            ),
+        );
+        flashTimersRef.current.push(
+            window.setTimeout(() => setEliminationFlash(null), 1000),
+        );
+    };
     // v381: maskComputed is declared+reset higher up (next to the reveal
     // gate). The setMaskComputed(true) signal fires inside the async
     // elimination effect below, when setEliminationResult lands.
@@ -859,6 +922,32 @@ export function Map({ className }: MapProps) {
                 console.warn("Map holedMask failed:", e);
             }
             if (myGen !== eliminationGenRef.current) return; // stale
+
+            // Flash the slice this pass just eliminated (only when the
+            // SAME play area shrank — a play-area change or an
+            // un-elimination must not flash). turf.difference returns
+            // null when nothing was removed, so the diff itself is the
+            // guard.
+            try {
+                const prevWorking = prevWorkingRef.current;
+                if (prevWorking && prevInnerRef.current === inner) {
+                    const a = asPolygonFeature(prevWorking);
+                    const b = asPolygonFeature(working);
+                    if (a && b) {
+                        const delta = turf.difference(
+                            turf.featureCollection([a as never, b as never]),
+                        ) as GeoJSON.Feature | null;
+                        if (delta && turf.area(delta) > 1) {
+                            triggerEliminationFlash(delta);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Map elimination-flash diff failed:", e);
+            }
+            prevWorkingRef.current = asPolygonFeature(working);
+            prevInnerRef.current = inner;
+
             // v598: clip each pending (draft) PREVIEW to the remaining area
             // (`working`, the cumulative result of the ANSWERED questions)
             // so a new question's footprint doesn't extend into regions
@@ -1919,6 +2008,43 @@ export function Map({ className }: MapProps) {
                                 "line-color": eliminationFillColor,
                                 "line-width": 1,
                                 "line-opacity": eliminationOutlineOpacity,
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Newly-eliminated-area flash — a brand-red wash over the
+                    slice an answer just ruled out, drawn ON TOP of the dark
+                    mask, that fades to nothing (fill-opacity transition).
+                    Makes the elimination read as a beat rather than a silent
+                    geometry swap. */}
+                {eliminationFlash && (
+                    <Source
+                        id="elimination-flash"
+                        type="geojson"
+                        data={eliminationFlash.feature}
+                    >
+                        <Layer
+                            id="elimination-flash-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color": "hsl(2, 70%, 54%)",
+                                "fill-opacity": eliminationFlash.visible
+                                    ? 0.5
+                                    : 0,
+                                "fill-opacity-transition": { duration: 850 },
+                            }}
+                        />
+                        <Layer
+                            id="elimination-flash-line"
+                            type="line"
+                            paint={{
+                                "line-color": "hsl(2, 70%, 54%)",
+                                "line-width": 2,
+                                "line-opacity": eliminationFlash.visible
+                                    ? 0.9
+                                    : 0,
+                                "line-opacity-transition": { duration: 850 },
                             }}
                         />
                     </Source>

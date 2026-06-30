@@ -339,7 +339,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v603`. Use `git log` for the per-version detail;
+build stamp. Current: `v604`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -380,9 +380,14 @@ the headline arcs since the v414 rulebook-audit pass:
   `PendingAnswerOverlay` switches to a green answered card showing the
   resolved answer (via the now-exported `answeredDetail` from
   `cards/base.tsx`) and **stays put** — it no longer auto-dismisses after
-  a beat. Its right slot offers two actions: **Details** (opens the
-  questions panel + retires the overlay) and **Dismiss** (just closes
-  it). Asking the next question replaces it.
+  a beat. Its right slot is a single **Dismiss** action (v604 dropped the
+  Details button); tapping the card body still opens the questions panel.
+  Asking the next question replaces it. The card also plays a one-shot
+  green glow/scale pop (`jlAnsweredCard`) the moment the answer lands
+  (shared `QuestionOverlayCard`, fires on the awaiting→answered
+  transition), and the main map flashes the **newly-eliminated slice** in
+  brand red and fades it into the dark mask (`Map.tsx` diffs the previous
+  vs. new remaining region) so an answer reads as a deliberate beat.
 - **A sent/answered question can't be deleted** (it would desync from
   the hider). As of v585 `cards/base.tsx` has **no delete control at
   all** — the earlier "swap the trash for a disabled lock in online
