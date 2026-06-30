@@ -162,14 +162,39 @@ export function notify(opts: NotifyOptions): boolean {
     if (!opts.whileVisible && document.visibilityState === "visible") {
         return false;
     }
+    const options: NotificationOptions = {
+        body: opts.body,
+        tag: opts.tag,
+        icon: "/android-chrome-192x192.png",
+        badge: "/favicon-32x32.png",
+        // The SW's `notificationclick` handler focuses the app from this.
+        data: { url: "/" },
+    };
+    // Prefer the service worker registration. This is REQUIRED on mobile —
+    // Android Chrome throws "Failed to construct 'Notification': Illegal
+    // constructor" for the page-context `new Notification()` and demands
+    // `ServiceWorkerRegistration.showNotification()`. It's also the path
+    // that renders reliably while the tab is merely backgrounded (e.g. the
+    // demo bot's answer landing a moment after you switch away). The SW's
+    // notificationclick handler already re-focuses the app. Fire-and-forget;
+    // fall back to the constructor only on desktop browsers with no active
+    // service worker.
+    if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        void navigator.serviceWorker.ready
+            .then((reg) => reg.showNotification(opts.title, options))
+            .catch(() => notifyViaConstructor(opts.title, options));
+        return true;
+    }
+    return notifyViaConstructor(opts.title, options);
+}
+
+/** Desktop fallback when there's no controlling service worker. */
+function notifyViaConstructor(
+    title: string,
+    options: NotificationOptions,
+): boolean {
     try {
-        const n = new Notification(opts.title, {
-            body: opts.body,
-            tag: opts.tag,
-            icon: "/android-chrome-192x192.png",
-            badge: "/favicon-32x32.png",
-        });
-        // Re-focus the tab when the user taps the notification.
+        const n = new Notification(title, options);
         n.onclick = () => {
             try {
                 window.focus();
