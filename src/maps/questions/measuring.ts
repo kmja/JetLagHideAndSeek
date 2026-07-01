@@ -1,5 +1,5 @@
 import * as turf from "@turf/turf";
-import type { Feature, MultiPolygon } from "geojson";
+import type { Feature, MultiPolygon, Polygon } from "geojson";
 import memoize from "lodash/memoize";
 import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
@@ -17,7 +17,6 @@ import {
     fetchBorders0Land,
     fetchBorders1States,
     fetchCoastline,
-    fetchLakes,
     findPlacesInZone,
     findPlacesSpecificInZone,
     LOCATION_FIRST_TAG,
@@ -119,25 +118,6 @@ function clipLinesToBbox(
         const g = f.geometry as GeoJSON.Geometry | undefined;
         if (!g) continue;
         if (g.type !== "LineString" && g.type !== "MultiLineString") continue;
-        const fb = bbox4(turf.bbox(f));
-        if (!bboxesIntersect(fb, widened)) continue;
-        kept.push(f as Feature);
-    }
-    return kept;
-}
-
-function clipPolygonsToBbox(
-    fc: GeoJSON.FeatureCollection,
-    bbox: GeoJSON.BBox | number[],
-    predicate?: (f: GeoJSON.Feature) => boolean,
-): Feature[] {
-    const widened = widenedBbox(bbox);
-    const kept: Feature[] = [];
-    for (const f of fc.features) {
-        if (predicate && !predicate(f)) continue;
-        const g = f.geometry as GeoJSON.Geometry | undefined;
-        if (!g) continue;
-        if (g.type !== "Polygon" && g.type !== "MultiPolygon") continue;
         const fb = bbox4(turf.bbox(f));
         if (!bboxesIntersect(fb, widened)) continue;
         kept.push(f as Feature);
@@ -414,28 +394,49 @@ export const determineMeasuringBoundary = async (
             return [highSpeedBase(features)];
         }
         case "body-of-water": {
-            // v341: bundled Natural Earth 1:50m lakes — 411 named lake
-            // polygons globally, already shipped as `lakes50.geojson`.
-            // Zero-external like the borders cases. Caveat documented
-            // in fetchLakes: rivers / bays / channels aren't in this
-            // dataset, so the seeker-side cut is conservatively narrow.
-            // The hider answers from their own mapping app per the
-            // rulebook, so a hider near a named bay still answers
-            // correctly even though we didn't auto-cut for that body.
-            const lakesFC = await fetchLakes();
-            // Filter to NAMED bodies (rulebook excludes unnamed) and
-            // to those touching the play-area bbox so we don't buffer
-            // every lake on Earth.
-            const polys = clipPolygonsToBbox(
-                lakesFC,
-                bBox,
-                (f) => Boolean(f.properties?.name),
+            // v625: named water bodies from OSM (rulebook p11: "any named
+            // body of water … excluding pools"). Replaces the old Natural
+            // Earth 1:50m lakes bundle, which only had ~411 major lakes
+            // worldwide and NO rivers — so at city scale (e.g. Bucharest)
+            // it found nothing. `natural=water` areas (lakes, reservoirs,
+            // ponds, river-areas) come back as polygons; named rivers /
+            // canals mapped as centerlines come back as lines and get the
+            // same thin line-buffer as coastlines/borders. Both feed the
+            // downstream seeker-distance geodesic buffer, so the cut
+            // reflects real shore/bank distance, not a coarse centroid.
+            // The `["name"]` filter enforces "named" and drops most pools
+            // (which are leisure=swimming_pool, not natural=water anyway).
+            const data = await findPlacesInZone(
+                '["natural"="water"]["name"]',
+                undefined,
+                "nwr",
+                "geom",
+                ['["waterway"~"^(river|canal)$"]["name"]'],
+                60,
             );
-            if (polys.length === 0) return [turf.multiPolygon([])];
-            return [
-                turf.combine(turf.featureCollection(polys as any))
-                    .features[0],
-            ];
+            const fc = osmtogeojson(data);
+            const polys = fc.features.filter(
+                (f): f is Feature<Polygon | MultiPolygon> =>
+                    f.geometry?.type === "Polygon" ||
+                    f.geometry?.type === "MultiPolygon",
+            );
+            const lines = fc.features.filter(
+                (f) =>
+                    f.geometry?.type === "LineString" ||
+                    f.geometry?.type === "MultiLineString",
+            );
+            const out: Feature[] = [];
+            if (polys.length > 0) {
+                out.push(
+                    turf.combine(turf.featureCollection(polys as any))
+                        .features[0],
+                );
+            }
+            if (lines.length > 0) {
+                out.push(highSpeedBase(lines));
+            }
+            if (out.length === 0) return [turf.multiPolygon([])];
+            return out;
         }
         case "sea-level": {
             // v342: handled out-of-band in adjustPerMeasuring via the

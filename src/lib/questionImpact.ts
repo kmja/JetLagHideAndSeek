@@ -67,6 +67,7 @@ type ResolvedFamily =
     | { kind: "api"; family: FamilyKey; location: APILocations }
     | { kind: "airport"; family: FamilyKey }
     | { kind: "rail-station"; family: FamilyKey }
+    | { kind: "water"; family: FamilyKey }
     | { kind: "city" }
     | { kind: "coastline" }
     | null;
@@ -79,6 +80,11 @@ function resolveFamily(typeRaw: string): ResolvedFamily {
         return { kind: "city" };
     if (stripped === "rail-station")
         return { kind: "rail-station", family: "rail-station" };
+    // Named water bodies — a point family (centroids from the prewarm
+    // cache) for the preview/impact. The real measuring elimination uses
+    // full geometry (measuring.ts), so this is an approximation.
+    if (stripped === "body-of-water")
+        return { kind: "water", family: "body-of-water" };
     if (stripped in LOCATION_FIRST_TAG) {
         const loc = stripped as APILocations;
         return { kind: "api", family: `api:${loc}`, location: loc };

@@ -167,9 +167,61 @@ export const determineMatchingBoundary = memoize(
             case "consulate":
             case "park":
             case "same-first-letter-station":
-            case "same-length-station":
-            case "same-train-line": {
+            case "same-length-station": {
                 return false;
+            }
+            case "same-train-line": {
+                // v625: real seeker-side elimination. "Same train line" =
+                // everywhere whose nearest station is on the SAME line as
+                // the seeker's nearest station. That's the union of the
+                // Voronoi cells of all same-line stations. Mirrors the
+                // hider's grading (trainLineNodeFinder on the seeker's
+                // nearest station), so the map cut agrees with the answer.
+                const stations = osmtogeojson(
+                    await findPlacesInZone(
+                        "[railway=station]",
+                        undefined,
+                        "node",
+                    ),
+                ) as FeatureCollection<Point>;
+                if (stations.features.length === 0) return false;
+
+                const seekerPoint = turf.point([question.lng, question.lat]);
+                const nearestStation = turf.nearestPoint(
+                    seekerPoint,
+                    stations,
+                );
+                const lineNodeIds = new Set<number>(
+                    await trainLineNodeFinder(
+                        nearestStation.properties.id as string,
+                    ),
+                );
+                // Always include the seeker's own station.
+                const nearestNum = parseInt(
+                    String(nearestStation.properties.id).split("/")[1],
+                );
+                if (Number.isFinite(nearestNum)) lineNodeIds.add(nearestNum);
+
+                const sameLineStations = stations.features.filter((s) => {
+                    const num = parseInt(
+                        String(s.properties?.id ?? "").split("/")[1],
+                    );
+                    return Number.isFinite(num) && lineNodeIds.has(num);
+                });
+                if (sameLineStations.length === 0) return false;
+
+                // Union the Voronoi cell of each same-line station. The
+                // Voronoi is computed over ALL stations so the cell
+                // boundaries are correct; we keep only the same-line cells.
+                const cells = geoSpatialVoronoi(stations);
+                const sameCells = cells.features.filter((cell) =>
+                    sameLineStations.some((s) =>
+                        turf.booleanPointInPolygon(s as any, cell as any),
+                    ),
+                );
+                if (sameCells.length === 0) return false;
+                boundary = safeUnion(turf.featureCollection(sameCells as any));
+                break;
             }
             case "custom-zone": {
                 boundary = question.geo;

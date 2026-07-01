@@ -61,6 +61,7 @@ type ResolvedFamily =
     | { kind: "city" }
     | { kind: "brand"; wikidataId: string; brandName: string }
     | { kind: "rail-station" }
+    | { kind: "water" }
     | { kind: "highspeed-rail" }
     | null;
 
@@ -104,6 +105,10 @@ export function resolveFamily(typeRaw: string): ResolvedFamily {
     }
     if (stripped === "highspeed-measure-shinkansen")
         return { kind: "highspeed-rail" };
+    // Named water bodies — nearest is served from the prewarm cache
+    // (natural=water centroids). Approximate for large lakes, but the
+    // measuring elimination uses full geometry (measuring.ts).
+    if (stripped === "body-of-water") return { kind: "water" };
     if (stripped in LOCATION_FIRST_TAG) {
         return { kind: "api", location: stripped as APILocations };
     }
@@ -294,9 +299,11 @@ async function tryCacheNearest(
               ? "airport"
               : family.kind === "rail-station"
                 ? "rail-station"
-                : family.kind === "brand"
-                  ? `brand:${family.wikidataId}`
-                  : null;
+                : family.kind === "water"
+                  ? "body-of-water"
+                  : family.kind === "brand"
+                    ? `brand:${family.wikidataId}`
+                    : null;
     if (!key) return null;
 
     // v339: rulebook p17 — "If locations are not within a map's
@@ -370,6 +377,10 @@ export async function fetchNearest(
     if (family.kind === "rail-station") return fetchNearestRailStation(lat, lng);
     if (family.kind === "highspeed-rail")
         return fetchNearestHighspeedRail(lat, lng);
+    // Water bodies are served only from the prewarm cache (handled by
+    // tryCacheNearest above). No radius-walk fallback — bail rather than
+    // fall into the api branch below (which needs family.location).
+    if (family.kind === "water") return null;
 
     // `api` case fallback — the play-area cache didn't have it (or
     // failed), so walk an Overpass radius from the seeker as the last

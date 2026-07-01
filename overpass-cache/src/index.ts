@@ -2439,6 +2439,9 @@ const REFERENCE_FAMILY_FILTERS: { family: string; filter: string }[] = [
     { family: "api:peak", filter: '["natural"="peak"]' },
     { family: "api:theme_park", filter: '["tourism"="theme_park"]' },
     { family: "api:zoo", filter: '["tourism"="zoo"]' },
+    // Named water bodies (rulebook p11). MUST match the client's
+    // filterForFamily("body-of-water") byte-for-byte.
+    { family: "body-of-water", filter: '["natural"="water"]["name"]' },
     { family: "brand:Q259340", filter: '["brand:wikidata"="Q259340"]' },
     { family: "brand:Q38076", filter: '["brand:wikidata"="Q38076"]' },
     { family: "rail-station", filter: '["railway"="station"]' },

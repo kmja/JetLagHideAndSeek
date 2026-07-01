@@ -46,6 +46,7 @@ export type FamilyKey =
     | `api:${APILocations}`
     | `brand:${string}`
     | "airport"
+    | "body-of-water"
     | "rail-station";
 
 export interface PrefetchedFeature {
@@ -138,6 +139,12 @@ function filterForFamily(family: FamilyKey): string {
         return `["brand:wikidata"="${family.slice(6)}"]`;
     }
     if (family === "airport") return '["aeroway"="aerodrome"]["iata"]';
+    // Named water bodies (rulebook p11 "any named body of water … excluding
+    // pools"). natural=water covers lakes/reservoirs/ponds/river-areas; the
+    // name filter drops unnamed ditches + most pools. Rivers mapped only as
+    // waterway centerlines are added by the elimination path (measuring.ts),
+    // not this point cache.
+    if (family === "body-of-water") return '["natural"="water"]["name"]';
     if (family === "rail-station") return '["railway"="station"]';
     throw new Error(`unknown family ${family}`);
 }
@@ -170,6 +177,7 @@ export const STANDARD_REFERENCE_FAMILIES: FamilyKey[] = [
     "api:peak" as FamilyKey,
     "api:theme_park" as FamilyKey,
     "api:zoo" as FamilyKey,
+    "body-of-water",
     "brand:Q259340" as FamilyKey, // 7-Eleven
     "brand:Q38076" as FamilyKey, // McDonald's
     "rail-station",
@@ -196,6 +204,7 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
     }
     if (stripped === "mcdonalds") return "brand:Q38076" as FamilyKey;
     if (stripped === "seven11") return "brand:Q259340" as FamilyKey;
+    if (stripped === "body-of-water") return "body-of-water";
     if (stripped in LOCATION_FIRST_TAG) {
         return `api:${stripped}` as FamilyKey;
     }
@@ -370,6 +379,9 @@ function elementMatchesFamily(el: any, family: FamilyKey): boolean {
     }
     if (family === "airport") {
         return tags["aeroway"] === "aerodrome" && Boolean(tags["iata"]);
+    }
+    if (family === "body-of-water") {
+        return tags["natural"] === "water" && Boolean(tags["name"]);
     }
     if (family === "rail-station") {
         return tags["railway"] === "station";
