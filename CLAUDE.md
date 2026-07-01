@@ -167,15 +167,13 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
 
 ## Bottom nav (mobile only)
 
-`BottomNav.tsx` — five slots (v622): **Questions** (`List`) | **Map** (`Layers`) | **New question** (`Plus`, primary CTA) | **Lobby** (`Users`) | **Settings** (`Settings`).
+`BottomNav.tsx` — three slots (v623): **Questions** (`List`) | **New question** (`Plus`, primary CTA) | **Map** (`Map` icon, rightmost).
 
 - Questions → opens QuestionSidebar (left drawer); badge = questions added.
-- Map → opens the `MapOptionsDrawer` via `mapOptionsDrawerOpen` (roomy basemap/overlays/transit toggles); badge = active-overlay count. v622: replaces the floating bottom-left Map-options chip on mobile (the chip stays on desktop, which has no bottom nav).
 - New question → opens AddQuestionDialog; disabled while `hiding`, a previous question is still unanswered, OR a curse fully blocks asking.
-- Lobby → opens `GameLobbyDialog` via `lobbyManualOpen`; badge = online participant count (added v242).
-- Settings → opens the `AppSettingsDrawer` via `moreSheetOpen` (tutorial, rulebook, units, theme, preload — the merged settings+more drawer).
+- Map → opens the `MapOptionsDrawer` via `mapOptionsDrawerOpen` (roomy basemap/overlays/transit toggles); badge = active-overlay count. Replaces the floating bottom-left Map-options chip on mobile (the chip stays on desktop, which has no bottom nav).
 
-There is **no "More" slot** anymore, and the hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card (the standalone "Game"/countdown drawer was retired in v270).
+**Lobby + Settings live in the app header** (`SeekerTopBar`, v623): left cluster = debug launcher + **Lobby** (`Users`, online-count badge, `lobbyManualOpen`); right cluster = **Settings** (`Settings`, `moreSheetOpen` → `AppSettingsDrawer`) + Notifications. `GameLobbyDialog` is mounted in `SeekerPage`; `AppSettingsDrawer` + `MapOptionsDrawer` are mounted in `BottomNav`. The hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card.
 
 ## Map display controls (bottom-nav "Map" on mobile / bottom-left chip on desktop, v622)
 
@@ -362,7 +360,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v622`. Use `git log` for the per-version detail;
+build stamp. Current: `v623`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

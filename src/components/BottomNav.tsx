@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Layers, List, Plus, Settings, Users } from "lucide-react";
+import { List, Map as MapIcon, Plus } from "lucide-react";
 
 import { useNow } from "@/hooks/useNow";
 import { questions, questionsDrawerOpen } from "@/lib/context";
@@ -8,12 +8,7 @@ import {
     seekerOnTransit,
     spottyMemoryCategory,
 } from "@/lib/curseEnforcement";
-import {
-    hidingPeriodEndsAt,
-    mapOptionsDrawerOpen,
-    moreSheetOpen,
-} from "@/lib/gameSetup";
-import { lobbyManualOpen, participants } from "@/lib/multiplayer/session";
+import { hidingPeriodEndsAt, mapOptionsDrawerOpen } from "@/lib/gameSetup";
 import { receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 
@@ -25,18 +20,14 @@ import {
 } from "./MapDisplayControls";
 
 /**
- * Bottom-anchored mobile navigation. Four slots: Questions, New
- * question (primary CTA), Lobby, Settings. v270 retired the
- * standalone "Game" drawer that used to live in the Settings slot —
- * its content split between the lobby (mid-game info, round-end
- * recap via RoundEndSection) and the Settings drawer (preload, app
- * preferences). The hiding-period countdown lives on the map's
- * HiderTimer card; surfacing it again here was visual noise.
+ * Bottom-anchored mobile navigation. Three slots (v623): Questions,
+ * New question (primary CTA), Map. Lobby + Settings moved up to the
+ * app header (SeekerTopBar); the hiding-period countdown lives on the
+ * map's HiderTimer card.
  */
 export const BottomNav = () => {
     const $questions = useStore(questions);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
-    const $participants = useStore(participants);
     // Curse enforcement (v621): some active curses block ALL asking
     // (Urban Explorer on transit, or Spotty Memory before the seekers
     // roll). Partial category blocks are handled inside AddQuestionDialog;
@@ -126,35 +117,6 @@ export const BottomNav = () => {
                     )}
                 </button>
 
-                {/* Map slot (v622) — opens the roomy map-options drawer.
-                    Replaces the floating bottom-left Layers chip on
-                    mobile (that stays on desktop, which has no nav). */}
-                <button
-                    type="button"
-                    onClick={() => mapOptionsDrawerOpen.set(true)}
-                    className={navBtnClass}
-                    aria-label="Map options"
-                    title="Basemap, overlays, transit lines"
-                >
-                    <Layers className="w-5 h-5" strokeWidth={2} />
-                    <span className={navLabelClass}>Map</span>
-                    {mapActiveCount > 0 && (
-                        <span
-                            className={cn(
-                                "absolute top-1 right-2",
-                                "text-[9px] font-mono font-semibold",
-                                "bg-primary text-primary-foreground",
-                                "px-1.5 min-w-[18px] h-[18px]",
-                                "rounded-full flex items-center justify-center",
-                                "border border-background",
-                            )}
-                            aria-label={`${mapActiveCount} map option(s) active`}
-                        >
-                            {mapActiveCount}
-                        </span>
-                    )}
-                </button>
-
                 <AddQuestionDialog>
                     <button
                         type="button"
@@ -192,58 +154,34 @@ export const BottomNav = () => {
                     </button>
                 </AddQuestionDialog>
 
-                {/* Lobby slot (v242). Opens the GameLobbyDialog so
-                    players can see the roster and join code without
-                    digging into "More". Shows the live online-
-                    participant count as a badge so the seeker knows
-                    at a glance who's connected. */}
+                {/* Map slot (v623) — rightmost. Opens the roomy
+                    map-options drawer (basemap / overlays / transit).
+                    Lobby + Settings moved to the header (SeekerTopBar),
+                    so the nav is down to three slots. */}
                 <button
                     type="button"
-                    onClick={() => lobbyManualOpen.set(true)}
+                    onClick={() => mapOptionsDrawerOpen.set(true)}
                     className={navBtnClass}
-                    aria-label="Open game lobby"
-                    title="Players, room code, role rotation"
+                    aria-label="Map options"
+                    title="Basemap, overlays, transit lines"
                 >
-                    <Users className="w-5 h-5" strokeWidth={2} />
-                    <span className={navLabelClass}>Lobby</span>
-                    {$participants.filter((p) => p.online).length > 0 && (
+                    <MapIcon className="w-5 h-5" strokeWidth={2} />
+                    <span className={navLabelClass}>Map</span>
+                    {mapActiveCount > 0 && (
                         <span
                             className={cn(
                                 "absolute top-1 right-2",
                                 "text-[9px] font-mono font-semibold",
-                                "bg-secondary text-foreground",
+                                "bg-primary text-primary-foreground",
                                 "px-1.5 min-w-[18px] h-[18px]",
                                 "rounded-full flex items-center justify-center",
-                                "border border-border",
+                                "border border-background",
                             )}
-                            aria-label={`${$participants.filter((p) => p.online).length} players online`}
+                            aria-label={`${mapActiveCount} map option(s) active`}
                         >
-                            {$participants.filter((p) => p.online).length}
+                            {mapActiveCount}
                         </span>
                     )}
-                </button>
-
-                {/* v270: the standalone "Game" drawer (countdown +
-                    in-line setup summary + preload + FoundSummary)
-                    was retired. The countdown lives on the map's
-                    HiderTimer; the setup summary + preload moved to
-                    the Settings drawer triggered by the rightmost
-                    bottom-nav slot; the post-found recap moved into
-                    the lobby's mid-game branch via RoundEndSection. */}
-
-                {/* Settings slot — opens the moreSheetOpen drawer
-                    that the SeekerTopBar gear used to launch. The
-                    trigger lives here now so every bottom-nav surface
-                    is reachable from the same row. */}
-                <button
-                    type="button"
-                    onClick={() => moreSheetOpen.set(true)}
-                    className={navBtnClass}
-                    aria-label="Settings"
-                    title="Settings — tutorial, rulebook, units, theme, preload"
-                >
-                    <Settings className="w-5 h-5" strokeWidth={2} />
-                    <span className={navLabelClass}>Settings</span>
                 </button>
 
                 <AppSettingsDrawer />
