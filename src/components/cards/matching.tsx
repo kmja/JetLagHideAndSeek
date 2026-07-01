@@ -174,16 +174,6 @@ export const MatchingQuestionComponent = ({
                 </>
             );
             break;
-        case "same-train-line":
-            questionSpecific = (
-                <span className="px-2 text-center text-orange-500">
-                    Warning: The train line data is based on OpenStreetMap and
-                    may have fewer train stations than expected. If you are
-                    using this tool, ensure that the other players are also
-                    using this tool.
-                </span>
-            );
-            break;
         case "aquarium":
         case "hospital":
         case "peak":

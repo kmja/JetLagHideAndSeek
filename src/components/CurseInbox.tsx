@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useNow } from "@/hooks/useNow";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { questions } from "@/lib/context";
+import { pendingOverlayActive, questions } from "@/lib/context";
 import {
     CURSE_DRAINED_BRAIN,
     CURSE_SPOTTY_MEMORY,
@@ -61,6 +61,10 @@ export function CurseInbox() {
     const $onTransit = useStore(seekerOnTransit);
     const $spottyCategory = useStore(spottyMemoryCategory);
     const $questions = useStore(questions);
+    // When the top-center question overlay (pending / answered card, or the
+    // thermometer tracker) is showing, push the top-right curse pills down
+    // so the two don't overlap.
+    const $pendingOverlay = useStore(pendingOverlayActive);
     const [dialogCurse, setDialogCurse] = useState<ReceivedCurse | null>(null);
 
     const unack = $curses.filter((c) => !c.acknowledged);
@@ -178,7 +182,12 @@ export function CurseInbox() {
                         // trip launcher) is gone, so the pills only need to
                         // clear the mobile top bar now — snug under it,
                         // near the top edge on desktop (no header there).
-                        "top-[calc(env(safe-area-inset-top)_+_62px)] md:top-3",
+                        // v623: when the top-center question overlay is up,
+                        // drop the pills below it so they don't overlap.
+                        "transition-[top] duration-300 ease-out",
+                        $pendingOverlay
+                            ? "top-[calc(env(safe-area-inset-top)_+_150px)] md:top-[104px]"
+                            : "top-[calc(env(safe-area-inset-top)_+_62px)] md:top-3",
                         "flex flex-col items-end gap-2",
                     )}
                     role="status"

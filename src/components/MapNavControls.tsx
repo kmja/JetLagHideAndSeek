@@ -66,7 +66,7 @@ export function MapNavControls({
                             : "Follow my location"
                     }
                     className={cn(
-                        "pointer-events-auto h-9 w-9 rounded-md border-2 shadow-md transition-colors",
+                        "pointer-events-auto h-10 w-10 rounded-md border-2 shadow-md transition-colors",
                         "flex items-center justify-center",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         $follow
@@ -75,9 +75,9 @@ export function MapNavControls({
                     )}
                 >
                     {$follow ? (
-                        <Locate className="h-4 w-4" />
+                        <Locate className="h-5 w-5" />
                     ) : (
-                        <LocateOff className="h-4 w-4" />
+                        <LocateOff className="h-5 w-5" />
                     )}
                 </button>
             )}
@@ -87,13 +87,13 @@ export function MapNavControls({
                 aria-label="Reset map rotation and tilt"
                 title="Reset rotation + tilt"
                 className={cn(
-                    "pointer-events-auto h-9 w-9 rounded-md border-2 shadow-md transition-colors",
+                    "pointer-events-auto h-10 w-10 rounded-md border-2 shadow-md transition-colors",
                     "flex items-center justify-center",
                     "bg-background border-border text-foreground hover:bg-accent",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 )}
             >
-                <Compass className="h-4 w-4" />
+                <Compass className="h-5 w-5" />
             </button>
         </div>
     );

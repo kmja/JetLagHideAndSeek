@@ -1,10 +1,8 @@
 import { useStore } from "@nanostores/react";
 import { Flag, Footprints, Timer } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "react-toastify";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
-import { appConfirm } from "@/lib/confirm";
 import { shareFoundLink } from "@/lib/foundShare";
 import {
     effectiveHiddenDebitMs,
@@ -16,7 +14,7 @@ import {
     setupCompleted,
 } from "@/lib/gameSetup";
 import { roundFoundAt, roundLog } from "@/lib/hiderRole";
-import { seekerMarkFound, seekerStartEndgame } from "@/lib/multiplayer/store";
+import { seekerMarkFound } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,20 +59,6 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         $foundAt = preview.foundAt ?? null;
         $roundLog = preview.roundLog ?? [];
     }
-
-    const handleTriggerEndgame = async () => {
-        const ok = await appConfirm({
-            title: "Trigger endgame?",
-            description:
-                "Tells the hider you've reached their zone, so they lock down to a final spot. If you've got the wrong zone, the hider can refute it and you keep searching. Tip: you can also declare it by tapping the zone on the map.",
-            confirmLabel: "Trigger endgame",
-        });
-        if (!ok) return;
-        seekerStartEndgame();
-        toast.success("Endgame declared — hider notified.", {
-            autoClose: 2500,
-        });
-    };
 
     const handleMarkFound = () => {
         const ts = Date.now();
@@ -159,86 +143,62 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                     : "right-2 md:right-4 items-end",
             )}
         >
-            {/* Round-end action surface. Three exclusive states once
-                the hiding period is over (and only then — seekers
-                can't trigger the endgame or mark the hider found
-                while the hider is still en route):
-                  1. Endgame not armed yet → "Trigger endgame" button
-                     (the rulebook step before the physical find).
-                  2. Endgame armed, not found yet → "Endgame armed"
-                     badge + "Mark hider found" button.
-                  3. Already found → render nothing; the FoundSummary
-                     recap card lives in the lobby drawer. */}
-            {!inHidingPeriod && !$foundAt && (
+            {/* Round-end action surface. The endgame is triggered from the
+                map now (tap the hider's zone → StationTransitCard "Start
+                endgame here"), so there's no "Trigger endgame" button here
+                anymore (v623). Once armed we show:
+                  • an "Awaiting hider" (→ green "In the zone" on confirm)
+                    badge, and
+                  • the "Mark hider found" button.
+                Nothing renders before the endgame is armed or after the
+                hider is found (the FoundSummary lives in the lobby). */}
+            {!inHidingPeriod && !$foundAt && $endgameStartedAt !== null && (
                 <div className="flex flex-col items-end gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {$endgameStartedAt === null ? (
-                        <button
-                            type="button"
-                            onClick={handleTriggerEndgame}
-                            title="Trigger endgame — tell the hider to lock to a final spot"
-                            className={cn(
-                                "flex items-center justify-center gap-1.5 w-full",
-                                "px-2.5 py-1.5 rounded-md",
-                                "bg-yellow-500/15 border-2 border-yellow-500/60",
-                                "text-yellow-300 hover:bg-yellow-500/25 active:bg-yellow-500/30",
-                                "transition-colors shadow-md",
-                                "text-[10px] font-poppins font-bold uppercase tracking-wider",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            )}
-                        >
-                            <Flag className="w-3 h-3" strokeWidth={2.5} />
-                            Trigger endgame
-                        </button>
-                    ) : (
-                        <>
-                            {/* Provisional until the hider responds. Once
-                                they confirm, flip to a green "in the zone"
-                                badge so the seekers know they've got the
-                                right place (the positive signal the
-                                tabletop rules leave implicit). */}
-                            <div
-                                className={cn(
-                                    "flex items-center gap-1.5",
-                                    "px-2 py-1 rounded-md border-2",
-                                    "animate-in fade-in duration-200",
-                                    $endgameConfirmedAt != null
-                                        ? "bg-success/15 border-success/70 text-success"
-                                        : "bg-yellow-500/15 border-yellow-500/70 text-yellow-300",
-                                )}
-                                title={
-                                    $endgameConfirmedAt != null
-                                        ? "Hider confirmed — you're in the right zone. Find them!"
-                                        : "Waiting for the hider to confirm you've reached their zone."
-                                }
-                            >
-                                <Flag className="w-3 h-3" strokeWidth={2.5} />
-                                <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.15em]">
-                                    {$endgameConfirmedAt != null
-                                        ? "In the zone"
-                                        : "Awaiting hider"}
-                                </span>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleMarkFound}
-                                title="Mark hider found — freeze the score and share the round-end link"
-                                className={cn(
-                                    "flex items-center justify-center gap-1.5 w-full",
-                                    "px-2.5 py-1.5 rounded-md",
-                                    "bg-primary text-primary-foreground",
-                                    "hover:bg-primary/90 active:bg-primary/80",
-                                    "border-2 border-primary shadow-md",
-                                    "transition-colors",
-                                    "text-[10px] font-poppins font-bold uppercase tracking-wider",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    "animate-in fade-in slide-in-from-bottom-1 duration-200",
-                                )}
-                            >
-                                <Footprints className="w-3 h-3" strokeWidth={2.5} />
-                                Mark hider found
-                            </button>
-                        </>
-                    )}
+                    {/* Provisional until the hider responds. Once they
+                        confirm, flip to a green "in the zone" badge so the
+                        seekers know they've got the right place (the
+                        positive signal the tabletop rules leave implicit). */}
+                    <div
+                        className={cn(
+                            "flex items-center gap-1.5",
+                            "px-2 py-1 rounded-md border-2",
+                            "animate-in fade-in duration-200",
+                            $endgameConfirmedAt != null
+                                ? "bg-success/15 border-success/70 text-success"
+                                : "bg-yellow-500/15 border-yellow-500/70 text-yellow-300",
+                        )}
+                        title={
+                            $endgameConfirmedAt != null
+                                ? "Hider confirmed — you're in the right zone. Find them!"
+                                : "Waiting for the hider to confirm you've reached their zone."
+                        }
+                    >
+                        <Flag className="w-3 h-3" strokeWidth={2.5} />
+                        <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.15em]">
+                            {$endgameConfirmedAt != null
+                                ? "In the zone"
+                                : "Awaiting hider"}
+                        </span>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleMarkFound}
+                        title="Mark hider found — freeze the score and share the round-end link"
+                        className={cn(
+                            "flex items-center justify-center gap-1.5 w-full",
+                            "px-2.5 py-1.5 rounded-md",
+                            "bg-primary text-primary-foreground",
+                            "hover:bg-primary/90 active:bg-primary/80",
+                            "border-2 border-primary shadow-md",
+                            "transition-colors",
+                            "text-[10px] font-poppins font-bold uppercase tracking-wider",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            "animate-in fade-in slide-in-from-bottom-1 duration-200",
+                        )}
+                    >
+                        <Footprints className="w-3 h-3" strokeWidth={2.5} />
+                        Mark hider found
+                    </button>
                 </div>
             )}
 
