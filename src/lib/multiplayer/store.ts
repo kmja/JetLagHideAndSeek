@@ -41,6 +41,7 @@ import {
     gameSize,
     endgameConfirmedAt,
     endgameStartedAt,
+    endOfRoundDialogOpen,
     hidingPeriodEndsAt,
     playArea,
     resetMapOverlays,
@@ -901,6 +902,9 @@ function handleServerMessage(msg: ServerMessage) {
         case "ended":
             if (roundFoundAt.get() === null) {
                 roundFoundAt.set(msg.foundAt);
+                // Fire the celebratory end-of-round dialog on this device
+                // too (v631).
+                endOfRoundDialogOpen.set(true);
                 notify({
                     title: "Round over",
                     body:

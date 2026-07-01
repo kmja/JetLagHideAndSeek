@@ -8,6 +8,7 @@ import {
     effectiveHiddenDebitMs,
     endgameConfirmedAt,
     endgameStartedAt,
+    endOfRoundDialogOpen,
     formatTimeRemaining,
     hiddenCreditMs,
     hidingPeriodEndsAt,
@@ -63,6 +64,8 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     const handleMarkFound = () => {
         const ts = Date.now();
         roundFoundAt.set(ts);
+        // Fire the celebratory end-of-round dialog (v631).
+        endOfRoundDialogOpen.set(true);
         // Mirror through multiplayer; no-op when offline.
         seekerMarkFound(ts);
         void shareFoundLink(ts);

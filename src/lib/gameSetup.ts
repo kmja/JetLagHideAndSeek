@@ -383,6 +383,13 @@ export const moreSheetOpen = atom<boolean>(false);
 export const mapOptionsDrawerOpen = atom<boolean>(false);
 
 /**
+ * Volatile: is the celebratory end-of-round dialog open? Auto-opened by
+ * `EndOfRoundDialog` when `roundFoundAt` transitions null→number (on both
+ * the seeker and hider, since both watch the same atom). v631.
+ */
+export const endOfRoundDialogOpen = atom<boolean>(false);
+
+/**
  * Volatile per-mode loading state for the Overpass-fetched transit
  * overlays (subway / bus / ferry). The TransitRoutesOverlay component
  * writes to this whenever it kicks off or finishes a fetch; the

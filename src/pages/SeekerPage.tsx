@@ -90,6 +90,11 @@ const SeekingStartOverlay = lazyWithRetry(() =>
         default: m.SeekingStartOverlay,
     })),
 );
+const EndOfRoundDialog = lazyWithRetry(() =>
+    import("@/components/EndOfRoundDialog").then((m) => ({
+        default: m.EndOfRoundDialog,
+    })),
+);
 const SeekingStartWatcher = lazyWithRetry(() =>
     import("@/components/SeekingStartOverlay").then((m) => ({
         default: m.SeekingStartWatcher,
@@ -287,6 +292,7 @@ export function SeekerPage() {
                         <GoGoGoOverlay />
                         <SeekingStartOverlay />
                         <SeekingStartWatcher />
+                        <EndOfRoundDialog />
                     </Suspense>
                     {/* Trip planner sheet — opened from the launcher
                         in the top-right cluster. Self-renders null

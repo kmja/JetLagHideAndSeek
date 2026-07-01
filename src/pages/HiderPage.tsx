@@ -51,6 +51,11 @@ const SeekingStartWatcher = lazyWithRetry(() =>
         default: m.SeekingStartWatcher,
     })),
 );
+const EndOfRoundDialog = lazyWithRetry(() =>
+    import("@/components/EndOfRoundDialog").then((m) => ({
+        default: m.EndOfRoundDialog,
+    })),
+);
 const StaleSessionPrompt = lazyWithRetry(() =>
     import("@/components/StaleSessionPrompt").then((m) => ({
         default: m.StaleSessionPrompt,
@@ -141,6 +146,7 @@ export function HiderPage() {
                     roles. */}
                 <SeekingStartOverlay />
                 <SeekingStartWatcher />
+                <EndOfRoundDialog />
             </Suspense>
             {/* Hearthstone-style fanned hand pinned to the bottom of
                 the viewport. Auto-hides when the hand is empty.

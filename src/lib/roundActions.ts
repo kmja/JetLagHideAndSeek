@@ -10,6 +10,7 @@ import {
     closingInWarningLevel,
     endgameConfirmedAt,
     endgameStartedAt,
+    endOfRoundDialogOpen,
     gameSize,
     gameStartFiredFor,
     gameStartPosition,
@@ -143,6 +144,8 @@ export function startNewRound() {
     // hider's confirmation so the new round doesn't open mid-endgame.
     endgameStartedAt.set(null);
     endgameConfirmedAt.set(null);
+    // Close the end-of-round celebration if it was up.
+    endOfRoundDialogOpen.set(false);
 }
 
 /**
@@ -243,6 +246,7 @@ export function startNewGame() {
     gamePausedForLocationAt.set(null);
     endgameStartedAt.set(null);
     endgameConfirmedAt.set(null);
+    endOfRoundDialogOpen.set(false);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);
