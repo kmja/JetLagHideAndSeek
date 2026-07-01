@@ -167,24 +167,27 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
 
 ## Bottom nav (mobile only)
 
-`BottomNav.tsx` — four slots: **Questions** (`List`) | **New question** (`Plus`, primary CTA) | **Lobby** (`Users`) | **Settings** (`Settings`).
+`BottomNav.tsx` — five slots (v622): **Questions** (`List`) | **Map** (`Layers`) | **New question** (`Plus`, primary CTA) | **Lobby** (`Users`) | **Settings** (`Settings`).
 
 - Questions → opens QuestionSidebar (left drawer); badge = questions added.
-- New question → opens AddQuestionDialog; disabled while `hiding` OR a previous question is still unanswered.
+- Map → opens the `MapOptionsDrawer` via `mapOptionsDrawerOpen` (roomy basemap/overlays/transit toggles); badge = active-overlay count. v622: replaces the floating bottom-left Map-options chip on mobile (the chip stays on desktop, which has no bottom nav).
+- New question → opens AddQuestionDialog; disabled while `hiding`, a previous question is still unanswered, OR a curse fully blocks asking.
 - Lobby → opens `GameLobbyDialog` via `lobbyManualOpen`; badge = online participant count (added v242).
 - Settings → opens the `AppSettingsDrawer` via `moreSheetOpen` (tutorial, rulebook, units, theme, preload — the merged settings+more drawer).
 
 There is **no "More" slot** anymore, and the hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card (the standalone "Game"/countdown drawer was retired in v270).
 
-## Map display controls (bottom-left, v616)
+## Map display controls (bottom-nav "Map" on mobile / bottom-left chip on desktop, v622)
 
-`MapDisplayControls.tsx` — a **single compact "Map options" chip** (`Layers` icon, `h-14/w-14`, with an active-count badge) that opens a **Popover** (`side="top" align="start"` → opens up + left-aligned) containing:
-- **Basemap** — Map / Satellite segmented switch.
-- **Overlays** — Hiding zones + Travel times toggles.
-- **Export** — Save image.
-- **Transit overlays** — per-mode toggles (rail / subway / bus / ferry / train / tram), gated on `allowedTransit`.
+`MapDisplayControls.tsx` exports one shared **`MapOptionsPanel`** (`roomy` prop for bigger touch targets) rendered on two surfaces:
+- **Mobile** — the bottom-nav **"Map"** slot opens **`MapOptionsDrawer`** (a vaul bottom sheet, `mapOptionsDrawerOpen` atom) with the roomy panel.
+- **Desktop** — the floating **"Map options" chip** (`Layers`, `h-14/w-14`, active-count badge) opens a `Popover` (`side="top" align="start"`) with the compact panel. `SeekerPage` wraps it `hidden md:block` (mobile uses the nav).
 
-**Position (v616):** moved from top-right to **bottom-left**. `SeekerPage` owns the wrapper (`absolute left-2 md:left-4 z-[1030]`); it sits at `bottom-7 md:bottom-8` while seeking and is **pushed UP to `bottom-28`** during the hiding period so it clears the `HiderTimer`, which sits bottom-LEFT during hiding (and bottom-RIGHT while seeking). `inHidingPeriod` is computed in both `SeekerPage` and `Map.tsx` via a one-shot `setTimeout` on `hidingPeriodEndsAt` (no per-second tick). During hiding, `Map.tsx`'s `MapNavControls` dodges to bottom-RIGHT so it doesn't collide with the pushed-up chip. The old MapLibre `ScaleControl` ruler (which sat bottom-left where the chip now lives) was **removed** in v616.
+Panel sections: **Basemap** (Map/Satellite), **Overlays** (Hiding zones + Travel times), **Export** (Save image), **Transit overlays** (per-mode rail/subway/bus/ferry/train/tram, gated on `allowedTransit`). The active-overlay count comes from the exported `useMapOptionsActiveCount()` hook (used by both the desktop chip badge and the nav "Map" badge).
+
+**Positions (v622):** the desktop chip sits `bottom-3` while seeking and is **pushed UP to `bottom-28`** during the hiding period so it clears the `HiderTimer` (bottom-LEFT during hiding, bottom-RIGHT while seeking). `inHidingPeriod` is computed in both `SeekerPage` and `Map.tsx` via a one-shot `setTimeout` on `hidingPeriodEndsAt` (no per-second tick). `MapNavControls` (follow-me + reset) sits `left-3 bottom-2` on mobile (nothing below it now) / `md:bottom-[76px]` on desktop (rides above the chip), dodging to `right-3` during hiding. The old `ScaleControl` ruler was removed in v616. **Margins trimmed (v622):** the corner clusters (curse pills top-right, `HiderTimer` + nav controls bottom) dropped their old raised offsets — those cleared the bottom-right basemap attribution, which moved to **top-left** in v616, leaving dead vertical space.
+
+**Map label contrast (v622):** station-name (`hiding-zones-labels`) + arrival-time (`travel-times-labels`) text follows the BASEMAP brightness, not the UI theme — white-on-dark over satellite / dark Protomaps, but **dark text + light halo on the light basemap** (`darkBasemap = $satellite || $theme === "dark"` in `Map.tsx`), since white washed out on light tiles.
 
 **Attribution (v616):** the MapLibre `AttributionControl` moved to **`position="top-left"`** (out of the way of the bottom controls). In **dark mode** the default bright-white attribution pill + "i" toggle are re-skinned to a translucent dark chip with muted text (`.dark .maplibregl-ctrl-attrib*` rules in `globals.css`; the collapsed toggle uses `filter: invert(1)`). License-clean: OSM's "© OpenStreetMap contributors" and Protomaps' "Protomaps © OpenStreetMap" credits only require presence + legibility, not a colour.
 
@@ -359,7 +362,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v621`. Use `git log` for the per-version detail;
+build stamp. Current: `v622`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

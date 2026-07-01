@@ -1566,6 +1566,18 @@ export function Map({ className }: MapProps) {
     const eliminationFillOpacity = $theme === "dark" ? 0.75 : 0.45;
     const eliminationOutlineOpacity = $theme === "dark" ? 0.85 : 0.55;
 
+    // Map-label contrast (v622). Station name / arrival labels sit ON the
+    // basemap, so they follow the BASEMAP's brightness, not the UI theme:
+    // white-on-dark works over satellite imagery and the dark Protomaps
+    // flavor, but on the LIGHT basemap the white fill washed out (only the
+    // thin halo read). So invert to dark text + light halo whenever the
+    // basemap is light (light theme AND satellite off).
+    const darkBasemap = $satellite || $theme === "dark";
+    const mapLabelColor = darkBasemap ? "#ffffff" : "#1f2937";
+    const mapLabelHalo = darkBasemap
+        ? "rgba(0,0,0,0.85)"
+        : "rgba(255,255,255,0.9)";
+
     return (
         <div className={cn("relative w-full h-screen", className)}>
             <MapGL
@@ -1803,8 +1815,8 @@ export function Map({ className }: MapProps) {
                                     "text-optional": true,
                                 }}
                                 paint={{
-                                    "text-color": "#ffffff",
-                                    "text-halo-color": "rgba(0,0,0,0.85)",
+                                    "text-color": mapLabelColor,
+                                    "text-halo-color": mapLabelHalo,
                                     "text-halo-width": 1.4,
                                     "text-opacity": shown ? 1 : 0,
                                     "text-opacity-transition": {
@@ -1941,8 +1953,8 @@ export function Map({ className }: MapProps) {
                                     "text-ignore-placement": false,
                                 }}
                                 paint={{
-                                    "text-color": "white",
-                                    "text-halo-color": "rgba(0,0,0,0.85)",
+                                    "text-color": mapLabelColor,
+                                    "text-halo-color": mapLabelHalo,
                                     "text-halo-width": 1.5,
                                     "text-opacity": shown ? 1 : 0,
                                     "text-opacity-transition": {
@@ -2293,7 +2305,15 @@ export function Map({ className }: MapProps) {
             <MapNavControls
                 mapRef={mapRef}
                 className={
-                    inHidingPeriod ? "right-3 bottom-7" : "left-3 bottom-24"
+                    // v622: on mobile the bottom-left Map-options chip moved
+                    // to the bottom nav, so these drop to the bottom edge.
+                    // On desktop the floating chip still sits bottom-left,
+                    // so they ride above it (md:bottom-[76px]). During
+                    // hiding they dodge to the bottom-right (the HiderTimer
+                    // takes the bottom-left corner).
+                    inHidingPeriod
+                        ? "right-3 bottom-2 md:bottom-3"
+                        : "left-3 bottom-2 md:bottom-[76px]"
                 }
             />
 

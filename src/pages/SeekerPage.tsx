@@ -232,17 +232,17 @@ export function SeekerPage() {
                         {/* Top-right: trip-planner launcher. Slides down
                             when the pending-answer overlay is pinned to the
                             top so they don't overlap on narrow screens. */}
-                        {/* Map-options chip — bottom-left (v616). Pushed UP
-                            above the HiderTimer while it sits bottom-left
-                            during the hiding period; drops to the corner
-                            once seeking starts. */}
+                        {/* Map-options chip — DESKTOP ONLY (v622). On mobile
+                            these controls live in the bottom-nav "Map" slot
+                            (MapOptionsDrawer), so the floating chip is hidden
+                            there. On desktop (no bottom nav) it stays bottom-
+                            left, pushed up above the HiderTimer during the
+                            hiding period. */}
                         <div
                             className={cn(
-                                "absolute left-2 md:left-4 z-[1030] group-[.fullscreen]:hidden",
+                                "hidden md:block absolute left-4 z-[1030] group-[.fullscreen]:hidden",
                                 "transition-[bottom] duration-300 ease-out",
-                                inHidingPeriod
-                                    ? "bottom-28"
-                                    : "bottom-7 md:bottom-8",
+                                inHidingPeriod ? "bottom-28" : "bottom-3",
                             )}
                         >
                             <MapDisplayControls />

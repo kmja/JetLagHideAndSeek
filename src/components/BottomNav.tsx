@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { List, Plus, Settings, Users } from "lucide-react";
+import { Layers, List, Plus, Settings, Users } from "lucide-react";
 
 import { useNow } from "@/hooks/useNow";
 import { questions, questionsDrawerOpen } from "@/lib/context";
@@ -10,6 +10,7 @@ import {
 } from "@/lib/curseEnforcement";
 import {
     hidingPeriodEndsAt,
+    mapOptionsDrawerOpen,
     moreSheetOpen,
 } from "@/lib/gameSetup";
 import { lobbyManualOpen, participants } from "@/lib/multiplayer/session";
@@ -18,6 +19,10 @@ import { cn } from "@/lib/utils";
 
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { AppSettingsDrawer } from "./AppSettingsDrawer";
+import {
+    MapOptionsDrawer,
+    useMapOptionsActiveCount,
+} from "./MapDisplayControls";
 
 /**
  * Bottom-anchored mobile navigation. Four slots: Questions, New
@@ -43,6 +48,7 @@ export const BottomNav = () => {
         onTransit: $onTransit,
         spottyCategory: $spottyCategory,
     });
+    const mapActiveCount = useMapOptionsActiveCount();
 
     // Tick state at 1 Hz while a hiding period is active so the
     // New-question button stays accurately disabled across the
@@ -116,6 +122,35 @@ export const BottomNav = () => {
                             aria-label={`${$questions.length} questions added`}
                         >
                             {$questions.length}
+                        </span>
+                    )}
+                </button>
+
+                {/* Map slot (v622) — opens the roomy map-options drawer.
+                    Replaces the floating bottom-left Layers chip on
+                    mobile (that stays on desktop, which has no nav). */}
+                <button
+                    type="button"
+                    onClick={() => mapOptionsDrawerOpen.set(true)}
+                    className={navBtnClass}
+                    aria-label="Map options"
+                    title="Basemap, overlays, transit lines"
+                >
+                    <Layers className="w-5 h-5" strokeWidth={2} />
+                    <span className={navLabelClass}>Map</span>
+                    {mapActiveCount > 0 && (
+                        <span
+                            className={cn(
+                                "absolute top-1 right-2",
+                                "text-[9px] font-mono font-semibold",
+                                "bg-primary text-primary-foreground",
+                                "px-1.5 min-w-[18px] h-[18px]",
+                                "rounded-full flex items-center justify-center",
+                                "border border-background",
+                            )}
+                            aria-label={`${mapActiveCount} map option(s) active`}
+                        >
+                            {mapActiveCount}
                         </span>
                     )}
                 </button>
@@ -212,6 +247,7 @@ export const BottomNav = () => {
                 </button>
 
                 <AppSettingsDrawer />
+                <MapOptionsDrawer />
             </div>
         </div>
     );

@@ -9,6 +9,7 @@ import {
     Satellite,
     Target,
 } from "lucide-react";
+import { Drawer as VaulDrawer } from "vaul";
 
 import {
     Popover,
@@ -18,6 +19,7 @@ import {
 import { displayHidingZones, isLoading } from "@/lib/context";
 import {
     allowedTransit,
+    mapOptionsDrawerOpen,
     satelliteView,
     showBusRoutes,
     showFerryRoutes,
@@ -31,22 +33,47 @@ import { showTravelTimes } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
- * Bottom-left cluster (v616) — a single compact "Map options" chip
- * with a popover (opening up + left-aligned) containing basemap
- * toggle, hiding-zone toggle, and per-mode transit overlay toggles.
- * Positioned by its parent in SeekerPage; pushed up above the
- * HiderTimer during the hiding period.
+ * Map display controls — basemap toggle, overlay toggles, image export,
+ * and per-mode transit overlays.
  *
- * v266: the room-code pill that used to sit above this got removed
- * per user feedback — players reach the room code via the lobby
- * drawer.
- *
- *
- * Both chips share the same `h-9` height so the cluster reads as a
- * single compact toolbar.
+ * v622: two surfaces share ONE roomy `MapOptionsPanel`:
+ *   • Desktop — a floating "Map options" chip (bottom-left) whose
+ *     popover holds the panel. Mounted by SeekerPage, gated `md:block`
+ *     (mobile has no room there — the bottom-left corner + the bottom
+ *     nav own it).
+ *   • Mobile — a bottom-nav "Map" slot opens `MapOptionsDrawer` (a vaul
+ *     bottom sheet) with the same panel, sized to breathe with big
+ *     touch targets.
  */
 
-export function MapDisplayControls() {
+/** How many overlays are currently active — drives the count badge on
+ *  both the desktop chip and the bottom-nav "Map" slot. */
+export function useMapOptionsActiveCount(): number {
+    const $satellite = useStore(satelliteView);
+    const $subway = useStore(showSubwayRoutes);
+    const $bus = useStore(showBusRoutes);
+    const $ferry = useStore(showFerryRoutes);
+    const $train = useStore(showTrainRoutes);
+    const $tram = useStore(showTramRoutes);
+    const $hidingZones = useStore(displayHidingZones);
+    const $allowedTransit = useStore(allowedTransit);
+    return (
+        (Number($satellite) || 0) +
+        (Number($hidingZones) || 0) +
+        (Number($subway && $allowedTransit.includes("subway")) || 0) +
+        (Number($bus && $allowedTransit.includes("bus")) || 0) +
+        (Number($ferry && $allowedTransit.includes("ferry")) || 0) +
+        (Number($train && $allowedTransit.includes("train")) || 0) +
+        (Number($tram && $allowedTransit.includes("tram")) || 0)
+    );
+}
+
+/**
+ * The actual controls. `roomy` gives every button a bigger touch target
+ * + more breathing room (used in the mobile drawer); the compact default
+ * suits the desktop popover.
+ */
+function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
     const $satellite = useStore(satelliteView);
     const $subway = useStore(showSubwayRoutes);
     const $bus = useStore(showBusRoutes);
@@ -59,9 +86,6 @@ export function MapDisplayControls() {
     const $transitLoading = useStore(transitRoutesLoading);
     const $showTravelTimes = useStore(showTravelTimes);
 
-    // Only render transit buttons for modes that are actually
-    // allowed in this session's game settings — no point cluttering
-    // the popover with a Ferry toggle for a landlocked play area.
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
     const showFerryBtn = $allowedTransit.includes("ferry");
@@ -74,21 +98,253 @@ export function MapDisplayControls() {
         showTrainBtn ||
         showTramBtn;
 
-    // How many overlays are currently active? Surfaces a tiny count
-    // badge on the Map-options chip so the user can see at a glance
-    // that something is on without opening the popover.
-    const activeCount =
-        (Number($satellite) || 0) +
-        (Number($hidingZones) || 0) +
-        (Number($subway && showSubwayBtn) || 0) +
-        (Number($bus && showBusBtn) || 0) +
-        (Number($ferry && showFerryBtn) || 0) +
-        (Number($train && showTrainBtn) || 0) +
-        (Number($tram && showTramBtn) || 0);
+    // Sizing tokens — roomy for the drawer, compact for the popover.
+    const rowH = roomy ? "h-12" : "h-9";
+    const rowText = roomy ? "text-sm" : "text-xs";
+    const rowIcon = roomy ? "w-5 h-5" : "w-4 h-4";
+    const sectionGap = roomy ? "space-y-5" : "space-y-3";
+    const label =
+        "text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground";
+
+    return (
+        <div className={sectionGap}>
+            {/* Map / Satellite */}
+            <div className="space-y-2">
+                <div className={label}>Basemap</div>
+                <div
+                    className={cn(
+                        "rounded-lg border-2 border-border bg-background overflow-hidden flex",
+                        rowH,
+                    )}
+                    role="group"
+                    aria-label="Map style"
+                >
+                    <button
+                        type="button"
+                        onClick={() => satelliteView.set(false)}
+                        aria-pressed={!$satellite}
+                        className={cn(
+                            "flex-1 px-2 gap-1.5 flex items-center justify-center transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            !$satellite
+                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                : "hover:bg-accent",
+                        )}
+                    >
+                        <MapIcon className={rowIcon} />
+                        <span
+                            className={cn(
+                                "font-poppins font-semibold",
+                                rowText,
+                            )}
+                        >
+                            Map
+                        </span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => satelliteView.set(true)}
+                        aria-pressed={$satellite}
+                        className={cn(
+                            "flex-1 px-2 gap-1.5 flex items-center justify-center border-l-2 border-border transition-colors",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            $satellite
+                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                : "hover:bg-accent",
+                        )}
+                    >
+                        <Satellite className={rowIcon} />
+                        <span
+                            className={cn(
+                                "font-poppins font-semibold",
+                                rowText,
+                            )}
+                        >
+                            Satellite
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            {/* Overlays */}
+            <div className="space-y-2">
+                <div className={label}>Overlays</div>
+                <button
+                    type="button"
+                    onClick={() => displayHidingZones.set(!$hidingZones)}
+                    aria-pressed={$hidingZones}
+                    className={cn(
+                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",
+                        rowH,
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        $hidingZones
+                            ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
+                            : "bg-background border-border hover:bg-accent",
+                    )}
+                    title="Toggle hiding zones overlay"
+                >
+                    <Target className={cn(rowIcon, "shrink-0")} />
+                    <span
+                        className={cn("font-poppins font-semibold", rowText)}
+                    >
+                        Hiding zones
+                    </span>
+                    {$isLoading && (
+                        <Loader2 className="w-4 h-4 animate-spin ml-auto" />
+                    )}
+                </button>
+                {/* Travel times — earliest arrival at each station for the
+                    hider, given they departed from the game-start location
+                    when the hiding period began. Requires hiding zones +
+                    GPS at game start (overpass-cache /api/journey/arrivals). */}
+                <button
+                    type="button"
+                    onClick={() => showTravelTimes.set(!$showTravelTimes)}
+                    aria-pressed={$showTravelTimes}
+                    className={cn(
+                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",
+                        rowH,
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        $showTravelTimes
+                            ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
+                            : "bg-background border-border hover:bg-accent",
+                    )}
+                    title="Stations reachable within the hiding period (requires Hiding zones + GPS at game start)"
+                >
+                    <Clock className={cn(rowIcon, "shrink-0")} />
+                    <span
+                        className={cn("font-poppins font-semibold", rowText)}
+                    >
+                        Travel times
+                    </span>
+                </button>
+            </div>
+
+            {/* Export */}
+            <div className="space-y-2">
+                <div className={label}>Export</div>
+                <button
+                    type="button"
+                    onClick={() => {
+                        window.dispatchEvent(
+                            new CustomEvent("jlhs:save-map-image"),
+                        );
+                    }}
+                    className={cn(
+                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",
+                        rowH,
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "bg-background border-border hover:bg-accent",
+                    )}
+                    title="Save current map view as a PNG image"
+                >
+                    <Camera className={cn(rowIcon, "shrink-0")} />
+                    <span className={cn("font-poppins font-semibold", rowText)}>
+                        Save image
+                    </span>
+                </button>
+            </div>
+
+            {/* Per-mode transit toggles */}
+            {hasAnyTransitBtn && (
+                <div className="space-y-2">
+                    <div className={label}>Transit overlays</div>
+                    <div
+                        className={cn(
+                            "rounded-lg border-2 border-border bg-background overflow-hidden flex",
+                            rowH,
+                        )}
+                        role="group"
+                        aria-label="Transit overlays"
+                    >
+                        {(() => {
+                            const buttons: React.ReactNode[] = [];
+                            const push = (
+                                key: string,
+                                icon: LucideIcon,
+                                lbl: string,
+                                on: boolean,
+                                loading: boolean,
+                                onToggle: () => void,
+                            ) =>
+                                buttons.push(
+                                    <TransitIconToggle
+                                        key={key}
+                                        icon={icon}
+                                        label={lbl}
+                                        on={on}
+                                        loading={loading}
+                                        onToggle={onToggle}
+                                        borderLeft={buttons.length > 0}
+                                        iconClass={rowIcon}
+                                    />,
+                                );
+                            if (showSubwayBtn)
+                                push(
+                                    "subway",
+                                    TRANSIT_ICONS.subway,
+                                    "Subway",
+                                    $subway,
+                                    $transitLoading.subway,
+                                    () => showSubwayRoutes.set(!$subway),
+                                );
+                            if (showBusBtn)
+                                push(
+                                    "bus",
+                                    TRANSIT_ICONS.bus,
+                                    "Bus",
+                                    $bus,
+                                    $transitLoading.bus,
+                                    () => showBusRoutes.set(!$bus),
+                                );
+                            if (showFerryBtn)
+                                push(
+                                    "ferry",
+                                    TRANSIT_ICONS.ferry,
+                                    "Ferry",
+                                    $ferry,
+                                    $transitLoading.ferry,
+                                    () => showFerryRoutes.set(!$ferry),
+                                );
+                            // Colored, named-service line overlays per rail
+                            // mode (train / tram). v488 dropped the old
+                            // all-rail OpenRailwayMap raster toggle.
+                            if (showTrainBtn)
+                                push(
+                                    "train",
+                                    TRANSIT_ICONS.train,
+                                    "Train (lines)",
+                                    $train,
+                                    $transitLoading.train,
+                                    () => showTrainRoutes.set(!$train),
+                                );
+                            if (showTramBtn)
+                                push(
+                                    "tram",
+                                    TRANSIT_ICONS.tram,
+                                    "Tram (lines)",
+                                    $tram,
+                                    $transitLoading.tram,
+                                    () => showTramRoutes.set(!$tram),
+                                );
+                            return buttons;
+                        })()}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Desktop floating chip — the Layers button + a popover holding the
+ * (compact) panel. SeekerPage gates this to `md:block`.
+ */
+export function MapDisplayControls() {
+    const activeCount = useMapOptionsActiveCount();
 
     return (
         <div className="flex flex-col gap-2 items-start">
-            {/* Map options — single popover with all display toggles. */}
             <Popover>
                 <PopoverTrigger asChild>
                     <button
@@ -96,12 +352,6 @@ export function MapDisplayControls() {
                         aria-label="Map display options"
                         className={cn(
                             "relative shadow-md rounded-md border-2 border-border bg-background",
-                            // v314: square footprint bumped from
-                            // h-12/w-12 to h-14/w-14 — with the
-                            // glyph now at w-8 the previous
-                            // 8 px-per-side padding read as cramped.
-                            // 12 px on each side gives the icon some
-                            // breathing room.
                             "h-14 w-14 flex items-center justify-center transition-colors",
                             "hover:bg-accent",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -129,268 +379,45 @@ export function MapDisplayControls() {
                 <PopoverContent
                     side="top"
                     align="start"
-                    className="w-[260px] p-3 bg-card border-2 border-border shadow-xl space-y-3"
+                    className="w-[280px] p-4 bg-card border-2 border-border shadow-xl"
                 >
-                    {/* Map / Satellite */}
-                    <div className="space-y-1.5">
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                            Basemap
-                        </div>
-                        <div
-                            className={cn(
-                                "rounded-md border-2 border-border bg-background overflow-hidden",
-                                "flex h-9",
-                            )}
-                            role="group"
-                            aria-label="Map style"
-                        >
-                            <button
-                                type="button"
-                                onClick={() => satelliteView.set(false)}
-                                aria-pressed={!$satellite}
-                                className={cn(
-                                    "flex-1 px-2 gap-1.5 flex items-center justify-center transition-colors",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    !$satellite
-                                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                        : "hover:bg-accent",
-                                )}
-                            >
-                                <MapIcon className="w-3.5 h-3.5" />
-                                <span className="text-xs font-poppins font-semibold">
-                                    Map
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => satelliteView.set(true)}
-                                aria-pressed={$satellite}
-                                className={cn(
-                                    "flex-1 px-2 gap-1.5 flex items-center justify-center border-l-2 border-border transition-colors",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    $satellite
-                                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                        : "hover:bg-accent",
-                                )}
-                            >
-                                <Satellite className="w-3.5 h-3.5" />
-                                <span className="text-xs font-poppins font-semibold">
-                                    Satellite
-                                </span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Hiding zones */}
-                    <div className="space-y-1.5">
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                            Overlays
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() =>
-                                displayHidingZones.set(!$hidingZones)
-                            }
-                            aria-pressed={$hidingZones}
-                            className={cn(
-                                "w-full rounded-md border-2 h-9",
-                                "px-3 gap-2 flex items-center transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                $hidingZones
-                                    ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
-                                    : "bg-background border-border hover:bg-accent",
-                            )}
-                            title="Toggle hiding zones overlay"
-                        >
-                            <Target className="w-4 h-4 shrink-0" />
-                            <span className="text-xs font-poppins font-semibold">
-                                Hiding zones
-                            </span>
-                            {$isLoading && (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin ml-auto" />
-                            )}
-                        </button>
-                        {/* Travel times — labels the earliest arrival
-                            at each station for the hider, given they
-                            departed from the game-start location when
-                            the hiding period began. Only stations
-                            reachable before the hiding period ends are
-                            shown. Requires hiding zones + GPS at game
-                            start. Powered by the overpass-cache
-                            worker's /api/journey/arrivals proxy. */}
-                        <button
-                            type="button"
-                            onClick={() =>
-                                showTravelTimes.set(!$showTravelTimes)
-                            }
-                            aria-pressed={$showTravelTimes}
-                            className={cn(
-                                "w-full rounded-md border-2 h-9",
-                                "px-3 gap-2 flex items-center transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                $showTravelTimes
-                                    ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
-                                    : "bg-background border-border hover:bg-accent",
-                            )}
-                            title="Stations reachable within the hiding period (requires Hiding zones + GPS at game start)"
-                        >
-                            <Clock className="w-4 h-4 shrink-0" />
-                            <span className="text-xs font-poppins font-semibold">
-                                Travel times
-                            </span>
-                        </button>
-                    </div>
-
-                    {/* Save image — captures the current map view as
-                        a PNG. Replaces the leaflet-easyprint control
-                        the old Leaflet map had; MapV2 listens for the
-                        custom event and snapshots its WebGL canvas. */}
-                    <div className="space-y-1.5">
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                            Export
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                window.dispatchEvent(
-                                    new CustomEvent("jlhs:save-map-image"),
-                                );
-                            }}
-                            className={cn(
-                                "w-full rounded-md border-2 h-9",
-                                "px-3 gap-2 flex items-center transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                "bg-background border-border hover:bg-accent",
-                            )}
-                            title="Save current map view as a PNG image"
-                        >
-                            <Camera className="w-4 h-4 shrink-0" />
-                            <span className="text-xs font-poppins font-semibold">
-                                Save image
-                            </span>
-                        </button>
-                    </div>
-
-                    {/* Per-mode transit toggles */}
-                    {hasAnyTransitBtn && (
-                        <div className="space-y-1.5">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                                Transit overlays
-                            </div>
-                            <div
-                                className={cn(
-                                    "rounded-md border-2 border-border bg-background overflow-hidden",
-                                    "flex h-9",
-                                )}
-                                role="group"
-                                aria-label="Transit overlays"
-                            >
-                                {(() => {
-                                    const buttons: React.ReactNode[] = [];
-                                    if (showSubwayBtn) {
-                                        buttons.push(
-                                            <TransitIconToggle
-                                                key="subway"
-                                                icon={TRANSIT_ICONS.subway}
-                                                label="Subway"
-                                                on={$subway}
-                                                loading={
-                                                    $transitLoading.subway
-                                                }
-                                                onToggle={() =>
-                                                    showSubwayRoutes.set(
-                                                        !$subway,
-                                                    )
-                                                }
-                                                borderLeft={buttons.length > 0}
-                                            />,
-                                        );
-                                    }
-                                    if (showBusBtn) {
-                                        buttons.push(
-                                            <TransitIconToggle
-                                                key="bus"
-                                                icon={TRANSIT_ICONS.bus}
-                                                label="Bus"
-                                                on={$bus}
-                                                loading={$transitLoading.bus}
-                                                onToggle={() =>
-                                                    showBusRoutes.set(!$bus)
-                                                }
-                                                borderLeft={buttons.length > 0}
-                                            />,
-                                        );
-                                    }
-                                    if (showFerryBtn) {
-                                        buttons.push(
-                                            <TransitIconToggle
-                                                key="ferry"
-                                                icon={TRANSIT_ICONS.ferry}
-                                                label="Ferry"
-                                                on={$ferry}
-                                                loading={
-                                                    $transitLoading.ferry
-                                                }
-                                                onToggle={() =>
-                                                    showFerryRoutes.set(
-                                                        !$ferry,
-                                                    )
-                                                }
-                                                borderLeft={buttons.length > 0}
-                                            />,
-                                        );
-                                    }
-                                    // Colored, named-service line overlays
-                                    // per rail mode (train / tram). v488
-                                    // dropped the old all-rail OpenRailwayMap
-                                    // raster toggle — the per-mode overlays
-                                    // cover it.
-                                    if (showTrainBtn) {
-                                        buttons.push(
-                                            <TransitIconToggle
-                                                key="train"
-                                                icon={TRANSIT_ICONS.train}
-                                                label="Train (lines)"
-                                                on={$train}
-                                                loading={
-                                                    $transitLoading.train
-                                                }
-                                                onToggle={() =>
-                                                    showTrainRoutes.set(
-                                                        !$train,
-                                                    )
-                                                }
-                                                borderLeft={buttons.length > 0}
-                                            />,
-                                        );
-                                    }
-                                    if (showTramBtn) {
-                                        buttons.push(
-                                            <TransitIconToggle
-                                                key="tram"
-                                                icon={TRANSIT_ICONS.tram}
-                                                label="Tram (lines)"
-                                                on={$tram}
-                                                loading={
-                                                    $transitLoading.tram
-                                                }
-                                                onToggle={() =>
-                                                    showTramRoutes.set(
-                                                        !$tram,
-                                                    )
-                                                }
-                                                borderLeft={buttons.length > 0}
-                                            />,
-                                        );
-                                    }
-                                    return buttons;
-                                })()}
-                            </div>
-                        </div>
-                    )}
+                    <MapOptionsPanel />
                 </PopoverContent>
             </Popover>
         </div>
+    );
+}
+
+/**
+ * Mobile bottom sheet — opened from the bottom-nav "Map" slot. Roomy
+ * panel with big touch targets.
+ */
+export function MapOptionsDrawer() {
+    const open = useStore(mapOptionsDrawerOpen);
+    return (
+        <VaulDrawer.Root
+            open={open}
+            onOpenChange={(o) => mapOptionsDrawerOpen.set(o)}
+            shouldScaleBackground={false}
+        >
+            <VaulDrawer.Portal>
+                <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
+                <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex h-auto max-h-[85vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
+                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
+                    <div className="overflow-y-auto px-6 pt-4 pb-8">
+                        <div className="space-y-1 mb-4">
+                            <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
+                                Map options
+                            </VaulDrawer.Title>
+                            <VaulDrawer.Description className="text-sm text-muted-foreground">
+                                Basemap, overlays, and transit lines.
+                            </VaulDrawer.Description>
+                        </div>
+                        <MapOptionsPanel roomy />
+                    </div>
+                </VaulDrawer.Content>
+            </VaulDrawer.Portal>
+        </VaulDrawer.Root>
     );
 }
 
@@ -401,6 +428,7 @@ function TransitIconToggle({
     loading,
     onToggle,
     borderLeft,
+    iconClass = "w-4 h-4",
 }: {
     icon: LucideIcon;
     label: string;
@@ -413,6 +441,7 @@ function TransitIconToggle({
     loading?: boolean;
     onToggle: () => void;
     borderLeft?: boolean;
+    iconClass?: string;
 }) {
     return (
         <button
@@ -434,9 +463,9 @@ function TransitIconToggle({
             )}
         >
             {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className={cn(iconClass, "animate-spin")} />
             ) : (
-                <Icon className="w-4 h-4" />
+                <Icon className={iconClass} />
             )}
         </button>
     );

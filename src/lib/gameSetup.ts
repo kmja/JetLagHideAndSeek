@@ -375,6 +375,14 @@ export const setupDialogOpen = atom<boolean>(false);
 export const moreSheetOpen = atom<boolean>(false);
 
 /**
+ * Volatile: is the seeker "Map" options drawer open? v622 moved the
+ * map-display toggles off the floating bottom-left chip into a
+ * bottom-nav "Map" slot (mobile); this atom lets that slot open the
+ * shared drawer. The floating chip stays on desktop (no bottom nav).
+ */
+export const mapOptionsDrawerOpen = atom<boolean>(false);
+
+/**
  * Volatile per-mode loading state for the Overpass-fetched transit
  * overlays (subway / bus / ferry). The TransitRoutesOverlay component
  * writes to this whenever it kicks off or finishes a fetch; the

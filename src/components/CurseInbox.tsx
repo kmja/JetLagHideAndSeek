@@ -174,10 +174,11 @@ export function CurseInbox() {
                 <div
                     className={cn(
                         "fixed right-2 md:right-4 z-[1042]",
-                        // Clear the top-right map-controls cluster
-                        // (MapDisplayControls + trip launcher) below the
-                        // mobile top bar / desktop top edge.
-                        "top-[124px] md:top-[80px]",
+                        // v622: the top-right cluster (map-options chip +
+                        // trip launcher) is gone, so the pills only need to
+                        // clear the mobile top bar now — snug under it,
+                        // near the top edge on desktop (no header there).
+                        "top-[calc(env(safe-area-inset-top)_+_62px)] md:top-3",
                         "flex flex-col items-end gap-2",
                     )}
                     role="status"
