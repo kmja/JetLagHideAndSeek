@@ -1,9 +1,9 @@
 /**
  * SeekerTopBar — fixed-top app chrome for the seeker view.
  *
- * Layout (v623): [debug · lobby] — HIDE+SEEK wordmark — [settings ·
- * notifications]. Lobby + Settings moved here from the bottom nav so
- * the nav is down to Questions / New question / Map.
+ * Layout (v628): [debug] — HIDE+SEEK wordmark — [settings ·
+ * notifications]. Lobby moved back to the bottom nav (v628); Settings
+ * stays here.
  *
  * Mobile-only — desktop has the left/right sidebars and doesn't
  * need a header. The header sits above the map and offsets the
@@ -11,14 +11,12 @@
  * by their existing `top-2`/`top-[72px]` classes.
  */
 
-import { useStore } from "@nanostores/react";
-import { Settings, Users } from "lucide-react";
+import { Settings } from "lucide-react";
 
 import { DebugLaunchButton } from "@/components/DebugLaunchButton";
 import { HideSeekWordmark } from "@/components/JetLagLogo";
 import { NotificationsIconButton } from "@/components/NotificationsToggle";
 import { moreSheetOpen } from "@/lib/gameSetup";
-import { lobbyManualOpen, participants } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 
 /** Icon button styled for the dark (bg-jetlag) header. */
@@ -30,9 +28,6 @@ const headerBtn = cn(
 );
 
 export function SeekerTopBar() {
-    const $participants = useStore(participants);
-    const onlineCount = $participants.filter((p) => p.online).length;
-
     return (
         <header
             className={cn(
@@ -51,33 +46,9 @@ export function SeekerTopBar() {
                 "group-[.fullscreen]:hidden",
             )}
         >
-            {/* Left cluster — debug launcher + lobby. */}
+            {/* Left cluster — debug launcher. */}
             <div className="flex items-center gap-2">
                 <DebugLaunchButton />
-                <button
-                    type="button"
-                    onClick={() => lobbyManualOpen.set(true)}
-                    className={headerBtn}
-                    aria-label="Open game lobby"
-                    title="Players, room code, role rotation"
-                >
-                    <Users className="w-4 h-4" />
-                    {onlineCount > 0 && (
-                        <span
-                            className={cn(
-                                "absolute -top-1.5 -right-1.5",
-                                "inline-flex items-center justify-center",
-                                "min-w-[18px] h-[18px] px-1 rounded-full",
-                                "bg-primary text-primary-foreground",
-                                "text-[10px] font-poppins font-bold tabular-nums",
-                                "border border-white/40",
-                            )}
-                            aria-label={`${onlineCount} players online`}
-                        >
-                            {onlineCount}
-                        </span>
-                    )}
-                </button>
             </div>
 
             <HideSeekWordmark className="text-white" />

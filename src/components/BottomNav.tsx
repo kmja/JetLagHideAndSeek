@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { List, Map as MapIcon, Plus } from "lucide-react";
+import { List, Map as MapIcon, Plus, Users } from "lucide-react";
 
 import { useNow } from "@/hooks/useNow";
 import { questions, questionsDrawerOpen } from "@/lib/context";
@@ -9,6 +9,7 @@ import {
     spottyMemoryCategory,
 } from "@/lib/curseEnforcement";
 import { hidingPeriodEndsAt, mapOptionsDrawerOpen } from "@/lib/gameSetup";
+import { lobbyManualOpen, participants } from "@/lib/multiplayer/session";
 import { receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 
@@ -20,14 +21,15 @@ import {
 } from "./MapDisplayControls";
 
 /**
- * Bottom-anchored mobile navigation. Three slots (v623): Questions,
- * New question (primary CTA), Map. Lobby + Settings moved up to the
- * app header (SeekerTopBar); the hiding-period countdown lives on the
+ * Bottom-anchored mobile navigation. Four slots (v628): Questions,
+ * New question (primary CTA), Lobby, Map (rightmost). Settings lives in
+ * the app header (SeekerTopBar); the hiding-period countdown lives on the
  * map's HiderTimer card.
  */
 export const BottomNav = () => {
     const $questions = useStore(questions);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const $participants = useStore(participants);
     // Curse enforcement (v621): some active curses block ALL asking
     // (Urban Explorer on transit, or Spotty Memory before the seekers
     // roll). Partial category blocks are handled inside AddQuestionDialog;
@@ -154,10 +156,37 @@ export const BottomNav = () => {
                     </button>
                 </AddQuestionDialog>
 
+                {/* Lobby slot (v628) — back in the nav (was moved to the
+                    header in v623). Opens the GameLobbyDialog; badge = live
+                    online-participant count. */}
+                <button
+                    type="button"
+                    onClick={() => lobbyManualOpen.set(true)}
+                    className={navBtnClass}
+                    aria-label="Open game lobby"
+                    title="Players, room code, role rotation"
+                >
+                    <Users className="w-5 h-5" strokeWidth={2} />
+                    <span className={navLabelClass}>Lobby</span>
+                    {$participants.filter((p) => p.online).length > 0 && (
+                        <span
+                            className={cn(
+                                "absolute top-1 right-2",
+                                "text-[9px] font-mono font-semibold",
+                                "bg-secondary text-foreground",
+                                "px-1.5 min-w-[18px] h-[18px]",
+                                "rounded-full flex items-center justify-center",
+                                "border border-border",
+                            )}
+                            aria-label={`${$participants.filter((p) => p.online).length} players online`}
+                        >
+                            {$participants.filter((p) => p.online).length}
+                        </span>
+                    )}
+                </button>
+
                 {/* Map slot (v623) — rightmost. Opens the roomy
-                    map-options drawer (basemap / overlays / transit).
-                    Lobby + Settings moved to the header (SeekerTopBar),
-                    so the nav is down to three slots. */}
+                    map-options drawer (basemap / overlays / transit). */}
                 <button
                     type="button"
                     onClick={() => mapOptionsDrawerOpen.set(true)}
