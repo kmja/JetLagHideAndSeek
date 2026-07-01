@@ -21,8 +21,8 @@ import {
 } from "./MapDisplayControls";
 
 /**
- * Bottom-anchored mobile navigation. Four slots (v628): Questions,
- * New question (primary CTA), Lobby, Map (rightmost). Settings lives in
+ * Bottom-anchored mobile navigation. Four slots (v629): Questions,
+ * New question (primary CTA), Map, Lobby (rightmost). Settings lives in
  * the app header (SeekerTopBar); the hiding-period countdown lives on the
  * map's HiderTimer card.
  */
@@ -156,37 +156,8 @@ export const BottomNav = () => {
                     </button>
                 </AddQuestionDialog>
 
-                {/* Lobby slot (v628) — back in the nav (was moved to the
-                    header in v623). Opens the GameLobbyDialog; badge = live
-                    online-participant count. */}
-                <button
-                    type="button"
-                    onClick={() => lobbyManualOpen.set(true)}
-                    className={navBtnClass}
-                    aria-label="Open game lobby"
-                    title="Players, room code, role rotation"
-                >
-                    <Users className="w-5 h-5" strokeWidth={2} />
-                    <span className={navLabelClass}>Lobby</span>
-                    {$participants.filter((p) => p.online).length > 0 && (
-                        <span
-                            className={cn(
-                                "absolute top-1 right-2",
-                                "text-[9px] font-mono font-semibold",
-                                "bg-secondary text-foreground",
-                                "px-1.5 min-w-[18px] h-[18px]",
-                                "rounded-full flex items-center justify-center",
-                                "border border-border",
-                            )}
-                            aria-label={`${$participants.filter((p) => p.online).length} players online`}
-                        >
-                            {$participants.filter((p) => p.online).length}
-                        </span>
-                    )}
-                </button>
-
-                {/* Map slot (v623) — rightmost. Opens the roomy
-                    map-options drawer (basemap / overlays / transit). */}
+                {/* Map slot (v629). Opens the roomy map-options drawer
+                    (basemap / overlays / transit). */}
                 <button
                     type="button"
                     onClick={() => mapOptionsDrawerOpen.set(true)}
@@ -209,6 +180,34 @@ export const BottomNav = () => {
                             aria-label={`${mapActiveCount} map option(s) active`}
                         >
                             {mapActiveCount}
+                        </span>
+                    )}
+                </button>
+
+                {/* Lobby slot (v629) — rightmost. Opens the GameLobbyDialog;
+                    badge = live online-participant count. */}
+                <button
+                    type="button"
+                    onClick={() => lobbyManualOpen.set(true)}
+                    className={navBtnClass}
+                    aria-label="Open game lobby"
+                    title="Players, room code, role rotation"
+                >
+                    <Users className="w-5 h-5" strokeWidth={2} />
+                    <span className={navLabelClass}>Lobby</span>
+                    {$participants.filter((p) => p.online).length > 0 && (
+                        <span
+                            className={cn(
+                                "absolute top-1 right-2",
+                                "text-[9px] font-mono font-semibold",
+                                "bg-secondary text-foreground",
+                                "px-1.5 min-w-[18px] h-[18px]",
+                                "rounded-full flex items-center justify-center",
+                                "border border-border",
+                            )}
+                            aria-label={`${$participants.filter((p) => p.online).length} players online`}
+                        >
+                            {$participants.filter((p) => p.online).length}
                         </span>
                     )}
                 </button>

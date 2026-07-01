@@ -171,12 +171,12 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
 
 ## Bottom nav (mobile only)
 
-`BottomNav.tsx` — four slots (v628): **Questions** (`List`) | **New question** (`Plus`, primary CTA) | **Lobby** (`Users`) | **Map** (`Map` icon, rightmost).
+`BottomNav.tsx` — four slots (v629): **Questions** (`List`) | **New question** (`Plus`, primary CTA) | **Map** (`Map` icon) | **Lobby** (`Users`, rightmost).
 
 - Questions → opens QuestionSidebar (left drawer); badge = questions added.
 - New question → opens AddQuestionDialog; disabled while `hiding`, a previous question is still unanswered, OR a curse fully blocks asking.
-- Lobby → opens `GameLobbyDialog` via `lobbyManualOpen`; badge = online participant count. (Moved to the header in v623, back in the nav in v628.)
 - Map → opens the `MapOptionsDrawer` via `mapOptionsDrawerOpen` (roomy basemap/overlays/transit toggles); badge = active-overlay count. Replaces the floating bottom-left Map-options chip on mobile (the chip stays on desktop, which has no bottom nav).
+- Lobby → opens `GameLobbyDialog` via `lobbyManualOpen`; badge = online participant count. (Moved to the header in v623, back in the nav in v628, swapped rightmost with Map in v629.)
 
 **Settings lives in the app header** (`SeekerTopBar`): left cluster = debug launcher; right cluster = **Settings** (`Settings`, `moreSheetOpen` → `AppSettingsDrawer`) + Notifications. `GameLobbyDialog` is mounted in `SeekerPage`; `AppSettingsDrawer` + `MapOptionsDrawer` are mounted in `BottomNav`. The hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card.
 
@@ -365,7 +365,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v628`. Use `git log` for the per-version detail;
+build stamp. Current: `v629`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
