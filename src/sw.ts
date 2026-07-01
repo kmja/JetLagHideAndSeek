@@ -222,6 +222,31 @@ registerRoute(
     }),
 );
 
+/* Notification icon + badge (v630). Web Push notification images can be
+ * fetched by the OS through the service worker; cache them aggressively so
+ * a cold push always has them locally instead of racing the network (which
+ * intermittently fell back to the generic bell + "H" letter avatar). The
+ * icon (android-chrome-192x192.png) is already precached; this also covers
+ * the badge, which wasn't. HTTP-level immutable caching (public/_headers)
+ * covers the OS-direct-fetch path that bypasses the SW. */
+registerRoute(
+    ({ url }: { url: URL }) =>
+        url.origin === self.location.origin &&
+        (url.pathname === "/notification-badge.png" ||
+            url.pathname === "/android-chrome-192x192.png"),
+    new CacheFirst({
+        cacheName: "notification-icons",
+        plugins: [
+            new ExpirationPlugin({
+                maxEntries: 8,
+                maxAgeSeconds: 365 * 24 * 60 * 60,
+                purgeOnQuotaError: true,
+            }),
+            new CacheableResponsePlugin({ statuses: [0, 200] }),
+        ],
+    }),
+);
+
 /* ────────────────── Catch handler ────────────────── */
 
 /**

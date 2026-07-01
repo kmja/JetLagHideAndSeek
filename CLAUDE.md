@@ -194,6 +194,10 @@ Panel sections: **Basemap** (Map/Satellite), **Overlays** (Hiding zones + Travel
 
 **Attribution (v616):** the MapLibre `AttributionControl` moved to **`position="top-left"`** (out of the way of the bottom controls). In **dark mode** the default bright-white attribution pill + "i" toggle are re-skinned to a translucent dark chip with muted text (`.dark .maplibregl-ctrl-attrib*` rules in `globals.css`; the collapsed toggle uses `filter: invert(1)`). License-clean: OSM's "© OpenStreetMap contributors" and Protomaps' "Protomaps © OpenStreetMap" credits only require presence + legibility, not a colour.
 
+**Hiding-zones toggle caching (v630):** the `ZoneSidebar` compute effect (Overpass fetch → per-station circles → remaining-area filter → per-question station filters) now records a signature of its inputs (`$displayHidingZonesOptions`, radius+units, custom-stations config, `mergeDuplicates`, planning mode, a compact per-question key, and the `questionFinishedMapData` reference). Toggling the overlay OFF then ON with nothing changed **skips the whole pipeline** — `trainStations` still holds the circles, so the render effect repaints instantly. Only a real input change busts the cache and recomputes.
+
+**Travel-times overlay (v630):** it labels the *hiding-zone* stations, so it needs the Hiding-zones overlay on — enabling **Travel times** now also enables **Hiding zones** (`MapOptionsPanel`). It still requires `gameStartPosition` (GPS at game start) + an active journey provider; those failure cases used to `travelTimesFC.set(null)` silently ("does nothing") and now surface a deduped toast explaining why (`TravelTimesOverlay.tsx`).
+
 (The hider's sibling `HiderMapDisplayControls` is a trimmed version of the same popover + a "Reachable zones" toggle; see the Trip-planning section.)
 
 **Hiding-zone overlay rendering** (`ZoneSidebar.tsx` `styleStations` → `hidingZonesGeoJSON` atom → `Map.tsx` `hiding-zones-*` layers): in the default **stations** style the overlay ships the centre POINTS (dots `hiding-zones-points` + name labels `hiding-zones-labels`, a symbol layer reading `name`, `minzoom 11`, overlap-culled, font MUST be a glyph-proxy fontstack = `Noto Sans Regular`) PLUS a single **`safeUnion`-ed** extent polygon (faint `hiding-zones-fill` + envelope `hiding-zones-line`) — unioning avoids the opacity COMPOUNDING that turned 4+ overlapping per-circle fills into an opaque wash. The **zones** style keeps individual circles (per-zone fill/outline). The tapped/selected zone gets a prominent gold highlight (`selected-zone-*` layers: ring + fill + dot, drawn from `selectedMapStation` + `hidingRadius`). Tapping a station opens `StationTransitCard`, which shows its aggregated **transit modes** (subway/tram/train/bus/ferry — inferred per merged OSM node by `inferStationMode` and unioned into `properties.modes`, threaded via `selectedMapStation.modes`). On the **seeker** surface (`allowEndgame` prop, passed only by `SeekerPage`) the card also offers a **"Start endgame here"** action once the hiding period is over and before the endgame is armed/the hider is found — the natural place to declare the seekers have entered the hider's zone (rulebook p43: the endgame begins when seekers reach the zone and are off transit). It calls the same `seekerStartEndgame()` as the `HiderTimer` button. Station de-duplication (`mergeDuplicateStation`, `stationManipulations.ts`, default-on via `mergeDuplicates` — persisted under key `mergeDuplicateStations`; the old `removeDuplicates` key was abandoned because long-time browsers had it stuck `false`) is union-find clustering keyed ONLY on a NORMALISED name (diacritics/brackets/mode-&-direction words stripped, so "Schous plass [Trikk]" ≡ "Schous plass") + nearness (`max(hidingRadius, 800 m)`, so a hub's spread-out same-named nodes like Oslo's Nationaltheatret still collapse). It is deliberately NOT proximity-alone: two differently-named stations that sit close (a train station and a separate bus stop) stay distinct so neither is hidden from selection.
@@ -365,7 +369,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v629`. Use `git log` for the per-version detail;
+build stamp. Current: `v630`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —
@@ -428,7 +432,15 @@ the headline arcs since the v414 rulebook-audit pass:
   use a **monochrome transparent badge** (`public/notification-badge.png`,
   white sun+mountain silhouette) — Android renders the small status-bar
   icon from the alpha channel and tints it, so a colour favicon showed as
-  a solid rounded square. **Curses over the wire** (`curseReceived` in
+  a solid rounded square. **Push-notification icons (v630):** Web Push
+  notifications sometimes fell back to the generic bell + "H" letter
+  avatar because the OS fetches the `icon`/`badge` directly (often
+  bypassing the SW cache) and races the network on a cold push. Fixed by
+  (a) long `immutable` HTTP cache headers on `notification-badge.png` +
+  `android-chrome-192x192/512x512.png` (`public/_headers`), so the
+  browser's own cache retains them, and (b) a `CacheFirst` SW runtime
+  route for the icon+badge (`sw.ts`) as a backup for the SW-intercepted
+  path. **Curses over the wire** (`curseReceived` in
   `multiplayer/store.ts`) now append to `receivedCurses` (the atom
   `CurseInbox` renders), not just fire a notification — previously a curse
   push surfaced nothing in-app (v612). **Seeker curse UI (v615):**

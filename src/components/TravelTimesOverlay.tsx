@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { useEffect } from "react";
+import { toast } from "react-toastify";
 
 import { hidingZonesGeoJSON } from "@/lib/context";
 import {
@@ -44,10 +45,20 @@ export function TravelTimesOverlay() {
         const provider = activeJourneyProvider();
         if (!provider) {
             travelTimesFC.set(null);
+            // Silent-failure was the "toggle does nothing" bug (v630) —
+            // tell the seeker why. Deduped by toastId.
+            toast.info(
+                "Travel times: no transit journey data is available for this area.",
+                { toastId: "travel-times-no-provider", autoClose: 4000 },
+            );
             return;
         }
         if (!$startPos || !$endsAt) {
             travelTimesFC.set(null);
+            toast.info(
+                "Travel times needs the GPS fix captured at game start — it isn't available for this game.",
+                { toastId: "travel-times-no-start", autoClose: 4000 },
+            );
             return;
         }
         const stations = extractStations(zones);

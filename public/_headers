@@ -46,3 +46,18 @@
 
 /manifest.webmanifest
   Cache-Control: no-cache, must-revalidate
+
+# Notification icon + badge (v630). Web Push notification images are
+# fetched by the OS/browser directly and often BYPASS the service worker
+# cache — so a cold push over a flaky connection would race the network
+# and fall back to the generic bell + letter-avatar. Long immutable HTTP
+# caching keeps them in the browser's own cache so the custom icons show
+# reliably. These files are stable; bump the filename if they ever change.
+/notification-badge.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/android-chrome-192x192.png
+  Cache-Control: public, max-age=31536000, immutable
+
+/android-chrome-512x512.png
+  Cache-Control: public, max-age=31536000, immutable

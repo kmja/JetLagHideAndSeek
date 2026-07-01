@@ -199,7 +199,13 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                     GPS at game start (overpass-cache /api/journey/arrivals). */}
                 <button
                     type="button"
-                    onClick={() => showTravelTimes.set(!$showTravelTimes)}
+                    onClick={() => {
+                        const next = !$showTravelTimes;
+                        showTravelTimes.set(next);
+                        // Travel times label the hiding-zone stations, so
+                        // they need that overlay on — enable it too (v630).
+                        if (next) displayHidingZones.set(true);
+                    }}
                     aria-pressed={$showTravelTimes}
                     className={cn(
                         "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",

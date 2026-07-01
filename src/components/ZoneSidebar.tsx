@@ -121,6 +121,15 @@ export const ZoneSidebar = () => {
     // decouples "a zone computation is already running" from "the app is
     // loading something else".
     const zoneComputingRef = useRef(false);
+    // v630: cache key for the last successful station computation. When the
+    // seeker toggles the overlay OFF then ON with nothing else changed, the
+    // computed `trainStations` circles are still valid — so we skip the
+    // whole Overpass-fetch + circle/Voronoi + per-question-filter pipeline
+    // and let the (cheap) render effect repaint from the cached circles.
+    // Only a genuine input change (options, radius, custom list, remaining
+    // area, or the question set) busts the cache and recomputes.
+    const lastComputeSigRef = useRef<string | null>(null);
+    const lastAreaRef = useRef<unknown>(null);
     const [importUrl, setImportUrl] = useState("");
 
     const removeHidingZones = () => {
@@ -169,6 +178,31 @@ export const ZoneSidebar = () => {
 
     useEffect(() => {
         if (!map) return;
+
+        // Signature of every input the station computation reads. If it's
+        // unchanged since the last successful compute (and we still hold
+        // the computed circles), toggling the overlay back ON doesn't need
+        // to refetch/recompute — the render effect repaints from cache.
+        const computeSig = JSON.stringify({
+            options: $displayHidingZonesOptions,
+            useCustomStations,
+            includeDefaultStations,
+            customStations: $customStations,
+            mergeDuplicates,
+            radius: $hidingRadius,
+            radiusUnits: $hidingRadiusUnits,
+            planning: planningModeEnabled.get(),
+            questions: questions
+                .get()
+                .map(
+                    (q) =>
+                        `${q.key}:${(q.data as any).type ?? ""}:${(q.data as any).same ?? ""}:${(q.data as any).lengthComparison ?? ""}:${(q.data as any).hiderCloser ?? ""}:${q.data.drag ? 1 : 0}`,
+                ),
+        });
+        const upToDate =
+            stations.length > 0 &&
+            computeSig === lastComputeSigRef.current &&
+            $questionFinishedMapData === lastAreaRef.current;
 
         const initializeHidingZones = async () => {
             zoneComputingRef.current = true;
@@ -455,6 +489,10 @@ export const ZoneSidebar = () => {
             }
 
             setStations(circles);
+            // Remember what this result was computed from so a plain
+            // off→on toggle can skip straight to the render.
+            lastComputeSigRef.current = computeSig;
+            lastAreaRef.current = $questionFinishedMapData;
             zoneComputingRef.current = false;
             isLoading.set(false);
         };
@@ -464,7 +502,8 @@ export const ZoneSidebar = () => {
         if (
             $displayHidingZones &&
             $questionFinishedMapData &&
-            !zoneComputingRef.current
+            !zoneComputingRef.current &&
+            !upToDate
         ) {
             initializeHidingZones().catch((error) => {
                 console.warn("Hiding zone initialization failed:", error);
