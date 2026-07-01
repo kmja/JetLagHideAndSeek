@@ -99,7 +99,8 @@ export function resolveFamily(typeRaw: string): ResolvedFamily {
     if (
         stripped === "rail-measure" ||
         stripped === "same-train-line" ||
-        stripped === "same-length-station"
+        stripped === "same-length-station" ||
+        stripped === "same-first-letter-station"
     ) {
         return { kind: "rail-station" };
     }

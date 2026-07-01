@@ -150,11 +150,97 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
     return [];
 };
 
+/** English-preferred station name (matches the hider-grading logic). */
+function stationName(f: Feature<Point>): string | null {
+    const p = f.properties as Record<string, unknown> | undefined;
+    return ((p?.["name:en"] as string) || (p?.name as string) || null) ?? null;
+}
+
+/**
+ * Seeker-side elimination for the three station-property matching types
+ * (v625): "same train line", "same first letter", "same station-name
+ * length". The region is the union of the Voronoi cells of every station
+ * that shares the relevant property with the seeker's nearest station —
+ * i.e. everywhere whose nearest station matches. Uses the same station
+ * set + line lookup the HIDER grades with, so the map cut agrees with the
+ * yes/no answer. Returns `false` (no cut) when the data is missing.
+ *
+ * For "length", the answer is 3-way (`lengthComparison`): the matching
+ * set is stations with an equal / shorter / longer name than the
+ * seeker's, per the hider's answer (defaults to "same" for the pre-answer
+ * planning preview).
+ */
+async function matchingStationBoundary(
+    question: MatchingQuestion,
+    mode: "line" | "first-letter" | "length",
+): Promise<Feature<Polygon | MultiPolygon> | false> {
+    const stations = osmtogeojson(
+        await findPlacesInZone("[railway=station]", undefined, "node"),
+    ) as FeatureCollection<Point>;
+    if (stations.features.length === 0) return false;
+
+    const seekerPoint = turf.point([question.lng, question.lat]);
+    const nearest = turf.nearestPoint(seekerPoint, stations);
+
+    let matching: Feature<Point>[];
+    if (mode === "line") {
+        const ids = new Set<number>(
+            await trainLineNodeFinder(nearest.properties.id as string),
+        );
+        const nearestNum = parseInt(
+            String(nearest.properties.id).split("/")[1],
+        );
+        if (Number.isFinite(nearestNum)) ids.add(nearestNum);
+        matching = stations.features.filter((s) => {
+            const num = parseInt(String(s.properties?.id ?? "").split("/")[1]);
+            return Number.isFinite(num) && ids.has(num);
+        });
+    } else {
+        const name = stationName(nearest);
+        if (!name) return false;
+        if (mode === "first-letter") {
+            const letter = name[0].toUpperCase();
+            matching = stations.features.filter((s) => {
+                const n = stationName(s);
+                return n ? n[0].toUpperCase() === letter : false;
+            });
+        } else {
+            const len = name.length;
+            const cmp = question.lengthComparison ?? "same";
+            matching = stations.features.filter((s) => {
+                const n = stationName(s);
+                if (!n) return false;
+                if (cmp === "same") return n.length === len;
+                if (cmp === "shorter") return n.length < len;
+                return n.length > len;
+            });
+        }
+    }
+    if (matching.length === 0) return false;
+
+    // Voronoi over ALL stations so the cell boundaries are correct; keep
+    // only the cells belonging to the matching stations, then union.
+    const cells = geoSpatialVoronoi(stations);
+    const sameCells = cells.features.filter((cell) =>
+        matching.some((s) =>
+            turf.booleanPointInPolygon(s as any, cell as any),
+        ),
+    );
+    if (sameCells.length === 0) return false;
+    return safeUnion(
+        turf.featureCollection(sameCells as any),
+    ) as Feature<Polygon | MultiPolygon>;
+}
+
 export const determineMatchingBoundary = memoize(
     async (question: MatchingQuestion) => {
         let boundary;
 
         switch (question.type) {
+            // Legacy home-game POI matching types (not in the subtype
+            // picker — Small/Medium use the `-full` Voronoi variants,
+            // which ARE eliminated). Kept hider-graded for save-game
+            // compat; no seeker cut.
             case "aquarium":
             case "zoo":
             case "theme_park":
@@ -165,62 +251,28 @@ export const determineMatchingBoundary = memoize(
             case "library":
             case "golf_course":
             case "consulate":
-            case "park":
-            case "same-first-letter-station":
-            case "same-length-station": {
+            case "park": {
                 return false;
             }
             case "same-train-line": {
-                // v625: real seeker-side elimination. "Same train line" =
-                // everywhere whose nearest station is on the SAME line as
-                // the seeker's nearest station. That's the union of the
-                // Voronoi cells of all same-line stations. Mirrors the
-                // hider's grading (trainLineNodeFinder on the seeker's
-                // nearest station), so the map cut agrees with the answer.
-                const stations = osmtogeojson(
-                    await findPlacesInZone(
-                        "[railway=station]",
-                        undefined,
-                        "node",
-                    ),
-                ) as FeatureCollection<Point>;
-                if (stations.features.length === 0) return false;
-
-                const seekerPoint = turf.point([question.lng, question.lat]);
-                const nearestStation = turf.nearestPoint(
-                    seekerPoint,
-                    stations,
+                const b = await matchingStationBoundary(question, "line");
+                if (b === false) return false;
+                boundary = b;
+                break;
+            }
+            case "same-first-letter-station": {
+                const b = await matchingStationBoundary(
+                    question,
+                    "first-letter",
                 );
-                const lineNodeIds = new Set<number>(
-                    await trainLineNodeFinder(
-                        nearestStation.properties.id as string,
-                    ),
-                );
-                // Always include the seeker's own station.
-                const nearestNum = parseInt(
-                    String(nearestStation.properties.id).split("/")[1],
-                );
-                if (Number.isFinite(nearestNum)) lineNodeIds.add(nearestNum);
-
-                const sameLineStations = stations.features.filter((s) => {
-                    const num = parseInt(
-                        String(s.properties?.id ?? "").split("/")[1],
-                    );
-                    return Number.isFinite(num) && lineNodeIds.has(num);
-                });
-                if (sameLineStations.length === 0) return false;
-
-                // Union the Voronoi cell of each same-line station. The
-                // Voronoi is computed over ALL stations so the cell
-                // boundaries are correct; we keep only the same-line cells.
-                const cells = geoSpatialVoronoi(stations);
-                const sameCells = cells.features.filter((cell) =>
-                    sameLineStations.some((s) =>
-                        turf.booleanPointInPolygon(s as any, cell as any),
-                    ),
-                );
-                if (sameCells.length === 0) return false;
-                boundary = safeUnion(turf.featureCollection(sameCells as any));
+                if (b === false) return false;
+                boundary = b;
+                break;
+            }
+            case "same-length-station": {
+                const b = await matchingStationBoundary(question, "length");
+                if (b === false) return false;
+                boundary = b;
                 break;
             }
             case "custom-zone": {
@@ -488,6 +540,10 @@ out geom;
             lng: question.lng,
             cat: question.cat,
             geo: question.geo,
+            // same-length-station's boundary depends on the hider's 3-way
+            // answer (equal / shorter / longer), so it must invalidate the
+            // memo when the answer lands.
+            lengthComparison: question.lengthComparison,
             entirety: polyGeoJSON.get()
                 ? playAreaSignature(polyGeoJSON.get())
                 : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as string | number),
@@ -506,7 +562,15 @@ export const adjustPerMatching = async (
         return mapData;
     }
 
-    return modifyMapData(mapData, boundary, question.same);
+    // same-length-station is a 3-way comparison: the boundary already
+    // encodes the answer (cells whose station name is equal / shorter /
+    // longer than the seeker's), so we always KEEP that region rather than
+    // toggling on `question.same`. Every other type is a binary same/
+    // different match driven by `question.same`.
+    const within =
+        question.type === "same-length-station" ? true : question.same;
+
+    return modifyMapData(mapData, boundary, within);
 };
 
 export const hiderifyMatching = async (question: MatchingQuestion) => {

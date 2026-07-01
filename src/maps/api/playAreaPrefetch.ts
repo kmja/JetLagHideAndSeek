@@ -198,7 +198,8 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
         stripped === "rail-measure" ||
         stripped === "rail-measure-ordinary" ||
         stripped === "same-train-line" ||
-        stripped === "same-length-station"
+        stripped === "same-length-station" ||
+        stripped === "same-first-letter-station"
     ) {
         return "rail-station";
     }

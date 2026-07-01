@@ -4,6 +4,7 @@ import {
     BookOpen,
     Building,
     Building2,
+    CaseSensitive,
     ChevronsLeftRightEllipsis,
     Church,
     Cloud,
@@ -74,6 +75,7 @@ export const SUBTYPES: Record<
         { value: "airport", label: "Airport", icon: Plane, description: "Same commercial airport in zone.", validSizes: ALL },
         { value: "same-train-line", label: "Transit line", icon: Train, description: "Hider's station is on the line you're currently riding.", validSizes: ALL },
         { value: "same-length-station", label: "Station name length", icon: Languages, description: "Same number of characters in your nearest station's name.", validSizes: ALL },
+        { value: "same-first-letter-station", label: "Station first letter", icon: CaseSensitive, description: "Your nearest station's name starts with the same letter.", validSizes: ALL },
         { value: "same-street-or-path", label: "Street or path", icon: Footprints, description: "Hider is on the same named street or path as you.", validSizes: ALL },
         // Administrative Divisions (1st-4th, rulebook p18). Each
         // picker tile commits a `zone` matching question with a
