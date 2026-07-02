@@ -177,11 +177,27 @@ export const STANDARD_REFERENCE_FAMILIES: FamilyKey[] = [
     "api:peak" as FamilyKey,
     "api:theme_park" as FamilyKey,
     "api:zoo" as FamilyKey,
-    "body-of-water",
     "brand:Q259340" as FamilyKey, // 7-Eleven
     "brand:Q38076" as FamilyKey, // McDonald's
     "rail-station",
 ];
+
+/** Fast membership test — is a family part of the SHARED combined
+ *  reference query (and therefore cron/laptop-prewarmed)?
+ *
+ *  `body-of-water` is DELIBERATELY excluded (v632). Its filter
+ *  (`["natural"="water"]["name"]`) matches huge multipolygon
+ *  riverbank/lake geometry — the Seine, canals, and thousands of named
+ *  ponds across a dense metro. Even with `out center`, Overpass must
+ *  load and scan every water way/relation in the play-area bbox + 50 km
+ *  pad before centroiding, so bundling it into the combined query timed
+ *  the WHOLE reference set out upstream for Île-de-France — which broke
+ *  the Paris cron prewarm and made every Paris pick fall through to a
+ *  live combined query the mirrors rate-limited. It's now fetched
+ *  lazily and in ISOLATION (see `prefetchCategory`), so a heavy water
+ *  scan can only ever slow its own on-demand fetch, never the shared
+ *  prewarm. */
+const STANDARD_FAMILY_SET = new Set<FamilyKey>(STANDARD_REFERENCE_FAMILIES);
 
 /** Map a matching/measuring subtype string to the cache family that
  *  serves it, or null when it isn't a play-area-cacheable family
@@ -407,15 +423,33 @@ export async function prefetchCategory(
     const racing = inFlight.get(key);
     if (racing) return racing;
 
-    // Route the lazy single-family fetch through the SAME combined
-    // query the preload uses, so we hit the R2 entry the cron warmed.
+    // Standard families route through the SAME combined query the
+    // preload uses, so we hit the R2 entry the cron warmed.
     // `prefetchFamiliesInOneQuery` owns the status bumps + per-family
     // cache writes for everything it touches; we just await it and
     // read whatever it put in the cache for our specific family.
+    //
+    // Non-standard families (body-of-water — see STANDARD_FAMILY_SET)
+    // are fetched in ISOLATION via a single-family bbox query. Bundling
+    // the heavy `natural=water` scan into the shared combined query
+    // timed the whole reference set out for dense metros (the Paris
+    // rate-limit regression, v632); keeping it separate means it can
+    // only ever slow its own on-demand fetch.
     const promise = (async () => {
         try {
-            await prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
-            return cache.get(key) ?? [];
+            if (STANDARD_FAMILY_SET.has(family)) {
+                await prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES);
+                return cache.get(key) ?? [];
+            }
+            try {
+                const feats = await runSingleFamilyBboxFetch(family);
+                cache.set(key, feats);
+                bumpStatus({ warmedKey: key, count: feats.length });
+                return feats;
+            } catch (e) {
+                bumpStatus({ failedKey: key });
+                throw e;
+            }
         } finally {
             inFlight.delete(key);
         }

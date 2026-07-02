@@ -2439,9 +2439,15 @@ const REFERENCE_FAMILY_FILTERS: { family: string; filter: string }[] = [
     { family: "api:peak", filter: '["natural"="peak"]' },
     { family: "api:theme_park", filter: '["tourism"="theme_park"]' },
     { family: "api:zoo", filter: '["tourism"="zoo"]' },
-    // Named water bodies (rulebook p11). MUST match the client's
-    // filterForFamily("body-of-water") byte-for-byte.
-    { family: "body-of-water", filter: '["natural"="water"]["name"]' },
+    // NOTE: `body-of-water` (`["natural"="water"]["name"]`) is
+    // DELIBERATELY absent from the combined reference query (v632).
+    // Its huge multipolygon geometry (the Seine, canals, thousands of
+    // named ponds) timed the whole Paris/Île-de-France reference warm
+    // out upstream, which broke the cron prewarm AND tripped Overpass
+    // rate limits on every Paris play-area pick. The client fetches it
+    // lazily and in isolation (`runSingleFamilyBboxFetch` in
+    // playAreaPrefetch.ts) — keep this list in lockstep with the
+    // client's `STANDARD_REFERENCE_FAMILIES`.
     { family: "brand:Q259340", filter: '["brand:wikidata"="Q259340"]' },
     { family: "brand:Q38076", filter: '["brand:wikidata"="Q38076"]' },
     { family: "rail-station", filter: '["railway"="station"]' },
