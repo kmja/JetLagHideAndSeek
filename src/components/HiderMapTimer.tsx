@@ -26,6 +26,7 @@ import {
     roundLog,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
+import { endHidingPeriodEarly } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
 /**
@@ -315,6 +316,30 @@ export function HiderMapTimer() {
                         </span>
                     </div>
                 </div>
+            )}
+
+            {/* End-hiding shortcut — only once a zone is committed (before
+                that there's nothing to hide in, so ending early would just
+                strand the hider). Ends the hiding period now and starts the
+                seekers hunting (mirrored to peers). Sits directly under the
+                golden countdown, the thing it acts on. */}
+            {phase === "hiding" && $hidingZone !== null && (
+                <button
+                    type="button"
+                    onClick={endHidingPeriodEarly}
+                    title="End the hiding period now and start the seekers hunting"
+                    className={cn(
+                        "flex items-center justify-center gap-1.5",
+                        "px-2.5 py-1.5 rounded-md shadow-md",
+                        "bg-[#1F2F3F] text-white border-2 border-[#1F2F3F]/60",
+                        "hover:bg-[#1F2F3F]/90 active:bg-[#1F2F3F]/80 transition-colors",
+                        "text-[10px] font-poppins font-bold uppercase tracking-wider",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    )}
+                >
+                    <Flag className="w-3 h-3" strokeWidth={2.5} />
+                    End hiding · Start seeking
+                </button>
             )}
 
             {/* grace — red urgent "PICK A ZONE" box. */}

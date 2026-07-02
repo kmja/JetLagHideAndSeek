@@ -199,19 +199,20 @@ export function HiderReachOverlay() {
                 });
             if (cancelled) return;
 
+            // Keep EVERY returned arrival (v634), not just the on-time
+            // ones — the overlay now colour-codes reachable vs out-of-reach
+            // rather than hiding the late stations, so we need their times
+            // to classify them.
             const arrivalMap = new Map<string, number>();
             for (const r of arrivals) {
-                if (r.arrivalAt != null && r.arrivalAt <= $hidingEndsAt) {
-                    arrivalMap.set(r.stopId, r.arrivalAt);
-                }
+                if (r.arrivalAt != null) arrivalMap.set(r.stopId, r.arrivalAt);
             }
             // If the provider couldn't return a single usable arrival
             // (region not covered, upstream hiccup, every stop unmatched),
             // DON'T blank the overlay — that's the "shows nothing" bug.
-            // Keep the optimistic all-candidates view (dots, no labels) so
-            // the hider still sees every plausible zone; arrival times are
-            // a bonus when the provider can compute them. We only switch
-            // to the reachable-only filter once we actually have times.
+            // Keep the optimistic all-candidates view (pending dots) so the
+            // hider still sees every plausible zone; classification is a
+            // bonus when the provider can compute times.
             if (arrivalMap.size === 0) return;
             hiderReachFC.set(
                 buildFC(plausible, arrivalMap, $hidingEndsAt, false),
@@ -244,23 +245,50 @@ export function HiderReachOverlay() {
  *  prevents us from culling rail-reachable stations. */
 const TOP_SPEED_KMH = 80;
 
+/**
+ * Build the reach FeatureCollection. v634: EVERY plausible candidate zone
+ * is included and colour-coded rather than filtering out the unreachable
+ * ones — the overlay is now "hiding zones" (all of them), with
+ * `reachable`/`pending` flags the map styles green (reachable in time),
+ * red (out of reach), or neutral (arrival not yet known).
+ *
+ *   - `pending` step (before arrivals resolve): every station painted
+ *     neutral, no time label, `reachable=false pending=true`.
+ *   - resolved step: `pending=false`; `reachable` is arrival ≤ budget; the
+ *     time label shows only for reachable ones (an out-of-reach ETA past
+ *     the whistle isn't actionable).
+ */
 function buildFC(
     stations: AreaStation[],
     arrivals: Map<string, number>,
     budget: number,
-    includeUnknown: boolean,
+    pendingStep: boolean,
 ): GeoJSON.FeatureCollection<
     GeoJSON.Point,
-    { stopId: string; name?: string; arrivalLabel: string }
+    {
+        stopId: string;
+        name?: string;
+        arrivalLabel: string;
+        reachable: boolean;
+        pending: boolean;
+    }
 > {
     const features: GeoJSON.Feature<
         GeoJSON.Point,
-        { stopId: string; name?: string; arrivalLabel: string }
+        {
+            stopId: string;
+            name?: string;
+            arrivalLabel: string;
+            reachable: boolean;
+            pending: boolean;
+        }
     >[] = [];
     for (const s of stations) {
         const arrival = arrivals.get(String(s.id));
-        const reachable = arrival != null && arrival <= budget;
-        if (!includeUnknown && !reachable) continue;
+        // Before arrivals resolve, or for a station the provider never
+        // matched, reachability is unknown → paint it neutral/pending.
+        const known = !pendingStep && arrival != null;
+        const reachable = known && arrival! <= budget;
         features.push({
             type: "Feature",
             geometry: { type: "Point", coordinates: [s.lng, s.lat] },
@@ -268,6 +296,8 @@ function buildFC(
                 stopId: String(s.id),
                 name: s.name,
                 arrivalLabel: reachable ? formatHHMM(arrival!) : "",
+                reachable,
+                pending: !known,
             },
         });
     }

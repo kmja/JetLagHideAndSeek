@@ -86,9 +86,73 @@ export const hiderReachFC = atom<GeoJSON.FeatureCollection<
     {
         stopId: string;
         name?: string;
+        /** "HH:MM" arrival time when known + reachable in time, else "". */
         arrivalLabel: string;
+        /** True when the hider can reach this station before the whistle.
+         *  v634: the overlay now paints EVERY candidate zone colour-coded
+         *  (green reachable / red out-of-reach) rather than dropping the
+         *  unreachable ones — so `HiderBackgroundMap` styles dots off this. */
+        reachable: boolean;
+        /** True before arrivals have resolved for this station — painted in
+         *  a neutral pending colour (reachability not yet known). */
+        pending: boolean;
     }
 > | null>(null);
+
+/* ───────────────── Seeker proximity (hider's ETA) ───────────────── */
+
+/**
+ * Latest "how soon could the seekers reach my zone" estimate, owned by
+ * `SeekerProximityWatcher` (always mounted on the hider page during
+ * seeking) and read by `SeekerETACard` for display. Centralised here so
+ * the card is a pure renderer and the watcher can fire OS notifications
+ * on closer-transitions even while the Zone drawer is closed.
+ *
+ *   - `null` — not applicable (no committed zone, or not seeking yet).
+ *   - `hasSeeker: false` — zone committed but no fresh seeker broadcast.
+ *   - `arrivalAt: null` (hasSeeker true) — couldn't estimate (no route /
+ *     provider / upstream miss).
+ */
+export const seekerEta = atom<{
+    arrivalAt: number | null;
+    hasSeeker: boolean;
+    loading: boolean;
+} | null>(null);
+
+export type SeekerEtaTone =
+    | "unknown"
+    | "comfortable"
+    | "heads-up"
+    | "imminent"
+    | "arrived";
+
+/**
+ * Colour-coded closeness band for a seeker ETA, matching `SeekerETACard`:
+ *   ≥ 15 min → comfortable · 5–14 → heads-up · 0–4 → imminent · < 0 →
+ *   arrived. `null` arrival → unknown.
+ */
+export function seekerEtaTone(
+    arrivalAt: number | null,
+    now: number,
+): SeekerEtaTone {
+    if (arrivalAt == null) return "unknown";
+    const minutesAway = Math.round((arrivalAt - now) / 60_000);
+    if (minutesAway >= 15) return "comfortable";
+    if (minutesAway >= 5) return "heads-up";
+    if (minutesAway >= 0) return "imminent";
+    return "arrived";
+}
+
+/** Closeness rank — higher = closer. The proximity watcher notifies when
+ *  the band crosses into a NEW deeper rank (monotonic max), so each
+ *  threshold alerts at most once per round and boundary jitter can't spam. */
+export const SEEKER_ETA_RANK: Record<SeekerEtaTone, number> = {
+    unknown: 0,
+    comfortable: 1,
+    "heads-up": 2,
+    imminent: 3,
+    arrived: 4,
+};
 
 /* ─────────────────────── Seeker trip planner ─────────────────────── */
 

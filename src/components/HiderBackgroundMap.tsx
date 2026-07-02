@@ -4,7 +4,13 @@ import { useStore } from "@nanostores/react";
 import { circle as turfCircle } from "@turf/turf";
 import { Footprints, HelpCircle, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
+import Map, {
+    AttributionControl,
+    Layer,
+    type MapRef,
+    Marker,
+    Source,
+} from "react-map-gl/maplibre";
 
 import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { MapNavControls } from "@/components/MapNavControls";
@@ -82,6 +88,10 @@ export function HiderBackgroundMap() {
     const $reach = useStore(hiderReachFC);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
+    // Basemap brightness — satellite or dark theme both mean a dark base,
+    // so overlay labels need white text; the light Protomaps base needs
+    // dark text (v634, parity with the seeker map's label-contrast rule).
+    const darkBasemap = $satellite || $theme === "dark";
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     // Whether the hiding period has elapsed (seeking underway). Drives
     // which corner the floating HiderMapTimer sits in — and, opposite it,
@@ -338,6 +348,11 @@ export function HiderBackgroundMap() {
                     })();
                 }}
             >
+                {/* Attribution — parity with the seeker map (v633): the
+                    base OSM/Protomaps credits sit top-left, out of the way
+                    of the bottom timer/nav controls. License-clean: the
+                    credits only need to be present + legible. */}
+                <AttributionControl compact position="top-left" />
                 {$satellite && (
                     <Source
                         id="satellite"
@@ -424,7 +439,18 @@ export function HiderBackgroundMap() {
                                 type="circle"
                                 paint={{
                                     "circle-radius": 4,
-                                    "circle-color": "hsl(180, 70%, 55%)",
+                                    // v634: colour-code every candidate
+                                    // hiding zone — green = reachable before
+                                    // the whistle, red = out of reach, amber
+                                    // = arrival not yet known (pending).
+                                    "circle-color": [
+                                        "case",
+                                        ["get", "pending"],
+                                        "hsl(45, 90%, 55%)",
+                                        ["get", "reachable"],
+                                        "hsl(145, 63%, 42%)",
+                                        "hsl(0, 72%, 55%)",
+                                    ],
                                     "circle-opacity": shown ? 0.85 : 0,
                                     "circle-stroke-color": "rgba(0,0,0,0.6)",
                                     "circle-stroke-width": 1,
@@ -450,8 +476,16 @@ export function HiderBackgroundMap() {
                                     "text-ignore-placement": false,
                                 }}
                                 paint={{
-                                    "text-color": "white",
-                                    "text-halo-color": "rgba(0,0,0,0.85)",
+                                    // v634: follow the BASEMAP brightness
+                                    // (parity with the seeker map) — white
+                                    // washes out on the light basemap, so
+                                    // use dark text + light halo there.
+                                    "text-color": darkBasemap
+                                        ? "white"
+                                        : "#1F2F3F",
+                                    "text-halo-color": darkBasemap
+                                        ? "rgba(0,0,0,0.85)"
+                                        : "rgba(255,255,255,0.9)",
                                     "text-halo-width": 1.5,
                                     "text-opacity": shown ? 1 : 0,
                                     "text-opacity-transition": {

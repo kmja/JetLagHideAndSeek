@@ -528,15 +528,20 @@ function HidingPhaseView({
                     of {totalMinutes} min · size{" "}
                     <SizeBadge size={size} className="inline-flex" />
                 </div>
-                <Button
-                    onClick={endHidingPeriodEarly}
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 gap-1.5"
-                >
-                    <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
-                    End hiding · Start seeking
-                </Button>
+                {/* Only offer "end early" once a zone is committed — before
+                    that there's nowhere to hide, so ending would strand the
+                    hider (same gate as the on-map timer button). */}
+                {zone !== null && (
+                    <Button
+                        onClick={endHidingPeriodEarly}
+                        variant="outline"
+                        size="sm"
+                        className="mt-3 gap-1.5"
+                    >
+                        <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
+                        End hiding · Start seeking
+                    </Button>
+                )}
             </section>
 
             {/* Short instructions + allowed transit modes. v633: trimmed

@@ -12,6 +12,7 @@ import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
 import { LocationPauseBanner } from "@/components/LocationPauseBanner";
 import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
+import { SeekerProximityWatcher } from "@/components/SeekerProximityWatcher";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { useReleaseStuckBodyLock } from "@/hooks/useReleaseStuckBodyLock";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
@@ -115,6 +116,11 @@ export function HiderPage() {
                 phase + GPS + zone-committed; renders nothing
                 directly. */}
             <HiderReachOverlay />
+            {/* Seeker-proximity watcher — keeps the seekerEta atom fresh
+                during seeking and fires an OS notification when the seekers
+                cross into a closer colour band, even with the Zone drawer
+                closed. Renders nothing. */}
+            <SeekerProximityWatcher />
             <StationTransitCard />
             <LocationPauseWatcher />
             <HidingZoneOptionsSync />

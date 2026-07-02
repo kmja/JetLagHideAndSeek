@@ -154,12 +154,13 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                 </div>
             </div>
 
-            {/* Reach overlay — paints every candidate hiding zone the
-                hider could reach before the whistle, with arrival times.
-                Self-disables when GPS is missing, when the zone is
-                committed, or post-hiding-period — safe to leave on. */}
+            {/* Hiding-zones overlay — paints EVERY candidate hiding zone in
+                the area, colour-coded by whether the hider can reach it
+                before the whistle (green reachable / red out of reach /
+                amber pending). Self-disables when GPS is missing, when the
+                zone is committed, or post-hiding-period. */}
             <div className="space-y-2">
-                <div className={label}>Reach</div>
+                <div className={label}>Overlays</div>
                 <button
                     type="button"
                     onClick={() => showHiderReach.set(!$reach)}
@@ -172,11 +173,11 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                             ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
                             : "bg-background border-border hover:bg-accent",
                     )}
-                    title="Show every candidate hiding zone you could reach in time"
+                    title="Show candidate hiding zones, colour-coded green (reachable in time) vs red (out of reach)"
                 >
                     <Radar className={cn(rowIcon, "shrink-0")} />
                     <span className={cn("font-poppins font-semibold", rowText)}>
-                        Reachable zones
+                        Hiding zones
                     </span>
                 </button>
             </div>
@@ -310,7 +311,7 @@ export function HiderMapOptionsDrawer() {
                                 Map options
                             </VaulDrawer.Title>
                             <VaulDrawer.Description className="text-sm text-muted-foreground">
-                                Basemap, reachable zones, and transit lines.
+                                Basemap, hiding zones, and transit lines.
                             </VaulDrawer.Description>
                         </div>
                         <HiderMapOptionsPanel roomy />
