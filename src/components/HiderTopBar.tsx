@@ -1,14 +1,29 @@
+import { Settings } from "lucide-react";
+
 import { DebugLaunchButton } from "@/components/DebugLaunchButton";
 import { HideSeekWordmark } from "@/components/JetLagLogo";
 import { NotificationsIconButton } from "@/components/NotificationsToggle";
+import { moreSheetOpen } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
+
+/** Icon button styled for the dark (bg-jetlag) header — matches
+ *  SeekerTopBar's `headerBtn`. */
+const headerBtn = cn(
+    "relative h-10 w-10 flex items-center justify-center rounded-md",
+    "border border-white/30 bg-white/10 text-white transition-colors",
+    "hover:bg-white/20",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
+);
 
 /**
  * HiderTopBar — brand chrome at the top of the hider viewport.
  *
- * Mirrors SeekerTopBar's content (HIDE+SEEK wordmark + notifications
- * icon) but stays visible at all viewport sizes, since the hider
- * page has no sidebars to provide brand cues on desktop.
+ * Layout (v632, parity with SeekerTopBar): [debug] — HIDE+SEEK wordmark
+ * — [Settings · Notifications]. Settings moved here from the bottom nav
+ * (opens the shared AppSettingsDrawer via `moreSheetOpen`).
+ *
+ * Stays visible at all viewport sizes, since the hider page has no
+ * sidebars to provide brand cues on desktop.
  *
  * Sits ABOVE HiderTimeHeader (which carries the phase label +
  * countdown). The two together form the hider's full top chrome —
@@ -35,7 +50,19 @@ export function HiderTopBar() {
         >
             <DebugLaunchButton />
             <HideSeekWordmark className="text-white" />
-            <NotificationsIconButton className="w-10 h-10 !bg-white/10 !border-white/30 !text-white hover:!bg-white/20" />
+            {/* Right cluster — settings + notifications (mirrors SeekerTopBar). */}
+            <div className="flex items-center gap-2">
+                <button
+                    type="button"
+                    onClick={() => moreSheetOpen.set(true)}
+                    className={headerBtn}
+                    aria-label="Settings"
+                    title="Settings — tutorial, rulebook, units, theme, preload"
+                >
+                    <Settings className="w-4 h-4" />
+                </button>
+                <NotificationsIconButton className="w-10 h-10 !bg-white/10 !border-white/30 !text-white hover:!bg-white/20" />
+            </div>
         </header>
     );
 }

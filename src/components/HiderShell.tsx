@@ -20,7 +20,7 @@ import { hiderHand } from "@/lib/hiderRole";
  *   │  map area (flex-1, relative)    │  HiderBackgroundMap fills it;
  *   │                                 │  the unanswered banner floats
  *   ├─────────────────────────────────┤  over its top.
- *   │  HiderBottomNav    (flow, btm)  │  Questions / Zone / Lobby / Settings
+ *   │  HiderBottomNav    (flow, btm)  │  Questions / Zone / Map / Lobby
  *   └─────────────────────────────────┘
  *
  * The HiderHandFan (cards) stays a `fixed bottom-0` overlay — its cards

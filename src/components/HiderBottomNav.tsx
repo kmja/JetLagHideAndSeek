@@ -1,12 +1,16 @@
 import { useStore } from "@nanostores/react";
-import { Inbox, List, Settings, Tent, Users } from "lucide-react";
+import { Inbox, List, Map as MapIcon, Tent, Users } from "lucide-react";
 import { useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { AppSettingsDrawer } from "@/components/AppSettingsDrawer";
 import { HiderHomeContent } from "@/components/HiderHome";
+import {
+    HiderMapOptionsDrawer,
+    useHiderMapOptionsActiveCount,
+} from "@/components/HiderMapDisplayControls";
 import { HiderQuestionLog } from "@/components/HiderQuestionLog";
-import { moreSheetOpen } from "@/lib/gameSetup";
+import { mapOptionsDrawerOpen } from "@/lib/gameSetup";
 import { hiderInbox } from "@/lib/hiderRole";
 import {
     lobbyManualOpen,
@@ -15,25 +19,28 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Hider-side bottom nav. Four slots, in left-to-right order:
+ * Hider-side bottom nav. Four slots, in left-to-right order (v632 —
+ * brought to parity with the seeker's nav: Settings moved OUT to the
+ * header, Map added, Lobby rightmost):
  *
  *   • Questions — opens a bottom drawer with the question log
  *     (HiderQuestionLog). The badge count reflects the inbox length.
  *
- *   • Zone (middle, the hider's primary action) — opens a bottom
- *     drawer containing the full HiderHomeContent: zone picker,
- *     spot lockdown, scouting list, dice roller, hand panel,
- *     end-hiding-period button. Renamed from "Settings" in v285
- *     since the panel is the hiding-zone configurator, not app
- *     settings.
+ *   • Zone (the hider's primary action) — opens a bottom drawer
+ *     containing the full HiderHomeContent: zone picker, spot lockdown,
+ *     scouting list, dice roller, hand panel, end-hiding-period button.
  *
- *   • Lobby — opens the existing GameLobbyDialog drawer via
- *     `lobbyManualOpen`. Shows roster, room code, role rotation,
- *     and (for the host) the Edit game settings entry point.
+ *   • Map — opens the `HiderMapOptionsDrawer` (basemap / reachable
+ *     zones / transit overlays). Badge = active-overlay count. Replaces
+ *     the old floating top-right `Layers` popover on the map.
  *
- *   • Settings (v287) — shares the seeker's AppSettingsDrawer
- *     (tutorial, rulebook, units, theme, mid-game preload
- *     preferences). Drawer is mounted at the bottom of this file.
+ *   • Lobby (rightmost) — opens the existing GameLobbyDialog drawer via
+ *     `lobbyManualOpen`. Shows roster, room code, role rotation, and
+ *     (for the host) the Edit game settings entry point.
+ *
+ * Settings (tutorial, rulebook, units, theme, preload) now lives in the
+ * HiderTopBar's right cluster (mirrors SeekerTopBar); its
+ * `AppSettingsDrawer` is still mounted here.
  *
  * All slots use Vaul drawers (bottom-sliding), matching the Lobby
  * pattern. v462: a flow row at the bottom of the hider column; the
@@ -45,6 +52,7 @@ export function HiderBottomNav() {
     const $participants = useStore(participants);
     const [questionsOpen, setQuestionsOpen] = useState(false);
     const [zoneOpen, setZoneOpen] = useState(false);
+    const mapActiveCount = useHiderMapOptionsActiveCount();
 
     const inboxCount = $inbox.length;
     const onlineCount = $participants.filter((p) => p.online).length;
@@ -106,6 +114,35 @@ export function HiderBottomNav() {
                         <span className={navLabelClass}>Zone</span>
                     </button>
 
+                    {/* Map — opens the roomy map-options drawer (basemap /
+                        reachable zones / transit). Replaces the old floating
+                        top-right popover. */}
+                    <button
+                        type="button"
+                        onClick={() => mapOptionsDrawerOpen.set(true)}
+                        className={navBtnClass}
+                        aria-label="Map options"
+                        title="Basemap, reachable zones, transit lines"
+                    >
+                        <MapIcon className="w-5 h-5" strokeWidth={2} />
+                        <span className={navLabelClass}>Map</span>
+                        {mapActiveCount > 0 && (
+                            <span
+                                className={cn(
+                                    "absolute top-1 right-2",
+                                    "text-[9px] font-mono font-semibold",
+                                    "bg-primary text-primary-foreground",
+                                    "px-1.5 min-w-[18px] h-[18px]",
+                                    "rounded-full flex items-center justify-center",
+                                )}
+                                aria-label={`${mapActiveCount} map option(s) active`}
+                            >
+                                {mapActiveCount}
+                            </span>
+                        )}
+                    </button>
+
+                    {/* Lobby (rightmost) — roster, room code, role rotation. */}
                     <button
                         type="button"
                         onClick={() => lobbyManualOpen.set(true)}
@@ -130,23 +167,13 @@ export function HiderBottomNav() {
                             </span>
                         )}
                     </button>
-
-                    {/* Settings — shares the seeker's drawer (tutorial,
-                        rulebook, units, theme, preload preferences). */}
-                    <button
-                        type="button"
-                        onClick={() => moreSheetOpen.set(true)}
-                        className={navBtnClass}
-                        aria-label="Settings"
-                        title="Settings — tutorial, rulebook, units, theme, preload"
-                    >
-                        <Settings className="w-5 h-5" strokeWidth={2} />
-                        <span className={navLabelClass}>Settings</span>
-                    </button>
                 </div>
             </div>
 
+            {/* Settings drawer stays mounted here; opened from the
+                HiderTopBar's Settings button (moreSheetOpen). */}
             <AppSettingsDrawer />
+            <HiderMapOptionsDrawer />
 
             {/* Questions drawer — bottom-sliding Vaul drawer, same
                 shape as the Lobby. Replaces v284's side Sheet. */}

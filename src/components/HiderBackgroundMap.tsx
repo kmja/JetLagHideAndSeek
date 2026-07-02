@@ -6,7 +6,6 @@ import { Footprints, HelpCircle, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
-import { HiderMapDisplayControls } from "@/components/HiderMapDisplayControls";
 import { MapNavControls } from "@/components/MapNavControls";
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
@@ -54,11 +53,11 @@ import { SelfPositionMarker } from "./SelfPositionMarker";
  *     deductions).
  *   • No draggable markers, no PolygonDraw, no GuessPolygon.
  *
- * Overlays mounted ON the map: HiderMapDisplayControls (basemap +
- * transit toggles) at top-right, and a "Mark potential hiding
- * spot" button bottom-right that opens a tiny popover for an
- * optional description before saving the current GPS to the
- * scouted-spots list.
+ * Overlays mounted ON the map: MapNavControls (follow-me + reset) at
+ * bottom-right, and a "Mark potential hiding spot" button that opens a
+ * tiny popover for an optional description before saving the current GPS
+ * to the scouted-spots list. Map display options moved OFF the map into
+ * the bottom-nav "Map" slot (HiderMapOptionsDrawer) in v632.
  *
  * Mounted by HiderShell at `absolute inset-0 z-0` so it fills the
  * viewport behind the header / nav / hand-fan.
@@ -529,12 +528,11 @@ export function HiderBackgroundMap() {
                 (bottom-3) instead of dodging the nav/fan (bottom-44). */}
             <MapNavControls mapRef={mapRef} className="right-3 bottom-3" />
 
-            {/* Top-right cluster — basemap + transit toggles. v462:
-                anchors to the top of the map area (which now sits below
-                the time header), so a plain top-2 is correct. */}
-            <div className="absolute top-2 right-2 z-[1030]">
-                <HiderMapDisplayControls />
-            </div>
+            {/* v632: the floating top-right map-options popover was removed.
+                Map display options now live in the hider bottom-nav "Map"
+                slot (HiderMapOptionsDrawer), matching the seeker surface —
+                the hider nav shows on every viewport, so one entry point
+                covers all sizes. */}
         </div>
     );
 }
