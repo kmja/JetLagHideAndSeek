@@ -90,6 +90,7 @@ import {
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
 import { ScoutedSpotsPanel } from "./ScoutedSpotsPanel";
+import { SeekerETACard } from "./SeekerETACard";
 
 // Lazy-load the inline picker — leaflet must stay out of the SSR graph.
 const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
@@ -700,6 +701,12 @@ function SeekingPhaseView({
         <>
             {/* Zone general info — the committed zone card + read-only map. */}
             <HidingZoneSection zone={zone} radiusMeters={radiusMeters} />
+
+            {/* Earliest possible seeker arrival at the hider's station,
+                computed from gameStartPosition + the whistle. Self-renders
+                null if there's no zone / no game-start anchor / no transit
+                provider — the "how long until they could reach me" read. */}
+            <SeekerETACard />
 
             {/* Lock-down affordance surfaces ONLY once the seekers have
                 claimed the endgame ("we're in your zone"). That's the one

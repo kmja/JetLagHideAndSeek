@@ -105,10 +105,29 @@ export function SeekerETACard() {
 
     if (!$zone) return null;
     if (!seeker) {
-        // No live seeker location. The "must share" enforcement +
-        // pause-after-grace lives elsewhere; this card simply stays
-        // hidden until a broadcast lands.
-        return null;
+        // No live seeker location yet (solo/offline, or no seeker has
+        // broadcast a fresh fix). v633: render a quiet placeholder rather
+        // than vanishing, so during the seeking phase the hider can see
+        // the ETA slot exists and why it's empty — it fills in the moment
+        // a seeker starts sharing their position.
+        return (
+            <div
+                className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-start gap-2.5"
+                aria-live="polite"
+            >
+                <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-background/60">
+                    <Radar className="h-3.5 w-3.5 text-muted-foreground" />
+                </span>
+                <div className="min-w-0 flex-1 leading-tight">
+                    <div className="text-[10px] font-poppins font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                        Seekers' ETA to your station
+                    </div>
+                    <div className="mt-0.5 text-xs italic text-muted-foreground">
+                        Waiting for a seeker to share their location…
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     const now = Date.now();
