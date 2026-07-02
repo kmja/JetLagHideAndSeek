@@ -843,6 +843,9 @@ async function handleRequest(
         if (url.pathname === "/admin/store-tile-pack") {
             return handleAdminStoreTilePack(request, env, cors);
         }
+        if (url.pathname === "/admin/list-tile-packs") {
+            return handleAdminListTilePacks(request, env, cors);
+        }
         if (url.pathname === "/api/photon/forward") {
             return handlePhoton(request, env, ctx, cors, "forward");
         }
@@ -4603,6 +4606,69 @@ function tilePackKey(osmId: string | number): string {
  * a few tens of MB; anything bigger means the bbox was too large
  * (country-scale) and the laptop should have skipped it.
  */
+/**
+ * `GET /admin/list-tile-packs?secret=<…>` — list every city tile pack
+ * currently in R2 under the `tile-packs/v1/` prefix. One row per pack:
+ * its `osmId` (from customMetadata, falling back to the key), byte size,
+ * and stored timestamp. Handy for confirming a laptop upload landed and
+ * under WHICH relation id (the common "still 404s after upload" cause is
+ * a pack keyed to a different osm_id than the play area resolves to).
+ * Read-only; paginated R2 list.
+ */
+async function handleAdminListTilePacks(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    try {
+        const packs: Array<{
+            osmId: string;
+            key: string;
+            bytes: number;
+            storedAt: number | null;
+        }> = [];
+        let cursor: string | undefined = undefined;
+        do {
+            const page: R2Objects = await env.TILES.list({
+                prefix: "tile-packs/v1/",
+                cursor,
+                limit: 1000,
+                include: ["customMetadata"],
+            });
+            for (const obj of page.objects) {
+                const md = obj.customMetadata ?? {};
+                const osmId =
+                    md.osmId ??
+                    obj.key
+                        .slice("tile-packs/v1/".length)
+                        .replace(/\.pmtiles$/, "");
+                const storedAtRaw = md.storedAt ? Number(md.storedAt) : NaN;
+                packs.push({
+                    osmId,
+                    key: obj.key,
+                    bytes: obj.size,
+                    storedAt: Number.isFinite(storedAtRaw)
+                        ? storedAtRaw
+                        : null,
+                });
+            }
+            cursor = page.truncated ? page.cursor : undefined;
+        } while (cursor);
+        packs.sort((a, b) => a.osmId.localeCompare(b.osmId));
+        return jsonResponse({ count: packs.length, packs }, 200, cors);
+    } catch (e) {
+        console.warn("[tile-pack] list failed:", e);
+        return jsonResponse(
+            { error: e instanceof Error ? e.message : String(e) },
+            500,
+            cors,
+        );
+    }
+}
+
 async function handleAdminStoreTilePack(
     request: Request,
     env: Env,
