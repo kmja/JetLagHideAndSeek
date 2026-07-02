@@ -3,7 +3,6 @@ import {
     AlertTriangle,
     Ban,
     Crosshair,
-    Eye,
     Flag,
     Lock,
     LockOpen,
@@ -81,7 +80,6 @@ import {
     seekerRotateHider,
 } from "@/lib/multiplayer/store";
 
-import { DiceRoller } from "./DiceRoller";
 import { HiderHandPanel } from "./HiderHandPanel";
 import { HiderQuestionLog } from "./HiderQuestionLog";
 import { HiderTripPlanCard } from "./HiderTripPlanCard";
@@ -92,8 +90,6 @@ import {
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
 import { ScoutedSpotsPanel } from "./ScoutedSpotsPanel";
-import { SeekerETACard } from "./SeekerETACard";
-import { SeekerLivePositions } from "./SeekerLivePositions";
 
 // Lazy-load the inline picker — leaflet must stay out of the SSR graph.
 const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
@@ -450,8 +446,6 @@ export function HiderHomeContent() {
 
             {phase === "seeking" && (
                 <SeekingPhaseView
-                    hiddenElapsedMs={hiddenElapsedMs}
-                    size={$gameSize}
                     zone={$hidingZone}
                     radiusMeters={radiusForGameSize($gameSize)}
                     spot={$hidingSpot}
@@ -459,13 +453,7 @@ export function HiderHomeContent() {
             )}
 
             {phase === "endgame" && (
-                <EndgamePhaseView
-                    hiddenElapsedMs={hiddenElapsedMs}
-                    size={$gameSize}
-                    zone={$hidingZone}
-                    radiusMeters={radiusForGameSize($gameSize)}
-                    spot={$hidingSpot!}
-                />
+                <EndgamePhaseView spot={$hidingSpot!} />
             )}
 
             {phase === "over" && (
@@ -550,15 +538,17 @@ function HidingPhaseView({
                 </Button>
             </section>
 
-            {/* Explainer */}
+            {/* Short instructions + allowed transit modes. v633: trimmed
+                to the essentials — during the hiding period the hider only
+                needs the timer (above), the one-line rule, the modes they
+                can hide near, and the zone picker below. The trip-plan
+                card + scouted-spots notebook moved to the seeking phase
+                (where they're actually useful) to declutter this stage. */}
             <section className="rounded-md border border-border bg-secondary/30 px-4 py-3 mb-4 space-y-2 text-sm leading-snug">
                 <p>
                     Pick a transit station of an allowed mode to hide near. The{" "}
                     <span className="font-bold">
-                        {(radiusMeters / 1000).toFixed(
-                            radiusMeters >= 1000 ? 1 : 1,
-                        )}{" "}
-                        km
+                        {(radiusMeters / 1000).toFixed(1)} km
                     </span>{" "}
                     area around that station is your hiding zone.
                 </p>
@@ -585,16 +575,11 @@ function HidingPhaseView({
                         })
                     )}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                    Once you arrive, tell the seekers — or let the countdown run
-                    out if you want more strategy time.
-                </p>
                 {zone === null && (
                     <p className="text-[11px] leading-snug text-destructive border border-destructive/40 bg-destructive/5 rounded-md px-2.5 py-2">
-                        Lock in a zone before the clock hits zero. If you
-                        don&apos;t, the game locks for a 5-minute grace period
-                        to pick a station from where you are — miss that too and
-                        you forfeit the round.
+                        Lock in a zone before the clock hits zero — miss the
+                        5-minute grace period after that too and you forfeit
+                        the round.
                     </p>
                 )}
             </section>
@@ -605,20 +590,6 @@ function HidingPhaseView({
                 radiusMeters={radiusMeters}
                 showStationSuggest
             />
-
-            {/* Trip-plan card — appears once the hider commits a zone,
-                showing the live journey from current GPS to that
-                station with legs/line/transfers. Self-renders null
-                until hidingZone is set. */}
-            <div className="mt-3">
-                <HiderTripPlanCard />
-            </div>
-
-            {/* Walk-around notebook: drop pins on potential hiding spots
-                so the hider doesn't lose track between scouting trips. */}
-            <ScoutedSpotsPanel />
-
-            {/* End-hiding shortcut moved up next to the countdown. */}
         </>
     );
 }
@@ -711,63 +682,36 @@ function ForfeitView({ onNewGame }: { onNewGame: () => void }) {
 /* ────────────────── Phase 2: SEEKING ────────────────── */
 
 function SeekingPhaseView({
-    hiddenElapsedMs,
-    size,
     zone,
     radiusMeters,
     spot,
 }: {
-    hiddenElapsedMs: number;
-    size: ReturnType<typeof gameSize.get>;
     zone: ReturnType<typeof hidingZone.get>;
     radiusMeters: number;
     spot: ReturnType<typeof hidingSpot.get>;
 }) {
+    // v633: once the hider is in their zone and the seekers are hunting,
+    // the drawer is trimmed to just the zone info + scouted spots. The
+    // live elapsed timer lives on the map (HiderMapTimer), seeker pins are
+    // on the map, the question log has its own nav "Questions" drawer, and
+    // the hand is on the fan — so none of those are duplicated here.
+    const $endgameStartedAt = useStore(endgameStartedAt);
     return (
         <>
-            <ElapsedHiddenBanner
-                hiddenElapsedMs={hiddenElapsedMs}
-                size={size}
-            />
-
-            {/* Live seeker positions (rulebook p5). Renders nothing
-                until at least one seeker has broadcast, so it doesn't
-                add an empty placeholder pre-game. */}
-            <SeekerLivePositions />
-
-            {/* Earliest possible seeker arrival at the hider's station,
-                computed from gameStartPosition + the whistle. Self-
-                renders null if there's no zone / no game-start anchor /
-                no transit provider. */}
-            <SeekerETACard />
-
-            {/* Hiding zone — locked at this phase; tap "Change" only
-                in rule-bending emergencies. */}
+            {/* Zone general info — the committed zone card + read-only map. */}
             <HidingZoneSection zone={zone} radiusMeters={radiusMeters} />
 
-            {/* Lockdown affordance — when the hider commits to their
-                final spot the view transitions to endgame. */}
-            <HidingSpotSection spot={spot} roundOver={false} />
+            {/* Lock-down affordance surfaces ONLY once the seekers have
+                claimed the endgame ("we're in your zone"). That's the one
+                moment the hider commits a final spot; hidden during normal
+                seeking to keep this stage focused. */}
+            {$endgameStartedAt !== null && (
+                <HidingSpotSection spot={spot} roundOver={false} />
+            )}
 
-            {/* Scouted spots stay accessible during seeking too — the
-                hider may pivot to a backup spot if the original gets
-                compromised. */}
+            {/* Scouted spots — the walk-around notebook, handy for pivoting
+                to a backup spot if the original gets compromised. */}
             <ScoutedSpotsPanel />
-
-            {/* Seeker-style question log replaces the old inbox UI */}
-            <HiderQuestionLog />
-
-            {/* Hand panel */}
-            <HiderHandPanel />
-
-            {/* Dice for curse cards */}
-            <section className="mt-5">
-                <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="w-4 h-4 text-muted-foreground" />
-                    <SectionPill>Utilities</SectionPill>
-                </div>
-                <DiceRoller />
-            </section>
         </>
     );
 }
@@ -775,37 +719,16 @@ function SeekingPhaseView({
 /* ────────────────── Phase 3: ENDGAME ────────────────── */
 
 function EndgamePhaseView({
-    hiddenElapsedMs,
-    size,
-    zone,
-    radiusMeters,
     spot,
 }: {
-    hiddenElapsedMs: number;
-    size: ReturnType<typeof gameSize.get>;
-    zone: ReturnType<typeof hidingZone.get>;
-    radiusMeters: number;
     spot: NonNullable<ReturnType<typeof hidingSpot.get>>;
 }) {
-    void zone;
-    void radiusMeters;
+    // v633: trimmed to the essentials for "locked in your zone, seekers
+    // hunting" — the locked spot (the refined zone) + scouted spots. The
+    // live elapsed timer + seeker pins are on the map; the question log +
+    // hand have their own surfaces.
     return (
         <>
-            {/* Tense elapsed banner — same numbers, different framing */}
-            <section className="rounded-md border-2 border-yellow-500/70 bg-yellow-500/5 px-4 py-3 mb-4 flex items-center gap-3">
-                <Eye className="w-5 h-5 shrink-0 text-yellow-500" />
-                <div className="flex flex-col leading-none gap-1 min-w-0">
-                    <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                        Endgame · stay still
-                    </span>
-                    <span className="font-inter-tight italic font-black tabular-nums text-2xl text-yellow-500 leading-none">
-                        {formatElapsed(hiddenElapsedMs)}
-                    </span>
-                    <TimeBonusInHand size={size} />
-                </div>
-                <SizeBadge size={size} className="ml-auto" />
-            </section>
-
             {/* Spot map — zoomed in tight on the locked spot. The
                 InlineLocationPicker handles its own lazy leaflet load. */}
             <section className="mt-1">
@@ -841,15 +764,8 @@ function EndgamePhaseView({
                 </div>
             </section>
 
-            {/* Live seeker positions. Now that the hider is locked
-                to one spot, this panel is the only situational
-                awareness they have for closing distance — surfaces
-                each seeker's last fix and metres-to-zone. */}
-            <SeekerLivePositions />
-
-            {/* Question log + hand stay available but quieter */}
-            <HiderQuestionLog />
-            <HiderHandPanel />
+            {/* Scouted spots stay handy for reference. */}
+            <ScoutedSpotsPanel />
         </>
     );
 }
@@ -890,52 +806,6 @@ function PostRoundView({
 }
 
 /* ────────────────── Shared sub-sections ────────────────── */
-
-function ElapsedHiddenBanner({
-    hiddenElapsedMs,
-    size,
-}: {
-    hiddenElapsedMs: number;
-    size: ReturnType<typeof gameSize.get>;
-}) {
-    return (
-        <section className="rounded-md border-2 border-yellow-500/60 bg-yellow-500/5 px-4 py-3 mb-4 flex items-center gap-3">
-            <Timer className="w-5 h-5 shrink-0 text-yellow-500" />
-            <div className="flex flex-col leading-none gap-1 min-w-0">
-                <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground">
-                    Hidden for
-                </span>
-                <span className="font-inter-tight italic font-black tabular-nums text-2xl text-primary leading-none">
-                    {formatElapsed(hiddenElapsedMs)}
-                </span>
-                <TimeBonusInHand size={size} />
-            </div>
-            <SizeBadge size={size} className="ml-auto" />
-        </section>
-    );
-}
-
-/**
- * Sub-line under the elapsed timer showing how many time-bonus
- * minutes the hider is currently holding. Renders nothing when the
- * tally is zero so it doesn't add noise during early game (before
- * any cards have been drawn). Used in both the seeking-phase and
- * endgame-phase banners — they share the same yellow tint so the
- * bonus reads consistently across phases.
- */
-function TimeBonusInHand({ size }: { size: ReturnType<typeof gameSize.get> }) {
-    const $hand = useStore(hiderHand);
-    const bonusMinutes = useMemo(
-        () => tallyTimeBonusMinutes($hand, size),
-        [$hand, size],
-    );
-    if (bonusMinutes <= 0) return null;
-    return (
-        <span className="text-[10px] text-yellow-500 font-poppins font-semibold mt-0.5 tabular-nums">
-            +{bonusMinutes} min time bonus in hand
-        </span>
-    );
-}
 
 /* ────────────────── Final score banner ────────────────── */
 

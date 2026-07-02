@@ -6,6 +6,7 @@ import { Footprints, HelpCircle, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, { Layer, type MapRef, Marker, Source } from "react-map-gl/maplibre";
 
+import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { MapNavControls } from "@/components/MapNavControls";
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
@@ -81,6 +82,29 @@ export function HiderBackgroundMap() {
     const $reach = useStore(hiderReachFC);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
+    const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    // Whether the hiding period has elapsed (seeking underway). Drives
+    // which corner the floating HiderMapTimer sits in — and, opposite it,
+    // where MapNavControls dodges — so the two never overlap. One-shot
+    // timeout (no per-second tick) flips it exactly when the clock ends,
+    // mirroring the seeker map's Map.tsx approach.
+    const [seekingStarted, setSeekingStarted] = useState(
+        () => $hidingEndsAt !== null && Date.now() >= $hidingEndsAt,
+    );
+    useEffect(() => {
+        if ($hidingEndsAt === null) {
+            setSeekingStarted(false);
+            return;
+        }
+        const delta = $hidingEndsAt - Date.now();
+        if (delta <= 0) {
+            setSeekingStarted(true);
+            return;
+        }
+        setSeekingStarted(false);
+        const t = setTimeout(() => setSeekingStarted(true), delta);
+        return () => clearTimeout(t);
+    }, [$hidingEndsAt]);
     // Transit-route overlays — same hook the seeker map uses, so the
     // hider's identical mode toggles actually fetch + render routes
     // (previously they were dead on the hider map).
@@ -110,10 +134,10 @@ export function HiderBackgroundMap() {
         [$seekerLocations, $participants],
     );
 
-    // v313: the "Mark spot" FAB moved into HiderTimeHeader where it
-    // sits next to the live timer and only renders when the hider
-    // is actually inside their committed zone. The popover + handler
-    // moved with it.
+    // The "Mark spot" affordance lives on the floating HiderMapTimer
+    // (v633; was HiderTimeHeader before): it sits above the live timer
+    // card and only renders when the hider is inside their committed
+    // zone. The popover + handler moved there with it.
 
     // v310: hider basemap was hardcoded to "dark", which broke the
     // moment the user flipped the app to light mode (the rest of
@@ -523,10 +547,24 @@ export function HiderBackgroundMap() {
                 ))}
             </Map>
             {/* Classic map controls — follow-me toggle + reset
-                rotation/tilt. v462: the map is now a flex-1 area between
-                the flow header and nav, so this anchors to the map edge
-                (bottom-3) instead of dodging the nav/fan (bottom-44). */}
-            <MapNavControls mapRef={mapRef} className="right-3 bottom-3" />
+                rotation/tilt. Dodges to the corner OPPOSITE the floating
+                HiderMapTimer: bottom-right while setting up / hiding (timer
+                bottom-left), bottom-left once seeking (timer bottom-right).
+                Mirrors the seeker map's swap so the two never overlap. */}
+            <MapNavControls
+                mapRef={mapRef}
+                className={cn(
+                    "bottom-3",
+                    seekingStarted ? "left-3" : "right-3",
+                )}
+            />
+
+            {/* Floating timer card — the hider's parity counterpart to the
+                seeker's HiderTimer (golden hiding box / white hidden box +
+                gold time-to-beat), self-positioning bottom-left/right.
+                v633: replaced the old HiderTimeHeader flow-row so the hider
+                map matches the seeker map. */}
+            <HiderMapTimer />
 
             {/* v632: the floating top-right map-options popover was removed.
                 Map display options now live in the hider bottom-nav "Map"

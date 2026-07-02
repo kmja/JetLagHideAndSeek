@@ -3,7 +3,6 @@ import { useStore } from "@nanostores/react";
 import { AppShell } from "@/components/AppShell";
 import { HiderBackgroundMap } from "@/components/HiderBackgroundMap";
 import { HiderBottomNav } from "@/components/HiderBottomNav";
-import { HiderTimeHeader } from "@/components/HiderTimeHeader";
 import { HiderTopBar } from "@/components/HiderTopBar";
 import { HiderUnansweredOverlay } from "@/components/HiderUnansweredOverlay";
 import { hiderHand } from "@/lib/hiderRole";
@@ -15,13 +14,17 @@ import { hiderHand } from "@/lib/hiderRole";
  *
  *   ┌─────────────────────────────────┐
  *   │  HiderTopBar       (flow, top)  │  brand
- *   │  HiderTimeHeader   (flow)       │  phase + countdown
  *   ├─────────────────────────────────┤
  *   │  map area (flex-1, relative)    │  HiderBackgroundMap fills it;
- *   │                                 │  the unanswered banner floats
- *   ├─────────────────────────────────┤  over its top.
+ *   │                                 │  the floating HiderMapTimer +
+ *   │                                 │  unanswered banner float over it.
+ *   ├─────────────────────────────────┤
  *   │  HiderBottomNav    (flow, btm)  │  Questions / Zone / Map / Lobby
  *   └─────────────────────────────────┘
+ *
+ * v633: the phase/countdown moved OFF the header flow-row onto a floating
+ * timer card on the map (HiderMapTimer), matching the seeker layout —
+ * brand header on top, a Jet-Lag-show timer card on the map.
  *
  * The HiderHandFan (cards) stays a `fixed bottom-0` overlay — its cards
  * are clipped by the viewport edge by design — so the column reserves
@@ -44,12 +47,7 @@ export function HiderShell() {
                     ? `${FAN_HEIGHT_PX}px`
                     : "env(safe-area-inset-bottom)",
             }}
-            header={
-                <>
-                    <HiderTopBar />
-                    <HiderTimeHeader />
-                </>
-            }
+            header={<HiderTopBar />}
             footer={<HiderBottomNav />}
         >
             <HiderBackgroundMap />

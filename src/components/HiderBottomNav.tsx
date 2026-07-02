@@ -236,8 +236,8 @@ export function HiderBottomNav() {
                                 Hiding zone
                             </VaulDrawer.Title>
                             <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                                Zone, spot, hand, dice — everything the
-                                hider does in this round.
+                                Pick a station to hide near, then keep an eye
+                                on your zone and scouted spots.
                             </VaulDrawer.Description>
                         </div>
                         <div className="flex-1 overflow-y-auto px-2">

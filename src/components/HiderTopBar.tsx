@@ -25,10 +25,9 @@ const headerBtn = cn(
  * Stays visible at all viewport sizes, since the hider page has no
  * sidebars to provide brand cues on desktop.
  *
- * Sits ABOVE HiderTimeHeader (which carries the phase label +
- * countdown). The two together form the hider's full top chrome —
- * brand on top, status below — matching the seeker's vertical
- * hierarchy.
+ * v633: the phase label + countdown moved off a header row onto the
+ * floating `HiderMapTimer` card on the map, so this brand bar is the
+ * hider's only top chrome now — matching the seeker's `SeekerTopBar`.
  */
 export function HiderTopBar() {
     return (
