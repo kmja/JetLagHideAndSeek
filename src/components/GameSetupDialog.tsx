@@ -1215,24 +1215,35 @@ export function PlayAreaStep({
               ? "h-[120px]"
               : "h-[200px]",
     );
+    // While searching with the keyboard up, hide the map entirely so the
+    // search results get the full remaining height (a 120px map strip left
+    // room for barely one result — see the reported cramped state). The
+    // map stays MOUNTED (display:none), not unmounted, so dismissing the
+    // keyboard / returning to preview doesn't remount + reload + re-veil
+    // it — same persistence intent as the osm_id key above.
+    const hideMapForSearch = !inPreview && inputFocused;
 
     return (
         <div className="space-y-3">
             {value && (
-                <PlayAreaPreviewMap
-                    key={value.properties.osm_id}
-                    value={value}
-                    height={mapHeightClass}
-                    veilLabel={
-                        inPreview && fromGpsSuggest ? LOCATING_LABEL : undefined
-                    }
-                    veilSublabel={
-                        inPreview && fromGpsSuggest
-                            ? LOCATING_SUBLABEL
-                            : undefined
-                    }
-                    awaitAdjacent={inPreview}
-                />
+                <div className={cn(hideMapForSearch && "hidden")}>
+                    <PlayAreaPreviewMap
+                        key={value.properties.osm_id}
+                        value={value}
+                        height={mapHeightClass}
+                        veilLabel={
+                            inPreview && fromGpsSuggest
+                                ? LOCATING_LABEL
+                                : undefined
+                        }
+                        veilSublabel={
+                            inPreview && fromGpsSuggest
+                                ? LOCATING_SUBLABEL
+                                : undefined
+                        }
+                        awaitAdjacent={inPreview}
+                    />
+                </div>
             )}
 
             {inPreview ? (
@@ -1414,7 +1425,17 @@ export function PlayAreaStep({
                             <p className="text-xs text-muted-foreground">
                                 Tap a match to use it (Enter picks the top one):
                             </p>
-                            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                            <div
+                                className={cn(
+                                    "space-y-1.5 overflow-y-auto pr-1",
+                                    // With the map hidden (keyboard up) the
+                                    // results can use the freed height; keep
+                                    // the tighter cap when the map is shown.
+                                    hideMapForSearch
+                                        ? "max-h-[52vh]"
+                                        : "max-h-60",
+                                )}
+                            >
                                 {results.map((r) => {
                                     const active =
                                         r.properties.osm_id === topResultId;
