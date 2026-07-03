@@ -22,13 +22,18 @@ import { cn } from "@/lib/utils";
  * `pointer-events-none` so it never blocks a tap on the map beneath.
  */
 export function MapOverlayLoadingToasts() {
-    // Gate the seeker flag on the toggle: its compute isn't abortable, so
-    // `isLoading` can linger for a beat after the overlay is switched off.
-    const seekerZones = useStore(isLoading) && useStore(displayHidingZones);
+    // Call every hook UNCONDITIONALLY — a short-circuited `useStore(a) &&
+    // useStore(b)` skips the second hook when `a` is falsy and trips React
+    // error #310 (fewer hooks than the previous render), crashing the map.
+    const $isLoading = useStore(isLoading);
+    const $displayHidingZones = useStore(displayHidingZones);
     const hiderZones = useStore(hiderReachLoading);
     const travel = useStore(travelTimesLoading);
     const transit = useStore(transitRoutesLoading);
 
+    // Gate the seeker flag on the toggle: its compute isn't abortable, so
+    // `isLoading` can linger for a beat after the overlay is switched off.
+    const seekerZones = $isLoading && $displayHidingZones;
     const anyTransit = Object.values(transit).some(Boolean);
     const items: string[] = [];
     if (seekerZones || hiderZones) items.push("Loading hiding zones…");
