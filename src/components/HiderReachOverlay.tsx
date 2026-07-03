@@ -1,11 +1,5 @@
 import { useStore } from "@nanostores/react";
-import {
-    booleanPointInPolygon,
-    circle as turfCircle,
-    featureCollection as turfFeatureCollection,
-    simplify as turfSimplify,
-} from "@turf/turf";
-import type { Units } from "@turf/turf";
+import { booleanPointInPolygon } from "@turf/turf";
 import { useEffect, useRef } from "react";
 
 import {
@@ -22,9 +16,9 @@ import {
 } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
 import { hidingZone } from "@/lib/hiderRole";
+import { computeHidingUnion } from "@/lib/journey/hidingZonesUnion";
 import { hiderReachFC, showHiderReach } from "@/lib/journey/state";
 import { type AreaStation, fetchAreaStations } from "@/lib/journey/stations";
-import { safeUnion } from "@/maps/geo-utils";
 
 /**
  * Hider's "Hiding zones" overlay — the mirror of the seeker's
@@ -122,6 +116,7 @@ export function HiderReachOverlay() {
         lastAnchorRef.current = { lat: $gps.lat, lng: $gps.lng };
 
         let cancelled = false;
+        const controller = new AbortController();
 
         (async () => {
             const stations = await fetchAreaStations($gps.lat, $gps.lng, {
@@ -158,11 +153,33 @@ export function HiderReachOverlay() {
                 });
             }
 
-            hiderReachFC.set(buildFC(inArea, $radius, $units));
+            // Paint the DOTS immediately (cheap, main thread) so the
+            // overlay appears at once, then compute the unioned extent
+            // fill OFF the main thread and drop it in when ready — the
+            // union is the only heavy step and doing it in a worker keeps
+            // the whole app responsive while it loads.
+            const points = stationPoints(inArea);
+            hiderReachFC.set({
+                type: "FeatureCollection",
+                features: points,
+            });
+
+            const union = await computeHidingUnion(
+                inArea.map((s) => ({ lng: s.lng, lat: s.lat })),
+                $radius,
+                $units,
+                controller.signal,
+            );
+            if (cancelled || union == null) return; // keep dots-only
+            hiderReachFC.set({
+                type: "FeatureCollection",
+                features: [union, ...points],
+            });
         })();
 
         return () => {
             cancelled = true;
+            controller.abort();
         };
     }, [
         enabled,
@@ -183,72 +200,19 @@ export function HiderReachOverlay() {
     return null;
 }
 
-/** Cap on how many station circles feed the unioned extent fill. The
- *  fill is a coarse "possible-hiding area" envelope, so unioning the
- *  closest ~120 (distance-sorted) is plenty — it keeps a dense metro's
- *  union off the "hundreds of circles → multi-second main-thread block"
- *  path while still covering the core cluster of dots. */
-const MAX_UNION_CIRCLES = 120;
-
 /**
- * Build the hiding-zones FeatureCollection — matching the seeker's
- * `styleStations` "stations" style: one centre POINT per station (name
- * label + dot) PLUS a single `safeUnion`-ed extent POLYGON of every
- * station's hiding-radius circle. Unioning paints the covered area once
- * at a uniform faint opacity (instead of compounding per-circle fills)
- * and gives a clean envelope of the possible-hiding area.
+ * Station centre POINTS — the cheap, main-thread part of the overlay
+ * (dot + name label per station), matching the seeker's
+ * `hiding-zones-points`/`-labels`. Painted immediately; the heavy
+ * unioned extent fill is computed off-thread (`computeHidingUnion`) and
+ * prepended to these when it arrives.
  */
-function buildFC(
-    stations: AreaStation[],
-    radius: number,
-    units: Units,
-): GeoJSON.FeatureCollection {
-    const points: GeoJSON.Feature[] = stations.map((s) => ({
+function stationPoints(stations: AreaStation[]): GeoJSON.Feature[] {
+    return stations.map((s) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [s.lng, s.lat] },
         properties: { stopId: String(s.id), name: s.name },
     }));
-
-    // Per-station hiding-radius circles → a single union polygon. This is
-    // the ONE expensive step: `turf.union` over hundreds of overlapping
-    // circles in a dense metro (Chicago, 180 bus-stop circles) blocked the
-    // main thread for seconds (reported freeze/stutter). Bound the cost:
-    //   • LOW-poly circles (12 steps, not 32) — a faint envelope doesn't
-    //     need smooth arcs, and fewer vertices makes every union + the
-    //     final tessellation far cheaper.
-    //   • Cap the union INPUT (the closest `MAX_UNION_CIRCLES`); stations
-    //     are distance-sorted, so the closest ones form the extent's core.
-    //   • `simplify` the result so the map re-tessellates a light polygon.
-    //   • try/catch so any failure just drops the fill (dots still show).
-    let union: GeoJSON.Feature | null = null;
-    try {
-        const circles = stations
-            .slice(0, MAX_UNION_CIRCLES)
-            .map((s) =>
-                turfCircle([s.lng, s.lat], radius, { units, steps: 12 }),
-            );
-        if (circles.length >= 2) {
-            const merged = safeUnion(
-                turfFeatureCollection(circles) as never,
-            ) as GeoJSON.Feature | null;
-            union = merged
-                ? (turfSimplify(merged as never, {
-                      tolerance: 0.0008,
-                      highQuality: false,
-                  }) as GeoJSON.Feature)
-                : null;
-        } else if (circles.length === 1) {
-            union = circles[0] as GeoJSON.Feature;
-        }
-    } catch (e) {
-        console.warn("HiderReachOverlay: union fill failed", e);
-        union = null;
-    }
-
-    return {
-        type: "FeatureCollection",
-        features: [...(union ? [union] : []), ...points],
-    };
 }
 
 export default HiderReachOverlay;
