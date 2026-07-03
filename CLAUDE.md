@@ -121,6 +121,8 @@ Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib
 
 **Availability gating (v564):** `useSubtypeAvailability` (`src/lib/subtypeAvailability.ts`) greys out subtype tiles whose reference type has too few instances *inside the play area* to make a meaningful question — matching/tentacles need ≥2 (with one, everyone shares it), measuring needs ≥1. It counts via `countInPlayArea(family)` (`playAreaPrefetch.ts`, polygon-filtered cached features) for countable POI families only (airport, rail-station, `api:*` from `LOCATION_FIRST_TAG`); non-countable subtypes (admin divisions/borders, coastline, transit-line/name-length, metro, landmass, photo) and unknown/cold counts always stay enabled, so nothing valid is wrongly hidden. Relatedly, the **nearest-reference** lookup (`NearestReferencePreview.tsx`) filters every Overpass `around:`-radius fallback to the play-area polygon (`pointInPlayArea`) so an out-of-bounds instance can't win over a valid in-area one (rulebook p17).
 
+**Self-hosting fetch paths (v639) — toward zero-Overpass for prewarmed cities.** Three changes closed the wizard/lobby-preview leaks the audit found: (1) **Boundary fetch is worker-first** — `doFetchRawBoundaryPolygon` (`polygonsOsmFr.ts`) now tries the worker's R2 `relation(N);out geom;` (`fetchPolygonViaCacheWorker`) BEFORE polygons.osm.fr, so a curated city's primary + neighbour boundaries paint from R2 (polygons.osm.fr is the fallback for uncurated areas; the worker also caches on miss, so neighbours self-warm on first use). (2) **Neighbour boundaries are prewarmed** — the cron's `prewarmAdjacentSearchForCity` (`overpass-cache/src/index.ts`) reads the topological + admin-band results it just stored, extracts up to `MAX_NEIGHBOUR_BOUNDARIES` (14) admin-boundary relation ids, and prewarms each via `singleRelationQuery` (byte-identical to the client's worker fetch). (3) **Adjacency `around:` centroid is rounded to 3 dp** in the band/stations/local-band query builders on BOTH sides (`playAreaExtensions.ts` ↔ `index.ts`, kept byte-identical), so the R2 key no longer depends on whether the bbox came from polygons.osm.fr (cron `bboxFromRelation`) or the worker-served boundary (client, post-worker-first) — sub-100 m source drift can't break the key. **Transition caveat:** rounding changes the adjacency query strings, so existing prewarmed adjacency entries go stale and the cron must re-warm under the new (rounded) keys; until it catches up, adjacency queries cold-miss and fall through live (silently — they pass `silent`). Remaining non-Overpass external: **satellite tiles** (ArcGIS, unproxied) and dynamic hider-reach/area-station scans (worker-first but un-prewarmable).
+
 ### Game setup state (src/lib/gameSetup.ts)
 - `setupCompleted` — drives first-load wizard auto-open
 - `playArea` — `{ displayName, lat, lng }` for chosen play region
@@ -379,7 +381,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v638`. Use `git log` for the per-version detail;
+build stamp. Current: `v639`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass:
 
 - **Universal hider auto-grading wired into the answer flow** —

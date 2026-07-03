@@ -3523,6 +3523,12 @@ async function prewarmReferencesForCity(
  */
 const ADJACENT_SEARCH_RADIUS_KM = 25;
 
+/** v639: cap on how many adjacent-neighbour BOUNDARY polygons we prewarm
+ *  per city, so a dense metro's ~14 neighbours can't blow the cron's wall
+ *  budget. Matches the client's candidate `limit` (14). Each is only
+ *  fetched once per TTL (prewarmQuery skips fresh entries). */
+const MAX_NEIGHBOUR_BOUNDARIES = 14;
+
 /**
  * Build the admin-level-lookup query for a relation. Byte-identical
  * to `buildAdminLevelQuery` in src/maps/api/playAreaExtensions.ts.
@@ -3545,9 +3551,13 @@ function buildAdjacentAdminQuery(
     lng: number,
     radiusKm: number,
 ): string {
+    // v639: round the `around:` centroid to 3 dp so the R2 key doesn't
+    // depend on whether the bbox came from polygons.osm.fr (cron) or the
+    // worker-served boundary (client). MUST match buildAdjacentAdminQuery
+    // in src/maps/api/playAreaExtensions.ts exactly.
     return `
 [out:json][timeout:60];
-relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
+relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
 out tags bb;
 `;
 }
@@ -3564,14 +3574,17 @@ function buildAdjacentStationsQuery(
     lng: number,
     radiusKm: number,
 ): string {
+    // v639: 3-dp centroid on every around: — MUST match
+    // buildAdjacentStationsQuery in src/maps/api/playAreaExtensions.ts.
+    const c = `${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)}`;
     return `
 [out:json][timeout:45];
 (
-  node["station"="subway"](around:${radiusKm * 1000},${lat},${lng});
-  node["railway"="station"](around:${radiusKm * 1000},${lat},${lng});
-  node["railway"="halt"](around:${radiusKm * 1000},${lat},${lng});
-  node["railway"="tram_stop"](around:${radiusKm * 1000},${lat},${lng});
-  node["amenity"="ferry_terminal"](around:${radiusKm * 1000},${lat},${lng});
+  node["station"="subway"](around:${c});
+  node["railway"="station"](around:${c});
+  node["railway"="halt"](around:${c});
+  node["railway"="tram_stop"](around:${c});
+  node["amenity"="ferry_terminal"](around:${c});
 );
 out;
 `;
@@ -3741,6 +3754,65 @@ async function prewarmAdjacentSearchForCity(
             );
             if (r.status === "stored") stored++;
         }
+    }
+
+    // 5. v639: prewarm each adjacent NEIGHBOUR's boundary polygon. The
+    //    wizard/lobby preview is now worker-first (client
+    //    doFetchRawBoundaryPolygon), so warming these lets a curated city's
+    //    adjacent-area outlines paint from R2 instead of firing a
+    //    throttle-prone burst of per-neighbour polygons.osm.fr requests.
+    //    Neighbour ids come from the topological + admin-band results we
+    //    just stored; keyed on `singleRelationQuery` (byte-identical to the
+    //    client's worker boundary fetch). Capped + only fetched once per
+    //    TTL, so this doesn't balloon the cron.
+    try {
+        const neighbourIds = new Set<number>();
+        const sources = [buildTopologicalAdjacencyQuery(city.relationId)];
+        if (adminLevel) {
+            sources.push(buildAdjacentAdminQuery(adminLevel, lat, lng, radius));
+        }
+        for (const q of sources) {
+            try {
+                const key = await r2KeyForQuery(q);
+                const obj = await env.CACHE.get(`overpass/${key}`);
+                if (!obj) continue;
+                const parsed = JSON.parse(await readR2Text(obj)) as {
+                    elements?: Array<{
+                        type?: string;
+                        id?: number;
+                        tags?: Record<string, string>;
+                    }>;
+                };
+                for (const el of parsed.elements ?? []) {
+                    if (
+                        el?.type === "relation" &&
+                        typeof el.id === "number" &&
+                        el.id !== city.relationId &&
+                        el.tags?.type === "boundary" &&
+                        el.tags?.boundary === "administrative"
+                    ) {
+                        neighbourIds.add(el.id);
+                    }
+                }
+            } catch {
+                /* skip this source */
+            }
+        }
+        for (const id of [...neighbourIds].slice(0, MAX_NEIGHBOUR_BOUNDARIES)) {
+            const r = await prewarmQuery(
+                env,
+                singleRelationQuery(id),
+                city,
+                ttlMs,
+                "adjacent-boundary",
+            );
+            if (r.status === "stored") stored++;
+        }
+    } catch (e) {
+        console.warn(
+            `[adjacent] neighbour boundary prewarm failed for ${city.name}:`,
+            e,
+        );
     }
 
     return { stored };

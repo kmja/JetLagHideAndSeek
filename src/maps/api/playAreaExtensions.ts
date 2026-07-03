@@ -635,9 +635,16 @@ export function buildAdjacentAdminQuery(
     lng: number,
     radiusKm: number,
 ): string {
+    // v639: round the `around:` centroid to 3 dp (~110 m, negligible for a
+    // 25 km search) so the R2 cache key no longer depends on which geometry
+    // source produced the play-area bbox. The client derives the centroid
+    // from the worker-served boundary; the cron derives it from
+    // polygons.osm.fr (bboxFromRelation) — rounding bridges any sub-100 m
+    // drift so both sides emit a byte-identical query and hit the same R2
+    // entry. MUST match buildAdjacentAdminQuery in overpass-cache exactly.
     return `
 [out:json][timeout:60];
-relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
+relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
 out tags bb;
 `;
 }
@@ -655,9 +662,10 @@ export function buildMunicipalityBandQuery(
     lng: number,
     radiusKm: number,
 ): string {
+    // v639: 3-dp centroid (see buildAdjacentAdminQuery).
     return `
 [out:json][timeout:60];
-relation["admin_level"~"^[78]$"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
+relation["admin_level"~"^[78]$"]["type"="boundary"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
 out tags bb;
 `;
 }
@@ -676,9 +684,10 @@ export function buildLocalAdminBandQuery(
     lng: number,
     radiusKm: number,
 ): string {
+    // v639: 3-dp centroid (see buildAdjacentAdminQuery).
     return `
 [out:json][timeout:60];
-relation["admin_level"~"^[678]$"]["type"="boundary"]["boundary"="administrative"](around:${radiusKm * 1000},${lat},${lng});
+relation["admin_level"~"^[678]$"]["type"="boundary"]["boundary"="administrative"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
 out tags bb;
 `;
 }
@@ -710,14 +719,16 @@ export function buildAdjacentStationsQuery(
     lng: number,
     radiusKm: number,
 ): string {
+    // v639: 3-dp centroid on every around: (see buildAdjacentAdminQuery).
+    const c = `${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)}`;
     return `
 [out:json][timeout:45];
 (
-  node["station"="subway"](around:${radiusKm * 1000},${lat},${lng});
-  node["railway"="station"](around:${radiusKm * 1000},${lat},${lng});
-  node["railway"="halt"](around:${radiusKm * 1000},${lat},${lng});
-  node["railway"="tram_stop"](around:${radiusKm * 1000},${lat},${lng});
-  node["amenity"="ferry_terminal"](around:${radiusKm * 1000},${lat},${lng});
+  node["station"="subway"](around:${c});
+  node["railway"="station"](around:${c});
+  node["railway"="halt"](around:${c});
+  node["railway"="tram_stop"](around:${c});
+  node["amenity"="ferry_terminal"](around:${c});
 );
 out;
 `;

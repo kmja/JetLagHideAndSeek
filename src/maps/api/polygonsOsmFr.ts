@@ -150,24 +150,27 @@ const inFlightBoundary = new Map<
 async function doFetchRawBoundaryPolygon(
     relationId: number,
 ): Promise<GeoJSON.Polygon | GeoJSON.MultiPolygon | null> {
-    const first = await fetchPolygonAttempt(relationId);
-    if (first.geom) return first.geom;
-
-    // polygons.osm.fr fast path didn't help — either it 5xx'd, CORS-
-    // hiccuped (residential IPs get throttled hard), or returned the
-    // "not yet computed" sentinel. Fall through to the cache worker
-    // before giving up: it serves boundaries from R2 in ~10 ms for
-    // any prewarmed area (every city in the curated list — which the
-    // wizard mostly picks from) and otherwise races Overpass. This
-    // is the same upstream the main map uses post-wizard, so the
-    // wizard preview and the lobby preview can't disagree anymore.
+    // v639: WORKER-FIRST. For a prewarmed (curated) city — and its
+    // adjacent-area neighbours, now prewarmed too — the worker serves the
+    // boundary from R2 in ~10 ms, so a self-hosted game never touches an
+    // external service. This is the same `relation(N);out geom;` upstream
+    // the main map already uses, so the wizard/lobby preview and the main
+    // map can't disagree. (Previously this hit polygons.osm.fr FIRST, which
+    // for a curated city made an avoidable external call on every preview,
+    // and for its ~14 neighbours a throttle-prone burst — the residential-
+    // IP rate-limiting reported in the wizard.)
     const workerGeom = await fetchPolygonViaCacheWorker(relationId);
     if (workerGeom) return workerGeom;
 
-    // Both paths failed. Only retry polygons.osm.fr with a build
-    // trigger if the FIRST attempt was specifically the "None"
-    // sentinel (the trigger does nothing for other failure modes,
-    // and the worker fallback already exhausted Overpass).
+    // Worker miss (uncurated area the R2 cache doesn't hold, or a worker
+    // hiccup). Fall back to polygons.osm.fr, then a build-trigger retry.
+    const first = await fetchPolygonAttempt(relationId);
+    if (first.geom) return first.geom;
+
+    // Only retry polygons.osm.fr with a build trigger if that attempt was
+    // specifically the "None" (not-yet-computed) sentinel — the trigger
+    // does nothing for other failure modes, and the worker already
+    // exhausted Overpass.
     if (!first.shouldBuildAndRetry) return null;
 
     triggerPolygonsOsmFrBuild(relationId);
