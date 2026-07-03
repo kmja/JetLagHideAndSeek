@@ -70,32 +70,28 @@ export const showHiderReach = persistentAtom<boolean>(
 );
 
 /**
- * Shadow FC for the hider's reach overlay — the same shape the
- * seeker's `travelTimesFC` carries, but written by
- * `HiderReachOverlay` from the hider's live GPS during the hiding
- * period. Renders as map markers in `HiderBackgroundMap` so the hider
- * can survey every candidate hiding zone they could feasibly reach
- * before the whistle blows.
+ * Shadow FC for the hider's "Hiding zones" overlay — every candidate
+ * hiding-zone station in the play area, written by `HiderReachOverlay`
+ * from an area-wide station scan and rendered by `HiderBackgroundMap`
+ * as name-labeled dots.
  *
- * Same feature shape as `travelTimesFC` so the rendering Source/Layer
- * can be lifted into a reusable bit later if the seeker overlay's
- * styling diverges. Null when off / pre-fetch / no candidates.
+ * v643: reachability was REMOVED from the overlay. It used to fan out a
+ * per-station journey-arrivals fetch to colour-code reachable vs
+ * out-of-reach, but that round-trip made the overlay slow and flaky.
+ * The overlay now mirrors the seeker's `hiding-zones-*` layers exactly —
+ * plain station dots + name labels, no per-station timing. Whether a
+ * SINGLE tapped zone is reachable before the whistle is now an on-demand
+ * check in `StationTransitCard` (one zone at a time), where the trip is
+ * already being planned.
+ *
+ * Each feature is a Point with just `{ stopId, name? }`. Null when off /
+ * pre-fetch / no candidates.
  */
 export const hiderReachFC = atom<GeoJSON.FeatureCollection<
     GeoJSON.Point,
     {
         stopId: string;
         name?: string;
-        /** "HH:MM" arrival time when known + reachable in time, else "". */
-        arrivalLabel: string;
-        /** True when the hider can reach this station before the whistle.
-         *  v634: the overlay now paints EVERY candidate zone colour-coded
-         *  (green reachable / red out-of-reach) rather than dropping the
-         *  unreachable ones — so `HiderBackgroundMap` styles dots off this. */
-        reachable: boolean;
-        /** True before arrivals have resolved for this station — painted in
-         *  a neutral pending colour (reachability not yet known). */
-        pending: boolean;
     }
 > | null>(null);
 

@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
  * Trimmed vs. the seeker's panel:
  *
  *   • Basemap (Map / Satellite)
- *   • Reach ("Reachable zones" overlay)
+ *   • Hiding zones (candidate-zone station field; v643)
  *   • Per-mode transit overlays
  *
  * The seeker-only "Hiding zones" overlay (lists every possible zone the
@@ -154,11 +154,12 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                 </div>
             </div>
 
-            {/* Hiding-zones overlay — paints EVERY candidate hiding zone in
-                the area, colour-coded by whether the hider can reach it
-                before the whistle (green reachable / red out of reach /
-                amber pending). Self-disables when GPS is missing, when the
-                zone is committed, or post-hiding-period. */}
+            {/* Hiding-zones overlay — paints every candidate hiding-zone
+                station in the play area as name-labeled dots (v643: same
+                look as the seeker's hiding-zones overlay). Tap a zone to
+                plan a route and check whether it's reachable before the
+                whistle. Self-disables when GPS is missing, when the zone is
+                committed, or post-hiding-period. */}
             <div className="space-y-2">
                 <div className={label}>Overlays</div>
                 <button
@@ -173,7 +174,7 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                             ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
                             : "bg-background border-border hover:bg-accent",
                     )}
-                    title="Show candidate hiding zones, colour-coded green (reachable in time) vs red (out of reach)"
+                    title="Show candidate hiding zones — tap one to plan a route and check reachability"
                 >
                     <Radar className={cn(rowIcon, "shrink-0")} />
                     <span className={cn("font-poppins font-semibold", rowText)}>

@@ -11,37 +11,35 @@ import {
 } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
 import { hidingZone } from "@/lib/hiderRole";
-import { activeJourneyProvider } from "@/lib/journey/registry";
 import { hiderReachFC, showHiderReach } from "@/lib/journey/state";
 import { type AreaStation, fetchAreaStations } from "@/lib/journey/stations";
-import type { JourneyStop } from "@/lib/journey/types";
 
 /**
- * Hider's reach overlay — the *mirror image* of the seeker's
- * `TravelTimesOverlay`. Same shape: anchor + many stops →
- * `/api/journey/arrivals` → filter to reachable before the whistle
- * → publish to a shadow FC the background map renders.
+ * Hider's "Hiding zones" overlay — the mirror of the seeker's
+ * hiding-zones station field. It scans the area around the hider's
+ * live GPS for every candidate hiding-zone station and publishes them
+ * to a shadow FC that `HiderBackgroundMap` paints as name-labeled dots
+ * (styled identically to the seeker's `hiding-zones-*` layers).
  *
- * Differences from the seeker's version:
+ * v643: reachability was removed. Earlier versions fanned out a
+ * per-station journey-arrivals fetch to colour-code reachable vs
+ * out-of-reach — but that round-trip was the slow, flaky part the user
+ * flagged ("hiding zones don't work well"). The overlay is now a pure
+ * station field, matching the seeker version. Whether one SPECIFIC
+ * tapped zone is reachable before the whistle is now an on-demand check
+ * in `StationTransitCard`, where the trip is already being planned.
  *
- *   • Anchored at the hider's live GPS (`lastKnownPosition`), not at
- *     `gameStartPosition`. The hider is in the survey phase: "from
- *     where I am NOW, which candidate hiding zones can I still
- *     reach before the timer expires?".
- *   • Departure is "now", not the start of the hiding period.
- *   • Stations come from a fresh area-wide scan via Overpass
- *     (`fetchAreaStations`), not from `hidingZonesGeoJSON` (which is
- *     a seeker-only deduction state).
+ * Anchored at the hider's live GPS (`lastKnownPosition`), not at the
+ * seeker's `gameStartPosition`.
  *
  * Gates: hiding (or grace) phase only — outside those phases the
  * overlay is meaningless, so it auto-disables itself rather than
- * burning quota when the hider is already seeking / locked-down /
- * post-game.
+ * burning quota. Also auto-disables once the hider has committed a
+ * zone (the trip-plan card takes over the "how do I get there" job).
  *
- * Re-runs the fetch when GPS moves more than 100 m OR allowed-mode
- * set changes OR game-size flips — anything finer would burn quota
- * for trivially-different answers; anything coarser would be stale
- * once the hider starts moving.
+ * Re-runs the scan when GPS moves more than 100 m OR the allowed-mode
+ * set changes OR the game size flips — anything finer would burn quota
+ * for trivially-different results.
  */
 export function HiderReachOverlay() {
     const enabled = useStore(showHiderReach);
@@ -53,7 +51,7 @@ export function HiderReachOverlay() {
     const $poly = useStore(polyGeoJSON);
 
     // Memoise the last-fetched anchor so a sub-100m GPS jitter
-    // doesn't kick off a fresh Overpass + arrivals fan-out.
+    // doesn't kick off a fresh Overpass scan.
     const lastAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
 
     useEffect(() => {
@@ -62,7 +60,7 @@ export function HiderReachOverlay() {
         // off (which clears the FC) and back on while standing still hit
         // the <100 m deadband below and returned early WITHOUT
         // re-painting — leaving the overlay permanently blank until GPS
-        // happened to move 100 m. (The reported "shows nothing".)
+        // happened to move 100 m.
         if (!enabled) {
             hiderReachFC.set(null);
             lastAnchorRef.current = null;
@@ -76,9 +74,8 @@ export function HiderReachOverlay() {
             return;
         }
         // Auto-disable once the hider has locked their zone — at
-        // that point the reach view is no longer guidance, it's
-        // clutter. The trip-plan card takes over the "how do I get
-        // there" job.
+        // that point the survey view is no longer guidance, it's
+        // clutter. The trip-plan card takes over.
         if ($zone) {
             hiderReachFC.set(null);
             return;
@@ -92,7 +89,7 @@ export function HiderReachOverlay() {
         }
 
         // GPS deadband — skip re-fetch if the hider hasn't moved AND we
-        // already have a painted result to keep. The `getFC` guard
+        // already have a painted result to keep. The `get()` guard
         // matters: if the previous pass produced nothing yet (or was
         // cleared), a sub-100 m jitter must NOT short-circuit us into
         // leaving the overlay blank — we re-fetch instead.
@@ -111,7 +108,6 @@ export function HiderReachOverlay() {
         lastAnchorRef.current = { lat: $gps.lat, lng: $gps.lng };
 
         let cancelled = false;
-        const controller = new AbortController();
 
         (async () => {
             const stations = await fetchAreaStations($gps.lat, $gps.lng, {
@@ -127,26 +123,16 @@ export function HiderReachOverlay() {
                 return;
             }
 
-            // Pre-filter: stations whose straight-line distance can't
-            // possibly be covered before the whistle (even at the
-            // fastest mode) are definitely unreachable — drop them
-            // before paying the proxy round-trip.
-            const minutesLeft = ($hidingEndsAt - now) / 60_000;
-            const maxKm = (TOP_SPEED_KMH * minutesLeft) / 60;
-            let plausible = stations.filter(
-                (s) => s.distanceMeters / 1000 <= maxKm,
-            );
             // Play-area cull: stations outside the boundary are useless
-            // — the hider can't hide there, so paying the arrivals
-            // round-trip for them is pure waste. `fetchAreaStations`
-            // is bbox-centred on the hider's GPS so its results
-            // routinely spill outside small play areas. Skipped when
-            // the boundary hasn't hydrated yet so the overlay still
-            // works on a cold start (graceful degrade — same pattern
-            // as the question-impact filter).
+            // — the hider can't hide there. `fetchAreaStations` is
+            // bbox-centred on the hider's GPS so its results routinely
+            // spill outside small play areas. Skipped when the boundary
+            // hasn't hydrated yet so the overlay still works on a cold
+            // start (graceful degrade — same pattern as the question-
+            // impact filter).
+            let inArea = stations;
             if ($poly) {
-                const before = plausible.length;
-                plausible = plausible.filter((s) => {
+                inArea = stations.filter((s) => {
                     try {
                         return booleanPointInPolygon(
                             [s.lng, s.lat],
@@ -156,72 +142,13 @@ export function HiderReachOverlay() {
                         return true;
                     }
                 });
-                if (before !== plausible.length) {
-                    // Stations dropped here would otherwise burn one
-                    // arrivals-fetch each — visible in worker logs
-                    // when debugging reach quota.
-                    console.debug(
-                        `HiderReachOverlay: dropped ${before - plausible.length} out-of-play-area station(s)`,
-                    );
-                }
             }
 
-            // Optimistic: paint dots immediately, no labels.
-            hiderReachFC.set(
-                buildFC(plausible, new Map(), $hidingEndsAt, true),
-            );
-
-            const provider = activeJourneyProvider();
-            if (!provider) {
-                // No transit provider for this region — leave the
-                // dots up with empty labels; the user still sees
-                // every candidate zone, just without arrival times.
-                return;
-            }
-
-            const stops: JourneyStop[] = plausible.map((s) => ({
-                id: String(s.id),
-                name: s.name,
-                lat: s.lat,
-                lng: s.lng,
-            }));
-            const arrivals = await provider
-                .fetchArrivals(
-                    { lat: $gps.lat, lng: $gps.lng, departAt: now },
-                    stops,
-                    controller.signal,
-                )
-                .catch((e) => {
-                    console.warn("HiderReachOverlay: arrivals fetch failed", e);
-                    return [] as Awaited<
-                        ReturnType<typeof provider.fetchArrivals>
-                    >;
-                });
-            if (cancelled) return;
-
-            // Keep EVERY returned arrival (v634), not just the on-time
-            // ones — the overlay now colour-codes reachable vs out-of-reach
-            // rather than hiding the late stations, so we need their times
-            // to classify them.
-            const arrivalMap = new Map<string, number>();
-            for (const r of arrivals) {
-                if (r.arrivalAt != null) arrivalMap.set(r.stopId, r.arrivalAt);
-            }
-            // If the provider couldn't return a single usable arrival
-            // (region not covered, upstream hiccup, every stop unmatched),
-            // DON'T blank the overlay — that's the "shows nothing" bug.
-            // Keep the optimistic all-candidates view (pending dots) so the
-            // hider still sees every plausible zone; classification is a
-            // bonus when the provider can compute times.
-            if (arrivalMap.size === 0) return;
-            hiderReachFC.set(
-                buildFC(plausible, arrivalMap, $hidingEndsAt, false),
-            );
+            hiderReachFC.set(buildFC(inArea));
         })();
 
         return () => {
             cancelled = true;
-            controller.abort();
         };
     }, [
         enabled,
@@ -240,73 +167,24 @@ export function HiderReachOverlay() {
     return null;
 }
 
-/** Sized for the "top reasonable transit mode" pre-filter. Subway is
- *  the fastest mode the game offers; using its speed (with slack)
- *  prevents us from culling rail-reachable stations. */
-const TOP_SPEED_KMH = 80;
-
 /**
- * Build the reach FeatureCollection. v634: EVERY plausible candidate zone
- * is included and colour-coded rather than filtering out the unreachable
- * ones — the overlay is now "hiding zones" (all of them), with
- * `reachable`/`pending` flags the map styles green (reachable in time),
- * red (out of reach), or neutral (arrival not yet known).
- *
- *   - `pending` step (before arrivals resolve): every station painted
- *     neutral, no time label, `reachable=false pending=true`.
- *   - resolved step: `pending=false`; `reachable` is arrival ≤ budget; the
- *     time label shows only for reachable ones (an out-of-reach ETA past
- *     the whistle isn't actionable).
+ * Build the hiding-zones FeatureCollection — one point per station with
+ * its name, matching the seeker's `hiding-zones-points`/`-labels` shape.
  */
 function buildFC(
     stations: AreaStation[],
-    arrivals: Map<string, number>,
-    budget: number,
-    pendingStep: boolean,
 ): GeoJSON.FeatureCollection<
     GeoJSON.Point,
-    {
-        stopId: string;
-        name?: string;
-        arrivalLabel: string;
-        reachable: boolean;
-        pending: boolean;
-    }
+    { stopId: string; name?: string }
 > {
-    const features: GeoJSON.Feature<
-        GeoJSON.Point,
-        {
-            stopId: string;
-            name?: string;
-            arrivalLabel: string;
-            reachable: boolean;
-            pending: boolean;
-        }
-    >[] = [];
-    for (const s of stations) {
-        const arrival = arrivals.get(String(s.id));
-        // Before arrivals resolve, or for a station the provider never
-        // matched, reachability is unknown → paint it neutral/pending.
-        const known = !pendingStep && arrival != null;
-        const reachable = known && arrival! <= budget;
-        features.push({
+    return {
+        type: "FeatureCollection",
+        features: stations.map((s) => ({
             type: "Feature",
             geometry: { type: "Point", coordinates: [s.lng, s.lat] },
-            properties: {
-                stopId: String(s.id),
-                name: s.name,
-                arrivalLabel: reachable ? formatHHMM(arrival!) : "",
-                reachable,
-                pending: !known,
-            },
-        });
-    }
-    return { type: "FeatureCollection", features };
-}
-
-function formatHHMM(unixMs: number): string {
-    const d = new Date(unixMs);
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+            properties: { stopId: String(s.id), name: s.name },
+        })),
+    };
 }
 
 export default HiderReachOverlay;

@@ -69,8 +69,14 @@ import { SelfPositionMarker } from "./SelfPositionMarker";
  * Mounted by HiderShell at `absolute inset-0 z-0` so it fills the
  * viewport behind the header / nav / hand-fan.
  */
-/** Overlay layers the hider can tap to open the StationTransitCard. */
-const HIDER_TAP_LAYERS = ["hider-reach-dots", "hider-reach-labels"];
+/** Overlay layers the hider can tap to open the StationTransitCard.
+ *  The invisible `hider-reach-hit` circle is a large tap target around
+ *  each tiny dot (mirrors the seeker's `hiding-zones-hit`). */
+const HIDER_TAP_LAYERS = [
+    "hider-reach-hit",
+    "hider-reach-dots",
+    "hider-reach-labels",
+];
 
 export function HiderBackgroundMap() {
     const mapRef = useRef<MapRef | null>(null);
@@ -419,13 +425,13 @@ export function HiderBackgroundMap() {
                     </Source>
                 )}
 
-                {/* Reach overlay — every candidate hiding-zone
-                    station the hider could plausibly reach before the
-                    whistle, with arrival labels. Painted as a small
-                    accent-coloured dot + arrival label so the survey
-                    is map-wide; the trip-detail card below the picker
-                    handles the *single-zone* trip plan once one is
-                    chosen. */}
+                {/* Hiding-zones overlay — every candidate hiding-zone
+                    station in the play area, painted as name-labeled
+                    dots. v643: styled identically to the seeker's
+                    `hiding-zones-*` layers (single brand-red dot + name
+                    label, zoom-scaled). Reachability was dropped — it's
+                    now an on-demand, per-zone check in the trip-plan card
+                    that opens on tap. */}
                 <FadeOverlay
                     active={Boolean($reach && $reach.features.length > 0)}
                     data={
@@ -438,22 +444,24 @@ export function HiderBackgroundMap() {
                                 id="hider-reach-dots"
                                 type="circle"
                                 paint={{
-                                    "circle-radius": 4,
-                                    // v634: colour-code every candidate
-                                    // hiding zone — green = reachable before
-                                    // the whistle, red = out of reach, amber
-                                    // = arrival not yet known (pending).
-                                    "circle-color": [
-                                        "case",
-                                        ["get", "pending"],
-                                        "hsl(45, 90%, 55%)",
-                                        ["get", "reachable"],
-                                        "hsl(145, 63%, 42%)",
-                                        "hsl(0, 72%, 55%)",
+                                    // Zoom-scaled station dots, matching the
+                                    // seeker's hiding-zones-points so a dense
+                                    // network reads as a tidy field of points.
+                                    "circle-radius": [
+                                        "interpolate",
+                                        ["linear"],
+                                        ["zoom"],
+                                        8,
+                                        2,
+                                        13,
+                                        3.5,
+                                        16,
+                                        5,
                                     ],
-                                    "circle-opacity": shown ? 0.85 : 0,
-                                    "circle-stroke-color": "rgba(0,0,0,0.6)",
+                                    "circle-color": "hsl(2, 70%, 54%)",
+                                    "circle-stroke-color": "#ffffff",
                                     "circle-stroke-width": 1,
+                                    "circle-opacity": shown ? 1 : 0,
                                     "circle-stroke-opacity": shown ? 1 : 0,
                                     "circle-opacity-transition": {
                                         duration: 280,
@@ -463,30 +471,49 @@ export function HiderBackgroundMap() {
                                     },
                                 }}
                             />
+                            {/* Invisible larger hit target so a tap near the
+                                tiny dot opens the transit card. */}
+                            <Layer
+                                id="hider-reach-hit"
+                                type="circle"
+                                paint={{
+                                    "circle-radius": 16,
+                                    "circle-color": "#000000",
+                                    "circle-opacity": 0,
+                                }}
+                            />
                             <Layer
                                 id="hider-reach-labels"
                                 type="symbol"
+                                minzoom={11}
                                 layout={{
-                                    "text-field": ["get", "arrivalLabel"],
+                                    "text-field": [
+                                        "coalesce",
+                                        ["get", "name"],
+                                        "",
+                                    ],
                                     "text-size": 11,
-                                    "text-font": ["Open Sans Regular"],
-                                    "text-anchor": "left",
-                                    "text-offset": [0.8, 0],
+                                    // Must be a fontstack the glyph proxy
+                                    // actually serves (Protomaps = Noto Sans);
+                                    // "Open Sans" 404s → no text.
+                                    "text-font": ["Noto Sans Regular"],
+                                    "text-anchor": "top",
+                                    "text-offset": [0, 0.7],
                                     "text-allow-overlap": false,
-                                    "text-ignore-placement": false,
+                                    "text-optional": true,
                                 }}
                                 paint={{
-                                    // v634: follow the BASEMAP brightness
-                                    // (parity with the seeker map) — white
-                                    // washes out on the light basemap, so
-                                    // use dark text + light halo there.
+                                    // Follow the BASEMAP brightness (parity
+                                    // with the seeker map) — white washes out
+                                    // on the light basemap, so use dark text +
+                                    // light halo there.
                                     "text-color": darkBasemap
                                         ? "white"
                                         : "#1F2F3F",
                                     "text-halo-color": darkBasemap
                                         ? "rgba(0,0,0,0.85)"
                                         : "rgba(255,255,255,0.9)",
-                                    "text-halo-width": 1.5,
+                                    "text-halo-width": 1.4,
                                     "text-opacity": shown ? 1 : 0,
                                     "text-opacity-transition": {
                                         duration: 280,

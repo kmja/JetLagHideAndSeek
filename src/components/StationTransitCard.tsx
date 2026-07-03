@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Flag, MapPin, X } from "lucide-react";
+import { CheckCircle2, Clock, Flag, MapPin, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
@@ -113,6 +113,24 @@ export function StationTransitCard({
 
     const close = () => selectedMapStation.set(null);
 
+    // Reachability check (v643) — on-demand, one zone at a time. While the
+    // hiding period is still running, compare the planned arrival at this
+    // station with the whistle: can the hider actually get here in time to
+    // hide? This is the per-zone replacement for the old overlay-wide
+    // colour-coding (which was slow because it fanned out an arrivals fetch
+    // for every station). Only shown during the hiding period with a
+    // resolved journey; after the whistle (or with no plan yet) there's
+    // nothing to judge.
+    const reachability =
+        journey && $endsAt !== null && Date.now() < $endsAt
+            ? {
+                  reachable: journey.arriveAt <= $endsAt,
+                  // Minutes of slack before / past the whistle (rounded).
+                  marginMin: Math.round(($endsAt - journey.arriveAt) / 60_000),
+                  arriveAt: journey.arriveAt,
+              }
+            : null;
+
     // Endgame trigger is offered only on the seeker surface, once the
     // hiding period is over and before the endgame is armed / the hider is
     // found. Per the rulebook the endgame starts when the seekers reach
@@ -192,6 +210,47 @@ export function StationTransitCard({
                             </button>
                         </div>
 
+                        {reachability && (
+                            <div
+                                className={cn(
+                                    "mt-3 flex items-start gap-2.5 rounded-lg border-2 px-3 py-2.5",
+                                    reachability.reachable
+                                        ? "border-success/40 bg-success/10 text-success"
+                                        : "border-destructive/40 bg-destructive/10 text-destructive",
+                                )}
+                            >
+                                {reachability.reachable ? (
+                                    <CheckCircle2
+                                        className="mt-0.5 h-4.5 w-4.5 shrink-0"
+                                        strokeWidth={2.5}
+                                    />
+                                ) : (
+                                    <Clock
+                                        className="mt-0.5 h-4.5 w-4.5 shrink-0"
+                                        strokeWidth={2.5}
+                                    />
+                                )}
+                                <div className="min-w-0">
+                                    <div className="font-poppins text-xs font-bold uppercase tracking-wider">
+                                        {reachability.reachable
+                                            ? "Reachable in time"
+                                            : "Out of reach"}
+                                    </div>
+                                    <p className="mt-0.5 text-[11px] leading-snug text-foreground/70">
+                                        {reachability.reachable
+                                            ? `Arrives ${formatClock(
+                                                  reachability.arriveAt,
+                                              )} — about ${reachability.marginMin} min before the whistle.`
+                                            : `Arrives ${formatClock(
+                                                  reachability.arriveAt,
+                                              )} — about ${Math.abs(
+                                                  reachability.marginMin,
+                                              )} min after the whistle.`}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="mt-3">
                             <JourneyCard
                                 journey={journey}
@@ -233,6 +292,14 @@ export function StationTransitCard({
             </VaulDrawer.Portal>
         </VaulDrawer.Root>
     );
+}
+
+/** Local "HH:MM" clock label for a Unix-ms timestamp. */
+function formatClock(unixMs: number): string {
+    const d = new Date(unixMs);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(
+        d.getMinutes(),
+    ).padStart(2, "0")}`;
 }
 
 export default StationTransitCard;
