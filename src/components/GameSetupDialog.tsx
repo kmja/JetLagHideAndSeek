@@ -1243,6 +1243,10 @@ export function PlayAreaStep({
                     const typeLabel = placeTypeLabel(value);
                     const areaLabel = formatAreaLabel(value);
                     const sizeHint = recommendedGameSize(value);
+                    const warm = isWarmCity(
+                        value.properties.osm_id,
+                        $warmCities,
+                    );
                     return (
                         <>
                             <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2">
@@ -1251,8 +1255,16 @@ export function PlayAreaStep({
                                     <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
                                         Play area
                                     </div>
-                                    <div className="text-base font-bold truncate">
-                                        {label}
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-base font-bold truncate">
+                                            {label}
+                                        </span>
+                                        {warm && (
+                                            <Star
+                                                className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
+                                                aria-label="Prewarmed — loads fast"
+                                            />
+                                        )}
                                     </div>
                                     <div className="flex items-center flex-wrap gap-1.5 mt-1">
                                         <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">

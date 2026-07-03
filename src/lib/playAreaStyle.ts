@@ -22,6 +22,11 @@
 // (hsl(5 69% 55%)) so the boundary and the primary buttons are the same
 // red. (Was hsl(2 70% 54%), a hair off, before the v591 colour unify.)
 export const PLAY_AREA_COLOR = "hsl(5, 69%, 55%)";
-export const PLAY_AREA_FILL_OPACITY = 0.15;
+// Bumped from 0.15 (too faint over the light basemap — the selected
+// region barely read as filled) so the play area is clearly highlighted.
+// Only used for the selection-region fills in the wizard / lobby preview
+// (the in-game maps are fill-free), so a stronger tint here doesn't touch
+// the seeker/hider gameplay maps.
+export const PLAY_AREA_FILL_OPACITY = 0.25;
 export const PLAY_AREA_LINE_WIDTH = 2;
 export const PLAY_AREA_LINE_OPACITY = 0.9;

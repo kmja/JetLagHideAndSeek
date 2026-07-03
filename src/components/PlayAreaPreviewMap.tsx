@@ -1101,15 +1101,17 @@ function AdjacentCandidatesOverlay({
         }),
     };
 
-    // Shared colour ramp: added (red) → transit-connected (off-white) →
-    // neither (grey). Reused by the fill and both line layers.
+    // Shared colour ramp: added (red) → unselected (neutral GRAYSCALE).
+    // Unselected candidates are deliberately grayscale (not the old cream
+    // off-white, which read as a washed-out tint) so a selected area's red
+    // stands out clearly against the faint grey neighbours. The
+    // transit-vs-no-transit signal is carried by fill opacity (below) +
+    // the pill styling, not hue. Reused by the fill and both line layers.
     const colorExpr: ExpressionSpecification = [
         "case",
         ["==", ["get", "added"], true],
         "hsl(2, 70%, 54%)",
-        ["==", ["get", "transit"], true],
-        "hsl(45, 23%, 92%)",
-        "hsl(220, 8%, 60%)",
+        "hsl(220, 9%, 50%)",
     ];
 
     return (
@@ -1128,13 +1130,17 @@ function AdjacentCandidatesOverlay({
                     type="fill"
                     paint={{
                         "fill-color": colorExpr,
+                        // Faint but visible: unselected neighbours read as a
+                        // soft grey wash. Transit-connected candidates sit a
+                        // touch stronger than no-transit ones as a subtle
+                        // "you might want this" hint.
                         "fill-opacity": [
                             "case",
                             ["==", ["get", "added"], true],
                             0,
                             ["==", ["get", "transit"], true],
-                            dark ? 0.12 : 0.2,
-                            dark ? 0.08 : 0.14,
+                            dark ? 0.2 : 0.3,
+                            dark ? 0.14 : 0.22,
                         ],
                     }}
                 />
