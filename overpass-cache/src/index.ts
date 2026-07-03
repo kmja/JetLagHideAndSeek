@@ -903,6 +903,9 @@ async function handleRequest(
             }
             return handleRelationExtent(env, cors, relId);
         }
+        if (url.pathname === "/api/warm-cities") {
+            return handleWarmCities(env, cors);
+        }
         if (url.pathname.startsWith("/api/transit/")) {
             // /api/transit/<relationId>/<mode>[?warm=1] (v386)
             const parts = url.pathname
@@ -1918,6 +1921,40 @@ async function canonicalReferenceExtent(
  * agreement is moot). Extent order: Photon-style [maxLat, minLng, minLat,
  * maxLng].
  */
+/**
+ * `GET /api/warm-cities` (public) — the relation ids of the cities that are
+ * set up for fast, prewarmed play (v641): curated/discovered cities that
+ * have a backfilled `extent`, which is the gate for the reference +
+ * adjacency prewarm. The app stars matching play-area search results so a
+ * user can see at a glance which regions load without touching Overpass.
+ * Cheap (in-memory `getPopularCities`), public, and CDN/browser-cached — it
+ * changes only slowly (as cities are discovered/backfilled). Does NOT leak
+ * live cache contents; it's just "which cities do we prewarm".
+ */
+async function handleWarmCities(
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    let ids: number[] = [];
+    try {
+        const cities = await getPopularCities(env);
+        ids = cities
+            .filter(
+                (c) =>
+                    Array.isArray(c.extent) &&
+                    c.extent.length === 4 &&
+                    typeof c.relationId === "number",
+            )
+            .map((c) => c.relationId);
+    } catch (e) {
+        console.warn("warm-cities lookup failed:", e);
+    }
+    return jsonResponse({ count: ids.length, ids }, 200, {
+        ...corsHeadersAsObject(cors),
+        "Cache-Control": "public, max-age=3600",
+    });
+}
+
 async function handleRelationExtent(
     env: Env,
     cors: HeadersInit,

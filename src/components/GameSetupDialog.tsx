@@ -7,6 +7,7 @@ import {
     MapPin,
     Maximize2,
     Pencil,
+    Star,
     TrainTrack,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -66,6 +67,11 @@ import {
     reverseGeocodeCity,
 } from "@/maps/api";
 import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
+import {
+    ensureWarmCitiesLoaded,
+    isWarmCity,
+    warmCityIds,
+} from "@/maps/api/warmCities";
 
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { MapLoader } from "./MapLoader";
@@ -872,6 +878,13 @@ export function PlayAreaStep({
     const [mode, setMode] = useState<"preview" | "search">(
         value ? "preview" : "search",
     );
+    // v641: the set of prewarmed ("warm") city relation ids, so search
+    // results for cities that load fast (no live Overpass) get a star.
+    // Fetched once, cached; null while loading (nothing starred yet).
+    const $warmCities = useStore(warmCityIds);
+    useEffect(() => {
+        void ensureWarmCitiesLoaded();
+    }, []);
     // Tracks whether we're in search mode because the user explicitly
     // tapped "Change area" (true) vs. because we started without a
     // value (false). When false, the GPS auto-suggest landing a match
@@ -1397,6 +1410,10 @@ export function PlayAreaStep({
                                     const typeLabel = placeTypeLabel(r);
                                     const areaLabel = formatAreaLabel(r);
                                     const sizeHint = recommendedGameSize(r);
+                                    const warm = isWarmCity(
+                                        r.properties.osm_id,
+                                        $warmCities,
+                                    );
                                     return (
                                         <button
                                             key={`${r.properties.osm_id}-${r.properties.osm_type}`}
@@ -1420,9 +1437,20 @@ export function PlayAreaStep({
                                                     )}
                                                 />
                                                 <div className="min-w-0 flex-1">
-                                                    <div className="text-sm font-medium truncate">
-                                                        {r.properties.name ??
-                                                            label.split(",")[0]}
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-sm font-medium truncate">
+                                                            {r.properties
+                                                                .name ??
+                                                                label.split(
+                                                                    ",",
+                                                                )[0]}
+                                                        </span>
+                                                        {warm && (
+                                                            <Star
+                                                                className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
+                                                                aria-label="Prewarmed — loads fast"
+                                                            />
+                                                        )}
                                                     </div>
                                                     <div className="flex items-center flex-wrap gap-1.5 mt-1">
                                                         <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">

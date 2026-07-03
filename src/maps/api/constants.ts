@@ -109,6 +109,10 @@ export const REFS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/refs`;
  *  REFS_BY_RELATION_BASE. See handleRelationExtent in
  *  overpass-cache/src/index.ts. */
 export const RELATION_EXTENT_BASE = `${JLHS_WORKER_BASE}/api/relation-extent`;
+/** Public endpoint listing the relation ids of prewarmed/"warm" cities —
+ *  curated/discovered cities with a backfilled extent (v641). The play-area
+ *  search stars matching results so users can spot fast-loading regions. */
+export const WARM_CITIES_URL = `${JLHS_WORKER_BASE}/api/warm-cities`;
 /** Base URL for relation-id-keyed per-city transit (v386). Mirrors
  *  REFS_BY_RELATION_BASE: the client fetches
  *  `${TRANSIT_BY_RELATION_BASE}/<relationId>/<mode>` and the worker
