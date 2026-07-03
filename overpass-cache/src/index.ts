@@ -44,6 +44,7 @@ import {
 } from "./cities";
 import { COUNTRY_SHARDS, type CountryShard } from "./countryShards";
 import type { Env } from "./envTypes";
+import { handleDepartures } from "./departures/board";
 import { handleJourneyArrivals } from "./journey";
 import { handleTravelPlan } from "./travel/plan";
 import {
@@ -860,6 +861,9 @@ async function handleRequest(
         }
         if (url.pathname === "/api/travel/plan") {
             return handleTravelPlan(request, env, ctx, cors);
+        }
+        if (url.pathname === "/api/journey/departures") {
+            return handleDepartures(request, env, ctx, cors);
         }
         if (url.pathname.startsWith("/api/refs/")) {
             const relId = parseInt(

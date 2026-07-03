@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { CheckCircle2, Clock, Flag, MapPin, X } from "lucide-react";
+import { CheckCircle2, Clock, Flag, Loader2, MapPin, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
@@ -13,6 +13,10 @@ import {
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
 import { roundFoundAt } from "@/lib/hiderRole";
+import {
+    type DepartureBoard,
+    fetchDepartures,
+} from "@/lib/journey/departures";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
 import { selectedMapStation } from "@/lib/journey/state";
 import { seekerStartEndgame } from "@/lib/multiplayer/store";
@@ -64,6 +68,12 @@ export function StationTransitCard({
     const [source, setSource] = useState<string | undefined>(undefined);
     const [error, setError] = useState<string | null>(null);
 
+    // Live departure board for the tapped stop — "what leaves here next?"
+    // so the hider can adapt on the fly. Depends only on the STATION (not
+    // the hider's GPS), so it's a separate fetch from the trip plan above.
+    const [departures, setDepartures] = useState<DepartureBoard | null>(null);
+    const [depLoading, setDepLoading] = useState(false);
+
     useEffect(() => {
         if (!station) {
             setJourney(null);
@@ -110,6 +120,35 @@ export function StationTransitCard({
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [station?.lat, station?.lng, $gps?.lat, $gps?.lng, $allowed.join(",")]);
+
+    // Departure board — refetched whenever the tapped stop or the allowed
+    // modes change. Independent of GPS.
+    useEffect(() => {
+        if (!station) {
+            setDepartures(null);
+            setDepLoading(false);
+            return;
+        }
+        let cancelled = false;
+        const controller = new AbortController();
+        setDepLoading(true);
+        setDepartures(null);
+        (async () => {
+            const board = await fetchDepartures(
+                { lat: station.lat, lng: station.lng, name: station.name },
+                $allowed,
+                controller.signal,
+            );
+            if (cancelled) return;
+            setDepLoading(false);
+            setDepartures(board);
+        })();
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [station?.lat, station?.lng, $allowed.join(",")]);
 
     const close = () => selectedMapStation.set(null);
 
@@ -260,6 +299,11 @@ export function StationTransitCard({
                             />
                         </div>
 
+                        <DeparturesSection
+                            loading={depLoading}
+                            board={departures}
+                        />
+
                         {canTriggerEndgame && (
                             <div className="mt-3 space-y-1.5">
                                 <button
@@ -292,6 +336,91 @@ export function StationTransitCard({
             </VaulDrawer.Portal>
         </VaulDrawer.Root>
     );
+}
+
+/**
+ * Live departure board for the tapped stop — the "what leaves here next?"
+ * list the hider reads to adapt on the fly. Renders nothing until it has
+ * a result; a loading row while fetching; a quiet empty state when the
+ * region has no live board.
+ */
+function DeparturesSection({
+    loading,
+    board,
+}: {
+    loading: boolean;
+    board: DepartureBoard | null;
+}) {
+    if (loading) {
+        return (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading departures…
+            </div>
+        );
+    }
+    // No board at all (fetch failed / no coverage) → say nothing rather
+    // than a scary error; the trip plan above is still useful.
+    if (!board || !board.available) return null;
+
+    const now = Date.now();
+    // Only future departures are actionable.
+    const upcoming = board.departures.filter((d) => d.time >= now - 60_000);
+
+    return (
+        <div className="mt-3">
+            <div className="mb-1.5 font-poppins text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                Next departures
+            </div>
+            {upcoming.length === 0 ? (
+                <div className="rounded-lg border border-border/60 px-3 py-2.5 text-xs text-muted-foreground">
+                    No departures in the next couple of hours.
+                </div>
+            ) : (
+                <ul className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/60">
+                    {upcoming.map((d, i) => (
+                        <li
+                            key={`${d.time}-${d.line ?? ""}-${i}`}
+                            className="flex items-center gap-2.5 px-3 py-2"
+                        >
+                            <span className="inline-flex min-w-[2.75rem] shrink-0 items-center justify-center rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-poppins font-bold uppercase text-primary">
+                                {modeLabel(d.mode)}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm font-semibold leading-tight">
+                                    {d.line ?? modeLabel(d.mode)}
+                                </div>
+                                {d.headsign && (
+                                    <div className="truncate text-[11px] leading-tight text-muted-foreground">
+                                        {d.headsign}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                                <div className="text-sm font-bold tabular-nums leading-tight">
+                                    {relativeMinutes(d.time, now)}
+                                </div>
+                                <div className="text-[10px] leading-tight text-muted-foreground tabular-nums">
+                                    {formatClock(d.time)}
+                                    {d.realtime ? " · live" : ""}
+                                </div>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+/** "Now" / "3 min" / "1 h 5" style countdown to a departure. */
+function relativeMinutes(unixMs: number, now: number): string {
+    const mins = Math.round((unixMs - now) / 60_000);
+    if (mins <= 0) return "Now";
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m === 0 ? `${h} h` : `${h} h ${m}`;
 }
 
 /** Local "HH:MM" clock label for a Unix-ms timestamp. */
