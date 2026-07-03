@@ -731,8 +731,41 @@ function CommittedAreasOverlay() {
             typeof id === "number"
                 ? (polys.get(id) ?? candidatePolygonCache.get(id))
                 : undefined;
-        if (!geom) return null;
-        return { type: "Feature", properties: {}, geometry: geom };
+        if (geom) return { type: "Feature", properties: {}, geometry: geom };
+        // v636: bbox fallback. The real boundary hasn't landed yet — the
+        // neighbour municipality isn't a curated/prewarmed relation, so its
+        // polygon fetch goes live and can be slow or throttled
+        // (polygons.osm.fr rate-limits residential IPs). Without a fallback
+        // a just-added area rendered NOTHING until its polygon arrived
+        // ("selected areas don't show a boundary at all"). Draw the extent
+        // rectangle so the selection is immediately visible, swapping to the
+        // real polygon the moment it loads. The bbox over-approximates, so
+        // there's a small shrink when the real one lands — acceptable vs.
+        // showing nothing.
+        const ext = (
+            e.location?.properties as { extent?: number[] } | undefined
+        )?.extent;
+        if (ext && ext.length >= 4) {
+            // extent order: [maxLat, minLng, minLat, maxLng].
+            const [maxLat, minLng, minLat, maxLng] = ext;
+            return {
+                type: "Feature",
+                properties: {},
+                geometry: {
+                    type: "Polygon",
+                    coordinates: [
+                        [
+                            [minLng, minLat],
+                            [maxLng, minLat],
+                            [maxLng, maxLat],
+                            [minLng, maxLat],
+                            [minLng, minLat],
+                        ],
+                    ],
+                },
+            };
+        }
+        return null;
     };
     const idOf = (e: (typeof $additional)[number]) =>
         (e.location?.properties as { osm_id?: number } | undefined)?.osm_id;
@@ -889,22 +922,47 @@ function AdjacentCandidatesOverlay({
                 onPolysReady?.(true);
             }
         };
-        for (const c of candidates) {
+        // Cached candidates settle immediately.
+        const toFetch = candidates.filter((c) => {
             if (candidatePolygonCache.has(c.osmId)) {
                 markSettled();
-                continue;
+                return false;
             }
-            fetchRawBoundaryPolygon(c.osmId, ctrl.signal)
-                .then((geom) => {
-                    if (cancelled) return;
-                    candidatePolygonCache.set(c.osmId, geom);
-                    if (geom)
-                        setPolys((prev) => new Map(prev).set(c.osmId, geom));
-                })
-                .catch(() => {
+            return true;
+        });
+        // v636: fetch the remaining boundaries with LIMITED CONCURRENCY.
+        // Firing all ~14 candidate polygon fetches at once hammered
+        // polygons.osm.fr, whose residential-IP throttling then failed most
+        // of the burst — so every candidate stayed stuck on its bbox
+        // rectangle instead of its real outline. A small pool lets each
+        // request through cleanly (and hit the worker/R2 fallback) so the
+        // real boundaries actually paint.
+        const CONCURRENCY = 4;
+        let idx = 0;
+        const runNext = async (): Promise<void> => {
+            while (!cancelled && idx < toFetch.length) {
+                const c = toFetch[idx++];
+                try {
+                    const geom = await fetchRawBoundaryPolygon(
+                        c.osmId,
+                        ctrl.signal,
+                    );
+                    if (!cancelled) {
+                        candidatePolygonCache.set(c.osmId, geom);
+                        if (geom)
+                            setPolys((prev) =>
+                                new Map(prev).set(c.osmId, geom),
+                            );
+                    }
+                } catch {
                     /* swallowed — bbox fallback stays */
-                })
-                .finally(markSettled);
+                } finally {
+                    markSettled();
+                }
+            }
+        };
+        for (let i = 0; i < Math.min(CONCURRENCY, toFetch.length); i++) {
+            void runNext();
         }
         return () => {
             cancelled = true;
