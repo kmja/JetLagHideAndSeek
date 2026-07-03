@@ -27,7 +27,11 @@ import {
 } from "@/lib/context";
 import { hidingPeriodEndsAt, satelliteView } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
-import { hiderReachFC, selectedMapStation } from "@/lib/journey/state";
+import {
+    hiderReachFC,
+    selectedMapStation,
+    tripRouteFC,
+} from "@/lib/journey/state";
 import { findNearestStation } from "@/lib/journey/stations";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import {
@@ -92,6 +96,7 @@ export function HiderBackgroundMap() {
     const $scouted = useStore(scoutedSpots);
     const $gps = useStore(lastKnownPosition);
     const $reach = useStore(hiderReachFC);
+    const $trip = useStore(tripRouteFC);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
     // Basemap brightness — satellite or dark theme both mean a dark base,
@@ -284,6 +289,63 @@ export function HiderBackgroundMap() {
         }
     }, [polyKey, $polyGeoJSON, $zone, $gps]);
 
+    // Frame the map to the planned trip route the moment it appears
+    // (v650 — "I don't see the trip route overlay"): the straight-line
+    // route from live GPS to the tapped station can otherwise sit
+    // off-screen or fully behind the bottom-anchored StationTransitCard.
+    // Fits once per distinct route (signature-guarded), with generous
+    // BOTTOM padding so the route clears the drawer.
+    const lastTripFitRef = useRef<string>("");
+    useEffect(() => {
+        const feats = $trip?.features ?? [];
+        if (feats.length === 0) {
+            lastTripFitRef.current = "";
+            return;
+        }
+        let minLng = Infinity,
+            minLat = Infinity,
+            maxLng = -Infinity,
+            maxLat = -Infinity;
+        const walk = (arr: any) => {
+            if (
+                typeof arr?.[0] === "number" &&
+                typeof arr?.[1] === "number"
+            ) {
+                const [lng, lat] = arr;
+                if (lng < minLng) minLng = lng;
+                if (lat < minLat) minLat = lat;
+                if (lng > maxLng) maxLng = lng;
+                if (lat > maxLat) maxLat = lat;
+            } else if (Array.isArray(arr)) {
+                for (const s of arr) walk(s);
+            }
+        };
+        for (const f of feats) walk((f.geometry as any)?.coordinates);
+        if (!Number.isFinite(minLng) || !Number.isFinite(maxLat)) return;
+        const sig = [minLng, minLat, maxLng, maxLat]
+            .map((n) => n.toFixed(4))
+            .join(",");
+        if (lastTripFitRef.current === sig) return;
+        lastTripFitRef.current = sig;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        try {
+            map.fitBounds(
+                [
+                    [minLng, minLat],
+                    [maxLng, maxLat],
+                ],
+                {
+                    padding: { top: 70, left: 50, right: 50, bottom: 380 },
+                    maxZoom: 15,
+                    duration: 600,
+                },
+            );
+        } catch (e) {
+            console.warn("[HiderBackgroundMap] trip fit failed:", e);
+        }
+    }, [$trip]);
+
     return (
         <div className="absolute inset-0 z-0">
             <Map
@@ -440,9 +502,61 @@ export function HiderBackgroundMap() {
                 >
                     {(data, shown) => (
                         <Source id="hider-reach" type="geojson" data={data}>
+                            {/* Single UNIONED extent fill (parity with the
+                                seeker's hiding-zones-fill) — the union of
+                                every candidate zone's hiding-radius circle,
+                                painted once at a faint uniform opacity so
+                                overlapping zones don't compound into a wash. */}
+                            <Layer
+                                id="hider-reach-fill"
+                                type="fill"
+                                filter={[
+                                    "any",
+                                    ["==", ["geometry-type"], "Polygon"],
+                                    ["==", ["geometry-type"], "MultiPolygon"],
+                                ]}
+                                paint={{
+                                    "fill-color": darkBasemap
+                                        ? "#f5e7e3"
+                                        : "hsl(2, 70%, 54%)",
+                                    "fill-opacity": shown
+                                        ? darkBasemap
+                                            ? 0.16
+                                            : 0.08
+                                        : 0,
+                                    "fill-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                }}
+                            />
+                            <Layer
+                                id="hider-reach-line"
+                                type="line"
+                                filter={[
+                                    "any",
+                                    ["==", ["geometry-type"], "Polygon"],
+                                    ["==", ["geometry-type"], "MultiPolygon"],
+                                    ["==", ["geometry-type"], "LineString"],
+                                    [
+                                        "==",
+                                        ["geometry-type"],
+                                        "MultiLineString",
+                                    ],
+                                ]}
+                                paint={{
+                                    "line-color": "hsl(2, 70%, 54%)",
+                                    "line-width": 1.5,
+                                    "line-opacity": shown ? 0.4 : 0,
+                                    "line-opacity-transition": {
+                                        duration: 280,
+                                    },
+                                    "line-dasharray": [6, 5],
+                                }}
+                            />
                             <Layer
                                 id="hider-reach-dots"
                                 type="circle"
+                                filter={["==", ["geometry-type"], "Point"]}
                                 paint={{
                                     // Zoom-scaled station dots, matching the
                                     // seeker's hiding-zones-points so a dense
@@ -476,6 +590,7 @@ export function HiderBackgroundMap() {
                             <Layer
                                 id="hider-reach-hit"
                                 type="circle"
+                                filter={["==", ["geometry-type"], "Point"]}
                                 paint={{
                                     "circle-radius": 16,
                                     "circle-color": "#000000",
@@ -486,6 +601,7 @@ export function HiderBackgroundMap() {
                                 id="hider-reach-labels"
                                 type="symbol"
                                 minzoom={11}
+                                filter={["==", ["geometry-type"], "Point"]}
                                 layout={{
                                     "text-field": [
                                         "coalesce",

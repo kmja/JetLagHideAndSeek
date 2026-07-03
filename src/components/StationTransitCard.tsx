@@ -17,6 +17,7 @@ import { Drawer as VaulDrawer } from "vaul";
 import { JourneyCard } from "@/components/JourneyCard";
 import { appConfirm } from "@/lib/confirm";
 import { lastKnownPosition } from "@/lib/context";
+import { haversineMeters } from "@/lib/geo";
 import {
     allowedTransit,
     endgameStartedAt,
@@ -46,6 +47,12 @@ const MODE_LABELS: Record<string, string> = {
 };
 const modeLabel = (m: string) =>
     MODE_LABELS[m] ?? m.charAt(0).toUpperCase() + m.slice(1);
+
+/** Vaul snap points: a COMPACT height (title + reachability) → fully open.
+ *  The drawer opens at `COMPACT_SNAP` and the user flicks it up (drag) or
+ *  taps the expander to reach the tabbed route/departures detail. */
+const COMPACT_SNAP = "340px";
+const SNAP_POINTS: (number | string)[] = [COMPACT_SNAP, 1];
 
 /**
  * Map-first trip info. Opens when the user taps a station / candidate
@@ -87,16 +94,17 @@ export function StationTransitCard({
     const [departures, setDepartures] = useState<DepartureBoard | null>(null);
     const [depLoading, setDepLoading] = useState(false);
 
-    // Progressive disclosure: the card opens showing only the title +
-    // reachability. The route/departures detail is behind an expander
-    // (tabbed once opened) so the drawer stays compact at first.
-    const [expanded, setExpanded] = useState(false);
+    // Progressive disclosure via vaul snap points: the card opens compact
+    // (title + reachability) and flicks up (drag) OR taps open to the
+    // tabbed route/departures detail. `expanded` is derived from the snap.
+    const [snap, setSnap] = useState<number | string | null>(COMPACT_SNAP);
     const [tab, setTab] = useState<"trip" | "departures">("trip");
+    const expanded = snap === 1;
 
     // Fresh station tap → collapse back to the compact view + reset to the
     // Trip tab so the card doesn't stay sprawled open across selections.
     useEffect(() => {
-        setExpanded(false);
+        setSnap(COMPACT_SNAP);
         setTab("trip");
     }, [station?.lat, station?.lng]);
 
@@ -137,7 +145,12 @@ export function StationTransitCard({
                 setError("Couldn't plan a route to this station.");
                 return;
             }
-            setJourney(resp.journey);
+            setJourney(
+                trimTrailingAccessWalk(resp.journey, {
+                    lat: station.lat,
+                    lng: station.lng,
+                }),
+            );
             setSource(resp.source);
         })();
         return () => {
@@ -241,15 +254,20 @@ export function StationTransitCard({
                 if (!o) close();
             }}
             shouldScaleBackground={false}
+            // Snap points: compact by default, flick up (or tap the
+            // expander) to reach the full route/departures detail.
+            snapPoints={SNAP_POINTS}
+            activeSnapPoint={snap}
+            setActiveSnapPoint={setSnap}
             // Non-modal so the map behind stays interactive: you can tap
             // another zone to switch the selection without closing the
             // card first. No dark scrim for the same reason.
             modal={false}
         >
             <VaulDrawer.Portal>
-                <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
+                <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] flex max-h-[92vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
                     <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
-                    <div className="overflow-y-auto px-5 pt-3 pb-6">
+                    <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-3 pb-6">
                         <div className="flex items-start gap-2.5">
                             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15">
                                 <MapPin className="h-4.5 w-4.5 text-primary" />
@@ -354,11 +372,12 @@ export function StationTransitCard({
                         )}
 
                         {/* Progressive disclosure — the route + departures
-                            detail is behind this expander so the card opens
-                            compact (just the title + reachability). */}
+                            detail sits below the fold; flick the sheet up or
+                            tap here to reveal it. The content stays MOUNTED
+                            so the drag gesture has something to reveal. */}
                         <button
                             type="button"
-                            onClick={() => setExpanded((e) => !e)}
+                            onClick={() => setSnap(expanded ? COMPACT_SNAP : 1)}
                             aria-expanded={expanded}
                             className="mt-3 flex w-full items-center justify-between rounded-lg border border-border/70 bg-sidebar-accent/40 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
@@ -375,46 +394,84 @@ export function StationTransitCard({
                             />
                         </button>
 
-                        {expanded && (
-                            <div className="mt-3">
-                                {/* Tabs — Trip vs Departures. */}
-                                <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-                                    <TabButton
-                                        active={tab === "trip"}
-                                        onClick={() => setTab("trip")}
-                                        label="Trip"
-                                    />
-                                    <TabButton
-                                        active={tab === "departures"}
-                                        onClick={() => setTab("departures")}
-                                        label="Departures"
-                                        count={upcomingDepartureCount(
-                                            departures,
-                                        )}
-                                    />
-                                </div>
-                                <div className="mt-3">
-                                    {tab === "trip" ? (
-                                        <JourneyCard
-                                            journey={journey}
-                                            source={source}
-                                            loading={planning}
-                                            error={error}
-                                        />
-                                    ) : (
-                                        <DeparturesSection
-                                            loading={depLoading}
-                                            board={departures}
-                                        />
-                                    )}
-                                </div>
+                        <div className="mt-3">
+                            {/* Tabs — Trip vs Departures. */}
+                            <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+                                <TabButton
+                                    active={tab === "trip"}
+                                    onClick={() => setTab("trip")}
+                                    label="Trip"
+                                />
+                                <TabButton
+                                    active={tab === "departures"}
+                                    onClick={() => setTab("departures")}
+                                    label="Departures"
+                                    count={upcomingDepartureCount(departures)}
+                                />
                             </div>
-                        )}
+                            <div className="mt-3">
+                                {tab === "trip" ? (
+                                    <JourneyCard
+                                        journey={journey}
+                                        source={source}
+                                        loading={planning}
+                                        error={error}
+                                    />
+                                ) : (
+                                    <DeparturesSection
+                                        loading={depLoading}
+                                        board={departures}
+                                    />
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </VaulDrawer.Content>
             </VaulDrawer.Portal>
         </VaulDrawer.Root>
     );
+}
+
+/**
+ * Trim a redundant trailing WALK leg from a journey planned TO a station.
+ *
+ * When the destination is a transit stop (the user tapped a station on
+ * the map), most planners still append a short "access walk" from the
+ * alighting stop to the exact destination pin. If the last transit leg
+ * already alights AT the destination station, that walk is an artifact —
+ * it adds fake travel time and a bogus final "Walk → Destination" step
+ * (reported: "the last step isn't arriving at the station"). Drop it and
+ * re-anchor the arrival to the real transit arrival at the station.
+ *
+ * Conservative: only trims when the leg BEFORE the trailing walk is a
+ * transit leg whose alighting point is within ~350 m of the destination
+ * station. A genuine onward walk (alight a stop away and walk in) alights
+ * far from the station, so it's kept.
+ */
+function trimTrailingAccessWalk(
+    journey: Journey,
+    dest: { lat: number; lng: number },
+): Journey {
+    const legs = journey.legs ?? [];
+    if (legs.length < 2) return journey;
+    const last = legs[legs.length - 1];
+    if (last.mode !== "walk") return journey;
+    const prev = legs[legs.length - 2];
+    if (prev.mode === "walk") return journey; // don't collapse two walks
+    const alightNearDest =
+        haversineMeters(prev.to.lat, prev.to.lng, dest.lat, dest.lng) <= 350;
+    if (!alightNearDest) return journey; // real onward walk — keep it
+    const trimmed = legs.slice(0, -1);
+    const arriveAt = prev.arriveAt;
+    return {
+        ...journey,
+        legs: trimmed,
+        arriveAt,
+        durationMin: Math.max(
+            1,
+            Math.round((arriveAt - journey.departAt) / 60_000),
+        ),
+    };
 }
 
 /** One tab in the Trip/Departures switcher. */

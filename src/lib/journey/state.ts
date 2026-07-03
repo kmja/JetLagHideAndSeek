@@ -84,16 +84,13 @@ export const showHiderReach = persistentAtom<boolean>(
  * check in `StationTransitCard` (one zone at a time), where the trip is
  * already being planned.
  *
- * Each feature is a Point with just `{ stopId, name? }`. Null when off /
- * pre-fetch / no candidates.
+ * Mixed-geometry FC (matching the seeker's `hidingZonesGeoJSON`): the
+ * station centre POINTS (`{ stopId, name? }`) PLUS a single `safeUnion`-ed
+ * extent POLYGON of every station's hiding-radius circle, so the hider's
+ * overlay shows the same faint unioned fill + envelope the seeker sees.
+ * Null when off / pre-fetch / no candidates.
  */
-export const hiderReachFC = atom<GeoJSON.FeatureCollection<
-    GeoJSON.Point,
-    {
-        stopId: string;
-        name?: string;
-    }
-> | null>(null);
+export const hiderReachFC = atom<GeoJSON.FeatureCollection | null>(null);
 
 /* ───────────────── Seeker proximity (hider's ETA) ───────────────── */
 

@@ -1,8 +1,18 @@
 import { useStore } from "@nanostores/react";
-import { booleanPointInPolygon } from "@turf/turf";
+import {
+    booleanPointInPolygon,
+    circle as turfCircle,
+    featureCollection as turfFeatureCollection,
+} from "@turf/turf";
+import type { Units } from "@turf/turf";
 import { useEffect, useRef } from "react";
 
-import { lastKnownPosition, polyGeoJSON } from "@/lib/context";
+import {
+    hidingRadius,
+    hidingRadiusUnits,
+    lastKnownPosition,
+    polyGeoJSON,
+} from "@/lib/context";
 import {
     allowedTransit,
     gameSize,
@@ -13,6 +23,7 @@ import { haversineMeters } from "@/lib/geo";
 import { hidingZone } from "@/lib/hiderRole";
 import { hiderReachFC, showHiderReach } from "@/lib/journey/state";
 import { type AreaStation, fetchAreaStations } from "@/lib/journey/stations";
+import { safeUnion } from "@/maps/geo-utils";
 
 /**
  * Hider's "Hiding zones" overlay — the mirror of the seeker's
@@ -49,6 +60,8 @@ export function HiderReachOverlay() {
     const $allowed = useStore(allowedTransit);
     const $zone = useStore(hidingZone);
     const $poly = useStore(polyGeoJSON);
+    const $radius = useStore(hidingRadius);
+    const $units = useStore(hidingRadiusUnits);
 
     // Memoise the last-fetched anchor so a sub-100m GPS jitter
     // doesn't kick off a fresh Overpass scan.
@@ -144,7 +157,7 @@ export function HiderReachOverlay() {
                 });
             }
 
-            hiderReachFC.set(buildFC(inArea));
+            hiderReachFC.set(buildFC(inArea, $radius, $units));
         })();
 
         return () => {
@@ -158,6 +171,8 @@ export function HiderReachOverlay() {
         $size,
         $allowed,
         $zone,
+        $radius,
+        $units,
         // $poly: re-fetch when the play-area polygon resolves so we
         // pick up the cull instead of a one-shot "no boundary yet"
         // pass that includes out-of-area stations.
@@ -168,22 +183,42 @@ export function HiderReachOverlay() {
 }
 
 /**
- * Build the hiding-zones FeatureCollection — one point per station with
- * its name, matching the seeker's `hiding-zones-points`/`-labels` shape.
+ * Build the hiding-zones FeatureCollection — matching the seeker's
+ * `styleStations` "stations" style: one centre POINT per station (name
+ * label + dot) PLUS a single `safeUnion`-ed extent POLYGON of every
+ * station's hiding-radius circle. Unioning paints the covered area once
+ * at a uniform faint opacity (instead of compounding per-circle fills)
+ * and gives a clean envelope of the possible-hiding area.
  */
 function buildFC(
     stations: AreaStation[],
-): GeoJSON.FeatureCollection<
-    GeoJSON.Point,
-    { stopId: string; name?: string }
-> {
+    radius: number,
+    units: Units,
+): GeoJSON.FeatureCollection {
+    const points: GeoJSON.Feature[] = stations.map((s) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+        properties: { stopId: String(s.id), name: s.name },
+    }));
+
+    // Per-station hiding-radius circles → a single union polygon. turf.union
+    // (inside safeUnion) needs ≥2 geometries; 1 circle → that circle; 0 → no
+    // fill. Guarded so a cold/empty set never throws.
+    const circles = stations.map((s) =>
+        turfCircle([s.lng, s.lat], radius, { units, steps: 32 }),
+    );
+    let union: GeoJSON.Feature | null = null;
+    if (circles.length >= 2) {
+        union = safeUnion(
+            turfFeatureCollection(circles) as never,
+        ) as GeoJSON.Feature | null;
+    } else if (circles.length === 1) {
+        union = circles[0] as GeoJSON.Feature;
+    }
+
     return {
         type: "FeatureCollection",
-        features: stations.map((s) => ({
-            type: "Feature",
-            geometry: { type: "Point", coordinates: [s.lng, s.lat] },
-            properties: { stopId: String(s.id), name: s.name },
-        })),
+        features: [...(union ? [union] : []), ...points],
     };
 }
 
