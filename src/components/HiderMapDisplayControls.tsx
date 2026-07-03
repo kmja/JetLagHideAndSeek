@@ -15,7 +15,7 @@ import {
     TRANSIT_ICONS,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
-import { showHiderReach } from "@/lib/journey/state";
+import { hiderReachLoading, showHiderReach } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
@@ -80,6 +80,7 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
     const $allowedTransit = useStore(allowedTransit);
     const $transitLoading = useStore(transitRoutesLoading);
     const $reach = useStore(showHiderReach);
+    const $reachLoading = useStore(hiderReachLoading);
 
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
@@ -180,6 +181,9 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                     <span className={cn("font-poppins font-semibold", rowText)}>
                         Hiding zones
                     </span>
+                    {$reachLoading && (
+                        <Loader2 className="w-4 h-4 animate-spin ml-auto" />
+                    )}
                 </button>
             </div>
 

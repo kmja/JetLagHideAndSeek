@@ -29,7 +29,7 @@ import {
     TRANSIT_ICONS,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
-import { showTravelTimes } from "@/lib/journey/state";
+import { showTravelTimes, travelTimesLoading } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
@@ -85,6 +85,7 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
     const $allowedTransit = useStore(allowedTransit);
     const $transitLoading = useStore(transitRoutesLoading);
     const $showTravelTimes = useStore(showTravelTimes);
+    const $travelTimesLoading = useStore(travelTimesLoading);
 
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
@@ -223,6 +224,9 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                     >
                         Travel times
                     </span>
+                    {$travelTimesLoading && (
+                        <Loader2 className="w-4 h-4 animate-spin ml-auto" />
+                    )}
                 </button>
             </div>
 

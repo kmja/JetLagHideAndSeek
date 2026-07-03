@@ -10,7 +10,11 @@ import {
     HIDING_PERIOD_MINUTES,
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
-import { showTravelTimes, travelTimesFC } from "@/lib/journey/state";
+import {
+    showTravelTimes,
+    travelTimesFC,
+    travelTimesLoading,
+} from "@/lib/journey/state";
 import type { JourneyStop } from "@/lib/journey/types";
 
 /**
@@ -38,6 +42,9 @@ export function TravelTimesOverlay() {
     const $size = useStore(gameSize);
 
     useEffect(() => {
+        // Default not-loading; only the commit-to-fetch path flips it true
+        // (nanostores dedupes false→false).
+        travelTimesLoading.set(false);
         if (!enabled) {
             travelTimesFC.set(null);
             return;
@@ -69,6 +76,7 @@ export function TravelTimesOverlay() {
 
         let cancelled = false;
         const controller = new AbortController();
+        travelTimesLoading.set(true);
 
         const hidingStartAt = $endsAt - HIDING_PERIOD_MINUTES[$size] * 60_000;
         const anchor = {
@@ -77,37 +85,42 @@ export function TravelTimesOverlay() {
             departAt: hidingStartAt,
         };
 
-        (async () => {
-            // Optimistic: show all stations immediately in the neutral
-            // "pending" state so the overlay appears right away while
-            // the API resolves.
-            travelTimesFC.set(buildFC(stations, new Map(), $endsAt, true));
+        void (async () => {
+            try {
+                // Optimistic: show all stations immediately in the neutral
+                // "pending" state so the overlay appears right away while
+                // the API resolves.
+                travelTimesFC.set(buildFC(stations, new Map(), $endsAt, true));
 
-            const results = await provider.fetchArrivals(
-                anchor,
-                stations,
-                controller.signal,
-            );
-            if (cancelled) return;
+                const results = await provider.fetchArrivals(
+                    anchor,
+                    stations,
+                    controller.signal,
+                );
+                if (cancelled) return;
 
-            const arrivalMap = new Map<string, number>();
-            for (const r of results) {
-                if (r.arrivalAt != null) {
-                    arrivalMap.set(r.stopId, r.arrivalAt);
+                const arrivalMap = new Map<string, number>();
+                for (const r of results) {
+                    if (r.arrivalAt != null) {
+                        arrivalMap.set(r.stopId, r.arrivalAt);
+                    }
                 }
+                // Final: keep BOTH reachable and unreachable stations so
+                // the seeker can scan candidate zones at a glance — green
+                // dot means "the hider could be here", red dot means "rule
+                // this zone out". The map layer paints the colours from the
+                // `reachable` property; the HH:MM label only fires for
+                // reachable stations.
+                travelTimesFC.set(buildFC(stations, arrivalMap, $endsAt, false));
+            } finally {
+                if (!cancelled) travelTimesLoading.set(false);
             }
-            // Final: keep BOTH reachable and unreachable stations so the
-            // seeker can scan candidate zones at a glance — green dot
-            // means "the hider could be here", red dot means "rule this
-            // zone out". The map layer paints the colours from the
-            // `reachable` property; the HH:MM label only fires for
-            // reachable stations.
-            travelTimesFC.set(buildFC(stations, arrivalMap, $endsAt, false));
         })();
 
         return () => {
             cancelled = true;
             controller.abort();
+            travelTimesLoading.set(false);
         };
     }, [enabled, $startPos, $endsAt, $size, zones]);
 

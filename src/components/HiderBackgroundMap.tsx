@@ -14,6 +14,7 @@ import Map, {
 
 import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { MapNavControls } from "@/components/MapNavControls";
+import { MapOverlayLoadingToasts } from "@/components/MapOverlayLoadingToasts";
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import { TripRouteLayers } from "@/components/TripRouteLayers";
@@ -735,6 +736,11 @@ export function HiderBackgroundMap() {
                     seekingStarted ? "left-3" : "right-3",
                 )}
             />
+
+            {/* Top-of-map "Loading …" pills for async overlays (hiding
+                zones, transit lines). Mirrors the map-options toggle
+                spinners so loading is visible with the panel closed. */}
+            <MapOverlayLoadingToasts />
 
             {/* Floating timer card — the hider's parity counterpart to the
                 seeker's HiderTimer (golden hiding box / white hidden box +

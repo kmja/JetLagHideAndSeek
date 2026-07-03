@@ -17,7 +17,11 @@ import {
 import { haversineMeters } from "@/lib/geo";
 import { hidingZone } from "@/lib/hiderRole";
 import { computeHidingUnion } from "@/lib/journey/hidingZonesUnion";
-import { hiderReachFC, showHiderReach } from "@/lib/journey/state";
+import {
+    hiderReachFC,
+    hiderReachLoading,
+    showHiderReach,
+} from "@/lib/journey/state";
 import { type AreaStation, fetchAreaStations } from "@/lib/journey/stations";
 
 /**
@@ -63,6 +67,11 @@ export function HiderReachOverlay() {
     const lastAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
 
     useEffect(() => {
+        // Default: not loading. Every early return below (off / no GPS /
+        // zone committed / past whistle / deadband) leaves it false; only
+        // the commit-to-fetch path flips it true. (nanostores dedupes a
+        // false→false set, so this is free on the common deadband tick.)
+        hiderReachLoading.set(false);
         // Off → clear and bail. Also drop the anchor memo so the NEXT
         // enable always re-fetches: without this, toggling the overlay
         // off (which clears the FC) and back on while standing still hit
@@ -117,8 +126,10 @@ export function HiderReachOverlay() {
 
         let cancelled = false;
         const controller = new AbortController();
+        hiderReachLoading.set(true);
 
-        (async () => {
+        void (async () => {
+          try {
             const stations = await fetchAreaStations($gps.lat, $gps.lng, {
                 hidingDurationMin: HIDING_PERIOD_MINUTES[$size],
                 allowed: $allowed,
@@ -172,11 +183,17 @@ export function HiderReachOverlay() {
                 type: "FeatureCollection",
                 features: union ? [union, ...points] : points,
             });
+          } finally {
+            // Loading done — but only clear the flag if THIS run wasn't
+            // superseded (a newer run owns the flag then).
+            if (!cancelled) hiderReachLoading.set(false);
+          }
         })();
 
         return () => {
             cancelled = true;
             controller.abort();
+            hiderReachLoading.set(false);
         };
     }, [
         enabled,

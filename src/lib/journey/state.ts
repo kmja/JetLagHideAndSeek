@@ -17,6 +17,25 @@ export const showTravelTimes = persistentAtom<boolean>(
     },
 );
 
+/* ─────────────────── Map-overlay loading flags ─────────────────── */
+//
+// Volatile per-overlay loading booleans, mirrored to the map-options
+// toggle spinners AND the top-of-map loading toasters
+// (`MapOverlayLoadingToasts`). One flag per async overlay so the UI can
+// say exactly what's loading ("Loading travel times…"). Hiding-zones has
+// two producers — the seeker's `isLoading` (context.ts, ZoneSidebar) and
+// the hider's `hiderReachLoading` below — because the two overlays are
+// computed by different code; the toaster reads whichever applies (the
+// other view's atom is always false since only one map is mounted).
+
+/** Travel-times overlay fetch in flight (`TravelTimesOverlay`). */
+export const travelTimesLoading = atom<boolean>(false);
+
+/** Hider hiding-zones overlay load in flight — area-station scan + the
+ *  off-thread union (`HiderReachOverlay`). The hider-side counterpart to
+ *  the seeker's `isLoading`. */
+export const hiderReachLoading = atom<boolean>(false);
+
 /**
  * Overlay shadow atom — TravelTimesOverlay writes the rendered
  * station FeatureCollection (with arrival-time props baked in) here,
