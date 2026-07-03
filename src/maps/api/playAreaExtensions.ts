@@ -40,7 +40,7 @@
  * returns a list ready to render in a checkable picker.
  */
 
-import { booleanPointInPolygon } from "@turf/turf";
+import { bbox, booleanPointInPolygon } from "@turf/turf";
 import type { Feature } from "geojson";
 
 import type { TransitMode } from "@/lib/gameSetup";
@@ -94,6 +94,44 @@ export async function findExtensionCandidates(
 
     const primaryOsmId = primary.properties.osm_id;
 
+    // Cache-key alignment (v635). The worker cron builds the `around:`
+    // adjacency queries (band + stations + local-admin fallback) from the
+    // play area's BOUNDARY BBOX MIDPOINT — it derives the extent via
+    // `bboxFromRelation` (walking the polygons.openstreetmap.fr polygon,
+    // `params=0`) then uses `((minLat+maxLat)/2, (minLng+maxLng)/2)`. The
+    // client had drifted to Photon's GEOMETRY POINT, so the `around:`
+    // query string differed byte-for-byte, the prewarmed R2 entry
+    // cold-missed, and every adjacency query went LIVE (and got
+    // rate-limited: the Stockholm report). Fetch the SAME polygon (the
+    // containment cull below needs it anyway) and build the centroid its
+    // way, so a prewarmed city hits R2. Falls back to Photon's geometry
+    // point when the polygon isn't available. (Distance sorting keeps the
+    // geometry centroid — cosmetic, off the cache key.)
+    const primaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
+        () => null,
+    );
+    let queryLat = primaryLat;
+    let queryLng = primaryLng;
+    if (primaryPolygon) {
+        try {
+            const [bbMinLng, bbMinLat, bbMaxLng, bbMaxLat] = bbox({
+                type: "Feature",
+                properties: {},
+                geometry: primaryPolygon,
+            } as Feature);
+            if (
+                [bbMinLng, bbMinLat, bbMaxLng, bbMaxLat].every((v) =>
+                    Number.isFinite(v),
+                )
+            ) {
+                queryLat = (bbMinLat + bbMaxLat) / 2;
+                queryLng = (bbMinLng + bbMaxLng) / 2;
+            }
+        } catch {
+            /* keep the geometry-point fallback */
+        }
+    }
+
     // The primary's own admin_level drives the granularity window every
     // candidate is filtered against (see `withinLevelWindow`). Fetched
     // up front because all three passes below feed through it. Stable
@@ -128,6 +166,9 @@ export async function findExtensionCandidates(
             undefined,
             CacheType.ZONE_CACHE,
             90_000,
+            false,
+            undefined,
+            /* silent */ true,
         );
         adjacencyElements = ((adjacencyData as { elements?: unknown[] })
             .elements ?? []) as OverpassRelationStub[];
@@ -149,8 +190,8 @@ export async function findExtensionCandidates(
     if (allowedTransit.length > 0) {
         try {
             allStations = await fetchTransitStations(
-                primaryLat,
-                primaryLng,
+                queryLat,
+                queryLng,
                 radiusKm,
             );
         } catch (e) {
@@ -213,8 +254,8 @@ export async function findExtensionCandidates(
         if (primaryAdminLevel) {
             const bandQuery = buildAdjacentAdminQuery(
                 primaryAdminLevel,
-                primaryLat,
-                primaryLng,
+                queryLat,
+                queryLng,
                 radiusKm,
             );
             const bandData = await getOverpassData(
@@ -222,6 +263,9 @@ export async function findExtensionCandidates(
                 undefined,
                 CacheType.ZONE_CACHE,
                 90_000,
+                false,
+                undefined,
+                /* silent */ true,
             );
             const bandElements = ((bandData as { elements?: unknown[] })
                 .elements ?? []) as OverpassRelationStub[];
@@ -274,8 +318,8 @@ export async function findExtensionCandidates(
             // nearest, which for a city centroid are its own boroughs /
             // neighbouring municipalities.
             const fallbackQuery = buildLocalAdminBandQuery(
-                primaryLat,
-                primaryLng,
+                queryLat,
+                queryLng,
                 radiusKm,
             );
             const fallbackData = await getOverpassData(
@@ -283,6 +327,9 @@ export async function findExtensionCandidates(
                 undefined,
                 CacheType.ZONE_CACHE,
                 90_000,
+                false,
+                undefined,
+                /* silent */ true,
             );
             const fallbackElements = ((fallbackData as { elements?: unknown[] })
                 .elements ?? []) as OverpassRelationStub[];
@@ -313,9 +360,7 @@ export async function findExtensionCandidates(
         primaryLevel <= MEGACITY_MAX_LEVEL;
     let result = candidates;
     if (!isMegacity && candidates.length > 0) {
-        const primaryPolygon = await fetchRawBoundaryPolygon(
-            primaryOsmId,
-        ).catch(() => null);
+        // Reuse the boundary polygon fetched up front for the centroid.
         if (primaryPolygon) {
             const poly = {
                 type: "Feature",
@@ -377,6 +422,9 @@ out tags bb;
         undefined,
         CacheType.ZONE_CACHE,
         90_000,
+        false,
+        undefined,
+        /* silent */ true,
     );
     return ((data as { elements?: unknown[] }).elements ??
         []) as OverpassRelationStub[];
@@ -394,6 +442,9 @@ async function fetchAdminLevel(osmId: number): Promise<string | null> {
             undefined,
             CacheType.ZONE_CACHE,
             30_000,
+            false,
+            undefined,
+            /* silent */ true,
         );
         const els = ((data as { elements?: unknown[] }).elements ??
             []) as Array<{ tags?: Record<string, string> }>;
@@ -683,6 +734,9 @@ async function fetchTransitStations(
         undefined,
         CacheType.ZONE_CACHE,
         60_000,
+        false,
+        undefined,
+        /* silent */ true,
     );
     const elements = ((data as { elements?: unknown[] }).elements ??
         []) as Array<{
