@@ -153,27 +153,24 @@ export function HiderReachOverlay() {
                 });
             }
 
-            // Paint the DOTS immediately (cheap, main thread) so the
-            // overlay appears at once, then compute the unioned extent
-            // fill OFF the main thread and drop it in when ready — the
-            // union is the only heavy step and doing it in a worker keeps
-            // the whole app responsive while it loads.
+            // Compute the unioned extent fill OFF the main thread (the
+            // union of hundreds of circles is the one heavy step; a worker
+            // keeps the whole app responsive while it loads) and paint the
+            // WHOLE overlay in ONE update — dots + circles appear together
+            // after a single loading period, never staggered. On any
+            // worker failure `union` is null and we fall back to dots-only,
+            // still in one set.
             const points = stationPoints(inArea);
-            hiderReachFC.set({
-                type: "FeatureCollection",
-                features: points,
-            });
-
             const union = await computeHidingUnion(
                 inArea.map((s) => ({ lng: s.lng, lat: s.lat })),
                 $radius,
                 $units,
                 controller.signal,
             );
-            if (cancelled || union == null) return; // keep dots-only
+            if (cancelled) return;
             hiderReachFC.set({
                 type: "FeatureCollection",
-                features: [union, ...points],
+                features: union ? [union, ...points] : points,
             });
         })();
 
@@ -201,11 +198,10 @@ export function HiderReachOverlay() {
 }
 
 /**
- * Station centre POINTS — the cheap, main-thread part of the overlay
- * (dot + name label per station), matching the seeker's
- * `hiding-zones-points`/`-labels`. Painted immediately; the heavy
- * unioned extent fill is computed off-thread (`computeHidingUnion`) and
- * prepended to these when it arrives.
+ * Station centre POINTS (dot + name label per station), matching the
+ * seeker's `hiding-zones-points`/`-labels`. Combined with the off-thread
+ * unioned extent fill into a single FC so the whole overlay reveals at
+ * once.
  */
 function stationPoints(stations: AreaStation[]): GeoJSON.Feature[] {
     return stations.map((s) => ({
