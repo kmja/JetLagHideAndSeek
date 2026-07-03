@@ -285,6 +285,16 @@ export function PlayAreaPreviewMap({
     // paint before dropping the veil — one load, not list-then-polygons.
     const [candPolysReady, setCandPolysReady] = useState(false);
 
+    // v637: whether MapLibre has fired `onLoad` (the map instance is
+    // ready for `fitBounds`). The committed-area fit below can run BEFORE
+    // the map is ready — most reliably in the lobby preview, where the
+    // primary boundary is already module-cached at mount, so the fit
+    // effect runs once (map null → bails) and, since its data never
+    // changes afterwards, never re-runs. Folding this flag into that
+    // effect's deps makes it re-fire the moment the map is ready, so the
+    // camera actually widens to include folded-in neighbours.
+    const [mapReady, setMapReady] = useState(false);
+
     // v473: the camera moves in at most two beats, never the jarring
     // three-stage frame→tighten→zoom-out the user reported:
     //   1. an initial bbox frame (fitToBbox, below — runs on select),
@@ -381,7 +391,7 @@ export function PlayAreaPreviewMap({
             /* ignore */
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [$added, $adjacent, realPolygon, bbox]);
+    }, [$added, $adjacent, realPolygon, bbox, mapReady]);
 
     // One smooth, one-time widen to include every adjacent-candidate
     // bbox, the first time candidates are available for this area. A
@@ -590,6 +600,12 @@ export function PlayAreaPreviewMap({
                 onLoad={(e) => {
                     installMissingImageHandler(e.target);
                     fitToBbox(false);
+                    // v637: flag the map ready so the committed-area fit
+                    // effect re-fires and widens to include folded-in
+                    // neighbours (the lobby-preview zoom fix). When there
+                    // are added areas it widens right after this primary
+                    // fit; with none, the primary fit is the final frame.
+                    setMapReady(true);
                     onLoad();
                 }}
                 onIdle={onIdle}
