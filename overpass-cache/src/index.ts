@@ -978,6 +978,19 @@ async function handleRequest(
             });
         }
 
+        // v640: cache-only mode (`?cacheOnly=1`). Return an edge/R2 hit if
+        // present (fresh OR stale — a cached boundary is fine), else a fast
+        // empty `{elements:[]}` MISS — NEVER go upstream. The client's
+        // worker-first boundary fetch (`fetchPolygonViaCacheWorker`) uses
+        // this so a PREWARMED city's boundaries serve from R2 (zero
+        // external), while an un-prewarmed area misses instantly and the
+        // client falls to polygons.osm.fr — instead of the worker firing a
+        // live Overpass query per neighbour (the Madrid boundary storm:
+        // ~14 `relation(N);out geom;` calls hitting overpass-api.de →
+        // 504/500). `cacheOnly` is a separate url param, so it doesn't
+        // change the `data`-keyed R2 lookup.
+        const cacheOnly = url.searchParams.get("cacheOnly") === "1";
+
         const cacheKey = await r2KeyForQuery(query);
         const ttlMs =
             (parseInt(env.CACHE_TTL_DAYS, 10) || 30) *
@@ -1033,6 +1046,12 @@ async function handleRequest(
                 // the win was modest anyway.
                 return buildR2Response(r2Hit, cors, "R2_HIT", age);
             }
+            // Stale. In cache-only mode serve the stale hit as-is (a
+            // slightly-old boundary is fine, and we must not go upstream);
+            // otherwise refresh upstream.
+            if (cacheOnly) {
+                return buildR2Response(r2Hit, cors, "R2_STALE_CACHEONLY", age);
+            }
             // Stale — refresh upstream and stream gzip → tee → [R2,
             // client]. Falls back to the stale R2 hit if every mirror
             // is sad.
@@ -1046,6 +1065,25 @@ async function handleRequest(
             );
             if (refreshResp) return refreshResp;
             return buildR2Response(r2Hit, cors, "R2_STALE_FALLBACK", age);
+        }
+
+        // v640: cache-only miss — nothing cached and we must not go
+        // upstream. Return an empty `{elements:[]}` 200 (same shape a real
+        // empty result has) so the caller cleanly detects "not cached" and
+        // falls back to its own source. WITH cors, so it's never a
+        // CORS-less error.
+        if (cacheOnly) {
+            return new Response(
+                JSON.stringify({ elements: [], cache: "miss" }),
+                {
+                    status: 200,
+                    headers: {
+                        ...corsHeadersAsObject(cors),
+                        "Content-Type": "application/json",
+                        "X-Cache": "MISS_CACHEONLY",
+                    },
+                },
+            );
         }
 
         // Step 2.5 — country-shard slicing. No exact cache entry, but

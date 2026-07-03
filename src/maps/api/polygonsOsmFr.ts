@@ -195,7 +195,14 @@ async function fetchPolygonViaCacheWorker(
     // singleRelationQuery — the R2 key is a hash of this string, so
     // any whitespace drift misses the cached entry.
     const query = `[out:json][timeout:120];relation(${relationId});out geom;`;
-    const url = `${OVERPASS_API}?data=${encodeURIComponent(query)}`;
+    // v640: `cacheOnly=1` — R2 hit or an instant empty MISS, NEVER a live
+    // Overpass call. A prewarmed city's boundaries (primary + neighbours)
+    // serve from R2; an un-prewarmed area misses fast and the caller falls
+    // to polygons.osm.fr. This is what keeps the worker-first order from
+    // firing a live `relation(N);out geom;` per un-prewarmed neighbour (the
+    // Madrid boundary storm → overpass-api.de 504/500). `cacheOnly` is a
+    // separate url param, so the `data`-keyed R2 lookup is unchanged.
+    const url = `${OVERPASS_API}?data=${encodeURIComponent(query)}&cacheOnly=1`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
 
