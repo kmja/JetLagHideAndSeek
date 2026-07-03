@@ -17,6 +17,10 @@
 
 import type { Env } from "../envTypes";
 import { canServe as motisSelfHostedCanServe } from "../travel/adapters/motisSelfHosted";
+import * as austria from "./adapters/austria";
+import * as entur from "./adapters/entur";
+import * as germany from "./adapters/germany";
+import * as swiss from "./adapters/swiss";
 import * as trafiklab from "./adapters/trafiklab";
 import * as transitous from "./adapters/transitous";
 import type {
@@ -52,6 +56,51 @@ const TRAFIKLAB: DepartureAdapter = {
             max,
             signal,
         );
+    },
+};
+
+/** Entur (Norway) — keyless GraphQL; single query resolves stop +
+ *  departures. */
+const ENTUR: DepartureAdapter = {
+    id: "entur",
+    canServe: entur.canServe,
+    async fetchBoard(req, _env, when, max, signal) {
+        return entur.fetchBoard(req.lat, req.lng, when, max, signal);
+    },
+};
+
+/** Switzerland (transport.opendata.ch) — keyless stationboard. */
+const SWISS: DepartureAdapter = {
+    id: "swiss",
+    canServe: swiss.canServe,
+    async fetchBoard(req, _env, when, max, signal) {
+        return swiss.fetchBoard(req.lat, req.lng, when, max, signal);
+    },
+};
+
+/** Germany / DACH (DB `transport.rest` FPTF) — keyless stationboard. */
+const GERMANY: DepartureAdapter = {
+    id: "germany",
+    canServe: germany.canServe,
+    async fetchBoard(req, _env, when, max, signal) {
+        return germany.fetchBoard(
+            germany.DB_BASE,
+            req.lat,
+            req.lng,
+            when,
+            max,
+            signal,
+        );
+    },
+};
+
+/** Austria (ÖBB `transport.rest`) — keyless, reuses the FPTF fetch.
+ *  Defers cleanly if the ÖBB instance is down (falls to MOTIS). */
+const AUSTRIA: DepartureAdapter = {
+    id: "austria",
+    canServe: austria.canServe,
+    async fetchBoard(req, _env, when, max, signal) {
+        return austria.fetchBoard("", req.lat, req.lng, when, max, signal);
     },
 };
 
@@ -95,11 +144,21 @@ const TRANSITOUS: DepartureAdapter = {
     },
 };
 
-/** Dispatch order: regional (Trafiklab SE) → MOTIS (self-hosted, then
- *  public Transitous). More regional board adapters slot in above MOTIS
- *  as they're written. */
+/** Dispatch order — mirrors the trip planner's regional-first tiers:
+ *  keyless/keyed regional boards (Trafiklab SE, Entur NO, Swiss CH,
+ *  Germany DE, Austria AT) → MOTIS (self-hosted, then public Transitous)
+ *  as the universal fallback. `canServe` boxes are shared with the trip
+ *  planner, so a stop's board comes from the same source that would plan
+ *  a trip there. Regions without a dedicated board adapter yet (Finland/
+ *  Digitransit, Estonia, London/TfL, Barcelona, NSW, Korea, Netherlands,
+ *  France) fall through to MOTIS, which covers them via GTFS; each can
+ *  add a `fetchBoard` above MOTIS later, one file at a time. */
 export const DEPARTURE_ADAPTERS: DepartureAdapter[] = [
     TRAFIKLAB,
+    ENTUR,
+    SWISS,
+    GERMANY,
+    AUSTRIA,
     MOTIS_SELF_HOSTED,
     TRANSITOUS,
 ];

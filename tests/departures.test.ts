@@ -9,6 +9,15 @@ import {
     parseMotisStoptimes,
     parseNearestStop as parseMotisNearestStop,
 } from "../overpass-cache/src/departures/adapters/transitous";
+import {
+    parseFptfDepartures,
+    parseNearestStop as parseFptfNearestStop,
+} from "../overpass-cache/src/departures/adapters/germany";
+import { parseEnturBoard } from "../overpass-cache/src/departures/adapters/entur";
+import {
+    parseNearestStation as parseSwissNearestStation,
+    parseSwissBoard,
+} from "../overpass-cache/src/departures/adapters/swiss";
 
 /* ─────────────────────── ResRobot (Sweden) ─────────────────────── */
 
@@ -180,5 +189,166 @@ describe("MOTIS departures — stoptimes parser", () => {
         expect(out[0].realtime).toBeUndefined();
         expect(parseMotisStoptimes({})).toHaveLength(0);
         expect(parseMotisStoptimes(null)).toHaveLength(0);
+    });
+});
+
+/* ─────────────────────── Germany / DACH (FPTF) ─────────────────────── */
+
+describe("transport.rest departures", () => {
+    test("nearest stop keeps the first type:stop entry", () => {
+        const json = [
+            { type: "stop", id: "8011160", name: "Berlin Hbf" },
+            { type: "stop", id: "8010255", name: "Other" },
+        ];
+        expect(parseFptfNearestStop(json)).toEqual({
+            id: "8011160",
+            name: "Berlin Hbf",
+        });
+        expect(parseFptfNearestStop([{ type: "location" }])).toBeNull();
+        expect(parseFptfNearestStop({})).toBeNull();
+    });
+
+    test("parses FPTF departures, prefers realtime `when`, classifies", () => {
+        const json = {
+            departures: [
+                {
+                    when: "2026-07-03T14:32:00+02:00",
+                    plannedWhen: "2026-07-03T14:30:00+02:00",
+                    delay: 120,
+                    direction: "Flughafen",
+                    line: { name: "S9", product: "suburban", mode: "train" },
+                },
+                {
+                    when: null,
+                    plannedWhen: "2026-07-03T14:25:00+02:00",
+                    delay: null,
+                    direction: "Alexanderplatz",
+                    line: { name: "U2", product: "subway", mode: "train" },
+                },
+            ],
+        };
+        const out = parseFptfDepartures(json);
+        expect(out).toHaveLength(2);
+        // Sorted soonest-first: the 14:25 U-Bahn before the 14:32 S-Bahn.
+        expect(out[0].mode).toBe("subway");
+        expect(out[0].line).toBe("U2");
+        expect(out[0].realtime).toBeUndefined();
+        expect(out[1].mode).toBe("train");
+        expect(out[1].realtime).toBe(true);
+        expect(out[1].headsign).toBe("Flughafen");
+    });
+
+    test("empty on garbage", () => {
+        expect(parseFptfDepartures({})).toHaveLength(0);
+        expect(parseFptfDepartures(null)).toHaveLength(0);
+    });
+});
+
+/* ─────────────────────── Entur (Norway) ─────────────────────── */
+
+describe("Entur departures", () => {
+    test("parses nearest → estimatedCalls, prefers expected time", () => {
+        const json = {
+            data: {
+                nearest: {
+                    edges: [
+                        {
+                            node: {
+                                place: {
+                                    name: "Jernbanetorget",
+                                    estimatedCalls: [
+                                        {
+                                            expectedDepartureTime:
+                                                "2026-07-03T10:05:00+02:00",
+                                            aimedDepartureTime:
+                                                "2026-07-03T10:03:00+02:00",
+                                            realtime: true,
+                                            destinationDisplay: {
+                                                frontText: "Bergkrystallen",
+                                            },
+                                            serviceJourney: {
+                                                line: {
+                                                    publicCode: "1",
+                                                    transportMode: "metro",
+                                                },
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+        };
+        const board = parseEnturBoard(json);
+        expect(board?.stopName).toBe("Jernbanetorget");
+        expect(board?.departures).toHaveLength(1);
+        expect(board?.departures[0].mode).toBe("subway");
+        expect(board?.departures[0].line).toBe("1");
+        expect(board?.departures[0].headsign).toBe("Bergkrystallen");
+        expect(board?.departures[0].realtime).toBe(true);
+        expect(board?.departures[0].time).toBe(
+            Date.parse("2026-07-03T10:05:00+02:00"),
+        );
+    });
+
+    test("null when no stop resolved", () => {
+        expect(parseEnturBoard({ data: { nearest: { edges: [] } } })).toBeNull();
+        expect(parseEnturBoard({})).toBeNull();
+    });
+});
+
+/* ─────────────────────── Switzerland ─────────────────────── */
+
+describe("Swiss departures", () => {
+    test("nearest station keeps the first station", () => {
+        const json = {
+            stations: [
+                { id: "8503000", name: "Zürich HB" },
+                { id: "8503001", name: "Other" },
+            ],
+        };
+        expect(parseSwissNearestStation(json)).toEqual({
+            id: "8503000",
+            name: "Zürich HB",
+        });
+        expect(parseSwissNearestStation({ stations: [] })).toBeNull();
+    });
+
+    test("parses stationboard, prefers timestamp, classifies + sorts", () => {
+        const json = {
+            stationboard: [
+                {
+                    category: "T",
+                    number: "11",
+                    name: "T 11",
+                    to: "Rehalp",
+                    stop: {
+                        departure: "2026-07-03T12:10:00+0200",
+                        departureTimestamp: 1783073400,
+                    },
+                },
+                {
+                    category: "IC",
+                    number: "1",
+                    name: "IC 1",
+                    to: "Genève",
+                    stop: {
+                        departure: "2026-07-03T12:04:00+0200",
+                        departureTimestamp: 1783073040,
+                    },
+                },
+            ],
+        };
+        const out = parseSwissBoard(json);
+        expect(out).toHaveLength(2);
+        // Sorted: the earlier IC before the tram.
+        expect(out[0].mode).toBe("train");
+        expect(out[0].line).toBe("IC 1");
+        expect(out[0].headsign).toBe("Genève");
+        expect(out[0].time).toBe(1783073040 * 1000);
+        expect(out[1].mode).toBe("tram");
+        expect(parseSwissBoard({})).toHaveLength(0);
     });
 });
