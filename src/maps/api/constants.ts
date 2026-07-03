@@ -100,6 +100,15 @@ export const ELEVATION_TILE_BASE = `${JLHS_WORKER_BASE}/api/elevation`;
  *  never has to reproduce a byte-identical bbox to hit the prewarmed
  *  entry. See handleReferencesByRelation in overpass-cache/src/index.ts. */
 export const REFS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/refs`;
+/** Base URL for the relation-id-keyed canonical play-area EXTENT (v640).
+ *  The client fetches `${RELATION_EXTENT_BASE}/<relationId>` to get the ONE
+ *  canonical extent (the same stored `city.extent` the cron's adjacency
+ *  prewarm builds its `around:` queries from), so the client and cron
+ *  derive the adjacency centroid from a single source instead of each
+ *  computing their own bbox. Same relation-ID pattern as
+ *  REFS_BY_RELATION_BASE. See handleRelationExtent in
+ *  overpass-cache/src/index.ts. */
+export const RELATION_EXTENT_BASE = `${JLHS_WORKER_BASE}/api/relation-extent`;
 /** Base URL for relation-id-keyed per-city transit (v386). Mirrors
  *  REFS_BY_RELATION_BASE: the client fetches
  *  `${TRANSIT_BY_RELATION_BASE}/<relationId>/<mode>` and the worker

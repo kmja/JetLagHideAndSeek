@@ -887,6 +887,19 @@ async function handleRequest(
             }
             return handleReferencesByRelation(request, env, ctx, cors, relId);
         }
+        if (url.pathname.startsWith("/api/relation-extent/")) {
+            const relId = parseInt(
+                url.pathname.slice("/api/relation-extent/".length),
+                10,
+            );
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            return handleRelationExtent(env, cors, relId);
+        }
         if (url.pathname.startsWith("/api/transit/")) {
             // /api/transit/<relationId>/<mode>[?warm=1] (v386)
             const parts = url.pathname
@@ -1848,6 +1861,51 @@ async function canonicalReferenceExtent(
         /* fall through to stored extent */
     }
     return city.extent ?? null;
+}
+
+/**
+ * `GET /api/relation-extent/<id>` — the SINGLE canonical source for the
+ * adjacent-area `around:` centroid (v640). Returns the stored `city.extent`
+ * for a curated relation — the exact value `prewarmAdjacentSearchForCity`
+ * builds its band/stations queries from (both read it via
+ * `getPopularCities`) — so the client and the cron consume ONE number
+ * instead of each deriving their own bbox from geometry. This is the
+ * relation-ID pattern from the v359 /api/refs fix, applied to adjacency:
+ * it removes the "two producers of the same coordinate" drift the 3-dp
+ * rounding band-aid was papering over. Falls back to a live
+ * polygons.osm.fr bbox for uncurated relations (never prewarmed, so exact
+ * agreement is moot). Extent order: Photon-style [maxLat, minLng, minLat,
+ * maxLng].
+ */
+async function handleRelationExtent(
+    env: Env,
+    cors: HeadersInit,
+    relId: number,
+): Promise<Response> {
+    try {
+        const cities = await getPopularCities(env);
+        const hit = cities.find(
+            (c) =>
+                c.relationId === relId &&
+                Array.isArray(c.extent) &&
+                c.extent.length === 4,
+        );
+        if (hit?.extent) {
+            return jsonResponse(
+                { relationId: relId, extent: hit.extent, source: "curated" },
+                200,
+                cors,
+            );
+        }
+    } catch (e) {
+        console.warn(`relation-extent city lookup failed r${relId}:`, e);
+    }
+    const extent = await bboxFromRelation(relId).catch(() => null);
+    return jsonResponse(
+        { relationId: relId, extent, source: extent ? "derived" : null },
+        200,
+        cors,
+    );
 }
 
 /**
@@ -3551,13 +3609,14 @@ function buildAdjacentAdminQuery(
     lng: number,
     radiusKm: number,
 ): string {
-    // v639: round the `around:` centroid to 3 dp so the R2 key doesn't
-    // depend on whether the bbox came from polygons.osm.fr (cron) or the
-    // worker-served boundary (client). MUST match buildAdjacentAdminQuery
-    // in src/maps/api/playAreaExtensions.ts exactly.
+    // v640: no rounding — both the cron and the client build this from the
+    // ONE canonical extent (the cron reads city.extent; the client fetches
+    // the same value from /api/relation-extent), so the string already
+    // matches. MUST match buildAdjacentAdminQuery in
+    // src/maps/api/playAreaExtensions.ts exactly.
     return `
 [out:json][timeout:60];
-relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
+relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
 out tags bb;
 `;
 }
@@ -3574,17 +3633,14 @@ function buildAdjacentStationsQuery(
     lng: number,
     radiusKm: number,
 ): string {
-    // v639: 3-dp centroid on every around: — MUST match
-    // buildAdjacentStationsQuery in src/maps/api/playAreaExtensions.ts.
-    const c = `${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)}`;
     return `
 [out:json][timeout:45];
 (
-  node["station"="subway"](around:${c});
-  node["railway"="station"](around:${c});
-  node["railway"="halt"](around:${c});
-  node["railway"="tram_stop"](around:${c});
-  node["amenity"="ferry_terminal"](around:${c});
+  node["station"="subway"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="station"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="halt"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="tram_stop"](around:${radiusKm * 1000},${lat},${lng});
+  node["amenity"="ferry_terminal"](around:${radiusKm * 1000},${lat},${lng});
 );
 out;
 `;

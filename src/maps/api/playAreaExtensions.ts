@@ -40,11 +40,12 @@
  * returns a list ready to render in a checkable picker.
  */
 
-import { bbox, booleanPointInPolygon } from "@turf/turf";
+import { booleanPointInPolygon } from "@turf/turf";
 import type { Feature } from "geojson";
 
 import type { TransitMode } from "@/lib/gameSetup";
 
+import { RELATION_EXTENT_BASE } from "./constants";
 import { getOverpassData } from "./overpass";
 import { fetchRawBoundaryPolygon } from "./polygonsOsmFr";
 import type { OpenStreetMap } from "./types";
@@ -94,43 +95,44 @@ export async function findExtensionCandidates(
 
     const primaryOsmId = primary.properties.osm_id;
 
-    // Cache-key alignment (v635). The worker cron builds the `around:`
-    // adjacency queries (band + stations + local-admin fallback) from the
-    // play area's BOUNDARY BBOX MIDPOINT — it derives the extent via
-    // `bboxFromRelation` (walking the polygons.openstreetmap.fr polygon,
-    // `params=0`) then uses `((minLat+maxLat)/2, (minLng+maxLng)/2)`. The
-    // client had drifted to Photon's GEOMETRY POINT, so the `around:`
-    // query string differed byte-for-byte, the prewarmed R2 entry
-    // cold-missed, and every adjacency query went LIVE (and got
-    // rate-limited: the Stockholm report). Fetch the SAME polygon (the
-    // containment cull below needs it anyway) and build the centroid its
-    // way, so a prewarmed city hits R2. Falls back to Photon's geometry
-    // point when the polygon isn't available. (Distance sorting keeps the
-    // geometry centroid — cosmetic, off the cache key.)
+    // Cache-key alignment (v640 — relation-ID pattern, mirroring the v359
+    // /api/refs fix). The worker cron builds the `around:` adjacency
+    // queries (band / stations / local-admin) from the play area's stored
+    // `city.extent` midpoint. Rather than have the client RE-DERIVE that
+    // bbox from geometry (two producers of "the same number" → the drift
+    // that broke Stockholm, then the 3-dp-rounding band-aid), the client
+    // fetches the ONE canonical extent from the worker's relation-keyed
+    // endpoint — the exact same stored `city.extent` the cron reads via
+    // `getPopularCities`. Single source → byte-identical `around:` string →
+    // R2 hit, no rounding. Falls back to Photon's geometry point (a silent
+    // live miss) if the endpoint is unreachable. Extent is Photon order
+    // [maxLat, minLng, minLat, maxLng] — match the cron's midpoint formula.
+    let queryLat = primaryLat;
+    let queryLng = primaryLng;
+    try {
+        const resp = await fetch(`${RELATION_EXTENT_BASE}/${primaryOsmId}`);
+        if (resp.ok) {
+            const data = (await resp.json()) as { extent?: number[] | null };
+            const ext = data.extent;
+            if (
+                ext &&
+                ext.length === 4 &&
+                ext.every((v) => Number.isFinite(v))
+            ) {
+                const [exMaxLat, exMinLng, exMinLat, exMaxLng] = ext;
+                queryLat = (exMaxLat + exMinLat) / 2;
+                queryLng = (exMinLng + exMaxLng) / 2;
+            }
+        }
+    } catch {
+        /* keep the geometry-point fallback (silent live miss) */
+    }
+
+    // Primary boundary polygon — still fetched (worker-first) for the
+    // sub-area containment cull below; NOT for the centroid anymore.
     const primaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
         () => null,
     );
-    let queryLat = primaryLat;
-    let queryLng = primaryLng;
-    if (primaryPolygon) {
-        try {
-            const [bbMinLng, bbMinLat, bbMaxLng, bbMaxLat] = bbox({
-                type: "Feature",
-                properties: {},
-                geometry: primaryPolygon,
-            } as Feature);
-            if (
-                [bbMinLng, bbMinLat, bbMaxLng, bbMaxLat].every((v) =>
-                    Number.isFinite(v),
-                )
-            ) {
-                queryLat = (bbMinLat + bbMaxLat) / 2;
-                queryLng = (bbMinLng + bbMaxLng) / 2;
-            }
-        } catch {
-            /* keep the geometry-point fallback */
-        }
-    }
 
     // The primary's own admin_level drives the granularity window every
     // candidate is filtered against (see `withinLevelWindow`). Fetched
@@ -635,16 +637,13 @@ export function buildAdjacentAdminQuery(
     lng: number,
     radiusKm: number,
 ): string {
-    // v639: round the `around:` centroid to 3 dp (~110 m, negligible for a
-    // 25 km search) so the R2 cache key no longer depends on which geometry
-    // source produced the play-area bbox. The client derives the centroid
-    // from the worker-served boundary; the cron derives it from
-    // polygons.osm.fr (bboxFromRelation) — rounding bridges any sub-100 m
-    // drift so both sides emit a byte-identical query and hit the same R2
-    // entry. MUST match buildAdjacentAdminQuery in overpass-cache exactly.
+    // v640: no rounding — the `around:` centroid comes from the shared
+    // relation-extent endpoint (one canonical producer), so client and cron
+    // already emit the identical string. MUST match buildAdjacentAdminQuery
+    // in overpass-cache/src/index.ts exactly.
     return `
 [out:json][timeout:60];
-relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
+relation["admin_level"="${adminLevel}"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
 out tags bb;
 `;
 }
@@ -662,10 +661,9 @@ export function buildMunicipalityBandQuery(
     lng: number,
     radiusKm: number,
 ): string {
-    // v639: 3-dp centroid (see buildAdjacentAdminQuery).
     return `
 [out:json][timeout:60];
-relation["admin_level"~"^[78]$"]["type"="boundary"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
+relation["admin_level"~"^[78]$"]["type"="boundary"](around:${radiusKm * 1000},${lat},${lng});
 out tags bb;
 `;
 }
@@ -684,10 +682,9 @@ export function buildLocalAdminBandQuery(
     lng: number,
     radiusKm: number,
 ): string {
-    // v639: 3-dp centroid (see buildAdjacentAdminQuery).
     return `
 [out:json][timeout:60];
-relation["admin_level"~"^[678]$"]["type"="boundary"]["boundary"="administrative"](around:${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)});
+relation["admin_level"~"^[678]$"]["type"="boundary"]["boundary"="administrative"](around:${radiusKm * 1000},${lat},${lng});
 out tags bb;
 `;
 }
@@ -719,16 +716,14 @@ export function buildAdjacentStationsQuery(
     lng: number,
     radiusKm: number,
 ): string {
-    // v639: 3-dp centroid on every around: (see buildAdjacentAdminQuery).
-    const c = `${radiusKm * 1000},${lat.toFixed(3)},${lng.toFixed(3)}`;
     return `
 [out:json][timeout:45];
 (
-  node["station"="subway"](around:${c});
-  node["railway"="station"](around:${c});
-  node["railway"="halt"](around:${c});
-  node["railway"="tram_stop"](around:${c});
-  node["amenity"="ferry_terminal"](around:${c});
+  node["station"="subway"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="station"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="halt"](around:${radiusKm * 1000},${lat},${lng});
+  node["railway"="tram_stop"](around:${radiusKm * 1000},${lat},${lng});
+  node["amenity"="ferry_terminal"](around:${radiusKm * 1000},${lat},${lng});
 );
 out;
 `;
