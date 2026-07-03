@@ -14,6 +14,7 @@
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
  *     [--only-city <relationId|name>] \
+ *     [--cold-only] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
  *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
@@ -128,6 +129,12 @@ const MAX_CITIES = args.max ? parseInt(args.max, 10) : Infinity;
 // the extent, so a one-off tile-pack build needs nothing else. Combine
 // with --tile-packs + the --skip-* flags to build just one city's pack.
 const ONLY_CITY = args["only-city"] ? String(args["only-city"]) : null;
+// v641: `--cold-only` skips cities that are ALREADY warmed (per
+// /admin/prewarmed-cities: they have a boundary + an adjacency entry) so a
+// full run goes STRAIGHT to un-warmed cities instead of spending most of
+// its time re-`check-fresh`ing the popular front of the list (which the
+// cron keeps warm). Ignored with --only-city.
+const COLD_ONLY = !!args["cold-only"];
 const DELAY_MS = args["delay-ms"] ? parseInt(args["delay-ms"], 10) : 2000;
 const DO_BOUNDARIES = !args["skip-boundaries"];
 const DO_REFS = !args["skip-references"];
@@ -872,6 +879,45 @@ async function listCities() {
     }
     const data = await resp.json();
     return data.cities ?? [];
+}
+
+/**
+ * v641: the set of relation ids the worker considers ALREADY WARMED — a
+ * city with both a `boundary` entry and at least one `adjacent-*` entry in
+ * R2 (per /admin/prewarmed-cities). Used by --cold-only to skip these and
+ * process only un-warmed cities. Returns an empty set on any failure (so
+ * cold-only degrades to "process everything"). Note the endpoint is bounded
+ * + may report `truncated:true` on a huge cache — then some warm cities
+ * won't be in the set and get re-checked, which is harmless.
+ */
+async function fetchWarmedRelationIds() {
+    try {
+        const resp = await fetchRetry(
+            `${WORKER}/admin/prewarmed-cities`,
+            { headers: { Authorization: `Bearer ${SECRET}` } },
+            "prewarmed-cities",
+        );
+        if (!resp.ok) return new Set();
+        const data = await resp.json();
+        if (data.truncated) {
+            console.warn(
+                `  ! prewarmed-cities truncated (scanned ${data.scanned}); some warm cities may be re-checked`,
+            );
+        }
+        const warm = new Set();
+        for (const c of data.cities ?? []) {
+            const kinds = c.kinds ?? [];
+            const hasBoundary = kinds.includes("boundary");
+            const hasAdjacency = kinds.some(
+                (k) => typeof k === "string" && k.startsWith("adjacent-"),
+            );
+            if (hasBoundary && hasAdjacency) warm.add(String(c.relationId));
+        }
+        return warm;
+    } catch (e) {
+        console.warn(`  ! prewarmed-cities lookup failed: ${e?.message ?? e}`);
+        return new Set();
+    }
 }
 
 /**
@@ -2100,6 +2146,28 @@ async function main() {
                 .map((c) => `${c.name} (r${c.relationId})`)
                 .join(", ")}`,
         );
+    } else {
+        // v641: --cold-only — drop cities already warmed (boundary +
+        // adjacency), so a run heads straight for un-warmed cities instead
+        // of re-verifying the cron-kept-warm front of the list.
+        if (COLD_ONLY) {
+            const warm = await fetchWarmedRelationIds();
+            if (warm.size > 0) {
+                const before = todo.length;
+                todo = todo.filter((c) => !warm.has(String(c.relationId)));
+                console.log(
+                    `--cold-only: skipped ${before - todo.length} already-warm cities; ${todo.length} cold remain`,
+                );
+            }
+        }
+        // Shuffle so successive runs sample different cities (matches the
+        // cron's per-run shuffle) — a run then warms a fresh slice rather
+        // than always re-walking the list head. Deterministic order isn't
+        // needed here; the per-query check-fresh makes it idempotent.
+        for (let i = todo.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [todo[i], todo[j]] = [todo[j], todo[i]];
+        }
     }
     for (let i = 0; i < todo.length; i++) {
         try {
