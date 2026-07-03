@@ -611,6 +611,20 @@ export function PlayAreaPreviewMap({
                 onIdle={onIdle}
                 onError={handleMapLibreError}
             >
+                {/* Unselected neighbour candidates render FIRST so they sit
+                    BENEATH the primary boundary + committed areas. Their
+                    faint off-white/grey fills (and the bbox-fallback
+                    rectangles, which overlap the primary before real
+                    boundaries load) would otherwise paint OVER the main
+                    play area's red and desaturate it to pink. Drawing them
+                    underneath keeps the primary boundary + fill reading as
+                    their own brand red. (The pill markers are DOM elements,
+                    always on top regardless of layer order, and fill
+                    hit-testing is by layer id, so tapping still works.) */}
+                <AdjacentCandidatesOverlay
+                    mapRef={mapRef}
+                    onPolysReady={setCandPolysReady}
+                />
                 {polygon && (
                     <Source id="bbox" type="geojson" data={polygon}>
                         <Layer
@@ -633,10 +647,6 @@ export function PlayAreaPreviewMap({
                     </Source>
                 )}
                 <CommittedAreasOverlay />
-                <AdjacentCandidatesOverlay
-                    mapRef={mapRef}
-                    onPolysReady={setCandPolysReady}
-                />
             </MapGL>
             <MapTilesVeil
                 visible={showVeil}
