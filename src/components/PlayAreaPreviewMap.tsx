@@ -1101,17 +1101,15 @@ function AdjacentCandidatesOverlay({
         }),
     };
 
-    // Shared colour ramp: added (red) → unselected (neutral GRAYSCALE).
-    // Unselected candidates are deliberately grayscale (not the old cream
-    // off-white, which read as a washed-out tint) so a selected area's red
-    // stands out clearly against the faint grey neighbours. The
-    // transit-vs-no-transit signal is carried by fill opacity (below) +
-    // the pill styling, not hue. Reused by the fill and both line layers.
+    // Shared colour ramp: added (red) → transit-connected (off-white) →
+    // neither (grey). Reused by the fill and both line layers.
     const colorExpr: ExpressionSpecification = [
         "case",
         ["==", ["get", "added"], true],
         "hsl(2, 70%, 54%)",
-        "hsl(220, 9%, 50%)",
+        ["==", ["get", "transit"], true],
+        "hsl(45, 23%, 92%)",
+        "hsl(220, 8%, 60%)",
     ];
 
     return (
@@ -1130,17 +1128,19 @@ function AdjacentCandidatesOverlay({
                     type="fill"
                     paint={{
                         "fill-color": colorExpr,
-                        // Faint but visible: unselected neighbours read as a
-                        // soft grey wash. Transit-connected candidates sit a
-                        // touch stronger than no-transit ones as a subtle
-                        // "you might want this" hint.
+                        // Faint but visible in BOTH modes. The off-white
+                        // transit fill is low-contrast over the LIGHT
+                        // basemap, so it needs a higher opacity there to
+                        // read as a wash (the old 0.2 vanished); over the
+                        // DARK basemap a lighter touch already pops, so keep
+                        // it lower to avoid glare.
                         "fill-opacity": [
                             "case",
                             ["==", ["get", "added"], true],
                             0,
                             ["==", ["get", "transit"], true],
-                            dark ? 0.2 : 0.3,
-                            dark ? 0.14 : 0.22,
+                            dark ? 0.18 : 0.4,
+                            dark ? 0.12 : 0.24,
                         ],
                     }}
                 />
