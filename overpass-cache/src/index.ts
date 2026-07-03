@@ -843,6 +843,9 @@ async function handleRequest(
         if (url.pathname === "/admin/store-tile-pack") {
             return handleAdminStoreTilePack(request, env, cors);
         }
+        if (url.pathname === "/admin/store-city-extent") {
+            return handleAdminStoreCityExtent(request, env, cors);
+        }
         if (url.pathname === "/admin/list-tile-packs") {
             return handleAdminListTilePacks(request, env, cors);
         }
@@ -4794,6 +4797,95 @@ async function handleAdminListTilePacks(
             500,
             cors,
         );
+    }
+}
+
+/**
+ * `POST /admin/store-city-extent` (secret) — backfill a city's canonical
+ * `extent` on demand (v640) instead of waiting on the cron's ~5-per-tick
+ * backfill pass. Body `{name, relationId}` (name optional if the relation
+ * is already in the city list). The WORKER derives the extent via
+ * `bboxFromRelation` — the SAME polygons.osm.fr walk the cron uses, so it's
+ * one canonical producer and the stored value byte-matches the adjacency
+ * `around:` keys the client (`/api/relation-extent`) and cron read. Lets a
+ * laptop run fully bootstrap a brand-new city (extent → adjacency →
+ * references → …) with no cron wait. Returns the stored extent.
+ */
+async function handleAdminStoreCityExtent(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "POST" },
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let body: { name?: unknown; relationId?: unknown };
+    try {
+        body = (await request.json()) as {
+            name?: unknown;
+            relationId?: unknown;
+        };
+    } catch {
+        return jsonResponse({ error: "invalid JSON body" }, 400, cors);
+    }
+    const relationId = Number(body.relationId);
+    if (!Number.isFinite(relationId) || relationId <= 0) {
+        return jsonResponse(
+            { error: "relationId (positive number) required" },
+            400,
+            cors,
+        );
+    }
+    // Name: prefer the caller's; else keep whatever's already stored under
+    // this relation id (upsert merges, so an existing name is preserved
+    // anyway — but we need one when the relation is brand new).
+    let name =
+        typeof body.name === "string" && body.name.trim()
+            ? body.name.trim()
+            : null;
+    if (!name) {
+        try {
+            const cities = await getPopularCities(env);
+            name =
+                cities.find((c) => c.relationId === relationId)?.name ?? null;
+        } catch {
+            /* ignore — handled by the null check below */
+        }
+    }
+    if (!name) {
+        return jsonResponse(
+            { error: "name required (relation not already in the city list)" },
+            400,
+            cors,
+        );
+    }
+    const extent = await bboxFromRelation(relationId).catch(() => null);
+    if (!extent) {
+        return jsonResponse(
+            {
+                error: "could not derive extent (polygons.osm.fr miss/timeout)",
+                relationId,
+            },
+            502,
+            cors,
+        );
+    }
+    try {
+        await upsertDiscoveredCity(env, { name, relationId, extent });
+        return jsonResponse(
+            { status: "stored", relationId, name, extent },
+            200,
+            cors,
+        );
+    } catch (e) {
+        console.warn(`store-city-extent upsert failed r${relationId}:`, e);
+        return jsonResponse({ error: "store failed" }, 500, cors);
     }
 }
 

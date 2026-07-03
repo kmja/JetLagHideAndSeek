@@ -874,10 +874,70 @@ async function listCities() {
     return data.cities ?? [];
 }
 
+/**
+ * v640: backfill a city's canonical `extent` via the worker when it's
+ * missing. The worker derives it with `bboxFromRelation` (polygons.osm.fr,
+ * the same source the cron uses) and stores it in the discovered-cities
+ * doc, so this becomes the ONE value the cron + client `/api/relation-extent`
+ * read for the adjacency `around:` keys. Mutates `city.extent` on success.
+ * Best-effort: logs + returns on any failure (the caller's boundary-derived
+ * fallback still covers references).
+ */
+async function ensureCityExtent(city) {
+    if (city.extent || !city.relationId) return;
+    try {
+        const resp = await fetch(`${WORKER}/admin/store-city-extent`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SECRET}`,
+            },
+            body: JSON.stringify({
+                name: city.name,
+                relationId: city.relationId,
+            }),
+        });
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => "");
+            console.warn(
+                `  ✗ extent backfill r${city.relationId}: ${resp.status} ${text}`,
+            );
+            return;
+        }
+        const data = await resp.json().catch(() => null);
+        if (
+            Array.isArray(data?.extent) &&
+            data.extent.length === 4 &&
+            data.extent.every((n) => typeof n === "number" && isFinite(n))
+        ) {
+            city.extent = data.extent;
+            console.log(
+                `  ✓ extent backfilled + stored: [${data.extent
+                    .map((n) => n.toFixed(3))
+                    .join(", ")}]`,
+            );
+        }
+    } catch (e) {
+        console.warn(
+            `  ✗ extent backfill r${city.relationId} threw: ${e?.message ?? e}`,
+        );
+    }
+}
+
 /* ----------------------------- Main ------------------------------ */
 
 async function processCity(city) {
     console.log(`[${city.name}] r${city.relationId}`);
+
+    // v640: if this city has no canonical `extent` yet, backfill it NOW via
+    // the worker (POST /admin/store-city-extent → bboxFromRelation → stored)
+    // instead of waiting on the cron's ~5-per-tick pass. This is the ONE
+    // canonical `city.extent` the cron + client `/api/relation-extent` read
+    // for the adjacent-area `around:` keys, so filling it here lets this
+    // same run warm adjacency under keys the client will actually hit.
+    // Mutates `city.extent` on success; no-op if already present or on
+    // failure (the boundary-derived fallback below still covers refs).
+    await ensureCityExtent(city);
 
     // Most bundled HAND_CURATED / BULK_CITIES entries ship without an
     // extent — only cities the worker's cron has already backfilled
@@ -1177,8 +1237,16 @@ async function processCity(city) {
 
     // v440: warm the wizard's "extend play area" adjacent-search queries
     // (topological adjacency, admin-level, band, stations, sub-units).
+    // v640: adjacency keys off the canonical `city.extent` (bboxFromRelation)
+    // — the SAME value the cron and the client's `/api/relation-extent` use,
+    // NOT the boundary-geometry extent references key off. `ensureCityExtent`
+    // above has filled it when possible; fall back to the boundary extent
+    // only if the backfill couldn't produce one (a live miss either way).
     if (DO_ADJACENT) {
-        await processAdjacentSearch(city, boundaryExtent ?? effectiveExtent);
+        await processAdjacentSearch(
+            city,
+            city.extent ?? boundaryExtent ?? effectiveExtent,
+        );
     }
 
     // HSR is no longer per-city — see processHsrCountries(), run once
