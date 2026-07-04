@@ -1,7 +1,11 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import { useStore } from "@nanostores/react";
-import { circle as turfCircle } from "@turf/turf";
+import {
+    circle as turfCircle,
+    featureCollection as turfFeatureCollection,
+    point as turfPoint,
+} from "@turf/turf";
 import { Footprints, HelpCircle, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
@@ -22,6 +26,8 @@ import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
 import { useSelfPositionWatch } from "@/hooks/useSelfPositionWatch";
 import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import {
+    hidingRadius,
+    hidingRadiusUnits,
     lastKnownPosition,
     mapGeoLocation,
     polyGeoJSON,
@@ -98,6 +104,9 @@ export function HiderBackgroundMap() {
     const $gps = useStore(lastKnownPosition);
     const $reach = useStore(hiderReachFC);
     const $trip = useStore(tripRouteFC);
+    const $selectedStation = useStore(selectedMapStation);
+    const $hidingRadius = useStore(hidingRadius);
+    const $hidingRadiusUnits = useStore(hidingRadiusUnits);
     const $seekerLocations = useStore(seekerLocations);
     const $participants = useStore(participants);
     // Basemap brightness — satellite or dark theme both mean a dark base,
@@ -230,6 +239,33 @@ export function HiderBackgroundMap() {
             { steps: 64, units: "kilometers" },
         );
     }, [$zone?.stationLat, $zone?.stationLng, $zone?.radiusMeters]);
+
+    // Tapped-zone highlight — parity with the seeker map's `selected-zone-*`
+    // layers: the hiding-radius circle of the station the hider tapped,
+    // drawn as a prominent white ring + fill + dot. Recomputed only when
+    // the selection or radius changes.
+    const selectedZoneFC = useMemo(() => {
+        if (!$selectedStation) return null;
+        try {
+            // Mixed Polygon+Point FC — cast around turf's homogeneous-array
+            // typing (the layers filter by geometry-type).
+            return turfFeatureCollection([
+                turfCircle(
+                    [$selectedStation.lng, $selectedStation.lat],
+                    $hidingRadius,
+                    { steps: 128, units: $hidingRadiusUnits },
+                ),
+                turfPoint([$selectedStation.lng, $selectedStation.lat]),
+            ] as never) as GeoJSON.FeatureCollection;
+        } catch {
+            return null;
+        }
+    }, [
+        $selectedStation?.lat,
+        $selectedStation?.lng,
+        $hidingRadius,
+        $hidingRadiusUnits,
+    ]);
 
     // v394: one-shot fit-to-play-area when the polygon first arrives, so
     // the hider sees the city outline framed instead of needing to pan.
@@ -640,6 +676,56 @@ export function HiderBackgroundMap() {
                         </Source>
                     )}
                 </FadeOverlay>
+
+                {/* Tapped-zone highlight — parity with the seeker map's
+                    `selected-zone-*` layers: a prominent white ring + fill +
+                    dot on the station the hider tapped, drawn above the
+                    hiding-zones overlay. */}
+                {selectedZoneFC && (
+                    <Source
+                        id="hider-selected-zone"
+                        type="geojson"
+                        data={selectedZoneFC as GeoJSON.FeatureCollection}
+                    >
+                        <Layer
+                            id="hider-selected-zone-fill"
+                            type="fill"
+                            filter={[
+                                "any",
+                                ["==", ["geometry-type"], "Polygon"],
+                                ["==", ["geometry-type"], "MultiPolygon"],
+                            ]}
+                            paint={{
+                                "fill-color": "#ffffff",
+                                "fill-opacity": 0.16,
+                            }}
+                        />
+                        <Layer
+                            id="hider-selected-zone-line"
+                            type="line"
+                            filter={[
+                                "any",
+                                ["==", ["geometry-type"], "Polygon"],
+                                ["==", ["geometry-type"], "MultiPolygon"],
+                            ]}
+                            paint={{
+                                "line-color": "#ffffff",
+                                "line-width": 3,
+                            }}
+                        />
+                        <Layer
+                            id="hider-selected-zone-dot"
+                            type="circle"
+                            filter={["==", ["geometry-type"], "Point"]}
+                            paint={{
+                                "circle-radius": 7,
+                                "circle-color": "#ffffff",
+                                "circle-stroke-color": "#1F2F3F",
+                                "circle-stroke-width": 2.5,
+                            }}
+                        />
+                    </Source>
+                )}
 
                 {/* Transit-route overlays — shared with the seeker map.
                     Above the zone/boundary fills, below the point markers

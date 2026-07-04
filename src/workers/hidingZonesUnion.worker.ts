@@ -31,10 +31,11 @@ interface UnionRequest {
     units: Units;
 }
 
-/** Cap on how many circles feed the union — the fill is a coarse
- *  envelope, so the closest (caller sends them distance-sorted) are
- *  plenty, and it bounds the worker's wall-clock + the result size. */
-const MAX_UNION_CIRCLES = 120;
+/** Cap on how many circles feed the union — a safety bound on the
+ *  worker's wall-clock for a pathological mega-city. Set high enough that
+ *  a normal city unions ALL its stations (matching the seeker overlay,
+ *  which never drops any); `fetchAreaStations` already caps at 180. */
+const MAX_UNION_CIRCLES = 220;
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -45,17 +46,22 @@ ctx.onmessage = (e: MessageEvent<UnionRequest>) => {
         const circles = stations
             .slice(0, MAX_UNION_CIRCLES)
             .map((s) =>
-                // Low-poly circles (16 steps): a faint envelope doesn't
-                // need smooth arcs and fewer vertices = cheaper union.
-                turfCircle([s.lng, s.lat], radius, { units, steps: 16 }),
+                // Smooth circles (64 steps) so the merged envelope matches
+                // the seeker overlay's look — the earlier 16-step + heavy
+                // simplify made blocky, angular arcs. It's all off the main
+                // thread here, so the extra vertices don't hitch the app.
+                turfCircle([s.lng, s.lat], radius, { units, steps: 64 }),
             );
         if (circles.length >= 2) {
             const merged = turfUnion(
                 turfFeatureCollection(circles) as never,
             ) as Feature | null;
+            // Only a GENTLE simplify (~22 m) to trim vertices for render
+            // without visibly flattening the arcs (the old 88 m tolerance
+            // is what made the edges look chunky).
             union = merged
                 ? (turfSimplify(merged as never, {
-                      tolerance: 0.0008,
+                      tolerance: 0.0002,
                       highQuality: false,
                   }) as Feature)
                 : null;
