@@ -21,7 +21,7 @@
  */
 
 import type { Env } from "../envTypes";
-import { dispatchBoard } from "./dispatcher";
+import { DEPARTURE_ADAPTERS, dispatchBoard } from "./dispatcher";
 import type {
     DepartureBoardRequest,
     DepartureBoardResponse,
@@ -83,6 +83,14 @@ export async function handleDepartures(
         modes,
     };
 
+    // Diagnostic mode (`?debug=1`): bypass the cache, run EVERY candidate
+    // board adapter for this stop independently, and report what each did
+    // — mirrors the trip planner's `?debug=1`. The only way to see, in
+    // production, why a stop's board is empty / which backend served it.
+    if (new URL(request.url).searchParams.get("debug") === "1") {
+        return jsonResponse(await diagnoseBoard(req, when, env), 200, cors);
+    }
+
     const whenBucket = Math.floor(when / WHEN_BUCKET_MS) * WHEN_BUCKET_MS;
     const edgeCache = caches.default;
     const key = await cacheKeyFor(req, whenBucket);
@@ -115,6 +123,88 @@ export async function handleDepartures(
     }
 
     return jsonResponse(payload, 200, cors, "MISS");
+}
+
+/* ─────────────────────── Diagnostics ─────────────────────── */
+
+interface BoardAdapterDiagnosis {
+    id: string;
+    selected: boolean;
+    key: "keyless" | "present" | "missing";
+    /** `"board (N departures)"` | `"null"` | `threw: …` — set when run. */
+    result?: string;
+    stopName?: string;
+    firstDeparture?: string;
+    ms?: number;
+}
+
+/** Per-adapter env-key presence (booleans only, never the values). */
+function boardKeyStatus(
+    id: string,
+    env: Env,
+): "keyless" | "present" | "missing" {
+    switch (id) {
+        case "trafiklab":
+            return env.TRAFIKLAB_API_KEY ? "present" : "missing";
+        case "motis-self-hosted":
+            return env.MOTIS_SELF_HOSTED_URL ? "present" : "missing";
+        default:
+            // entur / swiss / germany / austria / transitous — keyless.
+            return "keyless";
+    }
+}
+
+/**
+ * Run each candidate board adapter for the stop in isolation and report
+ * the outcome — which adapters the live build has, which `canServe` the
+ * coordinate, whether the key is present, and what the upstream returned.
+ */
+async function diagnoseBoard(
+    req: DepartureBoardRequest,
+    when: number,
+    env: Env,
+): Promise<unknown> {
+    const rows: BoardAdapterDiagnosis[] = [];
+    for (const adapter of DEPARTURE_ADAPTERS) {
+        const selected = adapter.canServe(req.lat, req.lng);
+        const row: BoardAdapterDiagnosis = {
+            id: adapter.id,
+            selected,
+            key: boardKeyStatus(adapter.id, env),
+        };
+        if (selected) {
+            const t0 = Date.now();
+            try {
+                const board = await adapter.fetchBoard(
+                    req,
+                    env,
+                    when,
+                    MAX_DEPARTURES,
+                );
+                if (board) {
+                    row.result = `board (${board.departures.length} departures)`;
+                    row.stopName = board.stopName;
+                    const first = board.departures[0];
+                    if (first) {
+                        row.firstDeparture = `${new Date(first.time).toISOString()} ${first.line ?? first.mode}`;
+                    }
+                } else {
+                    row.result = "null";
+                }
+            } catch (e) {
+                row.result = `threw: ${e instanceof Error ? e.message : String(e)}`;
+            }
+            row.ms = Date.now() - t0;
+        }
+        rows.push(row);
+    }
+    return {
+        debug: true,
+        stop: { lat: req.lat, lng: req.lng, name: req.name },
+        when,
+        adapterIdsInBuild: DEPARTURE_ADAPTERS.map((a) => a.id),
+        adapters: rows,
+    };
 }
 
 /* ─────────────────────── Cache layers ─────────────────────── */
