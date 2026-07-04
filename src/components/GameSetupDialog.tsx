@@ -1226,26 +1226,45 @@ export function PlayAreaStep({
     return (
         <div className="space-y-3">
             {value && (
-                <div className={cn(hideMapForSearch && "hidden")}>
-                    <PlayAreaPreviewMap
-                        key={value.properties.osm_id}
-                        value={value}
-                        height={mapHeightClass}
-                        veilLabel={
-                            inPreview && fromGpsSuggest
-                                ? LOCATING_LABEL
-                                : undefined
-                        }
-                        veilSublabel={
-                            inPreview && fromGpsSuggest
-                                ? LOCATING_SUBLABEL
-                                : undefined
-                        }
-                        awaitAdjacent={inPreview}
-                    />
+                // Smoothly collapse the map (grid-rows 1fr→0fr) instead of
+                // an instant `hidden` when the keyboard is up — the map
+                // stays MOUNTED (no reload) and slides away/back as search
+                // opens/closes. `overflow-hidden` clips it while collapsing.
+                <div
+                    className={cn(
+                        "grid transition-[grid-template-rows] duration-300 ease-out",
+                        hideMapForSearch ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+                    )}
+                >
+                    <div className="overflow-hidden">
+                        <PlayAreaPreviewMap
+                            key={value.properties.osm_id}
+                            value={value}
+                            height={mapHeightClass}
+                            veilLabel={
+                                inPreview && fromGpsSuggest
+                                    ? LOCATING_LABEL
+                                    : undefined
+                            }
+                            veilSublabel={
+                                inPreview && fromGpsSuggest
+                                    ? LOCATING_SUBLABEL
+                                    : undefined
+                            }
+                            awaitAdjacent={inPreview}
+                        />
+                    </div>
                 </div>
             )}
 
+            {/* Keyed so switching preview↔search fades the new content in
+                (a smooth transition instead of an instant swap). The key
+                only flips on the mode change, so in-search interactions
+                (typing, focus) don't remount the input. */}
+            <div
+                key={inPreview ? "preview" : "search"}
+                className="space-y-3 animate-in fade-in duration-200"
+            >
             {inPreview ? (
                 (() => {
                     const label =
@@ -1314,7 +1333,7 @@ export function PlayAreaStep({
                                     setResults([]);
                                     setSearched(false);
                                 }}
-                                className="gap-1.5 w-full"
+                                className="gap-1.5 w-full active:scale-[0.98] transition-transform"
                             >
                                 <Pencil className="w-3.5 h-3.5" />
                                 Change area
@@ -1331,6 +1350,15 @@ export function PlayAreaStep({
                     {value && currentAreaLabel && (
                         <Button
                             variant="ghost"
+                            // Prevent the tap from blurring the focused search
+                            // input: the blur fires `setInputFocused(false)`,
+                            // which re-expands the map and shoves this button
+                            // DOWN before the click resolves — so the tap
+                            // missed and you had to press "Keep" twice (the
+                            // reported "two states" bug). Suppressing the
+                            // default focus-shift keeps the layout still so
+                            // the very first tap lands.
+                            onPointerDown={(e) => e.preventDefault()}
                             onClick={() => {
                                 // Keep the ORIGINAL committed area. We no
                                 // longer auto-commit search results, so
@@ -1341,10 +1369,11 @@ export function PlayAreaStep({
                                 setQuery("");
                                 setResults([]);
                                 setSearched(false);
+                                setInputFocused(false);
                                 userInitiatedSearch.current = false;
                                 setMode("preview");
                             }}
-                            className="w-full justify-start gap-1.5"
+                            className="w-full justify-start gap-1.5 active:scale-[0.98] transition-transform"
                         >
                             <ChevronLeft className="w-4 h-4 shrink-0" />
                             <span className="truncate">
@@ -1453,7 +1482,7 @@ export function PlayAreaStep({
                                             type="button"
                                             onClick={() => handlePickResult(r)}
                                             className={cn(
-                                                "w-full text-left p-3 rounded-md border-2 transition-all",
+                                                "w-full text-left p-3 rounded-md border-2 transition-all active:scale-[0.99]",
                                                 active
                                                     ? "bg-primary/10 border-primary"
                                                     : "bg-secondary border-border hover:bg-accent",
@@ -1519,6 +1548,7 @@ export function PlayAreaStep({
                     )}
                 </>
             )}
+            </div>
         </div>
     );
 }
