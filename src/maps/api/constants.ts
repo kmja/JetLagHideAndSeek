@@ -88,6 +88,12 @@ export const PMTILES_URL_FALLBACK =
  *  overpass-cache/src/index.ts and the laptop uploader — bump together
  *  if the master basemap is re-rendered. */
 export const TILE_PACK_BASE = `${JLHS_WORKER_BASE}/tiles/tile-packs/v1`;
+/** Base URL for proxied + R2-cached SATELLITE tiles (v664) — Esri World
+ *  Imagery via the worker (`/api/sattile/{z}/{y}/{x}`, note Esri's y-
+ *  before-x order), replacing the direct server.arcgisonline.com hits.
+ *  This was the last unproxied external map dependency at game time; a
+ *  warmed area now serves imagery from R2 even if Esri is unreachable. */
+export const SAT_TILE_BASE = `${JLHS_WORKER_BASE}/api/sattile`;
 /** Base URL for self-hosted elevation tiles (v342). A Terrarium-encoded
  *  PNG for tile z/x/y is at `${ELEVATION_TILE_BASE}/{z}/{x}/{y}.png`,
  *  proxied + R2-cached by the worker from the AWS Terrain Tiles dataset.

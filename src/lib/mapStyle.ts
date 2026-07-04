@@ -4,6 +4,7 @@ import type {
 } from "maplibre-gl";
 
 import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
+import { SAT_TILE_BASE } from "@/maps/api/constants";
 
 /**
  * Shared basemap-style builder used by BOTH the main seeker/hider map
@@ -15,10 +16,11 @@ import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
  * mode with satellite on it looked much darker than the real map.)
  */
 
+// v664: served via the worker's /api/sattile proxy (R2-cached Esri
+// World Imagery) — the last unproxied external map dependency is gone.
+// Esri's scheme is {z}/{y}/{x} (y before x); the proxy keeps that order.
 export const SATELLITE_SOURCE = {
-    tiles: [
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    ],
+    tiles: [`${SAT_TILE_BASE}/{z}/{y}/{x}`],
     attribution: "Imagery &copy; Esri",
 };
 

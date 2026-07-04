@@ -149,6 +149,10 @@ registerRoute(
 
 registerRoute(
     ({ url }: { url: URL }) =>
+        // v664: satellite tiles now come from the worker proxy
+        // (/api/sattile); the old direct-Esri pattern is kept so any
+        // still-cached entries keep matching during the transition.
+        /\/api\/sattile\//i.test(url.href) ||
         /^https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\//i.test(url.href),
     new CacheFirst({
         cacheName: "tiles-satellite",

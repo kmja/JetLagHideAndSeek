@@ -29,6 +29,7 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
+import { SAT_TILE_BASE } from "@/maps/api/constants";
 import {
     installMissingImageHandler,
     pmtilesUrl,
@@ -587,9 +588,7 @@ export function InlineLocationPicker({
                         <Source
                             id="satellite"
                             type="raster"
-                            tiles={[
-                                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-                            ]}
+                            tiles={[`${SAT_TILE_BASE}/{z}/{y}/{x}`]}
                             tileSize={256}
                         >
                             <Layer

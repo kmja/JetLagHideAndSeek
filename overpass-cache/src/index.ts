@@ -962,6 +962,9 @@ async function handleRequest(
         if (url.pathname.startsWith("/api/railtile/")) {
             return handleRailTile(request, env, ctx, cors);
         }
+        if (url.pathname.startsWith("/api/sattile/")) {
+            return handleSatTile(request, env, ctx, cors);
+        }
 
         if (url.pathname !== "/api/interpreter") {
             return new Response("Not found", { status: 404, headers: cors });
@@ -5271,6 +5274,132 @@ async function handleRailTile(
         headers: {
             ...corsHeadersAsObject(cors),
             "Content-Type": "image/png",
+            "Cache-Control": "public, max-age=604800",
+            "X-Cache": "MISS",
+        },
+    });
+}
+
+/* ───────────────────── Satellite tile proxy (v664) ─────────────────── *
+ *
+ * Esri World Imagery was the LAST unproxied external map dependency at
+ * game time (CLAUDE.md's self-hosting audit). Same R2-backed pattern as
+ * the rail-tile proxy above — self-hosted once warm, resilient to an
+ * upstream outage (stale R2 beats a hole in the basemap).
+ *
+ *   GET /api/sattile/{z}/{y}/{x}
+ *       → upstream https://server.arcgisonline.com/ArcGIS/rest/services/
+ *         World_Imagery/MapServer/tile/{z}/{y}/{x}
+ *
+ * NOTE the {z}/{y}/{x} order — Esri's tile scheme puts y before x; the
+ * proxy keeps the SAME order so the client template swap is mechanical.
+ * Imagery changes very slowly; 90-day R2 TTL. Stored under env.TILES
+ * key `sattile/v1/{z}/{y}/{x}.jpg`.
+ */
+const SATTILE_UPSTREAM =
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile";
+const SATTILE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+async function handleSatTile(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "GET, HEAD" },
+        });
+    }
+    const url = new URL(request.url);
+    const m = url.pathname.match(/^\/api\/sattile\/(\d+)\/(\d+)\/(\d+)$/);
+    if (!m) {
+        return new Response("Bad satellite tile path", {
+            status: 400,
+            headers: cors,
+        });
+    }
+    const [, z, y, x] = m;
+    const r2Key = `sattile/v1/${z}/${y}/${x}.jpg`;
+
+    let obj: R2ObjectBody | null = null;
+    try {
+        obj = await env.TILES.get(r2Key);
+    } catch (e) {
+        console.warn(`[sattile] R2 get failed for ${r2Key}:`, e);
+    }
+    if (obj) {
+        const cachedAt = parseInt(obj.customMetadata?.storedAt ?? "0", 10);
+        const fresh = cachedAt && Date.now() - cachedAt < SATTILE_TTL_MS;
+        if (fresh) {
+            return new Response(request.method === "HEAD" ? null : obj.body, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "image/jpeg",
+                    "Cache-Control": "public, max-age=604800",
+                    "X-Cache": "R2_HIT",
+                },
+            });
+        }
+    }
+
+    const upstreamUrl = `${SATTILE_UPSTREAM}/${z}/${y}/${x}`;
+    let upstream: Response;
+    try {
+        upstream = await fetch(upstreamUrl, {
+            headers: {
+                "User-Agent":
+                    "jlhs-tile-proxy/1.0 (+https://github.com/kmja/jetlaghideandseek)",
+            },
+        });
+    } catch (e) {
+        console.warn(`[sattile] upstream fetch failed ${upstreamUrl}:`, e);
+        if (obj) {
+            return new Response(request.method === "HEAD" ? null : obj.body, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "image/jpeg",
+                    "X-Cache": "R2_STALE",
+                },
+            });
+        }
+        return new Response(null, { status: 503, headers: cors });
+    }
+    if (!upstream.ok) {
+        if (obj) {
+            return new Response(request.method === "HEAD" ? null : obj.body, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "image/jpeg",
+                    "X-Cache": "R2_STALE",
+                },
+            });
+        }
+        return new Response(null, { status: upstream.status, headers: cors });
+    }
+    const bytes = await upstream.arrayBuffer();
+    const contentType =
+        upstream.headers.get("Content-Type") ?? "image/jpeg";
+    ctx.waitUntil(
+        env.TILES.put(r2Key, bytes, {
+            httpMetadata: {
+                contentType,
+                cacheControl: "public, max-age=604800",
+            },
+            customMetadata: { storedAt: String(Date.now()), kind: "sattile" },
+        }).catch((e) =>
+            console.warn(`[sattile] R2 put failed for ${r2Key}:`, e),
+        ),
+    );
+    return new Response(request.method === "HEAD" ? null : bytes, {
+        status: 200,
+        headers: {
+            ...corsHeadersAsObject(cors),
+            "Content-Type": contentType,
             "Cache-Control": "public, max-age=604800",
             "X-Cache": "MISS",
         },

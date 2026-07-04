@@ -40,6 +40,7 @@ import {
     tripRouteFC,
 } from "@/lib/journey/state";
 import { findNearestStation } from "@/lib/journey/stations";
+import { SAT_TILE_BASE } from "@/maps/api/constants";
 import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import {
@@ -463,9 +464,7 @@ export function HiderBackgroundMap() {
                     <Source
                         id="satellite"
                         type="raster"
-                        tiles={[
-                            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-                        ]}
+                        tiles={[`${SAT_TILE_BASE}/{z}/{y}/{x}`]}
                         tileSize={256}
                     >
                         <Layer
