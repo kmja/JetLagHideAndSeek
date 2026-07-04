@@ -142,6 +142,50 @@ const candidatePolygonCache = new Map<
  * imported lazily at this leaf, so a static import in the wizard
  * doesn't pull leaflet/maplibre into the SSR graph.
  */
+/**
+ * Register a small diagonal-hatch image (`adjacent-hatch`) the unselected
+ * neighbour fill uses as a `fill-pattern`. A flat off-white tint is nearly
+ * invisible over the light-mode basemap; the hatch gives it TEXTURE so the
+ * candidate area reads clearly. Idempotent — safe to call on every load.
+ * Structural param type so `onLoad`'s MapLibre target matches without a
+ * maplibre-gl type import.
+ */
+function ensureAdjacentHatch(map: {
+    hasImage: (id: string) => boolean;
+    addImage: (
+        id: string,
+        img: ImageData,
+        opts?: { pixelRatio?: number },
+    ) => void;
+}): void {
+    try {
+        if (map.hasImage("adjacent-hatch")) return;
+        const size = 8;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.clearRect(0, 0, size, size);
+        // A single 45° stroke that tiles seamlessly into continuous
+        // diagonal stripes. Neutral slate so it textures any underlying
+        // fill colour (off-white transit / grey no-transit) the same.
+        ctx.strokeStyle = "rgba(80, 92, 110, 0.6)";
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(-1, size + 1);
+        ctx.lineTo(size + 1, -1);
+        ctx.stroke();
+        map.addImage(
+            "adjacent-hatch",
+            ctx.getImageData(0, 0, size, size),
+            { pixelRatio: 2 },
+        );
+    } catch {
+        /* image race / no canvas — the flat fill still shows */
+    }
+}
+
 export function PlayAreaPreviewMap({
     value,
     height = "h-[160px]",
@@ -599,6 +643,7 @@ export function PlayAreaPreviewMap({
                 touchPitch={false}
                 onLoad={(e) => {
                     installMissingImageHandler(e.target);
+                    ensureAdjacentHatch(e.target);
                     fitToBbox(false);
                     // v637: flag the map ready so the committed-area fit
                     // effect re-fires and widens to include folded-in
@@ -1167,6 +1212,25 @@ function AdjacentCandidatesOverlay({
                             dark ? 0.18 : 0.4,
                             dark ? 0.12 : 0.24,
                         ],
+                    }}
+                />
+                {/* Diagonal-hatch texture over the flat tint so an
+                    unselected neighbour reads clearly (the flat off-white
+                    alone is near-invisible over the light basemap). Only on
+                    REAL boundaries (a bbox rectangle shouldn't get hatched)
+                    and unselected areas; pinned beneath the primary. */}
+                <Layer
+                    id="adjacent-candidates-hatch"
+                    beforeId="bbox-fill"
+                    type="fill"
+                    filter={[
+                        "all",
+                        ["!=", ["get", "added"], true],
+                        ["==", ["get", "real"], true],
+                    ]}
+                    paint={{
+                        "fill-pattern": "adjacent-hatch",
+                        "fill-opacity": dark ? 0.5 : 0.8,
                     }}
                 />
                 {/* Solid outline for resolved boundaries — unselected
