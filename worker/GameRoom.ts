@@ -658,13 +658,27 @@ export class GameRoom {
                 message: "Question payload missing id / key / data.",
             });
         }
+        // Peek at the thermometer lifecycle status (payloads are otherwise
+        // opaque): a `started` thermometer isn't answerable yet, so it must
+        // not push; its FINISH arrives as a re-add of the same key with the
+        // status flipped, and THAT is the hider's "answer me now" moment.
+        const statusOf = (q: unknown): unknown =>
+            (q as { data?: { status?: unknown } })?.data?.status;
+        const incomingStatus = statusOf(question);
         // Idempotency: if a question with the same key already
         // exists, treat as an update (covers the seeker's local
         // re-add after a network blip).
         const existingIdx = this.game.questions.findIndex(
             (q) => isQuestionLike(q) && q.key === question.key,
         );
+        let notifyHider = false;
         if (existingIdx >= 0) {
+            // Re-add: only the started→finished thermometer transition is
+            // a fresh "answer me" signal; a plain network-blip re-add
+            // (status unchanged) must not re-notify.
+            notifyHider =
+                statusOf(this.game.questions[existingIdx]) === "started" &&
+                incomingStatus !== "started";
             this.game.questions[existingIdx] = question;
         } else {
             // Hard cap on questions per room. A normal game has
@@ -678,8 +692,22 @@ export class GameRoom {
                 });
             }
             this.game.questions.push(question);
+            notifyHider = incomingStatus !== "started";
         }
         this.broadcast({ t: "qAdded", question });
+        // The hider's answer window is TIMED, and they're the player most
+        // likely to have the app backgrounded (riding transit) — Web Push
+        // any offline hide-team member so the question reaches them the
+        // moment it's asked (mirrors the curse + endgame push paths).
+        if (notifyHider) {
+            this.state.waitUntil(
+                this.pushToOfflineHideTeam({
+                    title: "New question",
+                    body: "The seekers asked a question — open the app to answer it before the window closes.",
+                    tag: `question-${question.key}`,
+                }),
+            );
+        }
     }
 
     private handleAnswerQuestion(
@@ -799,6 +827,22 @@ export class GameRoom {
     }
 
     private async pushEndgameToOfflineHideTeam() {
+        return this.pushToOfflineHideTeam({
+            title: "Endgame — lock down",
+            body: "The seeker says they're in your zone. Commit to a final spot, or open the app to refute it.",
+            tag: "endgame",
+        });
+    }
+
+    /** Web Push `payload` to every OFFLINE hide-team member with a stored
+     *  subscription (an online client gets the WebSocket broadcast — the
+     *  push is only for the backgrounded phone on a train). Shared by the
+     *  endgame claim + new-question paths; mirrors the curse push. */
+    private async pushToOfflineHideTeam(payload: {
+        title: string;
+        body: string;
+        tag: string;
+    }) {
         const vapidKeysStr = (this.env as { VAPID_KEYS?: string }).VAPID_KEYS;
         const vapidPublicKey = (this.env as { VAPID_PUBLIC_KEY?: string })
             .VAPID_PUBLIC_KEY;
@@ -811,11 +855,7 @@ export class GameRoom {
                 continue;
             const result = await sendWebPush(
                 sub,
-                {
-                    title: "Endgame — lock down",
-                    body: "The seeker says they're in your zone. Commit to a final spot, or open the app to refute it.",
-                    tag: "endgame",
-                },
+                payload,
                 vapidKeys,
                 vapidPublicKey,
                 "mailto:karl.mj.andersson@gmail.com",

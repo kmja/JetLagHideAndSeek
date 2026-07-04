@@ -168,9 +168,17 @@ restart.
   `curseReceived`), and arms an alarm to wipe the room after 30
   min idle.
 - `webpush.ts` — RFC 8291/8188 Web Push (encryption + VAPID) using
-  Web Crypto, so curses can reach **offline** seekers as push
-  notifications. Public key served at `/vapid-public-key`; clients
-  register a subscription over the WebSocket.
+  Web Crypto, so events can reach **offline** (backgrounded) players as
+  push notifications. Public key served at `/vapid-public-key`; clients
+  register a subscription over the WebSocket. Three push paths, all
+  offline-recipients-only (online clients get the WS broadcast):
+  curses → offline seekers (`pushCurseToOfflineSeekers`); endgame claim
+  → offline hide team; **new question → offline hide team** (the
+  hider's answer window is timed and they're the player most likely
+  backgrounded on transit — `handleAddQuestion` pushes via the shared
+  `pushToOfflineHideTeam`, skipping a `status:"started"` thermometer
+  and instead pushing on its started→finished re-add, and never
+  re-pushing a plain network-blip re-add of the same key).
 
 ### Shared protocol (`protocol/`)
 
