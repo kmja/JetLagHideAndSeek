@@ -1135,6 +1135,12 @@ function AdjacentCandidatesOverlay({
                     toggles it back off. */}
                 <Layer
                     id="adjacent-candidates-fill"
+                    // Pin BENEATH the primary boundary so an unselected
+                    // neighbour never washes over it. JSX order alone isn't
+                    // enough — candidates load AFTER the primary mounts, so
+                    // without an explicit beforeId their layers get inserted
+                    // on TOP of the already-present `bbox-fill`.
+                    beforeId="bbox-fill"
                     type="fill"
                     paint={{
                         "fill-color": colorExpr,
@@ -1148,6 +1154,15 @@ function AdjacentCandidatesOverlay({
                             "case",
                             ["==", ["get", "added"], true],
                             0,
+                            // Bbox FALLBACK (real boundary not loaded yet):
+                            // its rectangle contains the whole primary (e.g.
+                            // Akershus's bbox wraps Oslo), so a visible fill
+                            // here washes the play area. Keep it invisible
+                            // (opacity 0 is still tap-hittable) until the
+                            // real municipality shape lands, which only fills
+                            // its OWN area, not the primary's.
+                            ["==", ["get", "real"], false],
+                            0,
                             ["==", ["get", "transit"], true],
                             dark ? 0.18 : 0.4,
                             dark ? 0.12 : 0.24,
@@ -1158,6 +1173,7 @@ function AdjacentCandidatesOverlay({
                     only; added areas wear the committed red stroke. */}
                 <Layer
                     id="adjacent-candidates-line"
+                    beforeId="bbox-fill"
                     type="line"
                     filter={["==", ["get", "real"], true]}
                     paint={{
@@ -1174,6 +1190,7 @@ function AdjacentCandidatesOverlay({
                 {/* Bbox fallback (still loading): dashed rectangle. */}
                 <Layer
                     id="adjacent-candidates-line-bbox"
+                    beforeId="bbox-fill"
                     type="line"
                     filter={["==", ["get", "real"], false]}
                     paint={{
