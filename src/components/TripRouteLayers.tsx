@@ -3,6 +3,7 @@ import { Layer, Source } from "react-map-gl/maplibre";
 
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { tripRouteFC } from "@/lib/journey/state";
+import { fadePaint } from "@/lib/mapPaint";
 
 /**
  * Renders the active planned trip's route + steps on the map (shared by
@@ -37,12 +38,12 @@ export function TripRouteLayers() {
                             "line-cap": "round",
                             "line-join": "round",
                         }}
-                        paint={{
+                        paint={fadePaint({
                             "line-color": "rgba(0,0,0,0.55)",
                             "line-width": 6,
                             "line-opacity": shown ? 0.9 : 0,
                             "line-opacity-transition": { duration: FADE_MS },
-                        }}
+                        })}
                     />
                     {/* Coloured leg line — solid for transit. */}
                     <Layer
@@ -57,12 +58,12 @@ export function TripRouteLayers() {
                             "line-cap": "round",
                             "line-join": "round",
                         }}
-                        paint={{
+                        paint={fadePaint({
                             "line-color": ["get", "color"],
                             "line-width": 3.5,
                             "line-opacity": shown ? 1 : 0,
                             "line-opacity-transition": { duration: FADE_MS },
-                        }}
+                        })}
                     />
                     {/* Walking legs — dashed. */}
                     <Layer
@@ -74,20 +75,20 @@ export function TripRouteLayers() {
                             ["==", ["get", "walk"], true],
                         ]}
                         layout={{ "line-cap": "round", "line-join": "round" }}
-                        paint={{
+                        paint={fadePaint({
                             "line-color": ["get", "color"],
                             "line-width": 3,
                             "line-dasharray": [1.5, 1.5],
                             "line-opacity": shown ? 1 : 0,
                             "line-opacity-transition": { duration: FADE_MS },
-                        }}
+                        })}
                     />
                     {/* Step dots. */}
                     <Layer
                         id="trip-route-stops"
                         type="circle"
                         filter={["==", ["get", "kind"], "stop"]}
-                        paint={{
+                        paint={fadePaint({
                             "circle-radius": [
                                 "case",
                                 ["==", ["get", "role"], "stop"],
@@ -111,7 +112,7 @@ export function TripRouteLayers() {
                             "circle-stroke-opacity-transition": {
                                 duration: FADE_MS,
                             },
-                        }}
+                        })}
                     />
                     {/* Step labels — the line to board + its departure. */}
                     <Layer
@@ -127,13 +128,13 @@ export function TripRouteLayers() {
                             "text-allow-overlap": false,
                             "text-optional": true,
                         }}
-                        paint={{
+                        paint={fadePaint({
                             "text-color": "white",
                             "text-halo-color": "rgba(0,0,0,0.85)",
                             "text-halo-width": 1.5,
                             "text-opacity": shown ? 1 : 0,
                             "text-opacity-transition": { duration: FADE_MS },
-                        }}
+                        })}
                     />
                 </Source>
             )}

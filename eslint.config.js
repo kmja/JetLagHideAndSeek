@@ -1,6 +1,7 @@
 import pluginJs from "@eslint/js";
 import pluginImportAlias from "eslint-plugin-import-alias";
 import pluginReact from "eslint-plugin-react";
+import pluginReactHooks from "eslint-plugin-react-hooks";
 import simpleImportSort from "eslint-plugin-simple-import-sort";
 import globals from "globals";
 import tseslint from "typescript-eslint";
@@ -17,6 +18,7 @@ export default [
     {
         plugins: {
             "import-alias": pluginImportAlias,
+            "react-hooks": pluginReactHooks,
             "simple-import-sort": simpleImportSort,
         },
         settings: {
@@ -41,6 +43,13 @@ export default [
             "@typescript-eslint/no-explicit-any": "off", // Would be great to remove all `any` types...
             "simple-import-sort/imports": "error",
             "simple-import-sort/exports": "error",
+            // A conditional hook call ships a runtime crash (React #310 —
+            // the v654 "MAP COULDN'T LOAD" incident was exactly this), so
+            // it's an ERROR. exhaustive-deps stays a warning: this codebase
+            // deliberately tunes effect deps in many places (with disable
+            // comments where intentional).
+            "react-hooks/rules-of-hooks": "error",
+            "react-hooks/exhaustive-deps": "warn",
         },
     },
 ];

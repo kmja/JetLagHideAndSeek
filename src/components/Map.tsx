@@ -56,7 +56,9 @@ import {
 import { hidingPeriodEndsAt, playArea } from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
+import { fadePaint } from "@/lib/mapPaint";
 import { createMapShim } from "@/lib/mapShim";
+import { buildStyle } from "@/lib/mapStyle";
 import { seekerAddQuestion } from "@/lib/multiplayer/store";
 import {
     PLAY_AREA_COLOR,
@@ -69,7 +71,6 @@ import {
     pmtilesUrl,
     recordPmtilesError,
 } from "@/lib/protomapsStyle";
-import { buildStyle } from "@/lib/mapStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
@@ -290,7 +291,12 @@ export function Map({ className }: MapProps) {
                 $selectedStation.lng,
                 $selectedStation.lat,
             ]);
-            return turf.featureCollection([circle, dot]);
+            // Mixed Polygon+Point FC — cast around turf's homogeneous-array
+            // typing (the layers filter by geometry-type).
+            return turf.featureCollection([
+                circle,
+                dot,
+            ] as never) as GeoJSON.FeatureCollection;
         } catch {
             return null;
         }
@@ -1692,7 +1698,7 @@ export function Map({ className }: MapProps) {
                                     ["==", ["geometry-type"], "Polygon"],
                                     ["==", ["geometry-type"], "MultiPolygon"],
                                 ]}
-                                paint={{
+                                paint={fadePaint({
                                     // Light mode: faint red tint over the bright
                                     // basemap reads as "highlighted remaining
                                     // area". Dark mode: a faint red tint over a
@@ -1713,7 +1719,7 @@ export function Map({ className }: MapProps) {
                                     "fill-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                             <Layer
                                 id="hiding-zones-line"
@@ -1725,7 +1731,7 @@ export function Map({ className }: MapProps) {
                                     ["==", ["geometry-type"], "LineString"],
                                     ["==", ["geometry-type"], "MultiLineString"],
                                 ]}
-                                paint={{
+                                paint={fadePaint({
                                     "line-color": "hsl(2, 70%, 54%)",
                                     "line-width": 1.5,
                                     // Subtle: the zone circles now show in
@@ -1738,13 +1744,13 @@ export function Map({ className }: MapProps) {
                                         duration: 280,
                                     },
                                     "line-dasharray": [6, 5],
-                                }}
+                                })}
                             />
                             <Layer
                                 id="hiding-zones-points"
                                 type="circle"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                paint={{
+                                paint={fadePaint({
                                     // Zoom-scaled station dots — small enough that
                                     // a dense network (Stockholm-scale) reads as a
                                     // tidy field of points rather than a solid mass.
@@ -1770,7 +1776,7 @@ export function Map({ className }: MapProps) {
                                     "circle-stroke-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                             {/* Invisible larger hit target on each station
                                 point so a tap near the dot opens the
@@ -1814,7 +1820,7 @@ export function Map({ className }: MapProps) {
                                     "text-allow-overlap": false,
                                     "text-optional": true,
                                 }}
-                                paint={{
+                                paint={fadePaint({
                                     "text-color": mapLabelColor,
                                     "text-halo-color": mapLabelHalo,
                                     "text-halo-width": 1.4,
@@ -1822,7 +1828,7 @@ export function Map({ className }: MapProps) {
                                     "text-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                         </Source>
                     )}
@@ -1911,7 +1917,7 @@ export function Map({ className }: MapProps) {
                             <Layer
                                 id="travel-times-dot"
                                 type="circle"
-                                paint={{
+                                paint={fadePaint({
                                     "circle-radius": 6,
                                     "circle-color": [
                                         "case",
@@ -1938,7 +1944,7 @@ export function Map({ className }: MapProps) {
                                     "circle-stroke-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                             <Layer
                                 id="travel-times-labels"
@@ -1952,7 +1958,7 @@ export function Map({ className }: MapProps) {
                                     "text-allow-overlap": false,
                                     "text-ignore-placement": false,
                                 }}
-                                paint={{
+                                paint={fadePaint({
                                     "text-color": mapLabelColor,
                                     "text-halo-color": mapLabelHalo,
                                     "text-halo-width": 1.5,
@@ -1960,7 +1966,7 @@ export function Map({ className }: MapProps) {
                                     "text-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                         </Source>
                     )}
@@ -2033,7 +2039,7 @@ export function Map({ className }: MapProps) {
                         <Layer
                             id="elimination-flash-fill"
                             type="fill"
-                            paint={{
+                            paint={fadePaint({
                                 "fill-color": "hsl(2, 70%, 54%)",
                                 "fill-opacity": eliminationFlash.visible
                                     ? 0.5
@@ -2041,12 +2047,12 @@ export function Map({ className }: MapProps) {
                                 "fill-opacity-transition": {
                                     duration: eliminationFlash.fadeMs,
                                 },
-                            }}
+                            })}
                         />
                         <Layer
                             id="elimination-flash-line"
                             type="line"
-                            paint={{
+                            paint={fadePaint({
                                 "line-color": "hsl(2, 70%, 54%)",
                                 "line-width": 2,
                                 "line-opacity": eliminationFlash.visible
@@ -2055,7 +2061,7 @@ export function Map({ className }: MapProps) {
                                 "line-opacity-transition": {
                                     duration: eliminationFlash.fadeMs,
                                 },
-                            }}
+                            })}
                         />
                     </Source>
                 )}

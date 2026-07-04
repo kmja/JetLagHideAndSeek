@@ -2,6 +2,7 @@ import { Layer, Source } from "react-map-gl/maplibre";
 
 import { FadeOverlay } from "@/components/FadeOverlay";
 import type { TransitFC } from "@/hooks/useTransitRouteOverlays";
+import { fadePaint } from "@/lib/mapPaint";
 
 /**
  * Shared transit-route line overlays, rendered as MapLibre Source/Layer
@@ -40,13 +41,13 @@ function FadingTransitLine({
                         id={`${id}-line`}
                         type="line"
                         filter={["==", ["geometry-type"], "LineString"]}
-                        paint={{
+                        paint={fadePaint({
                             "line-color": color,
                             "line-width": 2,
                             "line-opacity": shown ? LINE_OPACITY : 0,
                             "line-opacity-transition": { duration: FADE_MS },
                             ...(dash ? { "line-dasharray": dash } : {}),
-                        }}
+                        })}
                     />
                     {/* Station / stop markers — the route relations' node
                         members. Drawn as small dots in the mode colour with
@@ -59,7 +60,7 @@ function FadingTransitLine({
                         type="circle"
                         filter={["==", ["geometry-type"], "Point"]}
                         minzoom={11}
-                        paint={{
+                        paint={fadePaint({
                             "circle-radius": [
                                 "interpolate",
                                 ["linear"],
@@ -80,7 +81,7 @@ function FadingTransitLine({
                             "circle-stroke-opacity-transition": {
                                 duration: FADE_MS,
                             },
-                        }}
+                        })}
                     />
                 </Source>
             )}

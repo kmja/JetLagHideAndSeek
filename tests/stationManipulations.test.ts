@@ -124,7 +124,7 @@ describe("mergeDuplicateStation", () => {
         ]);
     });
 
-    it("returns 3 individual zones when 6 Jan van Galenstraat stations are added, where only 2 stations share the actual zone", () => {
+    it("merges 6 Jan van Galenstraat stations into 2 clusters under the 800 m same-name floor", () => {
         const places: StationPlace[] = [
             {
                 // West station 1:      https://www.openstreetmap.org/node/3306520727
@@ -203,8 +203,13 @@ describe("mergeDuplicateStation", () => {
         const units: turf.Units = "kilometers";
 
         const result = mergeDuplicateStation(places, radius, units);
-        // We expect 3 stations, because the 3 pairs are very far apart
-        expect(result).toHaveLength(3);
+        // Same-name merging uses max(radius, 800 m) — the floor exists so
+        // a hub's spread-out same-named nodes (Oslo Nationaltheatret)
+        // still collapse. Here radius=0.5 km → threshold 800 m: the
+        // centre and east pairs sit ~670 m apart so they chain into ONE
+        // cluster; the west pair is >800 m from the centre and stays its
+        // own. (Pre-floor this expected 3 distinct pair-clusters.)
+        expect(result).toHaveLength(2);
     });
 });
 

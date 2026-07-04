@@ -22,6 +22,7 @@ import {
     toggleAdjacentArea,
 } from "@/lib/context";
 import { clipPolygonToLand } from "@/lib/geometry/client";
+import { fadePaint } from "@/lib/mapPaint";
 import {
     PLAY_AREA_COLOR,
     PLAY_AREA_FILL_OPACITY,
@@ -883,21 +884,21 @@ function CommittedAreasOverlay() {
                 <Layer
                     id="committed-areas-fade-fill"
                     type="fill"
-                    paint={{
+                    paint={fadePaint({
                         "fill-color": PLAY_AREA_COLOR,
                         "fill-opacity": lit ? PLAY_AREA_FILL_OPACITY : 0,
                         "fill-opacity-transition": { duration: 280, delay: 0 },
-                    }}
+                    })}
                 />
                 <Layer
                     id="committed-areas-fade-line"
                     type="line"
-                    paint={{
+                    paint={fadePaint({
                         "line-color": PLAY_AREA_COLOR,
                         "line-width": PLAY_AREA_LINE_WIDTH,
                         "line-opacity": lit ? PLAY_AREA_LINE_OPACITY : 0,
                         "line-opacity-transition": { duration: 280, delay: 0 },
-                    }}
+                    })}
                 />
             </Source>
         </>

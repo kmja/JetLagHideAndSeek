@@ -16,10 +16,10 @@ import Map, {
     Source,
 } from "react-map-gl/maplibre";
 
+import { FadeOverlay } from "@/components/FadeOverlay";
 import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { MapNavControls } from "@/components/MapNavControls";
 import { MapOverlayLoadingToasts } from "@/components/MapOverlayLoadingToasts";
-import { FadeOverlay } from "@/components/FadeOverlay";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import { TripRouteLayers } from "@/components/TripRouteLayers";
 import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
@@ -40,6 +40,7 @@ import {
     tripRouteFC,
 } from "@/lib/journey/state";
 import { findNearestStation } from "@/lib/journey/stations";
+import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import {
     PLAY_AREA_COLOR,
@@ -552,7 +553,7 @@ export function HiderBackgroundMap() {
                                     ["==", ["geometry-type"], "Polygon"],
                                     ["==", ["geometry-type"], "MultiPolygon"],
                                 ]}
-                                paint={{
+                                paint={fadePaint({
                                     "fill-color": darkBasemap
                                         ? "#f5e7e3"
                                         : "hsl(2, 70%, 54%)",
@@ -564,7 +565,7 @@ export function HiderBackgroundMap() {
                                     "fill-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                             <Layer
                                 id="hider-reach-line"
@@ -580,7 +581,7 @@ export function HiderBackgroundMap() {
                                         "MultiLineString",
                                     ],
                                 ]}
-                                paint={{
+                                paint={fadePaint({
                                     "line-color": "hsl(2, 70%, 54%)",
                                     "line-width": 1.5,
                                     "line-opacity": shown ? 0.4 : 0,
@@ -588,13 +589,13 @@ export function HiderBackgroundMap() {
                                         duration: 280,
                                     },
                                     "line-dasharray": [6, 5],
-                                }}
+                                })}
                             />
                             <Layer
                                 id="hider-reach-dots"
                                 type="circle"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                paint={{
+                                paint={fadePaint({
                                     // Zoom-scaled station dots, matching the
                                     // seeker's hiding-zones-points so a dense
                                     // network reads as a tidy field of points.
@@ -620,7 +621,7 @@ export function HiderBackgroundMap() {
                                     "circle-stroke-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                             {/* Invisible larger hit target so a tap near the
                                 tiny dot opens the transit card. */}
@@ -655,7 +656,7 @@ export function HiderBackgroundMap() {
                                     "text-allow-overlap": false,
                                     "text-optional": true,
                                 }}
-                                paint={{
+                                paint={fadePaint({
                                     // Follow the BASEMAP brightness (parity
                                     // with the seeker map) — white washes out
                                     // on the light basemap, so use dark text +
@@ -671,7 +672,7 @@ export function HiderBackgroundMap() {
                                     "text-opacity-transition": {
                                         duration: 280,
                                     },
-                                }}
+                                })}
                             />
                         </Source>
                     )}

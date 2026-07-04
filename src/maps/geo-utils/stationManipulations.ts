@@ -151,6 +151,8 @@ export function mergeDuplicateStation(
                     .filter((m): m is string => Boolean(m)),
             ),
         );
+        // `modes` is a string[] where StationPlace's index signature wants
+        // string — a real (deliberate) shape extension, so hop via unknown.
         merged.push({
             ...first,
             properties: {
@@ -159,7 +161,7 @@ export function mergeDuplicateStation(
                 ...(modes.length ? { modes } : {}),
             },
             geometry: { type: "Point", coordinates: [avgLng, avgLat] },
-        } as StationPlace);
+        } as unknown as StationPlace);
     }
     return merged;
 }

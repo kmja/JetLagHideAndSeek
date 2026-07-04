@@ -76,7 +76,10 @@ const PUSH_SUB_STORAGE_KEY = "jlhs_pushSub";
 // Keep in sync with getMultiplayerOrigin() in src/lib/multiplayer/store.ts
 const MULTIPLAYER_ORIGIN = "https://jlhs-multiplayer.karl-mj-andersson.workers.dev";
 
-function b64urlToUint8Array(b64: string): Uint8Array {
+// Return type pinned to Uint8Array<ArrayBuffer> (which `new Uint8Array(n)`
+// always is) — TS 5.7's generic TypedArrays default to ArrayBufferLike,
+// which `PushManager.subscribe`'s BufferSource param rejects.
+function b64urlToUint8Array(b64: string): Uint8Array<ArrayBuffer> {
     const padded = b64.replace(/-/g, "+").replace(/_/g, "/");
     const bin = atob(padded);
     const bytes = new Uint8Array(bin.length);
