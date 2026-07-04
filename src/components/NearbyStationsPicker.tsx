@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import { convertLength } from "@turf/turf";
 import { Check, Loader2, LocateFixed } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
@@ -9,22 +10,27 @@ import {
     TRANSIT_ICONS,
     type TransitMode,
 } from "@/lib/gameSetup";
-import { haversineMeters } from "@/lib/geo";
+import { hidingRadius, hidingRadiusUnits } from "@/lib/context";
+import { findZonesNearPoint } from "@/lib/journey/stations";
 import { cn } from "@/lib/utils";
-import { getOverpassData } from "@/maps/api/overpass";
 
 /**
- * GPS-based hiding-zone picker for the hider during the hiding period.
- * Fetches transit stations matching `allowedTransit` within ~500 m of
- * the hider's current GPS location, lists them with names and
- * distance, and lets the hider commit one as their hiding zone in a
- * single tap.
+ * GPS-based hiding-zone picker for the hider during the hiding period —
+ * "which hiding zones am I standing in?". Lists the candidate stations
+ * whose hiding-radius circle CONTAINS the hider's current GPS fix, and
+ * lets the hider commit one as their zone in a single tap.
  *
- * The 500 m radius is deliberately tight: the rulebook puts the
- * hiding zone at 500 m around the chosen station, so anything farther
- * than that from the hider's current position would mean their actual
- * hiding spot is outside the zone they declared — which would let the
- * seeker eliminate the wrong territory.
+ * v665: resolves against the game's OWN candidate-zone set
+ * (`findZonesNearPoint` — the same shared play-area-keyed fetch the
+ * hiding-zones overlay uses) instead of firing a live `around:GPS`
+ * Overpass query. That's both self-hosted (one cached query per game)
+ * and CORRECT: a station outside the play area, or of a disallowed
+ * mode, is not a legal zone and no longer shows up.
+ *
+ * The containment radius is the game's `hidingRadius` (rulebook default
+ * 500 m): any farther and the hider's actual spot would sit outside the
+ * zone they declared — which would let the seekers eliminate the wrong
+ * territory.
  */
 
 
@@ -53,6 +59,11 @@ export function NearbyStationsPicker({
     onCancel?: () => void;
 }) {
     const $allowed = useStore(allowedTransit);
+    const $hidingRadius = useStore(hidingRadius);
+    const $hidingRadiusUnits = useStore(hidingRadiusUnits);
+    const radiusMeters = Math.round(
+        convertLength($hidingRadius, $hidingRadiusUnits, "meters"),
+    );
     const [state, setState] = useState<
         | { status: "idle" }
         | { status: "locating" }
@@ -79,13 +90,15 @@ export function NearbyStationsPicker({
             (pos) => {
                 const { latitude: lat, longitude: lng } = pos.coords;
                 setState({ status: "fetching", lat, lng });
-                fetchNearbyStations(lat, lng, $allowed)
+                findZonesNearPoint(lat, lng, {
+                    allowed: $allowed,
+                    radiusMeters,
+                })
                     .then((stations) => {
                         if (stations.length === 0) {
                             setState({
                                 status: "error",
-                                message:
-                                    "No transit stations of the allowed modes within 500 m. Move closer to one, or pick a zone manually below.",
+                                message: `No hiding zone of the allowed modes contains your position (nearest station must be within ${radiusMeters} m). Move closer to one, or pick a zone manually below.`,
                             });
                             return;
                         }
@@ -184,7 +197,7 @@ export function NearbyStationsPicker({
         >
             <div className="flex items-center justify-between gap-2">
                 <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                    Nearby stations · within 500 m
+                    Zones you're in · within {radiusMeters} m
                 </div>
                 <Button
                     size="sm"
@@ -249,114 +262,6 @@ function Pane({ children }: { children: React.ReactNode }) {
             {children}
         </div>
     );
-}
-
-async function fetchNearbyStations(
-    lat: number,
-    lng: number,
-    allowed: TransitMode[],
-): Promise<FoundStation[]> {
-    const r = 500; // meters
-    const queries: string[] = [];
-    if (allowed.includes("train")) {
-        queries.push(
-            `node[railway=station][!"subway"](around:${r},${lat},${lng});`,
-        );
-    }
-    if (allowed.includes("subway")) {
-        queries.push(`node[station=subway](around:${r},${lat},${lng});`);
-        queries.push(
-            `node[railway=station][subway=yes](around:${r},${lat},${lng});`,
-        );
-    }
-    if (allowed.includes("tram")) {
-        queries.push(`node[railway=tram_stop](around:${r},${lat},${lng});`);
-    }
-    if (allowed.includes("bus")) {
-        queries.push(`node[highway=bus_stop](around:${r},${lat},${lng});`);
-        queries.push(
-            `node[public_transport=stop_position][bus=yes](around:${r},${lat},${lng});`,
-        );
-    }
-    if (allowed.includes("ferry")) {
-        queries.push(
-            `node[amenity=ferry_terminal](around:${r},${lat},${lng});`,
-        );
-    }
-    if (queries.length === 0) return [];
-
-    const query = `
-[out:json][timeout:30];
-(
-${queries.join("\n")}
-);
-out;
-`;
-    const data = await getOverpassData(query, undefined);
-    const elements = (data as { elements?: any[] }).elements ?? [];
-
-    const seen = new Set<number>();
-    const stations: FoundStation[] = [];
-    for (const el of elements) {
-        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
-        if (seen.has(el.id)) continue;
-        seen.add(el.id);
-        const name = el.tags?.["name:en"] ?? el.tags?.name;
-        if (!name) continue;
-        const mode = inferMode(el.tags ?? {});
-        if (!mode || !allowed.includes(mode)) continue;
-        stations.push({
-            id: el.id,
-            name,
-            lat: el.lat,
-            lng: el.lon,
-            mode,
-            distanceMeters: haversineMeters(lat, lng, el.lat, el.lon),
-        });
-    }
-    stations.sort((a, b) => a.distanceMeters - b.distanceMeters);
-
-    // De-duplicate by station identity. OSM often returns the same
-    // station as 2–6 separate nodes — one per platform, one per
-    // entrance, one per subway-railway tag combo — so a naive id-only
-    // dedupe (above) still leaves the list visibly cluttered (the
-    // user reported "duplicate nearby stations"). We collapse anything
-    // with the same normalised name within ~120 m down to the first
-    // (closest) entry. The mode that survives is the mode of that
-    // closest node, which is usually the right one (e.g. the subway
-    // tag wins over the bus stop tag when the user is on a metro
-    // platform).
-    const deduped: FoundStation[] = [];
-    for (const s of stations) {
-        const norm = normaliseName(s.name);
-        const dup = deduped.find(
-            (d) =>
-                normaliseName(d.name) === norm &&
-                haversineMeters(d.lat, d.lng, s.lat, s.lng) < 120,
-        );
-        if (dup) continue;
-        deduped.push(s);
-    }
-    return deduped;
-}
-
-function normaliseName(name: string): string {
-    return name
-        .toLocaleLowerCase()
-        .replace(/\s+/g, " ")
-        .replace(/[.,()/-]/g, "")
-        .replace(/\bstation\b|\bstn\b|\bstop\b/g, "")
-        .trim();
-}
-
-function inferMode(tags: Record<string, string>): TransitMode | null {
-    if (tags.subway === "yes" || tags.station === "subway") return "subway";
-    if (tags.railway === "station") return "train";
-    if (tags.railway === "tram_stop" || tags.tram === "yes") return "tram";
-    if (tags.amenity === "ferry_terminal" || tags.ferry === "yes")
-        return "ferry";
-    if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
-    return null;
 }
 
 export default NearbyStationsPicker;

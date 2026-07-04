@@ -3,6 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useStore } from "@nanostores/react";
 import {
     circle as turfCircle,
+    convertLength as turfConvertLength,
     featureCollection as turfFeatureCollection,
     point as turfPoint,
 } from "@turf/turf";
@@ -32,14 +33,18 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
-import { hidingPeriodEndsAt, satelliteView } from "@/lib/gameSetup";
+import {
+    allowedTransit,
+    hidingPeriodEndsAt,
+    satelliteView,
+} from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
 import {
     hiderReachFC,
     selectedMapStation,
     tripRouteFC,
 } from "@/lib/journey/state";
-import { findNearestStation } from "@/lib/journey/stations";
+import { findZoneAtPoint } from "@/lib/journey/stations";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
 import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
@@ -437,21 +442,37 @@ export function HiderBackgroundMap() {
                         return;
                     }
                     // Tier 2: no overlay feature under the tap. During
-                    // the hiding period, fall back to "find the nearest
-                    // transit station within 300 m of the tap" so the
-                    // hider can still open a station card without first
-                    // turning on the reach overlay (the explicit ask).
-                    // No-op outside the hiding period (gameplay invariant
-                    // — the hider doesn't travel after committing).
+                    // the hiding period, resolve the tap against the game's
+                    // OWN candidate-zone set (v665 — same shared play-area
+                    // fetch as the overlay; parity with the seeker map's
+                    // nearestZoneStation): the nearest station whose
+                    // hiding-radius circle CONTAINS the tap. Replaced the
+                    // old live `around:` Overpass query — a station of a
+                    // disallowed mode or outside the play area isn't a
+                    // legal zone, so it must not resolve. No-op outside the
+                    // hiding period (gameplay invariant — the hider doesn't
+                    // travel after committing).
                     const endsAt = hidingPeriodEndsAt.get();
                     if (endsAt == null || endsAt <= Date.now()) return;
                     const { lat: tapLat, lng: tapLng } = e.lngLat;
+                    const radiusMeters = turfConvertLength(
+                        $hidingRadius,
+                        $hidingRadiusUnits,
+                        "meters",
+                    );
                     void (async () => {
-                        const station = await findNearestStation(
-                            tapLat,
-                            tapLng,
-                        );
-                        if (station) selectedMapStation.set(station);
+                        const station = await findZoneAtPoint(tapLat, tapLng, {
+                            allowed: allowedTransit.get(),
+                            radiusMeters,
+                        }).catch(() => null);
+                        if (station) {
+                            selectedMapStation.set({
+                                lat: station.lat,
+                                lng: station.lng,
+                                name: station.name,
+                                modes: [station.mode],
+                            });
+                        }
                     })();
                 }}
             >

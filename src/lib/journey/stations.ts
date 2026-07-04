@@ -22,9 +22,10 @@
  * relevant ones) — never in the query string.
  */
 
+import { polyGeoJSON } from "@/lib/context";
 import { hidingZoneFiltersFor, type TransitMode } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
-import { findPlacesInZone, getOverpassData } from "@/maps/api/overpass";
+import { findPlacesInZone } from "@/maps/api/overpass";
 
 /** Total stops cap — keeps a dense metro's station field (and the
  *  union-fill worker's input) tractable. */
@@ -56,47 +57,111 @@ export interface AreaStationOptions {
     allowed: TransitMode[];
 }
 
+/** A fetched station before any anchor-relative distance is attached. */
+type RawStation = Omit<AreaStation, "distanceMeters">;
+
 /**
- * Resolve a map tap to the nearest transit station within `radiusM`,
- * or null if none is in range. Tiny single-shot Overpass query (no
- * mode-filtering, no caching of the result set itself — the worker's
- * R2/edge cache deduplicates the byte-identical query for nearby taps).
- * Used by the hider map's "tap basemap" fallback so the hider can
- * still open a station card when the reach overlay is off.
+ * Single-entry memo for the raw play-area station set. The set is a pure
+ * function of (filter list, play area), and both are fixed for a whole
+ * game — so every consumer (hiding-zones overlay, zone picker, map-tap
+ * resolution) shares ONE fetch per game instead of each firing its own.
+ * Identity-checked against the `polyGeoJSON` atom value so a play-area
+ * change invalidates it. In-flight coalescing so concurrent callers
+ * share the same request.
  */
-export async function findNearestStation(
-    lat: number,
-    lng: number,
-    radiusM = 300,
-): Promise<{ lat: number; lng: number; name?: string } | null> {
-    const query = `
-[out:json][timeout:10];
-(
-  node["railway"~"^(station|halt|tram_stop)$"](around:${radiusM},${lat},${lng});
-  node["public_transport"="station"](around:${radiusM},${lat},${lng});
-  node["highway"="bus_stop"](around:${radiusM},${lat},${lng});
-);
-out;
-`;
-    let data: { elements?: OverpassElement[] } | null = null;
+let rawStationsCache: {
+    filtersKey: string;
+    polyRef: unknown;
+    stations: RawStation[];
+} | null = null;
+let rawStationsInFlight: {
+    filtersKey: string;
+    polyRef: unknown;
+    promise: Promise<RawStation[]>;
+} | null = null;
+
+async function fetchRawAreaStations(
+    allowed: TransitMode[],
+): Promise<RawStation[]> {
+    const filters = hidingZoneFiltersFor(allowed);
+    if (filters.length === 0) return [];
+    const filtersKey = filters.join("|");
+    const polyRef = polyGeoJSON.get();
+
+    if (
+        rawStationsCache &&
+        rawStationsCache.filtersKey === filtersKey &&
+        rawStationsCache.polyRef === polyRef
+    ) {
+        return rawStationsCache.stations;
+    }
+    if (
+        rawStationsInFlight &&
+        rawStationsInFlight.filtersKey === filtersKey &&
+        rawStationsInFlight.polyRef === polyRef
+    ) {
+        return rawStationsInFlight.promise;
+    }
+
+    const promise = (async () => {
+        // Byte-identical to the seeker's ZoneSidebar call (filters[0]
+        // primary + rest as alternatives, nwr / out center, no timeout
+        // header) so both roles share one cached Overpass entry. `silent`
+        // — every consumer has its own loading/error affordances.
+        const data = (await findPlacesInZone(
+            filters[0],
+            undefined,
+            "nwr",
+            "center",
+            filters.slice(1),
+            0,
+            true,
+        )) as { elements?: OverpassElement[] };
+        const elements = data?.elements ?? [];
+
+        const seenIds = new Set<number>();
+        const stations: RawStation[] = [];
+        for (const el of elements) {
+            // `out center` puts way/relation coords under `center`.
+            const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
+            const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
+            if (typeof lat !== "number" || typeof lng !== "number") continue;
+            if (seenIds.has(el.id)) continue;
+            seenIds.add(el.id);
+            const name = el.tags?.["name:en"] ?? el.tags?.name;
+            if (!name) continue;
+            const mode = inferMode(el.tags ?? {});
+            if (!mode || !allowed.includes(mode)) continue;
+            stations.push({ id: el.id, name, lat, lng, mode });
+        }
+        rawStationsCache = { filtersKey, polyRef, stations };
+        return stations;
+    })();
+    rawStationsInFlight = { filtersKey, polyRef, promise };
     try {
-        data = (await getOverpassData(query, undefined)) as {
-            elements?: OverpassElement[];
-        };
-    } catch {
-        return null;
+        return await promise;
+    } finally {
+        if (rawStationsInFlight?.promise === promise) {
+            rawStationsInFlight = null;
+        }
     }
-    const elements = data?.elements ?? [];
-    let best: { lat: number; lng: number; name?: string; d: number } | null =
-        null;
-    for (const el of elements) {
-        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
-        const d = haversineMeters(lat, lng, el.lat, el.lon);
-        if (best && d >= best.d) continue;
-        const name = el.tags?.["name:en"] ?? el.tags?.name;
-        best = { lat: el.lat, lng: el.lon, name, d };
+}
+
+/** Distance-sort + same-name/nearby dedupe, shared by every consumer. */
+function sortAndDedupe(stations: AreaStation[]): AreaStation[] {
+    stations.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    const deduped: AreaStation[] = [];
+    for (const s of stations) {
+        const norm = normaliseName(s.name);
+        const dup = deduped.find(
+            (d) =>
+                normaliseName(d.name) === norm &&
+                haversineMeters(d.lat, d.lng, s.lat, s.lng) < 150,
+        );
+        if (dup) continue;
+        deduped.push(s);
     }
-    return best ? { lat: best.lat, lng: best.lng, name: best.name } : null;
+    return deduped;
 }
 
 /**
@@ -111,60 +176,18 @@ export async function fetchAreaStations(
     opts: AreaStationOptions,
 ): Promise<AreaStation[]> {
     const allowed = opts.allowed.length > 0 ? opts.allowed : ALL_MODES;
-    const filters = hidingZoneFiltersFor(allowed);
-    if (filters.length === 0) return [];
-
-    // Byte-identical to the seeker's ZoneSidebar call (filters[0] primary
-    // + rest as alternatives, nwr / out center, no timeout header) so both
-    // roles share one cached Overpass entry. `silent` — the overlay has
-    // its own loading/error affordances.
-    const data = (await findPlacesInZone(
-        filters[0],
-        undefined,
-        "nwr",
-        "center",
-        filters.slice(1),
-        0,
-        true,
-    )) as { elements?: OverpassElement[] };
-    const elements = data?.elements ?? [];
-
-    const seenIds = new Set<number>();
-    const stations: AreaStation[] = [];
-    for (const el of elements) {
-        // `out center` puts way/relation coords under `center`.
-        const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
-        const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
-        if (typeof lat !== "number" || typeof lng !== "number") continue;
-        if (seenIds.has(el.id)) continue;
-        seenIds.add(el.id);
-        const name = el.tags?.["name:en"] ?? el.tags?.name;
-        if (!name) continue;
-        const mode = inferMode(el.tags ?? {});
-        if (!mode || !allowed.includes(mode)) continue;
-        stations.push({
-            id: el.id,
-            name,
-            lat,
-            lng,
-            mode,
-            distanceMeters: haversineMeters(centerLat, centerLng, lat, lng),
-        });
-    }
-
-    // Sort by distance, dedupe by (normalised name + 150 m proximity).
-    stations.sort((a, b) => a.distanceMeters - b.distanceMeters);
-    const deduped: AreaStation[] = [];
-    for (const s of stations) {
-        const norm = normaliseName(s.name);
-        const dup = deduped.find(
-            (d) =>
-                normaliseName(d.name) === norm &&
-                haversineMeters(d.lat, d.lng, s.lat, s.lng) < 150,
-        );
-        if (dup) continue;
-        deduped.push(s);
-    }
+    const raw = await fetchRawAreaStations(allowed);
+    const deduped = sortAndDedupe(
+        raw.map((s) => ({
+            ...s,
+            distanceMeters: haversineMeters(
+                centerLat,
+                centerLng,
+                s.lat,
+                s.lng,
+            ),
+        })),
+    );
     if (deduped.length <= MAX_AREA_STATIONS) return deduped;
 
     // Trim to cap, keeping a balanced mix of modes. Sort by a
@@ -176,6 +199,44 @@ export async function fetchAreaStations(
         return a.distanceMeters - b.distanceMeters;
     });
     return deduped.slice(0, MAX_AREA_STATIONS);
+}
+
+/**
+ * Every candidate hiding zone CONTAINING the given point — the stations
+ * of the game's own candidate set (same shared fetch as the overlay)
+ * whose hiding-radius circle covers (lat, lng), nearest first.
+ *
+ * This is "which zones am I standing in?" — the zone picker's question
+ * and the hider map-tap fallback's question. It replaced the last two
+ * position-keyed live `around:GPS` Overpass queries (v665): resolving
+ * against the game's own station set is both self-hosted (one shared
+ * play-area-keyed query) and CORRECT — a station of a disallowed mode,
+ * or outside the play area, is not a legal zone and no longer matches.
+ */
+export async function findZonesNearPoint(
+    lat: number,
+    lng: number,
+    opts: { allowed: TransitMode[]; radiusMeters: number },
+): Promise<AreaStation[]> {
+    const allowed = opts.allowed.length > 0 ? opts.allowed : ALL_MODES;
+    const raw = await fetchRawAreaStations(allowed);
+    const within = raw
+        .map((s) => ({
+            ...s,
+            distanceMeters: haversineMeters(lat, lng, s.lat, s.lng),
+        }))
+        .filter((s) => s.distanceMeters <= opts.radiusMeters);
+    return sortAndDedupe(within);
+}
+
+/** The single nearest candidate zone containing the point, or null. */
+export async function findZoneAtPoint(
+    lat: number,
+    lng: number,
+    opts: { allowed: TransitMode[]; radiusMeters: number },
+): Promise<AreaStation | null> {
+    const zones = await findZonesNearPoint(lat, lng, opts);
+    return zones[0] ?? null;
 }
 
 const ALL_MODES: TransitMode[] = ["subway", "train", "tram", "bus", "ferry"];
