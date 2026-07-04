@@ -143,14 +143,14 @@ const candidatePolygonCache = new Map<
  * doesn't pull leaflet/maplibre into the SSR graph.
  */
 /**
- * Register a small diagonal-hatch image (`adjacent-hatch`) the unselected
+ * Register a small DOT-stipple image (`adjacent-dots`) the unselected
  * neighbour fill uses as a `fill-pattern`. A flat off-white tint is nearly
- * invisible over the light-mode basemap; the hatch gives it TEXTURE so the
- * candidate area reads clearly. Idempotent — safe to call on every load.
- * Structural param type so `onLoad`'s MapLibre target matches without a
- * maplibre-gl type import.
+ * invisible over the light-mode basemap; a dotted texture makes the
+ * candidate area read clearly WITHOUT the "crossed-out" look a diagonal
+ * hatch gave it. Idempotent — safe to call on every load. Structural param
+ * type so `onLoad`'s MapLibre target matches without a maplibre-gl import.
  */
-function ensureAdjacentHatch(map: {
+function ensureAdjacentDots(map: {
     hasImage: (id: string) => boolean;
     addImage: (
         id: string,
@@ -159,7 +159,7 @@ function ensureAdjacentHatch(map: {
     ) => void;
 }): void {
     try {
-        if (map.hasImage("adjacent-hatch")) return;
+        if (map.hasImage("adjacent-dots")) return;
         const size = 8;
         const canvas = document.createElement("canvas");
         canvas.width = size;
@@ -167,20 +167,15 @@ function ensureAdjacentHatch(map: {
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
         ctx.clearRect(0, 0, size, size);
-        // A single 45° stroke that tiles seamlessly into continuous
-        // diagonal stripes. Neutral slate so it textures any underlying
-        // fill colour (off-white transit / grey no-transit) the same.
-        ctx.strokeStyle = "rgba(80, 92, 110, 0.6)";
-        ctx.lineWidth = 1.4;
+        // One dot centred in a tile → a regular stipple grid when tiled.
+        // Neutral slate so it textures the off-white fill legibly.
+        ctx.fillStyle = "rgba(70, 82, 100, 0.6)";
         ctx.beginPath();
-        ctx.moveTo(-1, size + 1);
-        ctx.lineTo(size + 1, -1);
-        ctx.stroke();
-        map.addImage(
-            "adjacent-hatch",
-            ctx.getImageData(0, 0, size, size),
-            { pixelRatio: 2 },
-        );
+        ctx.arc(size / 2, size / 2, 1.3, 0, Math.PI * 2);
+        ctx.fill();
+        map.addImage("adjacent-dots", ctx.getImageData(0, 0, size, size), {
+            pixelRatio: 2,
+        });
     } catch {
         /* image race / no canvas — the flat fill still shows */
     }
@@ -643,7 +638,7 @@ export function PlayAreaPreviewMap({
                 touchPitch={false}
                 onLoad={(e) => {
                     installMissingImageHandler(e.target);
-                    ensureAdjacentHatch(e.target);
+                    ensureAdjacentDots(e.target);
                     fitToBbox(false);
                     // v637: flag the map ready so the committed-area fit
                     // effect re-fires and widens to include folded-in
@@ -1156,15 +1151,16 @@ function AdjacentCandidatesOverlay({
         }),
     };
 
-    // Shared colour ramp: added (red) → transit-connected (off-white) →
-    // neither (grey). Reused by the fill and both line layers.
+    // added (red) → every unselected neighbour ONE neutral off-white.
+    // The transit-vs-no-transit signal lives on the PILLS (border + label),
+    // not the fill — a per-area colour split read as "why is one area white
+    // and the others grey?". The dot stipple (below) makes each area legible
+    // over the light basemap. Reused by the fill and both line layers.
     const colorExpr: ExpressionSpecification = [
         "case",
         ["==", ["get", "added"], true],
         "hsl(2, 70%, 54%)",
-        ["==", ["get", "transit"], true],
         "hsl(45, 23%, 92%)",
-        "hsl(220, 8%, 60%)",
     ];
 
     return (
@@ -1208,19 +1204,19 @@ function AdjacentCandidatesOverlay({
                             // its OWN area, not the primary's.
                             ["==", ["get", "real"], false],
                             0,
-                            ["==", ["get", "transit"], true],
-                            dark ? 0.18 : 0.4,
-                            dark ? 0.12 : 0.24,
+                            // One opacity for every unselected neighbour.
+                            dark ? 0.16 : 0.36,
                         ],
                     }}
                 />
-                {/* Diagonal-hatch texture over the flat tint so an
-                    unselected neighbour reads clearly (the flat off-white
-                    alone is near-invisible over the light basemap). Only on
-                    REAL boundaries (a bbox rectangle shouldn't get hatched)
+                {/* Dot-stipple texture over the flat tint so an unselected
+                    neighbour reads clearly (the flat off-white alone is
+                    near-invisible over the light basemap) — dots rather than
+                    a diagonal hatch, which read as "crossed out". Only on
+                    REAL boundaries (a bbox rectangle shouldn't get stippled)
                     and unselected areas; pinned beneath the primary. */}
                 <Layer
-                    id="adjacent-candidates-hatch"
+                    id="adjacent-candidates-dots"
                     beforeId="bbox-fill"
                     type="fill"
                     filter={[
@@ -1229,8 +1225,8 @@ function AdjacentCandidatesOverlay({
                         ["==", ["get", "real"], true],
                     ]}
                     paint={{
-                        "fill-pattern": "adjacent-hatch",
-                        "fill-opacity": dark ? 0.5 : 0.8,
+                        "fill-pattern": "adjacent-dots",
+                        "fill-opacity": dark ? 0.5 : 0.85,
                     }}
                 />
                 {/* Solid outline for resolved boundaries — unselected
