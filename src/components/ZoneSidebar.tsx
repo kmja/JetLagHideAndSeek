@@ -43,6 +43,10 @@ import {
     useCustomStations as useCustomStationsAtom,
     zoneSidebarOpen,
 } from "@/lib/context";
+import {
+    prepareZoneCirclesAsync,
+    styleZoneStationsAsync,
+} from "@/lib/seekerZones";
 import { cn } from "@/lib/utils";
 import {
     BLANK_GEOJSON,
@@ -297,52 +301,19 @@ export const ZoneSidebar = () => {
                 );
             }
 
-            const unionized = safeUnion(
-                turf.simplify($questionFinishedMapData, {
-                    tolerance: 0.001,
-                }),
+            // Heavy geometry — 512-step circle per station + the
+            // remaining-area union + per-circle intersect filter — runs in
+            // the seeker-zones Web Worker (v663) so a dense metro's compute
+            // doesn't freeze the app; the pipeline itself lives in
+            // `src/lib/zonePipeline.ts` (falls back to a main-thread call
+            // where Workers are unavailable). A union failure still throws
+            // into this function's catch → toast, as before.
+            let circles = await prepareZoneCirclesAsync(
+                places,
+                $hidingRadius,
+                $hidingRadiusUnits,
+                $questionFinishedMapData,
             );
-
-            let circles = places
-                .map((place) => {
-                    const radius = $hidingRadius;
-                    const center = turf.getCoord(place);
-                    // 512 segments → ~6 m chord on a 500 m radius
-                    // (under one CSS pixel even at zoom 18). The
-                    // previous 256-segment circles still showed
-                    // visible facets at city zoom over the dashed
-                    // primary-red border (which highlights the
-                    // polygon edges); doubling resolution removes
-                    // them without meaningful perf cost — even a
-                    // 1000-station network only adds ~250 K vertex
-                    // updates total, which Leaflet handles fine
-                    // on the canvas/SVG side.
-                    const circle = turf.circle(center, radius, {
-                        steps: 512,
-                        units: $hidingRadiusUnits,
-                        properties: place,
-                    });
-
-                    return circle;
-                })
-                .filter((circle) => {
-                    // Keep a station if its hiding zone still overlaps the
-                    // remaining valid area (interior OR boundary-straddling).
-                    // `unionized` is the play area MINUS every eliminated
-                    // region (questionFinishedMapData), so a station is a
-                    // live candidate iff its circle intersects it.
-                    //
-                    // The old test `!booleanWithin(circle, unionized)` was
-                    // inverted: booleanWithin is true only when the circle
-                    // sits ENTIRELY inside the area, so negating it DROPPED
-                    // every fully-interior zone and kept only the ones poking
-                    // out past the boundary. Early-game (whole area still
-                    // valid) that painted a ring of stations around the edge
-                    // with an empty middle. Guard against a failed union so a
-                    // null polygon never silently drops every candidate.
-                    if (!unionized) return true;
-                    return turf.booleanIntersects(circle, unionized);
-                });
 
             for (const question of questions.get()) {
                 if (planningModeEnabled.get() && question.data.drag) {
@@ -577,10 +548,37 @@ export const ZoneSidebar = () => {
             const activeStations = stations.filter(
                 (x) => !$disabledStations.includes(x.properties.properties.id),
             );
-            showGeoJSON(
-                styleStations(activeStations, $displayHidingZonesStyle),
-                $displayHidingZonesStyle === "zones",
-            );
+            // The "stations"/"no-overlap" styles union EVERY 512-step
+            // circle — the seeker overlay's single heaviest op — so the
+            // styling runs in the seeker-zones worker (v663). Async with a
+            // cancellation guard: a re-run (style/disabled-set change)
+            // invalidates the in-flight result instead of racing it.
+            let cancelled = false;
+            void (async () => {
+                try {
+                    const styled = await styleZoneStationsAsync(
+                        activeStations,
+                        $displayHidingZonesStyle,
+                    );
+                    if (!cancelled) {
+                        showGeoJSON(
+                            styled,
+                            $displayHidingZonesStyle === "zones",
+                        );
+                    }
+                } catch (error) {
+                    console.warn("Hiding zone styling failed:", error);
+                    if (!cancelled) {
+                        toast.error(
+                            "An error occurred while drawing hiding zones",
+                            { toastId: "hiding-zone-style-error" },
+                        );
+                    }
+                }
+            })();
+            return () => {
+                cancelled = true;
+            };
         } else {
             removeHidingZones();
         }
@@ -1266,51 +1264,8 @@ export const ZoneSidebar = () => {
     return <Sidebar side="right">{body}</Sidebar>;
 };
 
-function styleStations(
-    circles: StationCircle[],
-    style: string,
-): FeatureCollection | Feature {
-    switch (style) {
-        case "no-display":
-            return { type: "FeatureCollection", features: [] };
-
-        case "no-overlap":
-            // safeUnion → turf.union throws on an empty collection; guard.
-            if (circles.length === 0)
-                return { type: "FeatureCollection", features: [] };
-            return safeUnion(turf.featureCollection(circles));
-
-        case "stations": {
-            // Dots + name labels + a single UNIONED extent fill. Filling
-            // each circle separately compounds opacity where zones overlap
-            // (4+ overlapping zones turn the basemap into an opaque wash);
-            // unioning paints the covered area exactly once at a uniform
-            // faint opacity, and its outline becomes the clean envelope of
-            // the possible-hiding area rather than crisscrossing arcs.
-            // turf.union (inside safeUnion) needs ≥2 geometries, so only
-            // union when there are at least 2 circles; 1 → that circle; 0 →
-            // no fill. (A bare 0/1 case otherwise threw "Must have at least
-            // 2 geometries" → the map error boundary.)
-            const union =
-                circles.length >= 2
-                    ? (safeUnion(turf.featureCollection(circles)) as Feature)
-                    : (circles[0] ?? null);
-            return turf.featureCollection([
-                ...(union ? [union] : []),
-                ...circles.map((c) => c.properties as Feature),
-            ]);
-        }
-
-        default:
-            // "zones": individual circles (per-zone fill + outline) plus
-            // centre points so the name labels render here too. This view
-            // deliberately shows each zone distinctly.
-            return turf.featureCollection([
-                ...circles,
-                ...circles.map((c) => c.properties as Feature),
-            ]);
-    }
-}
+// `styleStations` moved to `src/lib/zonePipeline.ts` (`styleZoneStations`)
+// so it can run in the seeker-zones Web Worker — see the render effect.
 
 async function selectionProcess(
     station: any,
