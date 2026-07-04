@@ -1,42 +1,37 @@
 /**
- * Area-wide transit-station scan for the hider's reach overlay.
+ * Area-wide transit-station scan for the hider's hiding-zones overlay.
  *
- * `NearbyStationsPicker` already fetches stations within 500 m for the
- * "improvise on short notice" zone picker. The reach overlay needs a
- * much wider view — the hider's question is "of EVERY candidate
- * hiding zone in this city, which can I get to before the whistle?".
+ * v661: the scan is keyed to the PLAY AREA, not the hider's GPS. The
+ * old implementation built `around:lat,lng` Overpass clauses from the
+ * live GPS fix — which made every player/position a byte-unique query
+ * string, so the worker's R2 cache could never hit and every load went
+ * to live Overpass (the "rate-limited even though the city is starred"
+ * bug). Same anti-pattern the v640 adjacency fix killed: two producers
+ * of the same query must be ONE producer.
  *
- * The scan is mode-aware in two ways:
+ * It now reuses the SEEKER's hiding-zones fetch path verbatim:
+ * `hidingZoneFiltersFor(allowedTransit)` → `findPlacesInZone(...)`,
+ * with the exact argument shape `ZoneSidebar` uses — so the hider's
+ * query string is byte-identical to the seeker's default hiding-zones
+ * query. One shared R2 entry per (play area, allowed modes): warm for
+ * prewarmed cities, and warmed for the whole lobby the moment any
+ * player loads hiding zones.
  *
- *   1. Per-mode radius caps. Subway/train/ferry can carry the hider
- *      tens of kilometres in a 30-minute hiding period; bus, far less.
- *      Querying every bus stop within an hour-train's reach would
- *      pull in thousands of stops and blow past both the worker's
- *      200-stop proxy cap and any reasonable map-clutter budget.
- *
- *   2. Result tier. When the per-mode results combined still exceed
- *      the cap, we trim from the *least mobile* mode first (bus →
- *      tram → ferry → train → subway), so the user sees the
- *      strategically-relevant stations even in dense networks.
- *
- * Stations from multiple modes are deduped by normalised name +
- * proximity (same logic NearbyStationsPicker uses for the same
- * reason: OSM models a single station as many platform/entrance
- * nodes).
+ * The hider's GPS is still used CLIENT-SIDE only — to distance-sort and
+ * trim the result to the cap (closest stations are the strategically
+ * relevant ones) — never in the query string.
  */
 
-import type { TransitMode } from "@/lib/gameSetup";
+import { hidingZoneFiltersFor, type TransitMode } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
-import { getOverpassData } from "@/maps/api/overpass";
+import { findPlacesInZone, getOverpassData } from "@/maps/api/overpass";
 
-/** Total stops cap. The journey-arrival proxy enforces 200; we
- *  budget a little under so other request bookkeeping (e.g. the
- *  walking pre-filter falling through to a station the caller
- *  added explicitly) has headroom. */
+/** Total stops cap — keeps a dense metro's station field (and the
+ *  union-fill worker's input) tractable. */
 export const MAX_AREA_STATIONS = 180;
 
 export interface AreaStation {
-    /** OSM node id. Stable identifier for the journey-arrivals proxy. */
+    /** OSM element id. Stable identifier for downstream keys. */
     id: number;
     name: string;
     lat: number;
@@ -45,36 +40,9 @@ export interface AreaStation {
     distanceMeters: number;
 }
 
-/**
- * Per-mode straight-line speed in km/h. Used to derive a "could the
- * hider plausibly reach this station by this mode at all" radius
- * cap. Deliberately generous — the radius is a coarse pre-filter,
- * NOT the live-schedule check (that's the proxy's job).
- */
-const MODE_SPEED_KMH: Record<TransitMode, number> = {
-    subway: 50,
-    train: 70,
-    ferry: 25,
-    tram: 20,
-    bus: 18,
-};
-
-/** Hard upper bound on per-mode scan radius, in metres. Past ~40 km
- *  Overpass response sizes balloon (esp. for bus) and we hit the
- *  worker's CPU budget probing them all. The cap is well above any
- *  realistic intra-city move during a hiding period. */
-const MAX_MODE_RADIUS_M: Record<TransitMode, number> = {
-    subway: 40_000,
-    train: 50_000,
-    ferry: 30_000,
-    tram: 20_000,
-    bus: 15_000,
-};
-
 /** Mode priority — higher = surfaces first when we trim to the cap.
- *  The "is the seeker checking thermometer near the metro?" decision
- *  cares vastly more about a hider on the subway than one waiting for
- *  a city bus, so subway/train stations are kept under pressure. */
+ *  Subway/train stations matter vastly more to the hiding-zone survey
+ *  than individual bus stops, so they're kept under pressure. */
 const MODE_PRIORITY: Record<TransitMode, number> = {
     subway: 5,
     train: 4,
@@ -84,8 +52,6 @@ const MODE_PRIORITY: Record<TransitMode, number> = {
 };
 
 export interface AreaStationOptions {
-    /** Hiding-period budget in minutes — drives per-mode radius. */
-    hidingDurationMin: number;
     /** Which transit modes the game allows; defaults to all. */
     allowed: TransitMode[];
 }
@@ -112,10 +78,10 @@ export async function findNearestStation(
 );
 out;
 `;
-    let data: { elements?: OverpassNode[] } | null = null;
+    let data: { elements?: OverpassElement[] } | null = null;
     try {
         data = (await getOverpassData(query, undefined)) as {
-            elements?: OverpassNode[];
+            elements?: OverpassElement[];
         };
     } catch {
         return null;
@@ -133,36 +99,43 @@ out;
     return best ? { lat: best.lat, lng: best.lng, name: best.name } : null;
 }
 
-/** Pull every plausibly-reachable transit station around a centre. */
+/**
+ * Pull every candidate hiding-zone station in the play area. The
+ * (centerLat, centerLng) anchor is used only for the client-side
+ * distance sort + cap trim — it never reaches the query, so the query
+ * stays byte-stable per (play area, allowed modes).
+ */
 export async function fetchAreaStations(
     centerLat: number,
     centerLng: number,
     opts: AreaStationOptions,
 ): Promise<AreaStation[]> {
     const allowed = opts.allowed.length > 0 ? opts.allowed : ALL_MODES;
-    const queries: string[] = [];
+    const filters = hidingZoneFiltersFor(allowed);
+    if (filters.length === 0) return [];
 
-    for (const mode of allowed) {
-        const r = perModeRadiusM(mode, opts.hidingDurationMin);
-        if (r <= 0) continue;
-        queries.push(...modeOverpassClauses(mode, centerLat, centerLng, r));
-    }
-    if (queries.length === 0) return [];
-
-    const query = `
-[out:json][timeout:30];
-(
-${queries.join("\n")}
-);
-out;
-`;
-    const data = await getOverpassData(query, undefined);
-    const elements = (data as { elements?: OverpassNode[] }).elements ?? [];
+    // Byte-identical to the seeker's ZoneSidebar call (filters[0] primary
+    // + rest as alternatives, nwr / out center, no timeout header) so both
+    // roles share one cached Overpass entry. `silent` — the overlay has
+    // its own loading/error affordances.
+    const data = (await findPlacesInZone(
+        filters[0],
+        undefined,
+        "nwr",
+        "center",
+        filters.slice(1),
+        0,
+        true,
+    )) as { elements?: OverpassElement[] };
+    const elements = data?.elements ?? [];
 
     const seenIds = new Set<number>();
     const stations: AreaStation[] = [];
     for (const el of elements) {
-        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
+        // `out center` puts way/relation coords under `center`.
+        const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
+        const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
+        if (typeof lat !== "number" || typeof lng !== "number") continue;
         if (seenIds.has(el.id)) continue;
         seenIds.add(el.id);
         const name = el.tags?.["name:en"] ?? el.tags?.name;
@@ -172,15 +145,10 @@ out;
         stations.push({
             id: el.id,
             name,
-            lat: el.lat,
-            lng: el.lon,
+            lat,
+            lng,
             mode,
-            distanceMeters: haversineMeters(
-                centerLat,
-                centerLng,
-                el.lat,
-                el.lon,
-            ),
+            distanceMeters: haversineMeters(centerLat, centerLng, lat, lng),
         });
     }
 
@@ -212,51 +180,23 @@ out;
 
 const ALL_MODES: TransitMode[] = ["subway", "train", "tram", "bus", "ferry"];
 
-function perModeRadiusM(mode: TransitMode, hidingMin: number): number {
-    const fromSpeed = (MODE_SPEED_KMH[mode] * hidingMin) / 60; // km
-    const fromCap = MAX_MODE_RADIUS_M[mode];
-    return Math.min(fromSpeed * 1000, fromCap);
-}
-
-function modeOverpassClauses(
-    mode: TransitMode,
-    lat: number,
-    lng: number,
-    radiusM: number,
-): string[] {
-    const around = `around:${Math.round(radiusM)},${lat},${lng}`;
-    switch (mode) {
-        case "subway":
-            return [
-                `node[station=subway](${around});`,
-                `node[railway=station][subway=yes](${around});`,
-            ];
-        case "train":
-            return [`node[railway=station][!"subway"](${around});`];
-        case "tram":
-            return [`node[railway=tram_stop](${around});`];
-        case "bus":
-            return [
-                `node[highway=bus_stop](${around});`,
-                `node[public_transport=stop_position][bus=yes](${around});`,
-            ];
-        case "ferry":
-            return [`node[amenity=ferry_terminal](${around});`];
-    }
-}
-
-interface OverpassNode {
+interface OverpassElement {
     id: number;
     lat?: number;
     lon?: number;
+    center?: { lat?: number; lon?: number };
     tags?: Record<string, string>;
 }
 
+/** Classify an element returned by the HIDING_ZONE_FILTERS_BY_MODE
+ *  selectors into our mode enum. Order matters: subway/light-rail flags
+ *  override the generic railway=station/halt classification. */
 function inferMode(tags: Record<string, string>): TransitMode | null {
     if (tags.subway === "yes" || tags.station === "subway") return "subway";
-    if (tags.railway === "station") return "train";
-    if (tags.railway === "tram_stop" || tags.tram === "yes") return "tram";
-    if (tags.amenity === "ferry_terminal" || tags.ferry === "yes")
+    if (tags.railway === "tram_stop" || tags.light_rail === "yes")
+        return "tram";
+    if (tags.railway === "station" || tags.railway === "halt") return "train";
+    if (tags.amenity === "ferry_terminal" || tags.platform === "ferry")
         return "ferry";
     if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
     return null;

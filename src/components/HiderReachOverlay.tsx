@@ -1,20 +1,15 @@
 import { useStore } from "@nanostores/react";
 import { booleanPointInPolygon } from "@turf/turf";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import {
     hidingRadius,
     hidingRadiusUnits,
     lastKnownPosition,
+    mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
-import {
-    allowedTransit,
-    gameSize,
-    HIDING_PERIOD_MINUTES,
-    hidingPeriodEndsAt,
-} from "@/lib/gameSetup";
-import { haversineMeters } from "@/lib/geo";
+import { allowedTransit, hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
 import { computeHidingUnion } from "@/lib/journey/hidingZonesUnion";
 import {
@@ -26,68 +21,52 @@ import { type AreaStation, fetchAreaStations } from "@/lib/journey/stations";
 
 /**
  * Hider's "Hiding zones" overlay — the mirror of the seeker's
- * hiding-zones station field. It scans the area around the hider's
- * live GPS for every candidate hiding-zone station and publishes them
- * to a shadow FC that `HiderBackgroundMap` paints as name-labeled dots
- * (styled identically to the seeker's `hiding-zones-*` layers).
+ * hiding-zones station field. It fetches every candidate hiding-zone
+ * station in the PLAY AREA and publishes them to a shadow FC that
+ * `HiderBackgroundMap` paints as name-labeled dots + a unioned extent
+ * fill (styled identically to the seeker's `hiding-zones-*` layers).
+ *
+ * v661: the fetch is keyed to the play area, not the hider's GPS —
+ * `fetchAreaStations` now rides the seeker's `findPlacesInZone` path,
+ * so the Overpass query is byte-identical to the seeker's and shares
+ * its R2 cache entry (warm for prewarmed cities). GPS is only a
+ * client-side sort anchor, so there's no more re-fetch-on-movement
+ * deadband: the station set only changes when the play area or the
+ * allowed-mode set does.
  *
  * v643: reachability was removed. Earlier versions fanned out a
  * per-station journey-arrivals fetch to colour-code reachable vs
- * out-of-reach — but that round-trip was the slow, flaky part the user
- * flagged ("hiding zones don't work well"). The overlay is now a pure
- * station field, matching the seeker version. Whether one SPECIFIC
- * tapped zone is reachable before the whistle is now an on-demand check
- * in `StationTransitCard`, where the trip is already being planned.
- *
- * Anchored at the hider's live GPS (`lastKnownPosition`), not at the
- * seeker's `gameStartPosition`.
+ * out-of-reach — but that round-trip was the slow, flaky part. Whether
+ * one SPECIFIC tapped zone is reachable before the whistle is an
+ * on-demand check in `StationTransitCard`.
  *
  * Gates: hiding (or grace) phase only — outside those phases the
  * overlay is meaningless, so it auto-disables itself rather than
  * burning quota. Also auto-disables once the hider has committed a
  * zone (the trip-plan card takes over the "how do I get there" job).
- *
- * Re-runs the scan when GPS moves more than 100 m OR the allowed-mode
- * set changes OR the game size flips — anything finer would burn quota
- * for trivially-different results.
  */
 export function HiderReachOverlay() {
     const enabled = useStore(showHiderReach);
-    const $gps = useStore(lastKnownPosition);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
-    const $size = useStore(gameSize);
     const $allowed = useStore(allowedTransit);
     const $zone = useStore(hidingZone);
     const $poly = useStore(polyGeoJSON);
     const $radius = useStore(hidingRadius);
     const $units = useStore(hidingRadiusUnits);
 
-    // Memoise the last-fetched anchor so a sub-100m GPS jitter
-    // doesn't kick off a fresh Overpass scan.
-    const lastAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
-
     useEffect(() => {
-        // Default: not loading. Every early return below (off / no GPS /
-        // zone committed / past whistle / deadband) leaves it false; only
-        // the commit-to-fetch path flips it true. (nanostores dedupes a
-        // false→false set, so this is free on the common deadband tick.)
+        // Default: not loading. Every early return below (off / zone
+        // committed / past whistle) leaves it false; only the
+        // commit-to-fetch path flips it true.
         hiderReachLoading.set(false);
-        // Off → clear and bail. Also drop the anchor memo so the NEXT
-        // enable always re-fetches: without this, toggling the overlay
-        // off (which clears the FC) and back on while standing still hit
-        // the <100 m deadband below and returned early WITHOUT
-        // re-painting — leaving the overlay permanently blank until GPS
-        // happened to move 100 m.
+        // Off → clear and bail.
         if (!enabled) {
             hiderReachFC.set(null);
-            lastAnchorRef.current = null;
             return;
         }
-        // No GPS, no clock → nothing to compute. Reset the anchor too so
-        // the fetch fires the moment a fix arrives (deps include $gps).
-        if (!$gps || !$hidingEndsAt) {
+        // No clock → nothing to survey yet.
+        if (!$hidingEndsAt) {
             hiderReachFC.set(null);
-            lastAnchorRef.current = null;
             return;
         }
         // Auto-disable once the hider has locked their zone — at
@@ -97,32 +76,12 @@ export function HiderReachOverlay() {
             hiderReachFC.set(null);
             return;
         }
-        const now = Date.now();
-        if (now >= $hidingEndsAt) {
+        if (Date.now() >= $hidingEndsAt) {
             // Past the whistle — the overlay can't help and the
             // grace-window picker is taking the screen anyway.
             hiderReachFC.set(null);
             return;
         }
-
-        // GPS deadband — skip re-fetch if the hider hasn't moved AND we
-        // already have a painted result to keep. The `get()` guard
-        // matters: if the previous pass produced nothing yet (or was
-        // cleared), a sub-100 m jitter must NOT short-circuit us into
-        // leaving the overlay blank — we re-fetch instead.
-        if (lastAnchorRef.current && hiderReachFC.get()) {
-            const m = haversineMeters(
-                $gps.lat,
-                $gps.lng,
-                lastAnchorRef.current.lat,
-                lastAnchorRef.current.lng,
-            );
-            if (m < 100) {
-                // Same anchor, same FC — let the previous state stand.
-                return;
-            }
-        }
-        lastAnchorRef.current = { lat: $gps.lat, lng: $gps.lng };
 
         let cancelled = false;
         const controller = new AbortController();
@@ -130,8 +89,14 @@ export function HiderReachOverlay() {
 
         void (async () => {
           try {
-            const stations = await fetchAreaStations($gps.lat, $gps.lng, {
-                hidingDurationMin: HIDING_PERIOD_MINUTES[$size],
+            // Distance-sort anchor only (never part of the query): the
+            // hider's live GPS when available, else the play-area centre.
+            const gps = lastKnownPosition.get();
+            const centre = mapGeoLocation.get()?.geometry?.coordinates;
+            const anchorLat = gps?.lat ?? (centre?.[0] as number) ?? 0;
+            const anchorLng = gps?.lng ?? (centre?.[1] as number) ?? 0;
+
+            const stations = await fetchAreaStations(anchorLat, anchorLng, {
                 allowed: $allowed,
             }).catch((e) => {
                 console.warn("HiderReachOverlay: station fetch failed", e);
@@ -143,13 +108,9 @@ export function HiderReachOverlay() {
                 return;
             }
 
-            // Play-area cull: stations outside the boundary are useless
-            // — the hider can't hide there. `fetchAreaStations` is
-            // bbox-centred on the hider's GPS so its results routinely
-            // spill outside small play areas. Skipped when the boundary
-            // hasn't hydrated yet so the overlay still works on a cold
-            // start (graceful degrade — same pattern as the question-
-            // impact filter).
+            // Play-area cull — belt-and-braces: the poly:-filtered query
+            // already restricts to the play area, but the relation-based
+            // fallback path can spill, and the cull is cheap.
             let inArea = stations;
             if ($poly) {
                 inArea = stations.filter((s) => {
@@ -197,17 +158,14 @@ export function HiderReachOverlay() {
         };
     }, [
         enabled,
-        $gps?.lat,
-        $gps?.lng,
         $hidingEndsAt,
-        $size,
         $allowed,
         $zone,
         $radius,
         $units,
-        // $poly: re-fetch when the play-area polygon resolves so we
-        // pick up the cull instead of a one-shot "no boundary yet"
-        // pass that includes out-of-area stations.
+        // $poly: re-fetch when the play-area polygon resolves — the query
+        // string is built from it, so the settled boundary IS the real
+        // cache key (and the cull needs it too).
         $poly,
     ]);
 
