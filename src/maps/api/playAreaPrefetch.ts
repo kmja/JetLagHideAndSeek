@@ -599,45 +599,58 @@ async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
     // added adjacent area resolves its nearest reference from cache too,
     // not just the primary's. Each endpoint returns the FULL family set;
     // the caller partitions by the families it asked for.
-    const { primary, all } = playAreaRelationIds();
+    const { all } = playAreaRelationIds();
     if (all.length > 0) {
         const unioned: any[] = [];
-        let primaryHit = false;
+        // v669: EVERY area (primary + each added adjacent) must hit for
+        // the relation-endpoint union to be usable. The old code returned
+        // as soon as the PRIMARY hit — so with a warm primary + a cold
+        // added area, the added area's references were silently dropped
+        // from the play area's cached set for the whole session (its
+        // hospitals/museums/etc. never counted as "nearest X", and the
+        // subtype-availability counts under-reported that area). An added
+        // adjacent area is fully part of the play area, so a cold one is
+        // NOT ignorable.
+        let allHit = true;
         await Promise.all(
             all.map(async (id) => {
                 try {
                     const resp = await fetch(`${REFS_BY_RELATION_BASE}/${id}`);
                     if (!resp.ok) {
                         requestWarm(id);
+                        allHit = false;
                         return;
                     }
-                    const data = (await resp.json()) as { elements?: any[] };
-                    const els = data?.elements ?? [];
-                    if (els.length > 0) {
-                        unioned.push(...els);
-                        if (id === primary) primaryHit = true;
-                    } else {
-                        // miss / no-boundary → warm it for next time
+                    const data = (await resp.json()) as {
+                        elements?: any[];
+                        cache?: string;
+                    };
+                    // A `cache` marker ("miss"/"no-boundary") means the
+                    // relation isn't warmed yet — distinct from a genuine
+                    // empty area, whose warmed body has no `cache` field.
+                    if (data?.cache) {
                         requestWarm(id);
+                        allHit = false;
+                        return;
                     }
+                    const els = data?.elements ?? [];
+                    if (els.length > 0) unioned.push(...els);
                 } catch {
                     requestWarm(id);
+                    allHit = false;
                 }
             }),
         );
-        // If anything hit, use the union. The only case we still fall
-        // through to a live bbox query is a cold PRIMARY (so a brand-new
-        // play area the laptop hasn't warmed yet still works on first
-        // use); adjacent misses ride the background warm + on-tap path.
-        if (unioned.length > 0 && (primaryHit || primary === null)) {
+        // All areas warm → serve the union straight from R2 (zero live
+        // Overpass). If ANY area is cold, fall to the SINGLE combined-
+        // extent bbox query: its bbox is `turf.bbox` of the combined
+        // polyGeoJSON (primary + every added area), so one query covers
+        // the ENTIRE union — complete and dedup-free — while the cold ids
+        // get background-warmed for next time. (We discard the partial
+        // `unioned` rather than merge it, since the family partition
+        // downstream doesn't dedup by id and a merge would double-count.)
+        if (allHit && unioned.length > 0) {
             return unioned;
-        }
-        if (unioned.length > 0 && !primaryHit) {
-            // Primary cold but an adjacent hit — keep the adjacent data
-            // and still warm the primary via the bbox query below, then
-            // merge.
-            const bboxData = await runPrimaryBboxFetch(filters);
-            return [...unioned, ...bboxData];
         }
     }
 

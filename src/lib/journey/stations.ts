@@ -115,40 +115,34 @@ async function fetchRawAreaStations(
     }
 
     const promise = (async () => {
-        // v668: try the PREWARMED station field first —
+        // v668/v669: try the PREWARMED station field first —
         // `/api/area-stations/<relationId>` serves the combined all-mode
-        // stop set for a starred city straight from R2 (zero live
-        // Overpass), the same relation-ID-keyed pattern as `/api/refs`.
-        // The worker derives the bbox from the boundary it already has,
-        // so the client never builds a byte-fragile query. On any miss
-        // (uncurated area / cold cache) `elements` is empty and we fall
-        // through to the live poly query below.
-        // The endpoint serves a 2 km-PADDED bbox superset of the PRIMARY
-        // relation, whereas the live poly query is play-area-clipped — so
-        // the result is culled to the play-area polygon to match those
-        // semantics exactly (a station outside the play area is not a
-        // legal zone, v665). `prewarmEndpointRelationId` also declines
-        // when adjacent areas were added/subtracted (the endpoint only
-        // covers the primary) or the polygon isn't loaded (can't cull).
-        const endpointRelId = prewarmEndpointRelationId();
-        if (endpointRelId !== null) {
-            const warmElements = await fetchPrewarmedStations(endpointRelId);
-            if (warmElements && warmElements.length > 0) {
-                const culled = cullElementsToPlayArea(warmElements);
-                const stations = parseStations(culled, allowed);
-                if (stations.length > 0) {
-                    // Kick a background warm so the next TTL is covered
-                    // even if this was a stale-but-present hit.
-                    rawStationsCache = { filtersKey, polyRef, stations };
-                    return stations;
-                }
+        // stop set for a warm city straight from R2 (zero live Overpass),
+        // the same relation-ID-keyed pattern as `/api/refs`. The endpoint
+        // is fanned over EVERY play-area relation (primary + each added
+        // adjacent area) and unioned, so an added area is prewarmed just
+        // like the primary — it's fully part of the play area. The
+        // per-relation results are a 2 km-PADDED bbox superset, so the
+        // union is culled to the combined play-area polygon to match the
+        // live poly query's clipping (a station outside the play area is
+        // not a legal zone, v665). Returns null unless EVERY area is warm;
+        // any cold area is background-warmed and we fall to the live poly
+        // query below (which covers the whole union).
+        const warmUnion = await fetchPrewarmedStationsUnion();
+        if (warmUnion) {
+            const stations = parseStations(warmUnion, allowed);
+            if (stations.length > 0) {
+                rawStationsCache = { filtersKey, polyRef, stations };
+                return stations;
             }
         }
 
         // Byte-identical to the seeker's ZoneSidebar call (filters[0]
         // primary + rest as alternatives, nwr / out center, no timeout
-        // header) so both roles share one cached Overpass entry. `silent`
-        // — every consumer has its own loading/error affordances.
+        // header) so both roles share one cached Overpass entry. The poly
+        // query is built from the COMBINED polyGeoJSON, so it covers the
+        // whole union (primary + added areas) correctly. `silent` — every
+        // consumer has its own loading/error affordances.
         //
         // v667: `getOverpassData` returns `{elements: []}` BOTH on a
         // genuinely-empty result and on total mirror failure (rate limit
@@ -171,11 +165,10 @@ async function fetchRawAreaStations(
             elements.length === 0 &&
             overpassFailureCount() > failuresBefore
         ) {
-            // Ask the worker to warm this relation's station field so the
-            // next load is served from R2 instead of re-hitting a
-            // timing-out live query. Fire-and-forget.
-            const warmRelId = primaryRelationId();
-            if (warmRelId !== null) requestStationWarm(warmRelId);
+            // Warm every play-area relation's station field so the next
+            // load is served from R2 instead of re-hitting a timing-out
+            // live query. Fire-and-forget.
+            requestStationWarmAll();
             throw new Error(
                 "Station scan failed — all Overpass mirrors timed out or rate-limited",
             );
@@ -183,10 +176,9 @@ async function fetchRawAreaStations(
 
         const stations = parseStations(elements, allowed);
         rawStationsCache = { filtersKey, polyRef, stations };
-        // Warm the prewarm entry for next time (a live poly fetch means
-        // the relation endpoint missed). Fire-and-forget, deduped.
-        const warmRelId = primaryRelationId();
-        if (warmRelId !== null) requestStationWarm(warmRelId);
+        // Warm the prewarm entries for next time (a live poly fetch means
+        // some relation endpoint missed). Fire-and-forget, deduped.
+        requestStationWarmAll();
         return stations;
     })();
     rawStationsInFlight = { filtersKey, polyRef, promise };
@@ -256,26 +248,40 @@ function primaryRelationId(): number | null {
 }
 
 /**
- * The relation id the prewarm endpoint may be READ for, or null if it
- * can't be used for this play area. The `/api/area-stations/<id>` entry
- * covers the PRIMARY relation's 2 km-padded bbox only, so it's valid
- * ONLY when:
- *   - the play area is a single relation (no added/subtracted adjacent
- *     areas — those extend the play area beyond the primary bbox), and
- *   - its polygon is loaded (needed to cull the padded bbox back to the
- *     exact play area, matching the poly query's clipping).
- * Otherwise callers use the live poly query, which handles the combined
- * polygon + subtractions correctly.
+ * Every play-area OSM relation id — the primary PLUS each ADDED adjacent
+ * area (`additionalMapGeoLocations` entries with `.added===true` that are
+ * relations). Subtracted areas (`.added===false`) are excluded; the
+ * combined polygon already carves them out, so their stations are culled.
+ * Mirrors `playAreaRelationIds().all` in playAreaPrefetch.ts. This is the
+ * set the station prewarm endpoint is fanned over so an added adjacent
+ * area is prewarmed exactly like the primary.
  */
-function prewarmEndpointRelationId(): number | null {
-    if (!polyGeoJSON.get()) return null;
-    if (additionalMapGeoLocations.get().length > 0) return null;
-    return primaryRelationId();
+function playAreaRelationIdsAll(): number[] {
+    const ids: number[] = [];
+    const primary = primaryRelationId();
+    if (primary !== null) ids.push(primary);
+    for (const e of additionalMapGeoLocations.get()) {
+        if (!e.added) continue;
+        const p = e.location?.properties as
+            | { osm_id?: number; osm_type?: string }
+            | undefined;
+        if (
+            p?.osm_type === "R" &&
+            typeof p.osm_id === "number" &&
+            p.osm_id > 0 &&
+            !ids.includes(p.osm_id)
+        ) {
+            ids.push(p.osm_id);
+        }
+    }
+    return ids;
 }
 
-/** Fetch the prewarmed all-mode station field for a relation, or null on
- *  miss / error (caller falls back to the live poly query). Read-only —
- *  the worker never goes upstream on this path. */
+/** Fetch one relation's prewarmed all-mode station field. Returns null on
+ *  a MISS (the endpoint's `cache` marker — not warmed yet — or an
+ *  error/!ok) so callers can distinguish "cold" from a genuinely-empty
+ *  warmed area (`[]`, no marker). Read-only — the worker never goes
+ *  upstream on this path. */
 async function fetchPrewarmedStations(
     relationId: number,
 ): Promise<OverpassElement[] | null> {
@@ -284,11 +290,46 @@ async function fetchPrewarmedStations(
             `${AREA_STATIONS_BY_RELATION_BASE}/${relationId}`,
         );
         if (!resp.ok) return null;
-        const data = (await resp.json()) as { elements?: OverpassElement[] };
-        return data?.elements ?? null;
+        const data = (await resp.json()) as {
+            elements?: OverpassElement[];
+            cache?: string;
+        };
+        // A `cache` marker ("miss"/"no-boundary") means this relation
+        // isn't warmed yet — distinct from a warmed-but-empty area.
+        if (data?.cache) return null;
+        return data?.elements ?? [];
     } catch {
         return null;
     }
+}
+
+/**
+ * Fan the prewarmed station endpoint over EVERY play-area relation
+ * (primary + each added adjacent area) and return the unioned,
+ * play-area-culled elements — but ONLY when every area is warm. If ANY
+ * area is cold (or the polygon isn't loaded, so we can't cull), returns
+ * null: the caller background-warms the cold ids and uses the live poly
+ * query, which covers the whole union. This is what makes an added
+ * adjacent area first-class on the fast path — it's prewarmed and
+ * unioned just like the primary, not dropped.
+ */
+async function fetchPrewarmedStationsUnion(): Promise<
+    OverpassElement[] | null
+> {
+    if (!polyGeoJSON.get()) return null; // need the polygon to cull
+    const ids = playAreaRelationIdsAll();
+    if (ids.length === 0) return null;
+    const results = await Promise.all(ids.map((id) => fetchPrewarmedStations(id)));
+    if (results.some((r) => r === null)) {
+        // Some area is cold → warm every cold id and decline (caller uses
+        // the live poly query, which covers the whole union).
+        ids.forEach((id, i) => {
+            if (results[i] === null) requestStationWarm(id);
+        });
+        return null;
+    }
+    const merged = results.flatMap((r) => r as OverpassElement[]);
+    return cullElementsToPlayArea(merged);
 }
 
 /** Relation ids we've asked the worker to warm this session, so a warm
@@ -305,6 +346,13 @@ function requestStationWarm(relationId: number): void {
             stationWarmRequested.delete(relationId);
         },
     );
+}
+
+/** Warm the station field for EVERY play-area relation (primary + added
+ *  adjacent areas). Called after a live poly fetch so the next load of
+ *  the whole union is served from R2. */
+function requestStationWarmAll(): void {
+    for (const id of playAreaRelationIdsAll()) requestStationWarm(id);
 }
 
 /** Distance-sort + same-name/nearby dedupe, shared by every consumer. */
@@ -356,34 +404,31 @@ function modesForExactOptions(options: string[]): TransitMode[] | null {
 }
 
 /**
- * Seeker `ZoneSidebar` entry point (v668): serve the DEFAULT hiding-zone
- * station set from the prewarmed `/api/area-stations/<id>` endpoint when
- * the seeker's `displayHidingZonesOptions` map cleanly to transit modes
- * (the common auto-tracking case) — zero live Overpass on a warm city.
- * Returns an Overpass-shaped `{ elements }` (all requested modes,
- * culled to the play area) so the caller can feed it straight to
- * `osmtogeojson`, exactly like the poly query's result. Returns null —
- * caller falls back to its live poly query — for a custom/partial-mode
- * selection, a non-relation play area, a play area with no loaded
- * polygon (can't cull), or a cold endpoint miss (also fires a warm).
+ * Seeker `ZoneSidebar` entry point (v668, fan-out v669): serve the
+ * DEFAULT hiding-zone station set from the prewarmed
+ * `/api/area-stations/<id>` endpoint — fanned over EVERY play-area
+ * relation (primary + added adjacent areas) and unioned — when the
+ * seeker's `displayHidingZonesOptions` map cleanly to transit modes (the
+ * common auto-tracking case). Zero live Overpass on a warm city. Returns
+ * an Overpass-shaped `{ elements }` (all requested modes, culled to the
+ * combined play area) so the caller feeds it straight to `osmtogeojson`,
+ * exactly like the poly query's result. Returns null — caller falls back
+ * to its live poly query — for a custom/partial-mode selection, a
+ * non-relation play area, no loaded polygon (can't cull), or any cold
+ * area (which is background-warmed by `fetchPrewarmedStationsUnion`).
  */
 export async function fetchPrewarmedHidingZoneStations(
     options: string[],
 ): Promise<{ elements: OverpassElement[] } | null> {
     const modes = modesForExactOptions(options);
     if (!modes) return null;
-    const relId = prewarmEndpointRelationId();
-    if (relId === null) return null;
-    const elements = await fetchPrewarmedStations(relId);
-    if (!elements || elements.length === 0) {
-        requestStationWarm(relId);
-        return null;
-    }
-    const culled = cullElementsToPlayArea(elements).filter((el) => {
+    const union = await fetchPrewarmedStationsUnion();
+    if (!union) return null; // custom-warm miss, or a cold area → poly query
+    const filtered = union.filter((el) => {
         const mode = inferMode(el.tags ?? {});
         return mode !== null && modes.includes(mode);
     });
-    return { elements: culled };
+    return { elements: filtered };
 }
 
 /**
