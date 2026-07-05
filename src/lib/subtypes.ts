@@ -39,10 +39,14 @@ import {
 import type { GameSize } from "./gameSetup";
 
 /**
- * Metadata for question-subtype selection in the step-2 picker. Per the
- * rulebook, "-full" suffixed variants are aggregated Small+Medium-only
- * questions; in Large games they're unavailable (the entity counts get
- * unmanageable). `validSizes` lets the picker filter accordingly.
+ * Metadata for question-subtype selection in the step-2 picker.
+ * `validSizes` lets the picker filter by game size where the RULEBOOK
+ * itself gates a category (Thermometer, Photo, Tentacle). Matching and
+ * Measuring have NO size gating in the rulebook — all 20 of each are
+ * available at every size (v670: the earlier Small+Medium-only cap on
+ * the "-full" POI variants was an app deviation, now lifted for full
+ * rulebook parity; a Large game may surface many reference instances,
+ * which the Voronoi/nearest pipeline handles).
  */
 export interface SubtypeMeta {
     value: string;
@@ -53,7 +57,6 @@ export interface SubtypeMeta {
 }
 
 const ALL: GameSize[] = ["small", "medium", "large"];
-const SM: GameSize[] = ["small", "medium"];
 
 const ML: GameSize[] = ["medium", "large"];
 const L: GameSize[] = ["large"];
@@ -94,20 +97,20 @@ export const SUBTYPES: Record<
         { value: "admin-3", label: "3rd admin division", icon: MapLucide, description: "Same municipality.", validSizes: ALL },
         { value: "admin-4", label: "4th admin division", icon: MapLucide, description: "Same borough / ward / inner-city district (not all areas have one).", validSizes: ALL },
         // Natural
-        { value: "peak-full", label: "Mountain", icon: Mountain, description: "Same mountain.", validSizes: SM },
+        { value: "peak-full", label: "Mountain", icon: Mountain, description: "Same mountain.", validSizes: ALL },
         { value: "same-landmass", label: "Landmass", icon: Globe, description: "Same contiguous landmass (not broken by waterways).", validSizes: ALL },
-        { value: "park-full", label: "Park", icon: Trees, description: "Same park (measured to the map icon).", validSizes: SM },
+        { value: "park-full", label: "Park", icon: Trees, description: "Same park (measured to the map icon).", validSizes: ALL },
         // Places of Interest
-        { value: "theme_park-full", label: "Amusement park", icon: Rocket, description: "Same amusement park.", validSizes: SM },
-        { value: "zoo-full", label: "Zoo", icon: TentTree, description: "Same zoo.", validSizes: SM },
-        { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Same aquarium.", validSizes: SM },
-        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Same outdoor golf course (mini-golf and driving ranges don't count).", validSizes: SM },
-        { value: "museum-full", label: "Museum", icon: Landmark, description: "Same museum.", validSizes: SM },
-        { value: "cinema-full", label: "Movie theater", icon: Film, description: "Same movie theater.", validSizes: SM },
+        { value: "theme_park-full", label: "Amusement park", icon: Rocket, description: "Same amusement park.", validSizes: ALL },
+        { value: "zoo-full", label: "Zoo", icon: TentTree, description: "Same zoo.", validSizes: ALL },
+        { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Same aquarium.", validSizes: ALL },
+        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Same outdoor golf course (mini-golf and driving ranges don't count).", validSizes: ALL },
+        { value: "museum-full", label: "Museum", icon: Landmark, description: "Same museum.", validSizes: ALL },
+        { value: "cinema-full", label: "Movie theater", icon: Film, description: "Same movie theater.", validSizes: ALL },
         // Public Utilities
-        { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Same hospital.", validSizes: SM },
-        { value: "library-full", label: "Library", icon: Library, description: "Same library.", validSizes: SM },
-        { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Same foreign consulate (excludes honorary consulates).", validSizes: SM },
+        { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Same hospital.", validSizes: ALL },
+        { value: "library-full", label: "Library", icon: Library, description: "Same library.", validSizes: ALL },
+        { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Same foreign consulate (excludes honorary consulates).", validSizes: ALL },
     ],
     /* Measuring — rulebook p23-26. Transit-Related, Borders, Natural,
      * Places of Interest, Public Utilities. */
@@ -124,19 +127,19 @@ export const SUBTYPES: Record<
         { value: "sea-level", label: "Sea level (altitude)", icon: Compass, description: "Higher or lower altitude? (Phone compass — sometimes inaccurate.)", validSizes: ALL },
         { value: "body-of-water", label: "Body of water", icon: Sailboat, description: "Closer or further to any named body of water (no pools)?", validSizes: ALL },
         { value: "coastline", label: "Coastline", icon: Anchor, description: "Closer or further to the coast? (Straits under 2 km don't count.)", validSizes: ALL },
-        { value: "peak-full", label: "Mountain", icon: Mountain, description: "Closer or further to a mountain?", validSizes: SM },
-        { value: "park-full", label: "Park", icon: Trees, description: "Closer or further to a park (measured to the icon)?", validSizes: SM },
+        { value: "peak-full", label: "Mountain", icon: Mountain, description: "Closer or further to a mountain?", validSizes: ALL },
+        { value: "park-full", label: "Park", icon: Trees, description: "Closer or further to a park (measured to the icon)?", validSizes: ALL },
         // Places of Interest
-        { value: "theme_park-full", label: "Amusement park", icon: Rocket, description: "Closer or further to an amusement park?", validSizes: SM },
-        { value: "zoo-full", label: "Zoo", icon: TentTree, description: "Closer to a zoo?", validSizes: SM },
-        { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Closer to an aquarium?", validSizes: SM },
-        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Closer to an outdoor golf course?", validSizes: SM },
-        { value: "museum-full", label: "Museum", icon: Landmark, description: "Closer to a museum?", validSizes: SM },
-        { value: "cinema-full", label: "Movie theater", icon: Film, description: "Closer to a movie theater?", validSizes: SM },
+        { value: "theme_park-full", label: "Amusement park", icon: Rocket, description: "Closer or further to an amusement park?", validSizes: ALL },
+        { value: "zoo-full", label: "Zoo", icon: TentTree, description: "Closer to a zoo?", validSizes: ALL },
+        { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Closer to an aquarium?", validSizes: ALL },
+        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Closer to an outdoor golf course?", validSizes: ALL },
+        { value: "museum-full", label: "Museum", icon: Landmark, description: "Closer to a museum?", validSizes: ALL },
+        { value: "cinema-full", label: "Movie theater", icon: Film, description: "Closer to a movie theater?", validSizes: ALL },
         // Public Utilities
-        { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Closer to a hospital?", validSizes: SM },
-        { value: "library-full", label: "Library", icon: Library, description: "Closer to a library?", validSizes: SM },
-        { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Closer to a foreign consulate (excludes honorary)?", validSizes: SM },
+        { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Closer to a hospital?", validSizes: ALL },
+        { value: "library-full", label: "Library", icon: Library, description: "Closer to a library?", validSizes: ALL },
+        { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Closer to a foreign consulate (excludes honorary)?", validSizes: ALL },
     ],
     /* Tentacles — rulebook p37-38. Cannot be used in Small games (per
      * SubtypeMeta.validSizes). Medium = 2 km presets, Large adds the

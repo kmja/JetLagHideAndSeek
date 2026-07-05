@@ -29,9 +29,7 @@ import { CATEGORIES } from "@/lib/categories";
 import {
     addQuestion as localAddQuestion,
     additionalMapGeoLocations,
-    disabledStations,
     mapGeoLocation,
-    permanentOverlay,
     questionModified,
     questions,
 } from "@/lib/context";
@@ -44,7 +42,6 @@ import {
     endOfRoundDialogOpen,
     hidingPeriodEndsAt,
     playArea,
-    resetMapOverlays,
 } from "@/lib/gameSetup";
 import {
     hiderInbox,
@@ -58,6 +55,7 @@ import {
     askOncePerQuestion,
     zoneRadiusBuffer,
 } from "@/lib/houseRules";
+import { resetSharedRoundState } from "@/lib/roundReset";
 import { receivedCurses } from "@/lib/seekerInbound";
 import {
     type Question,
@@ -692,23 +690,14 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
  * reset lives here on the discrete round-start event only.
  */
 function applyRoundStarted(roster: GameState["participants"]) {
-    // Seeker-side round state.
-    questions.set([]);
-    questionModified();
-    disabledStations.set([]);
-    permanentOverlay.set(null);
-    // Hider-side round state: hiding zone, spot, inbox, hand, deck,
-    // discard, hand limit, pending draw, and the round-found marker.
-    resetHiderRoundState();
-    // Map overlays revert to default OFF for the new round.
-    resetMapOverlays();
-    // The hiding-period clock restarts per round; the seeker re-arms
-    // it via the GO GO GO flow and pushes it back over `setupChanged`.
-    hidingPeriodEndsAt.set(null);
-    // Endgame flags are per-round — clear them so the new round doesn't
-    // open with last round's lockdown banner stuck on.
-    endgameStartedAt.set(null);
-    endgameConfirmedAt.set(null);
+    // v670: reset ALL per-round state via the shared helper — the same
+    // one `startNewRound`/`startNewGame` use — so a guest device can't
+    // carry stale curses / Move-freeze / scoring credit-debit /
+    // spotty-memory / celebration-dedupe across rounds (this path used to
+    // reset only a subset, and none of those atoms ride `SetupState`, so
+    // nothing else fixed them). Clears questions, hider hand/deck, map
+    // overlays, the live hiding clock, and the endgame stamps too.
+    resetSharedRoundState();
     // Per-seeker live positions are scoped to the previous round —
     // the new round restarts the broadcast.
     seekerLocations.set({});

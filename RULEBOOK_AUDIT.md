@@ -133,9 +133,74 @@ local editing (the lone player is the host). Back-compat: setups from
 older deployments arrive without the field and each device keeps its
 local values.
 
+## D — second audit pass (v671, four parallel audits: lifecycle / questions / economy / self-hosting)
+
+Self-hosting verdict: in a warm city, game-time play makes ZERO direct
+un-proxied external calls (Photon geocoding, basemap, tiles, journey all
+worker-proxied). Remaining third-party touches are opt-in Thunderforest
+(user key), the `polygons.osm.fr` boundary fallback for un-prewarmed
+cities, and Pastebin config-share — none load-bearing.
+
+### D1 · Time-bonus scoring was INVERTED + omitted from the leaderboard ✅ v671
+Rulebook p79: time-bonus cards held at round end are **added** to the
+hider's time (longest single hide wins). The app SUBTRACTED them in
+`FinalScoreBanner` (`finalMs = seek − bonus`, labelled "−Nm") and the
+persisted `roundLog` / `EndOfRoundDialog` leaderboard ignored them
+entirely — so the hider's banner and the winner ranking disagreed.
+- `FinalScoreBanner` now `seek + bonus` ("+Nm"); copy corrected (it also
+  wrongly claimed "cumulative scoring" — rulebook is best-single-round).
+- `startNewRound` folds `tallyTimeBonusMinutes(hand,size)` into the
+  appended `roundLog.hidingMs`; `EndOfRoundDialog`'s live current-round
+  figure adds it too. Read from the local hider hand (intact until the
+  reset), so correct on the hider's device + all solo play. **Known
+  multiplayer limitation:** a seeker-initiated new-round on a remote
+  device sees an empty local hand → 0 bonus folded; a synced found-time
+  bonus capture is the proper fix (deferred).
+
+### D2 · Tentacle radius ignored the rulebook's fixed 2 km / 25 km ✅ v671
+Every tentacle inherited the schema's 15 km default, so a "Museum within
+2 km" was built + eliminated as 15 km. `runAddTentacles`
+(`AddQuestionDialog`) now stamps `TENTACLE_RADIUS_KM` per tier (2 km:
+museum/library/cinema/hospital; 25 km: metro/zoo/aquarium/amusement park).
+
+### D3 · Guest round-reset drifted from the host reset ✅ v671
+`applyRoundStarted` (multiplayer guest path) reset only ~9 of the ~15
+per-round atoms — stale curses / Move-freeze / credit-debit /
+spotty-memory / celebration-dedupe carried across rounds on guests (and
+none ride `SetupState`, so nothing else fixed them). Extracted a single
+`resetSharedRoundState()` (`src/lib/roundReset.ts`) now used by
+`startNewRound`, `startNewGame`, AND `applyRoundStarted` so the three
+paths can't diverge again.
+
+### D4 · Matching/Measuring were size-gated (app deviation) → all 20/20 at every size ✅ v671
+The "-full" POI matching/measuring variants were Small+Medium-only, an
+app deviation from the rulebook (which gates only Thermometer/Photo/
+Tentacle by size). Lifted to `ALL` for full parity, per the v627 "offer
+exactly the rulebook's questions" intent.
+
+### D5 · Grace = forfeit → rulebook auto-commit ✅ v671
+Rulebook p341: "if the hiding period ends and you're somewhere else,
+that's where your hiding zone is." The app forfeited the round after a
+5-min grace. Now when the grace window closes with no zone, HiderHome
+AUTO-COMMITS the hider's nearest transit station (`fetchAreaStations`
+from live GPS) as the zone; forfeit remains only the technical fallback
+when no station can be resolved (no GPS / empty area). Grace-phase copy
+updated (warning tone, "your nearest station becomes your zone").
+
+### Still open from this pass (selected for follow-up)
+- Randomize repeat-cost accounting is inverted (original marked asked /
+  substitute not — rulebook is the reverse).
+- Manual game-pause (freeze all timers) not implemented.
+- 10-min new-hider planning window not modeled.
+- Hand-limit-6 is advisory (no forced discard-down).
+- Duplicate's passive end-of-round time-bonus doubling not modeled; and
+  "only one active ask/transit-blocking curse at a time" unenforced.
+
 ## Notes
-- All scoring now flows through one formula:
-  `max(0, (foundAt − hidingEndsAt) + hiddenCreditMs − hiddenDebitMs)`,
-  then time-bonus minutes are subtracted for the hider's final tally.
-- `hiddenCreditMs` / `hiddenDebitMs` / `seekersFrozenUntil` are reset
-  by both `startNewRound` and `startNewGame`.
+- Scoring formula (v671): the hidden time
+  `max(0, (foundAt − hidingEndsAt) + hiddenCreditMs − hiddenDebitMs)`
+  PLUS `tallyTimeBonusMinutes` (time bonuses ADD; longest hide wins).
+- `hiddenCreditMs` / `hiddenDebitMs` / `seekersFrozenUntil` and every
+  other per-round atom are reset by the shared `resetSharedRoundState()`
+  used by `startNewRound`, `startNewGame`, and the multiplayer guest
+  `applyRoundStarted`.

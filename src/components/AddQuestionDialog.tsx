@@ -142,6 +142,23 @@ const ADMIN_TIER_NUM: Record<string, 1 | 2 | 3 | 4> = {
     "admin-3": 3,
     "admin-4": 4,
 };
+
+/**
+ * Rulebook-fixed tentacle radii (p37-38). The 2 km tier is the
+ * Medium+Large set; the 25 km tier is the Large-only set (incl. Metro
+ * Lines). Stamped onto the question at creation so a "Museum within
+ * 2 km" is actually a 2 km question, not the schema's 15 km default.
+ */
+const TENTACLE_RADIUS_KM: Record<string, number> = {
+    museum: 2,
+    library: 2,
+    cinema: 2,
+    hospital: 2,
+    metro: 25,
+    zoo: 25,
+    aquarium: 25,
+    theme_park: 25,
+};
 function localizeAdminSubtype(
     subtype: SubtypeMeta,
     iso: string | undefined,
@@ -617,6 +634,19 @@ export const AddQuestionDialog = ({
         // and measuring which use `type`). When the user picks a subtype in
         // step 2 we set it here so the resulting question has the right
         // place category baked in.
+        // v670: stamp the rulebook's FIXED tentacle radius per tier
+        // (p37-38) — the 2 km tier (museum/library/cinema/hospital) and
+        // the 25 km tier (metro/zoo/aquarium/amusement park). Without
+        // this every tentacle inherited the schema's 15 km default, so a
+        // "Museum within 2 km" was actually built (and eliminated) as a
+        // 15 km question. Custom tentacles keep the default.
+        const radiusKm = subtype
+            ? TENTACLE_RADIUS_KM[subtype]
+            : undefined;
+        const radiusFields =
+            radiusKm !== undefined
+                ? { radius: radiusKm, unit: "kilometers" as const }
+                : {};
         // Cast to never on each branch — the schema-side discriminated
         // union is too narrow for TS to verify the dynamic subtype
         // string. `addQuestion` runs the value through Zod parsing at
@@ -630,11 +660,13 @@ export const AddQuestionDialog = ({
                       lng: center.lng,
                       locationType: subtype ?? "custom",
                       places: [],
+                      ...radiusFields,
                   } as never)
                 : ({
                       lat: center.lat,
                       lng: center.lng,
                       ...(subtype ? { locationType: subtype } : {}),
+                      ...radiusFields,
                   } as never),
         });
         return true;

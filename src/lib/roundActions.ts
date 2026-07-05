@@ -1,40 +1,31 @@
 import {
     additionalMapGeoLocations,
-    disabledStations,
     mapGeoJSON,
-    permanentOverlay,
     polyGeoJSON,
-    questions,
 } from "@/lib/context";
 import {
     closingInWarningLevel,
-    endgameConfirmedAt,
     endgameStartedAt,
-    endOfRoundDialogOpen,
     gameSize,
     gameStartFiredFor,
-    gameStartPosition,
     effectiveHiddenDebitMs,
-    gamePausedForLocationAt,
     HIDING_PERIOD_MINUTES,
     hiddenCreditMs,
-    hiddenDebitMs,
     hidingPeriodEndsAt,
-    locationGraceStartedAt,
     MOVE_PERIOD_MINUTES,
     pendingHidingDurationMin,
     preloadBucketTimestamps,
-    resetMapOverlays,
     seekersFrozenUntil,
     seekingStartFiredFor,
     setupCompleted,
     welcomeSeen,
 } from "@/lib/gameSetup";
+import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
+    hiderHand,
     hidingSpot,
     hidingZone,
     playerRole,
-    resetHiderRoundState,
     roundFoundAt,
     roundLog,
 } from "@/lib/hiderRole";
@@ -42,12 +33,8 @@ import {
     displayName as displayNameAtom,
     participants,
 } from "@/lib/multiplayer/session";
-import {
-    seekerOnTransit,
-    spottyMemoryCategory,
-} from "@/lib/curseEnforcement";
 import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
-import { receivedCurses } from "@/lib/seekerInbound";
+import { resetSharedRoundState } from "@/lib/roundReset";
 
 /**
  * Round / game lifecycle actions, shared by the seeker (BottomNav)
@@ -79,12 +66,22 @@ export function startNewRound() {
         // the clock was paused for overdue answers (rulebook p61), so
         // re-anchors pause rather than discard time and stalls don't
         // pay out.
-        const hidingMs = Math.max(
+        const baseMs = Math.max(
             0,
             Math.max(0, prevFoundAt - prevEndsAt) +
                 hiddenCreditMs.get() -
                 effectiveHiddenDebitMs(prevFoundAt),
         );
+        // v670: ADD the hider's time-bonus cards (rulebook p79 — bonuses
+        // held at round end are added to the hiding time; longest hide
+        // wins). Read from the LOCAL hider hand, which is still intact
+        // here (the append runs BEFORE resetSharedRoundState). Correct on
+        // the hider's own device + all solo play; a seeker-initiated
+        // new-round on a remote device sees an empty local hand → 0 bonus
+        // (a multiplayer sync limitation, tracked separately).
+        const bonusMs =
+            tallyTimeBonusMinutes(hiderHand.get(), gameSize.get()) * 60_000;
+        const hidingMs = baseMs + bonusMs;
         // Resolve the hider's name: multiplayer participant if we
         // have one, otherwise the local display-name (solo plays
         // through the seeker chrome, single device).
@@ -105,47 +102,17 @@ export function startNewRound() {
             },
         ]);
     }
-    // Wipe seeker-side question stack so the new round starts
-    // empty. mapGeoJSON / polyGeoJSON intentionally stay — the
-    // play area didn't change, no need to refetch.
-    questions.set([]);
-    disabledStations.set([]);
-    permanentOverlay.set(null);
-    // Curses are per-round — clear any the seeker was still under so they
-    // don't carry into the new round, plus the enforcement state derived
-    // from them (Spotty Memory roll, Urban Explorer on-transit flag).
-    receivedCurses.set([]);
-    spottyMemoryCategory.set(null);
-    seekerOnTransit.set(false);
-    // Hider-side: inbox, hand, discard, hiding zone, hiding spot,
-    // found-at — all wiped.
-    resetHiderRoundState();
-    roundFoundAt.set(null);
-    // Map overlays revert to their default OFF state for the new round.
-    resetMapOverlays();
-    // Restart the hiding-period clock from now.
+    // Wipe all per-round state (questions, curses, hider hand/deck,
+    // endgame stamps, credit/debit, freeze, celebration dedupe, …) via
+    // the shared reset so this path and the multiplayer guest path
+    // (`applyRoundStarted`) can never diverge. mapGeoJSON / polyGeoJSON
+    // intentionally stay — the play area didn't change, no refetch.
+    resetSharedRoundState();
+    // Stage the hiding-period clock to restart from now: the shared
+    // reset already nulled the live timer, so GameStartWatcher re-arms it
+    // once the map is ready (usually immediately on a continuing game).
     const minutes = HIDING_PERIOD_MINUTES[gameSize.get()];
-    // Use the gated start: clear the live timer and stage the
-    // duration so GameStartWatcher can re-arm it once the map is
-    // ready (which it usually already is on a continuing game,
-    // so the clock starts effectively immediately).
-    hidingPeriodEndsAt.set(null);
     pendingHidingDurationMin.set(minutes);
-    gameStartPosition.set(null);
-    seekingStartFiredFor.set(null);
-    gameStartFiredFor.set(null);
-    closingInWarningLevel.set(0);
-    seekersFrozenUntil.set(null);
-    hiddenCreditMs.set(0);
-    hiddenDebitMs.set(0);
-    locationGraceStartedAt.set(null);
-    gamePausedForLocationAt.set(null);
-    // Endgame is per-round — clear both the seeker's claim and the
-    // hider's confirmation so the new round doesn't open mid-endgame.
-    endgameStartedAt.set(null);
-    endgameConfirmedAt.set(null);
-    // Close the end-of-round celebration if it was up.
-    endOfRoundDialogOpen.set(false);
 }
 
 /**
@@ -221,37 +188,19 @@ export function endHidingPeriodEarly() {
 }
 
 export function startNewGame() {
-    questions.set([]);
-    disabledStations.set([]);
-    permanentOverlay.set(null);
-    receivedCurses.set([]);
-    spottyMemoryCategory.set(null);
-    seekerOnTransit.set(false);
-    resetHiderRoundState();
-    roundFoundAt.set(null);
+    // Same per-round wipe as a new round…
+    resetSharedRoundState();
+    pendingHidingDurationMin.set(null);
+    // …PLUS the game-scoped state a new round keeps:
     // v318: fresh game = fresh leaderboard. `startNewRound` does
     // NOT clear this so the rolling tally survives across rounds
     // within one game's settings.
     roundLog.set([]);
-    hidingPeriodEndsAt.set(null);
-    pendingHidingDurationMin.set(null);
-    gameStartPosition.set(null);
-    seekingStartFiredFor.set(null);
-    gameStartFiredFor.set(null);
-    closingInWarningLevel.set(0);
-    seekersFrozenUntil.set(null);
-    hiddenCreditMs.set(0);
-    hiddenDebitMs.set(0);
-    locationGraceStartedAt.set(null);
-    gamePausedForLocationAt.set(null);
-    endgameStartedAt.set(null);
-    endgameConfirmedAt.set(null);
-    endOfRoundDialogOpen.set(false);
     // Wipe play area state — a fresh game starts from scratch.
     mapGeoJSON.set(null);
     polyGeoJSON.set(null);
     additionalMapGeoLocations.set([]);
-    resetMapOverlays();
+    // (resetSharedRoundState already reverted map overlays to OFF.)
     // Clear preload timestamps — the new game may have a different play
     // area so cached Overpass / transit data from the previous game is
     // no longer valid (or at least we can't assume it is).

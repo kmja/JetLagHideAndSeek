@@ -11,7 +11,7 @@ import {
     Timer,
     Trophy,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -48,6 +48,8 @@ import {
     roundFoundAt,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
+import { lastKnownPosition } from "@/lib/context";
+import { fetchAreaStations } from "@/lib/journey/stations";
 import {
     endHidingPeriodEarly,
     startNewGame,
@@ -171,8 +173,13 @@ export function HiderHomeContent() {
     );
 
     // Zone-grace window: if the hiding period has ended and the hider
-    // never committed a zone, they get ZONE_GRACE_MS to pick one from
-    // their current location before the round is forfeit.
+    // never committed a zone, they get a short ZONE_GRACE_MS window to
+    // pick one manually. v670 (rulebook p341): when the window closes
+    // with still no zone, we AUTO-COMMIT the hider's nearest transit
+    // station as their zone ("if the hiding period ends and you're
+    // somewhere else, that's where your hiding zone is") — NOT forfeit.
+    // Forfeit remains only the technical fallback when we can't resolve
+    // any station at all (no GPS fix / no stations in range).
     const graceEndsAt = $hidingEndsAt ? $hidingEndsAt + ZONE_GRACE_MS : null;
     const inGraceWindow =
         $hidingEndsAt !== null &&
@@ -181,28 +188,70 @@ export function HiderHomeContent() {
         graceEndsAt !== null &&
         now < graceEndsAt;
     const graceRemainingMs = graceEndsAt ? Math.max(0, graceEndsAt - now) : 0;
-    // Forfeit fires once the grace window closes with still no zone.
-    // Latch it into the persistent atom so peers / reloads agree, and
-    // so the round can't be silently un-lost by a late zone commit.
-    const shouldForfeit =
+    // The auto-commit fires once the grace window closes with still no
+    // zone (and the round isn't already over / forfeited).
+    const shouldAutoCommit =
         $hidingEndsAt !== null &&
         !inHidingPeriod &&
         $hidingZone === null &&
         graceEndsAt !== null &&
         now >= graceEndsAt &&
-        !roundOver;
+        !roundOver &&
+        !$forfeited;
+    const autoCommitFiredRef = useRef(false);
+    // Re-arm per round/period (a fresh hidingPeriodEndsAt = new round or a
+    // Move re-anchor), so the next grace window can auto-commit again.
     useEffect(() => {
-        if (shouldForfeit && !$forfeited) {
+        autoCommitFiredRef.current = false;
+    }, [$hidingEndsAt]);
+    useEffect(() => {
+        if (!shouldAutoCommit || autoCommitFiredRef.current) return;
+        autoCommitFiredRef.current = true;
+        const deadline = graceEndsAt ?? Date.now();
+        const forfeit = () => {
+            // Couldn't resolve a station (no GPS / empty area) — fall back
+            // to the loss-by-no-zone terminal state.
             hiderForfeited.set(true);
-            // End the round so scoring + any online seekers close out.
-            // foundAt anchors at the grace deadline; the forfeit flag is
-            // what distinguishes a loss-by-no-zone from a normal catch.
-            if (roundFoundAt.get() === null && graceEndsAt !== null) {
-                roundFoundAt.set(graceEndsAt);
-                seekerMarkFound(graceEndsAt);
+            if (roundFoundAt.get() === null) {
+                roundFoundAt.set(deadline);
+                seekerMarkFound(deadline);
             }
+        };
+        const gps = lastKnownPosition.get();
+        if (!gps) {
+            forfeit();
+            return;
         }
-    }, [shouldForfeit, $forfeited, graceEndsAt]);
+        const radiusMeters = radiusForGameSize(gameSize.get());
+        void fetchAreaStations(gps.lat, gps.lng, {
+            allowed: allowedTransit.get(),
+        })
+            .then((stations) => {
+                // Guard: the hider may have committed manually in the
+                // meantime, or the round may have moved on.
+                if (hidingZone.get() !== null || roundFoundAt.get() !== null) {
+                    return;
+                }
+                const nearest = stations[0];
+                if (!nearest) {
+                    forfeit();
+                    return;
+                }
+                hidingZone.set({
+                    stationName: nearest.name || "Hiding zone",
+                    stationLat: nearest.lat,
+                    stationLng: nearest.lng,
+                    radiusMeters,
+                    committedAt: Date.now(),
+                });
+                toast.info(
+                    `Hiding period ended — your zone was set to your nearest station: ${nearest.name}.`,
+                    { autoClose: 5000 },
+                );
+            })
+            .catch(() => forfeit());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shouldAutoCommit, graceEndsAt]);
 
     const phase: HiderPhase = (() => {
         if (!$hidingEndsAt) return "pre-game";
@@ -604,9 +653,11 @@ function HidingPhaseView({
 
 /**
  * Shown when the hiding clock ran out and the hider never committed a
- * zone. The game is locked for ZONE_GRACE_MS; the hider must pick a
- * station from their current GPS location before the countdown hits
- * zero, or they forfeit (handled by the parent's effect).
+ * zone. The game is locked for ZONE_GRACE_MS; the hider should pick a
+ * station now. If the countdown hits zero with still no zone, the parent
+ * AUTO-COMMITS the hider's nearest transit station (rulebook p341) — so
+ * this is a "pick, or we pick your nearest for you" window, not a
+ * forfeit clock.
  */
 function GracePhaseView({
     graceRemainingMs,
@@ -617,20 +668,21 @@ function GracePhaseView({
 }) {
     return (
         <>
-            <section className="rounded-md border-2 border-destructive bg-destructive/10 px-4 py-5 mb-4 text-center">
+            <section className="rounded-md border-2 border-warning bg-warning/10 px-4 py-5 mb-4 text-center">
                 <div className="flex items-center justify-center gap-2 mb-1.5">
-                    <Lock className="w-4 h-4 text-destructive" />
-                    <div className="text-[10px] uppercase tracking-[0.2em] font-poppins font-bold text-destructive">
-                        Game locked — pick a zone now
+                    <Lock className="w-4 h-4 text-warning" />
+                    <div className="text-[10px] uppercase tracking-[0.2em] font-poppins font-bold text-warning">
+                        Pick your zone now
                     </div>
                 </div>
-                <div className="font-inter-tight italic font-black tabular-nums text-5xl text-destructive leading-none">
+                <div className="font-inter-tight italic font-black tabular-nums text-5xl text-warning leading-none">
                     {formatTimeRemaining(graceRemainingMs)}
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 leading-snug">
                     The hiding period ended before you locked in a zone. Pick a
-                    transit station from your current location before this timer
-                    runs out, or you forfeit the round.
+                    transit station from your current location — if this timer
+                    runs out first, your nearest station becomes your zone
+                    automatically.
                 </p>
             </section>
 
@@ -840,7 +892,11 @@ function FinalScoreBanner({
             $credit -
             effectiveHiddenDebitMs(foundAt),
     );
-    const finalMs = Math.max(0, seekMs - timeBonusMinutes * 60_000);
+    // v670: time-bonus cards ADD to the hider's time (rulebook p79 —
+    // longest hide wins), so the final score is seek time PLUS bonuses.
+    // (This was inverted — subtracting them — which both contradicted the
+    // rulebook and made holding bonuses hurt the hider.)
+    const finalMs = seekMs + timeBonusMinutes * 60_000;
 
     // Multiplayer-aware new-round flow. In an online room with 2+
     // participants we open the hider-rotation picker so the table
@@ -922,13 +978,13 @@ function FinalScoreBanner({
                         Bonus minutes
                     </div>
                     <div className="font-inter-tight font-bold tabular-nums text-base mt-0.5">
-                        −{timeBonusMinutes}m
+                        +{timeBonusMinutes}m
                     </div>
                 </div>
             </div>
             <p className="text-[10px] text-muted-foreground mt-3 text-center leading-snug">
-                Lower is better for the seeker; higher is better for the hider.
-                Carry to the next round for cumulative scoring.
+                Time bonus cards in your hand add to your final time. Longest
+                single hide wins.
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
                 <Button onClick={onNewRound} className="gap-1.5">

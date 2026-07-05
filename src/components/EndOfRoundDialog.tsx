@@ -9,12 +9,19 @@ import {
     effectiveHiddenDebitMs,
     endOfRoundDialogOpen,
     gamePausedForLocationAt,
+    gameSize,
     hiddenCreditMs,
     hiddenDebitMs,
     hidingPeriodEndsAt,
     setupDialogOpen,
 } from "@/lib/gameSetup";
-import { playerRole, roundFoundAt, roundLog } from "@/lib/hiderRole";
+import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
+import {
+    hiderHand,
+    playerRole,
+    roundFoundAt,
+    roundLog,
+} from "@/lib/hiderRole";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -77,6 +84,8 @@ export function EndOfRoundDialog() {
     const $credit = useStore(hiddenCreditMs);
     useStore(hiddenDebitMs);
     useStore(gamePausedForLocationAt);
+    const $hand = useStore(hiderHand);
+    const $gameSize = useStore(gameSize);
 
     const [rotateOpen, setRotateOpen] = useState(false);
 
@@ -108,13 +117,19 @@ export function EndOfRoundDialog() {
     const foundAt = $foundAt as number;
     const endsAt = $endsAt as number;
 
-    // This round's hidden time (same formula as the lobby recap / score).
-    const currentHidingMs = Math.max(
-        0,
-        Math.max(0, foundAt - endsAt) +
-            $credit -
-            effectiveHiddenDebitMs(foundAt),
-    );
+    // This round's hidden time (same formula as the lobby recap / score),
+    // PLUS the hider's time-bonus cards (rulebook p79 — bonuses add to the
+    // hiding time). Read from the local hand, still intact until the next
+    // round resets it; on the hider's own device + solo this matches the
+    // persisted roundLog entry startNewRound appends.
+    const currentHidingMs =
+        Math.max(
+            0,
+            Math.max(0, foundAt - endsAt) +
+                $credit -
+                effectiveHiddenDebitMs(foundAt),
+        ) +
+        tallyTimeBonusMinutes($hand, $gameSize) * 60_000;
     const currentHiderName =
         $participants.find((p) => p.role === "hider")?.displayName?.trim() ||
         displayNameAtom.get()?.trim() ||
@@ -259,9 +274,9 @@ export function EndOfRoundDialog() {
                         {formatDuration(currentHidingMs)}
                     </div>
                     <p className="text-[11px] text-muted-foreground leading-snug pt-1">
-                        Seek time from the end of the hiding period. The
-                        hider&apos;s time-bonus cards get subtracted for the
-                        final score.
+                        Time hidden from the end of the hiding period, including
+                        any time-bonus cards in the hider&apos;s hand. Longest
+                        single hide wins.
                     </p>
                 </div>
 
