@@ -550,7 +550,14 @@ B2 repeat-question pay-double still deferred (plan in the audit doc).
    change app behaviour, architecture, endpoints, schema, or
    conventions. Treat stale docs as a bug; fix the affected section
    rather than only appending.
-3. **Run `npm run verify` before pushing** (v662): `tsc --noEmit` +
+3. **Dependencies are installed with PNPM in CI.** The Cloudflare build
+   runs `pnpm install --frozen-lockfile` (it detects the root
+   `pnpm-lock.yaml`), so after ANY package.json change you MUST refresh
+   the pnpm lockfile — `npx pnpm@10 install --lockfile-only` — or the
+   deploy fails with ERR_PNPM_OUTDATED_LOCKFILE. An `npm install` alone
+   only updates package-lock.json (which CI ignores); this exact
+   mismatch broke the v662 deploy.
+4. **Run `npm run verify` before pushing** (v662): `tsc --noEmit` +
    `eslint --config eslint.hooks.config.js src` (ONLY
    `react-hooks/rules-of-hooks` — the crash-class rule; full lint debt
    isn't gated yet) + `vitest run`. `npm run build` runs verify first,
@@ -562,10 +569,10 @@ B2 repeat-question pay-double still deferred (plan in the audit doc).
    MapLibre paint objects that carry `*-transition` props (which the
    style-spec types omit) are wrapped in `fadePaint(...)`
    (`src/lib/mapPaint.ts`) — use it for any new fading layer.
-4. Bump `APP_VERSION` in `src/lib/version.ts`
-5. Push to master → Cloudflare auto-builds (2–3 min)
-6. Check build logs in Cloudflare dashboard
-7. If build fails: check TypeScript errors first (the historical SSR
+5. Bump `APP_VERSION` in `src/lib/version.ts`
+6. Push to master → Cloudflare auto-builds (2–3 min)
+7. Check build logs in Cloudflare dashboard
+8. If build fails: check TypeScript errors first (the historical SSR
    `window is not defined` Leaflet trap no longer applies — client-only SPA)
 
 For multi-file changes: use `github.dev` (press `.` on repo) to batch-commit across folders in a single build trigger.
