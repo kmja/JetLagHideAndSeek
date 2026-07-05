@@ -25,7 +25,7 @@
 import { polyGeoJSON } from "@/lib/context";
 import { hidingZoneFiltersFor, type TransitMode } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
-import { findPlacesInZone } from "@/maps/api/overpass";
+import { findPlacesInZone, overpassFailureCount } from "@/maps/api/overpass";
 
 /** Total stops cap — keeps a dense metro's station field (and the
  *  union-fill worker's input) tractable. */
@@ -108,6 +108,14 @@ async function fetchRawAreaStations(
         // primary + rest as alternatives, nwr / out center, no timeout
         // header) so both roles share one cached Overpass entry. `silent`
         // — every consumer has its own loading/error affordances.
+        //
+        // v667: `getOverpassData` returns `{elements: []}` BOTH on a
+        // genuinely-empty result and on total mirror failure (rate limit
+        // / soft-timeout storm). An empty caused by failure must THROW —
+        // not be cached and returned — or every consumer renders
+        // "loaded, zero zones" (the Chicago empty-overlay bug).
+        // `overpassFailureCount` is the designed tell-them-apart signal.
+        const failuresBefore = overpassFailureCount();
         const data = (await findPlacesInZone(
             filters[0],
             undefined,
@@ -118,6 +126,14 @@ async function fetchRawAreaStations(
             true,
         )) as { elements?: OverpassElement[] };
         const elements = data?.elements ?? [];
+        if (
+            elements.length === 0 &&
+            overpassFailureCount() > failuresBefore
+        ) {
+            throw new Error(
+                "Station scan failed — all Overpass mirrors timed out or rate-limited",
+            );
+        }
 
         const seenIds = new Set<number>();
         const stations: RawStation[] = [];

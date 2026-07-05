@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { booleanPointInPolygon } from "@turf/turf";
 import { useEffect } from "react";
+import { toast } from "react-toastify";
 
 import {
     hidingRadius,
@@ -96,15 +97,35 @@ export function HiderReachOverlay() {
             const anchorLat = gps?.lat ?? (centre?.[0] as number) ?? 0;
             const anchorLng = gps?.lng ?? (centre?.[1] as number) ?? 0;
 
-            const stations = await fetchAreaStations(anchorLat, anchorLng, {
-                allowed: $allowed,
-            }).catch((e) => {
+            // v667: a FAILED fetch (Overpass rate-limited / soft-timed-
+            // out) must not masquerade as "loaded, zero zones" — the old
+            // catch-to-[] did exactly that (the Chicago empty-overlay
+            // bug). Failure → error toast + null FC (the toggle stays on,
+            // so toggling it re-runs the fetch); a genuinely-empty result
+            // → info toast + empty FC.
+            let stations: AreaStation[];
+            try {
+                stations = await fetchAreaStations(anchorLat, anchorLng, {
+                    allowed: $allowed,
+                });
+            } catch (e) {
                 console.warn("HiderReachOverlay: station fetch failed", e);
-                return [] as AreaStation[];
-            });
+                if (!cancelled) {
+                    hiderReachFC.set(null);
+                    toast.error(
+                        "Couldn't load hiding zones — the map data service timed out or is rate-limited. Toggle the overlay again to retry.",
+                        { toastId: "hider-reach-failed" },
+                    );
+                }
+                return;
+            }
             if (cancelled) return;
             if (stations.length === 0) {
                 hiderReachFC.set({ type: "FeatureCollection", features: [] });
+                toast.info(
+                    "No candidate hiding zones found in the play area for the allowed transit modes.",
+                    { toastId: "hider-reach-empty" },
+                );
                 return;
             }
 

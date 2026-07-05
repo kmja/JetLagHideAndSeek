@@ -292,8 +292,9 @@ async function readBodyWithProgress(
 /** Build a fresh Response from a previously-read body buffer.
  *  Used so we can hand the SAME bytes to both `cache.put` (one
  *  Response) and the eventual JSON consumer (another Response)
- *  without sharing a body stream. */
-function responseFromBuffer(
+ *  without sharing a body stream. Exported for `getOverpassData`'s
+ *  abort-remark sniff (v667), which buffers each racer's body. */
+export function responseFromBuffer(
     bytes: Uint8Array,
     template: Response,
 ): Response {

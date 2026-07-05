@@ -55,6 +55,7 @@ import {
     findTentacleLocations,
     nearestToQuestion,
     normalizeToStationFeatures,
+    overpassFailureCount,
     parseCustomStationsFromText,
     QuestionSpecificLocation,
     type StationCircle,
@@ -242,6 +243,14 @@ export const ZoneSidebar = () => {
                 // a compact "Finding stations" pill in the map-display
                 // controls already covers the loading affordance (driven by
                 // `isLoading`).
+                // v667: tell a FAILED fetch (all mirrors rate-limited /
+                // soft-timed-out → `{elements: []}`) apart from a
+                // genuinely-empty result. Throwing routes it into this
+                // effect's catch → error toast + isLoading cleanup, and
+                // crucially does NOT record the compute signature — so
+                // toggling the overlay again actually retries instead of
+                // repainting the cached empty.
+                const failuresBefore = overpassFailureCount();
                 // @ts-expect-error osmtogeojson always defines properties with an "id" string
                 places = osmtogeojson(
                     await findPlacesInZone(
@@ -252,6 +261,14 @@ export const ZoneSidebar = () => {
                         $displayHidingZonesOptions.slice(1),
                     ),
                 ).features;
+                if (
+                    places.length === 0 &&
+                    overpassFailureCount() > failuresBefore
+                ) {
+                    throw new Error(
+                        "Station scan failed — all Overpass mirrors timed out or rate-limited",
+                    );
+                }
 
                 if (
                     useCustomStations &&

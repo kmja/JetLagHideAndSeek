@@ -21,6 +21,7 @@ import {
 import {
     cacheFetch,
     determineCache,
+    responseFromBuffer,
     safeJsonFromCachedResponse,
 } from "./cache";
 import {
@@ -30,6 +31,10 @@ import {
     OVERPASS_API_QUATERNARY,
     OVERPASS_API_TERTIARY,
 } from "./constants";
+import {
+    isAbortedOverpassJson,
+    sniffAbortedOverpassBytes,
+} from "./overpassAbort";
 import { familyForFilter, findCachedPlaces } from "./playAreaPrefetch";
 import {
     extractBoundaryRelationId,
@@ -56,6 +61,7 @@ import { CacheType } from "./types";
  */
 let _overpassFailureCount = 0;
 export const overpassFailureCount = (): number => _overpassFailureCount;
+
 
 export const getOverpassData = async (
     query: string,
@@ -101,7 +107,15 @@ export const getOverpassData = async (
         if (hit && hit.ok) {
             // Use the gzip-sniffing safe parser — heals any cache entry
             // a previous build poisoned with raw gzip bytes.
-            return await safeJsonFromCachedResponse(hit.clone());
+            const parsed = await safeJsonFromCachedResponse(hit.clone());
+            // v667: self-heal an aborted-body entry (an Overpass soft
+            // timeout a pre-fix build cached as a success) — purge it
+            // and fall through to the live race.
+            if (!isAbortedOverpassJson(parsed)) return parsed;
+            devWarn(
+                "[overpass] cached body carries an Overpass abort remark — purging + refetching",
+            );
+            await cache.delete(primaryUrl);
         }
     } catch {
         /* Cache API unavailable (private mode / iOS quirk) — race. */
@@ -137,8 +151,28 @@ export const getOverpassData = async (
             );
             const ms = Date.now() - t0;
             if (r && r.ok) {
+                // v667: a 200 body can still be an Overpass soft failure
+                // (abort `remark` + empty/truncated elements). Sniff it
+                // INSIDE the race so an aborted body counts as a
+                // per-mirror miss and the race falls over to the next
+                // tier (e.g. a poisoned worker cache entry loses to a
+                // healthy public mirror). Purge any cached copy so
+                // retries refetch instead of re-serving the poison.
+                const bytes = new Uint8Array(await r.arrayBuffer());
+                if (sniffAbortedOverpassBytes(bytes)) {
+                    devWarn(
+                        `[overpass] ${shortName} returned an aborted body (remark) (${ms}ms) — treating as a miss`,
+                    );
+                    try {
+                        const cache = await determineCache(cacheType);
+                        await cache.delete(url);
+                    } catch {
+                        /* no-op */
+                    }
+                    return null;
+                }
                 devLog(`[overpass] ${shortName} OK (${ms}ms)`);
-                return r;
+                return responseFromBuffer(bytes, r);
             }
             // Per-attempt non-OK in a multi-mirror race is expected (a
             // mirror 502s, we fall through to the next). Dev-only so the

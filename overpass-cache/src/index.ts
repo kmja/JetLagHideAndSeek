@@ -1039,12 +1039,63 @@ async function handleRequest(
                 e,
             );
         }
+        // v667 read-path self-heal: a pre-fix build may have cached an
+        // Overpass soft-failure body (abort remark + empty elements)
+        // under this key — Chicago's hiding-zones query sat poisoned
+        // exactly like that. Small objects (a poisoned body is <1 KB
+        // compressed) get decompressed + sniffed; on poison the entry
+        // is deleted and the request proceeds as a full miss. The sniff
+        // consumes the one-shot R2 body, so a clean small body is
+        // re-served from the decoded text instead of the stream.
+        let r2HitText: string | null = null;
+        if (r2Hit && r2Hit.size <= ABORT_SNIFF_MAX_GZ_BYTES) {
+            try {
+                const text = await readR2BodyText(r2Hit);
+                if (isAbortedOverpassText(text)) {
+                    console.warn(
+                        "[interpreter] poisoned cache entry (abort remark) — deleting + treating as miss",
+                    );
+                    ctx.waitUntil(
+                        env.CACHE.delete(`overpass/${cacheKey}`).catch(
+                            () => {},
+                        ),
+                    );
+                    r2Hit = null;
+                } else {
+                    r2HitText = text;
+                }
+            } catch (e) {
+                // Body stream already consumed — can't serve it anymore;
+                // treat as a miss.
+                console.warn(
+                    "[interpreter] R2 abort sniff failed — treating as miss:",
+                    e,
+                );
+                r2Hit = null;
+            }
+        }
         if (r2Hit) {
+            const hit = r2Hit;
             const cachedAt = parseInt(
-                r2Hit.customMetadata?.cachedAt ?? "0",
+                hit.customMetadata?.cachedAt ?? "0",
                 10,
             );
             const age = Date.now() - cachedAt;
+            // Serve the hit — from the sniff's decoded text when the
+            // body stream was consumed, else streamed straight through.
+            const serveR2 = (xStatus: string): Response =>
+                r2HitText !== null
+                    ? new Response(r2HitText, {
+                          status: 200,
+                          headers: {
+                              ...corsHeadersAsObject(cors),
+                              "Content-Type": "application/json",
+                              "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                              "X-Cache": xStatus,
+                              "X-Cache-Age-Ms": String(age),
+                          },
+                      })
+                    : buildR2Response(hit, cors, xStatus, age);
             if (cachedAt && age < ttlMs) {
                 // Pass R2's body stream straight to the client,
                 // honouring its encoding metadata so a gzip-stored
@@ -1054,13 +1105,13 @@ async function handleRequest(
                 // re-readable body and `R2ObjectBody` is one-shot.
                 // R2 reads within Cloudflare are single-digit ms, so
                 // the win was modest anyway.
-                return buildR2Response(r2Hit, cors, "R2_HIT", age);
+                return serveR2("R2_HIT");
             }
             // Stale. In cache-only mode serve the stale hit as-is (a
             // slightly-old boundary is fine, and we must not go upstream);
             // otherwise refresh upstream.
             if (cacheOnly) {
-                return buildR2Response(r2Hit, cors, "R2_STALE_CACHEONLY", age);
+                return serveR2("R2_STALE_CACHEONLY");
             }
             // Stale — refresh upstream and stream gzip → tee → [R2,
             // client]. Falls back to the stale R2 hit if every mirror
@@ -1074,7 +1125,7 @@ async function handleRequest(
                 "MISS_REFRESH",
             );
             if (refreshResp) return refreshResp;
-            return buildR2Response(r2Hit, cors, "R2_STALE_FALLBACK", age);
+            return serveR2("R2_STALE_FALLBACK");
         }
 
         // v640: cache-only miss — nothing cached and we must not go
@@ -1636,6 +1687,11 @@ async function prewarmRelation(
         return { status: "upstream-failed" };
     }
     const body = await upstream.text();
+    // v667: an aborted body (Overpass soft timeout) must not be stored —
+    // it would poison the key for CACHE_TTL_DAYS.
+    if (isAbortedOverpassText(body)) {
+        return { status: "upstream-failed" };
+    }
     try {
         const { rawBytes } = await compressAndStoreString(env, cacheKey, body, {
             ...(sourceName ? { sourceName } : {}),
@@ -3570,6 +3626,8 @@ async function prewarmHsrCountry(
     );
     if (!upstream) return { status: "upstream-failed" };
     const body = await upstream.text();
+    // v667: refuse to store an aborted body (Overpass soft timeout).
+    if (isAbortedOverpassText(body)) return { status: "upstream-aborted" };
     try {
         const { rawBytes } = await compressAndStoreString(env, cacheKey, body, {
             sourceName: iso,
@@ -3620,6 +3678,10 @@ async function prewarmQuery(
     );
     if (!upstream) return { status: "upstream-failed" };
     const body = await upstream.text();
+    // v667: refuse to store an aborted body (Overpass soft timeout) —
+    // this is the exact path that used to cache an empty combined-
+    // reference set as "stored" when a dense metro's query timed out.
+    if (isAbortedOverpassText(body)) return { status: "upstream-aborted" };
     try {
         const { rawBytes } = await compressAndStoreString(env, cacheKey, body, {
             sourceName: city.name,
@@ -7083,6 +7145,70 @@ const TILE_PACK_SINGLE_SHOT_MAX = 90 * 1024 * 1024; // 90 MB
 
 const STORAGE_ENCODING = "gzip" as const;
 
+/* ────────────── Overpass soft-failure ("abort remark") sniffing ──────────────
+ *
+ * v667. When the Overpass interpreter hits its server-side time/memory
+ * limit it does NOT return an error status — it returns HTTP 200 whose
+ * JSON body carries a `remark` like
+ *   "runtime error: Query timed out in \"query\" at line 4 after 26 seconds."
+ * with `elements` empty or silently truncated. Before this fix that body
+ * flowed through the normal success path and was CACHED under the
+ * query's R2 key for CACHE_TTL_DAYS — so one bad upstream moment served
+ * "no stations in Chicago" to every retry for a month (the
+ * hiding-zones-say-loaded-but-the-map-is-empty bug). Three defences:
+ *
+ *   1. WRITE: `streamCompressIntoR2` peeks small bodies and returns an
+ *      aborted one to the client uncached (`Cache-Control: no-store`).
+ *   2. READ: the interpreter handler sniffs small R2 hits and deletes a
+ *      poisoned entry (self-heal for entries written pre-fix).
+ *   3. CRON: the prewarm paths refuse to store an aborted body.
+ *
+ * The client (`src/maps/api/overpass.ts`) mirrors the same sniff so an
+ * aborted body — from this worker OR a public mirror — counts as a
+ * per-mirror miss in its failover race. */
+
+/** Bodies at/under this size get fully buffered for the write-path
+ *  sniff; larger bodies stream straight through untouched (the
+ *  zero-buffering pipeline exists for NYC-scale multi-MB responses,
+ *  and an aborted body is a few hundred bytes). */
+const ABORT_SNIFF_MAX_BYTES = 256 * 1024;
+/** Compressed-size ceiling for the read-path self-heal sniff — R2
+ *  stores gzip, and a poisoned body is well under 1 KB compressed. */
+const ABORT_SNIFF_MAX_GZ_BYTES = 64 * 1024;
+
+const OVERPASS_ABORT_RE = /runtime error|timed out|out of memory/i;
+
+/** True when an Overpass JSON body carries an abort remark. The remark
+ *  sits at the END of the JSON output, so the tail pre-check keeps
+ *  clean bodies cheap — the full parse only runs when the tail actually
+ *  contains a remark key. */
+function isAbortedOverpassText(text: string): boolean {
+    const tail = text.length > 4096 ? text.slice(-4096) : text;
+    if (!tail.includes('"remark"')) return false;
+    try {
+        const parsed = JSON.parse(text) as { remark?: unknown };
+        return (
+            typeof parsed?.remark === "string" &&
+            OVERPASS_ABORT_RE.test(parsed.remark)
+        );
+    } catch {
+        return false;
+    }
+}
+
+/** Decompress + read a (small) R2 hit's body as text, honouring its
+ *  encoding metadata. Consumes the object's one-shot body stream — the
+ *  caller must serve from the returned text, not `hit.body`. */
+async function readR2BodyText(hit: R2ObjectBody): Promise<string> {
+    const encoding = hit.customMetadata?.encoding;
+    if (encoding && encoding !== "identity") {
+        return await new Response(
+            hit.body.pipeThrough(new DecompressionStream("gzip")),
+        ).text();
+    }
+    return await new Response(hit.body).text();
+}
+
 interface R2WriteMetadata {
     sourceName?: string;
     sourceRelationId?: string;
@@ -7106,8 +7232,14 @@ interface R2WriteMetadata {
  * Response]. Returns a Response built from the client-side branch with
  * `Content-Encoding: gzip` already set. The R2 write runs under
  * ctx.waitUntil so the worker doesn't return until it's flushed.
+ *
+ * v667: peeks bodies up to ABORT_SNIFF_MAX_BYTES for an Overpass abort
+ * remark first — an aborted body goes back to the client UNCACHED so a
+ * soft timeout can't poison the R2 key. Bodies that outgrow the peek
+ * window are real results; the buffered head is stitched back onto the
+ * remaining stream and the zero-buffering pipeline continues as before.
  */
-function streamCompressIntoR2(
+async function streamCompressIntoR2(
     env: Env,
     ctx: ExecutionContext,
     cacheKey: string,
@@ -7115,9 +7247,65 @@ function streamCompressIntoR2(
     metadata: R2WriteMetadata,
     cors: HeadersInit,
     status: string,
-): Response | null {
+): Promise<Response | null> {
     if (!upstream.body) return null;
-    const compressed = upstream.body.pipeThrough(
+
+    const reader = upstream.body.getReader();
+    const head: Uint8Array<ArrayBuffer>[] = [];
+    let headBytes = 0;
+    let completed = false;
+    while (headBytes <= ABORT_SNIFF_MAX_BYTES) {
+        const { done, value } = await reader.read();
+        if (done) {
+            completed = true;
+            break;
+        }
+        head.push(value);
+        headBytes += value.byteLength;
+    }
+
+    let bodyStream: ReadableStream<Uint8Array<ArrayBuffer>>;
+    if (completed) {
+        // Whole body fits in the peek window — sniff it.
+        const whole = new Uint8Array(headBytes);
+        let offset = 0;
+        for (const chunk of head) {
+            whole.set(chunk, offset);
+            offset += chunk.byteLength;
+        }
+        if (isAbortedOverpassText(new TextDecoder().decode(whole))) {
+            console.warn(
+                `[interpreter] upstream body carries an Overpass abort remark — returning uncached (${status})`,
+            );
+            return new Response(whole, {
+                status: 200,
+                headers: {
+                    ...corsHeadersAsObject(cors),
+                    "Content-Type": "application/json",
+                    "Cache-Control": "no-store",
+                    "X-Cache": `${status}_UNCACHED_ABORT`,
+                },
+            });
+        }
+        bodyStream = new Response(whole).body!;
+    } else {
+        // Body outgrew the window — re-stitch head + rest of the stream.
+        bodyStream = new ReadableStream<Uint8Array<ArrayBuffer>>({
+            start(controller) {
+                for (const chunk of head) controller.enqueue(chunk);
+            },
+            async pull(controller) {
+                const { done, value } = await reader.read();
+                if (done) controller.close();
+                else controller.enqueue(value);
+            },
+            cancel(reason) {
+                void reader.cancel(reason);
+            },
+        });
+    }
+
+    const compressed = bodyStream.pipeThrough(
         new CompressionStream(STORAGE_ENCODING),
     );
     const [toR2, toClient] = compressed.tee();
