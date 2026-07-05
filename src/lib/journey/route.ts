@@ -45,11 +45,25 @@ function legLabel(leg: JourneyLeg): string {
     return leg.line ? `${name} ${leg.line}` : name;
 }
 
+/** True when a leg endpoint is a real coordinate. Some upstream parsers
+ *  default a missing place to (0, 0) — a Null Island line/stop would
+ *  drag the route (and the map fit) across the globe, so both the leg
+ *  lines and the step dots skip such endpoints. */
+function validPoint(p: { lat: number; lng: number }): boolean {
+    return (
+        Number.isFinite(p.lat) &&
+        Number.isFinite(p.lng) &&
+        !(p.lat === 0 && p.lng === 0)
+    );
+}
+
 export function journeyToRouteFC(
     journey: Journey,
 ): GeoJSON.FeatureCollection {
     const features: GeoJSON.Feature[] = [];
-    const legs = journey.legs ?? [];
+    const legs = (journey.legs ?? []).filter(
+        (l) => validPoint(l.from) && validPoint(l.to),
+    );
 
     for (const leg of legs) {
         const isWalk = leg.mode === "walk";

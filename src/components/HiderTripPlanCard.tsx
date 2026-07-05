@@ -5,9 +5,8 @@ import { JourneyCard } from "@/components/JourneyCard";
 import { lastKnownPosition } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
+import { useOwnedTripRoute } from "@/hooks/useOwnedTripRoute";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
-import { journeyToRouteFC } from "@/lib/journey/route";
-import { tripRouteFC } from "@/lib/journey/state";
 
 /**
  * Hider's trip-plan card. Fetches a journey from the hider's live
@@ -113,10 +112,7 @@ export function HiderTripPlanCard() {
 
     // Mirror the planned journey onto the map route overlay; clear it
     // when the card unmounts (zone uncommitted / new round).
-    useEffect(() => {
-        tripRouteFC.set(journey ? journeyToRouteFC(journey) : null);
-    }, [journey]);
-    useEffect(() => () => tripRouteFC.set(null), []);
+    useOwnedTripRoute(journey);
 
     if (!$zone) return null;
 

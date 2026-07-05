@@ -13,8 +13,8 @@ import {
     type PlanResponse,
     type TravelPlace,
 } from "@/lib/journey/plan";
-import { seekerTripPlannerOpen, tripRouteFC } from "@/lib/journey/state";
-import { journeyToRouteFC } from "@/lib/journey/route";
+import { seekerTripPlannerOpen } from "@/lib/journey/state";
+import { useOwnedTripRoute } from "@/hooks/useOwnedTripRoute";
 import { cn } from "@/lib/utils";
 import { forwardGeocodeOne } from "@/maps/api/geocode";
 
@@ -62,10 +62,7 @@ export function SeekerTripPlannerSheet() {
 
     // Mirror the planned journey onto the map route overlay; clear it
     // when there's no journey or the planner unmounts.
-    useEffect(() => {
-        tripRouteFC.set(journey ? journeyToRouteFC(journey) : null);
-    }, [journey]);
-    useEffect(() => () => tripRouteFC.set(null), []);
+    useOwnedTripRoute(journey);
 
     // On close, only clear the transient search-input state. The
     // destination + planned journey PERSIST so (a) the route overlay

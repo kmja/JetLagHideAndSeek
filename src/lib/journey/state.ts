@@ -182,6 +182,15 @@ export const seekerTripPlannerOpen = atom<boolean>(false);
  */
 export const tripRouteFC = atom<GeoJSON.FeatureCollection | null>(null);
 
+/**
+ * Current on-screen height (px) of the station transit card's drawer —
+ * 0 when closed. Published by `StationTransitCard` via a ResizeObserver
+ * and read by `HiderBackgroundMap`, which refits the trip-route view
+ * with a matching bottom padding so the GPS dot + tapped zone stay in
+ * frame as the card opens/expands/collapses.
+ */
+export const stationCardInsetPx = atom<number>(0);
+
 /* ─────────────────── Map-first station selection ─────────────────── */
 
 /**

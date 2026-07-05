@@ -10,7 +10,7 @@ import {
     X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
 
@@ -31,8 +31,11 @@ import {
     fetchDepartures,
 } from "@/lib/journey/departures";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
-import { journeyToRouteFC } from "@/lib/journey/route";
-import { selectedMapStation, tripRouteFC } from "@/lib/journey/state";
+import { useOwnedTripRoute } from "@/hooks/useOwnedTripRoute";
+import {
+    selectedMapStation,
+    stationCardInsetPx,
+} from "@/lib/journey/state";
 import { seekerStartEndgame } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
@@ -187,10 +190,50 @@ export function StationTransitCard({
     // the shared `tripRouteFC` overlay (`TripRouteLayers`, already mounted
     // on both the seeker + hider maps). Cleared when the journey resets
     // (station change / close) and on unmount so it never lingers.
+    useOwnedTripRoute(journey);
+
+    // Publish the drawer's on-screen height so the hider map can refit
+    // the trip-route view with a matching bottom inset — keeping the GPS
+    // dot + tapped zone in frame as the card opens, expands or collapses.
+    // A ResizeObserver catches the expand/collapse height changes.
+    const contentRef = useRef<HTMLDivElement | null>(null);
+    const cardOpen = station !== null;
     useEffect(() => {
-        tripRouteFC.set(journey ? journeyToRouteFC(journey) : null);
-    }, [journey]);
-    useEffect(() => () => tripRouteFC.set(null), []);
+        if (!cardOpen) {
+            stationCardInsetPx.set(0);
+            return;
+        }
+        const el = contentRef.current;
+        if (!el || typeof ResizeObserver === "undefined") return;
+        const publish = () =>
+            stationCardInsetPx.set(
+                Math.round(el.getBoundingClientRect().height),
+            );
+        publish();
+        const ro = new ResizeObserver(publish);
+        ro.observe(el);
+        return () => {
+            ro.disconnect();
+            stationCardInsetPx.set(0);
+        };
+    }, [cardOpen]);
+
+    // Swipe-UP on the compact card expands it (the requested drag
+    // gesture) — a plain touch-delta check, deliberately NOT vaul snap
+    // points (those hard-froze the UI on some devices, v651). Downward
+    // drags stay vaul's own dismiss gesture; when expanded, touches
+    // belong to the scrollable content so the handler stands down.
+    const touchStartY = useRef<number | null>(null);
+    const onCardTouchStart = (e: React.TouchEvent) => {
+        touchStartY.current = e.touches[0]?.clientY ?? null;
+    };
+    const onCardTouchEnd = (e: React.TouchEvent) => {
+        const startY = touchStartY.current;
+        touchStartY.current = null;
+        if (startY == null || expanded) return;
+        const endY = e.changedTouches[0]?.clientY ?? startY;
+        if (startY - endY > 40) setExpanded(true);
+    };
 
     const close = () => selectedMapStation.set(null);
 
@@ -254,7 +297,19 @@ export function StationTransitCard({
             modal={false}
         >
             <VaulDrawer.Portal>
-                <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]">
+                <VaulDrawer.Content
+                    ref={contentRef}
+                    // Keep the card OPEN when the user taps the map behind
+                    // it (non-modal, so the map still receives the tap and
+                    // switches the selected zone in place — the reported
+                    // "can't click other zones while the drawer is open").
+                    // Radix would otherwise dismiss on any outside press.
+                    onPointerDownOutside={(e) => e.preventDefault()}
+                    onInteractOutside={(e) => e.preventDefault()}
+                    onTouchStart={onCardTouchStart}
+                    onTouchEnd={onCardTouchEnd}
+                    className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]"
+                >
                     <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                     <div className="overflow-y-auto px-5 pt-3 pb-6">
                         <div className="flex items-start gap-2.5">

@@ -42,6 +42,7 @@ import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
 import {
     hiderReachFC,
     selectedMapStation,
+    stationCardInsetPx,
     tripRouteFC,
 } from "@/lib/journey/state";
 import { findZoneAtPoint } from "@/lib/journey/stations";
@@ -111,6 +112,10 @@ export function HiderBackgroundMap() {
     const $gps = useStore(lastKnownPosition);
     const $reach = useStore(hiderReachFC);
     const $trip = useStore(tripRouteFC);
+    // Station-card drawer height, bucketed so the route refit below only
+    // re-runs on real open/expand/collapse transitions (not 1px jitters).
+    const $cardInset = useStore(stationCardInsetPx);
+    const cardInsetBucket = Math.round($cardInset / 60);
     const $selectedStation = useStore(selectedMapStation);
     const $hidingRadius = useStore(hidingRadius);
     const $hidingRadiusUnits = useStore(hidingRadiusUnits);
@@ -333,12 +338,14 @@ export function HiderBackgroundMap() {
         }
     }, [polyKey, $polyGeoJSON, $zone, $gps]);
 
-    // Frame the map to the planned trip route the moment it appears
-    // (v650 — "I don't see the trip route overlay"): the straight-line
-    // route from live GPS to the tapped station can otherwise sit
-    // off-screen or fully behind the bottom-anchored StationTransitCard.
-    // Fits once per distinct route (signature-guarded), with generous
-    // BOTTOM padding so the route clears the drawer.
+    // Frame the map to the planned trip route (v650, reworked v666): the
+    // straight-line route from live GPS to the tapped station can
+    // otherwise sit off-screen or fully behind the bottom-anchored
+    // StationTransitCard. The BOTTOM padding follows the card's live
+    // measured height (`stationCardInsetPx`), so the fit re-runs when the
+    // card opens/expands/collapses and keeps the GPS dot + zone in the
+    // VISIBLE strip above the drawer. Signature-guarded per
+    // (route, inset-bucket) so pan/zoom by the user isn't fought.
     const lastTripFitRef = useRef<string>("");
     useEffect(() => {
         const feats = $trip?.features ?? [];
@@ -350,37 +357,52 @@ export function HiderBackgroundMap() {
             minLat = Infinity,
             maxLng = -Infinity,
             maxLat = -Infinity;
+        const extend = (lng: number, lat: number) => {
+            if (lng < minLng) minLng = lng;
+            if (lat < minLat) minLat = lat;
+            if (lng > maxLng) maxLng = lng;
+            if (lat > maxLat) maxLat = lat;
+        };
         const walk = (arr: any) => {
             if (
                 typeof arr?.[0] === "number" &&
                 typeof arr?.[1] === "number"
             ) {
-                const [lng, lat] = arr;
-                if (lng < minLng) minLng = lng;
-                if (lat < minLat) minLat = lat;
-                if (lng > maxLng) maxLng = lng;
-                if (lat > maxLat) maxLat = lat;
+                extend(arr[0], arr[1]);
             } else if (Array.isArray(arr)) {
                 for (const s of arr) walk(s);
             }
         };
         for (const f of feats) walk((f.geometry as any)?.coordinates);
+        // Keep the hider's CURRENT position in frame too — the route's
+        // origin was the GPS at plan time; the dot may have drifted.
+        const gps = lastKnownPosition.get();
+        if (gps) extend(gps.lng, gps.lat);
         if (!Number.isFinite(minLng) || !Number.isFinite(maxLat)) return;
-        const sig = [minLng, minLat, maxLng, maxLat]
-            .map((n) => n.toFixed(4))
-            .join(",");
+        const sig =
+            [minLng, minLat, maxLng, maxLat]
+                .map((n) => n.toFixed(4))
+                .join(",") + `|${cardInsetBucket}`;
         if (lastTripFitRef.current === sig) return;
         lastTripFitRef.current = sig;
         const map = mapRef.current?.getMap();
         if (!map) return;
         try {
+            // Bottom inset = the card's height, clamped so the padding
+            // always leaves a usable strip of map (fitBounds THROWS when
+            // padding exceeds the viewport).
+            const mapH = map.getContainer()?.clientHeight ?? 800;
+            const bottom = Math.max(
+                140,
+                Math.min($cardInset + 40, Math.floor(mapH * 0.75)),
+            );
             map.fitBounds(
                 [
                     [minLng, minLat],
                     [maxLng, maxLat],
                 ],
                 {
-                    padding: { top: 70, left: 50, right: 50, bottom: 380 },
+                    padding: { top: 80, left: 50, right: 50, bottom },
                     maxZoom: 15,
                     duration: 600,
                 },
@@ -388,7 +410,8 @@ export function HiderBackgroundMap() {
         } catch (e) {
             console.warn("[HiderBackgroundMap] trip fit failed:", e);
         }
-    }, [$trip]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [$trip, cardInsetBucket]);
 
     return (
         <div className="absolute inset-0 z-0">
