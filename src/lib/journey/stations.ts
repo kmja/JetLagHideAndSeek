@@ -22,8 +22,18 @@
  * relevant ones) — never in the query string.
  */
 
-import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
-import { hidingZoneFiltersFor, type TransitMode } from "@/lib/gameSetup";
+import { booleanPointInPolygon } from "@turf/turf";
+
+import {
+    additionalMapGeoLocations,
+    mapGeoLocation,
+    polyGeoJSON,
+} from "@/lib/context";
+import {
+    HIDING_ZONE_FILTERS_BY_MODE,
+    hidingZoneFiltersFor,
+    type TransitMode,
+} from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
 import { AREA_STATIONS_BY_RELATION_BASE } from "@/maps/api/constants";
 import { findPlacesInZone, overpassFailureCount } from "@/maps/api/overpass";
@@ -113,11 +123,19 @@ async function fetchRawAreaStations(
         // so the client never builds a byte-fragile query. On any miss
         // (uncurated area / cold cache) `elements` is empty and we fall
         // through to the live poly query below.
-        const relId = primaryRelationId();
-        if (relId !== null) {
-            const warmElements = await fetchPrewarmedStations(relId);
+        // The endpoint serves a 2 km-PADDED bbox superset of the PRIMARY
+        // relation, whereas the live poly query is play-area-clipped — so
+        // the result is culled to the play-area polygon to match those
+        // semantics exactly (a station outside the play area is not a
+        // legal zone, v665). `prewarmEndpointRelationId` also declines
+        // when adjacent areas were added/subtracted (the endpoint only
+        // covers the primary) or the polygon isn't loaded (can't cull).
+        const endpointRelId = prewarmEndpointRelationId();
+        if (endpointRelId !== null) {
+            const warmElements = await fetchPrewarmedStations(endpointRelId);
             if (warmElements && warmElements.length > 0) {
-                const stations = parseStations(warmElements, allowed);
+                const culled = cullElementsToPlayArea(warmElements);
+                const stations = parseStations(culled, allowed);
                 if (stations.length > 0) {
                     // Kick a background warm so the next TTL is covered
                     // even if this was a stale-but-present hit.
@@ -156,7 +174,8 @@ async function fetchRawAreaStations(
             // Ask the worker to warm this relation's station field so the
             // next load is served from R2 instead of re-hitting a
             // timing-out live query. Fire-and-forget.
-            if (relId !== null) requestStationWarm(relId);
+            const warmRelId = primaryRelationId();
+            if (warmRelId !== null) requestStationWarm(warmRelId);
             throw new Error(
                 "Station scan failed — all Overpass mirrors timed out or rate-limited",
             );
@@ -166,7 +185,8 @@ async function fetchRawAreaStations(
         rawStationsCache = { filtersKey, polyRef, stations };
         // Warm the prewarm entry for next time (a live poly fetch means
         // the relation endpoint missed). Fire-and-forget, deduped.
-        if (relId !== null) requestStationWarm(relId);
+        const warmRelId = primaryRelationId();
+        if (warmRelId !== null) requestStationWarm(warmRelId);
         return stations;
     })();
     rawStationsInFlight = { filtersKey, polyRef, promise };
@@ -203,6 +223,26 @@ function parseStations(
     return stations;
 }
 
+/** Cull `out center` elements to the play-area polygon, matching the
+ *  clipping the live poly query does server-side. No-op when the polygon
+ *  isn't loaded (caller gates on that). */
+function cullElementsToPlayArea(
+    elements: OverpassElement[],
+): OverpassElement[] {
+    const poly = polyGeoJSON.get();
+    if (!poly) return elements;
+    return elements.filter((el) => {
+        const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
+        const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
+        if (typeof lat !== "number" || typeof lng !== "number") return false;
+        try {
+            return booleanPointInPolygon([lng, lat], poly as never);
+        } catch {
+            return true;
+        }
+    });
+}
+
 /** The primary play-area OSM relation id, or null for a custom-drawn /
  *  non-relation play area (which has no prewarm entry to hit). */
 function primaryRelationId(): number | null {
@@ -213,6 +253,24 @@ function primaryRelationId(): number | null {
         return p.osm_id;
     }
     return null;
+}
+
+/**
+ * The relation id the prewarm endpoint may be READ for, or null if it
+ * can't be used for this play area. The `/api/area-stations/<id>` entry
+ * covers the PRIMARY relation's 2 km-padded bbox only, so it's valid
+ * ONLY when:
+ *   - the play area is a single relation (no added/subtracted adjacent
+ *     areas — those extend the play area beyond the primary bbox), and
+ *   - its polygon is loaded (needed to cull the padded bbox back to the
+ *     exact play area, matching the poly query's clipping).
+ * Otherwise callers use the live poly query, which handles the combined
+ * polygon + subtractions correctly.
+ */
+function prewarmEndpointRelationId(): number | null {
+    if (!polyGeoJSON.get()) return null;
+    if (additionalMapGeoLocations.get().length > 0) return null;
+    return primaryRelationId();
 }
 
 /** Fetch the prewarmed all-mode station field for a relation, or null on
@@ -264,6 +322,68 @@ function sortAndDedupe(stations: AreaStation[]): AreaStation[] {
         deduped.push(s);
     }
     return deduped;
+}
+
+/**
+ * Derive the transit-mode set a seeker's `displayHidingZonesOptions`
+ * list represents — but ONLY when the list is EXACTLY the station
+ * filters for a whole-mode subset (nothing partial, nothing custom).
+ * Returns null otherwise, so a custom/partial selection cleanly declines
+ * the prewarm endpoint and uses the live poly query instead.
+ *
+ * Exactness matters: the prewarm endpoint serves all modes and we filter
+ * its elements by `inferMode ∈ modes` — which reproduces the poly query
+ * only when the options are precisely those modes' filters. A partial
+ * mode (e.g. `[railway=halt]` without its sibling) or a non-mode custom
+ * pick would make the mode-level filter diverge, so we bail.
+ */
+function modesForExactOptions(options: string[]): TransitMode[] | null {
+    const selected: TransitMode[] = [];
+    for (const m of ALL_MODES) {
+        const fs = HIDING_ZONE_FILTERS_BY_MODE[m] ?? [];
+        const anyPresent = fs.some((f) => options.includes(f));
+        const allPresent = fs.every((f) => options.includes(f));
+        if (anyPresent && !allPresent) return null; // partial mode
+        if (allPresent) selected.push(m);
+    }
+    if (selected.length === 0) return null;
+    // The options must be EXACTLY the union of the selected modes'
+    // filters — no extra (custom / non-mode) entries.
+    const reconstructed = hidingZoneFiltersFor(selected);
+    if (reconstructed.length !== options.length) return null;
+    for (const o of options) if (!reconstructed.includes(o)) return null;
+    return selected;
+}
+
+/**
+ * Seeker `ZoneSidebar` entry point (v668): serve the DEFAULT hiding-zone
+ * station set from the prewarmed `/api/area-stations/<id>` endpoint when
+ * the seeker's `displayHidingZonesOptions` map cleanly to transit modes
+ * (the common auto-tracking case) — zero live Overpass on a warm city.
+ * Returns an Overpass-shaped `{ elements }` (all requested modes,
+ * culled to the play area) so the caller can feed it straight to
+ * `osmtogeojson`, exactly like the poly query's result. Returns null —
+ * caller falls back to its live poly query — for a custom/partial-mode
+ * selection, a non-relation play area, a play area with no loaded
+ * polygon (can't cull), or a cold endpoint miss (also fires a warm).
+ */
+export async function fetchPrewarmedHidingZoneStations(
+    options: string[],
+): Promise<{ elements: OverpassElement[] } | null> {
+    const modes = modesForExactOptions(options);
+    if (!modes) return null;
+    const relId = prewarmEndpointRelationId();
+    if (relId === null) return null;
+    const elements = await fetchPrewarmedStations(relId);
+    if (!elements || elements.length === 0) {
+        requestStationWarm(relId);
+        return null;
+    }
+    const culled = cullElementsToPlayArea(elements).filter((el) => {
+        const mode = inferMode(el.tags ?? {});
+        return mode !== null && modes.includes(mode);
+    });
+    return { elements: culled };
 }
 
 /**
