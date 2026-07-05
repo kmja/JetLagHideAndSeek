@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { Env } from "../overpass-cache/src/envTypes";
 import {
@@ -223,6 +223,25 @@ describe("adapter dispatch selection", () => {
 });
 
 describe("dispatchPlan falls back to walking without a key", () => {
+    // These tests exercise the REAL dispatcher, whose keyless adapters
+    // (transitous, entur, …) genuinely fetch their upstreams. Stub fetch
+    // to reject so the tests are HERMETIC: in an environment with
+    // internet (the Cloudflare build) Transitous otherwise answers with
+    // a real journey and "expect walking" flakes — which is exactly what
+    // broke the first gated deploy. With every upstream unreachable, the
+    // dispatcher must degrade to the walking backstop.
+    beforeEach(() => {
+        vi.stubGlobal(
+            "fetch",
+            vi.fn(() =>
+                Promise.reject(new Error("network disabled in test")),
+            ),
+        );
+    });
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
     test("Stockholm with no key resolves to a walking journey", async () => {
         const req: PlanRequest = {
             origin: STOCKHOLM,
