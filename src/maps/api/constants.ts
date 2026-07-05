@@ -127,6 +127,15 @@ export const WARM_CITIES_URL = `${JLHS_WORKER_BASE}/api/warm-cities`;
  *  laptop prewarm stored under. See handleTransitByRelation in
  *  overpass-cache/src/index.ts. */
 export const TRANSIT_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/transit`;
+/** Base URL for the relation-id-keyed prewarmed hiding-zone STATION
+ *  field (v668). Mirrors REFS_BY_RELATION_BASE: the client fetches
+ *  `${AREA_STATIONS_BY_RELATION_BASE}/<relationId>` and the worker
+ *  derives the bbox server-side from the boundary it already has, then
+ *  serves the combined all-mode station set — so the hider's "Hiding
+ *  zones" overlay + zone-containment lookups paint from R2 with zero
+ *  live Overpass on a warm city. `?warm=1` triggers a background warm.
+ *  See handleAreaStationsByRelation in overpass-cache/src/index.ts. */
+export const AREA_STATIONS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/area-stations`;
 /** Base URL for self-hosted map glyphs + sprites (v349), proxied +
  *  R2-cached by the worker from protomaps.github.io/basemaps-assets.
  *  The MapLibre style's `glyphs` and `sprite` URLs point here so the

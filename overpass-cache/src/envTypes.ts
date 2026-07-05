@@ -41,6 +41,14 @@ export interface Env {
      *  worker. See overpass-cache/scripts/laptop-prewarm.mjs for the
      *  offline equivalent that covers mega-metros over the size cap. */
     TRANSIT_PREWARM_ENABLED?: string;
+    /** Feature flag for the per-city hiding-zone STATION prewarm
+     *  (Phase 2b, v668 — the hider's "Hiding zones" overlay + the
+     *  zone-containment lookups, served by `/api/area-stations/<id>`).
+     *  Opt-OUT: enabled unless set to the exact string "false". The
+     *  combined all-mode stop query is fetched per-city in isolation
+     *  (the bus clause makes it too heavy to batch). Set to "false" if
+     *  the bus-heavy responses strain the worker. */
+    AREA_STATIONS_PREWARM_ENABLED?: string;
     /** Bearer token guarding `/admin/*` endpoints. Configure via
      *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
     ADMIN_SECRET?: string;

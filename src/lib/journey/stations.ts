@@ -22,9 +22,10 @@
  * relevant ones) — never in the query string.
  */
 
-import { polyGeoJSON } from "@/lib/context";
+import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { hidingZoneFiltersFor, type TransitMode } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
+import { AREA_STATIONS_BY_RELATION_BASE } from "@/maps/api/constants";
 import { findPlacesInZone, overpassFailureCount } from "@/maps/api/overpass";
 
 /** Total stops cap — keeps a dense metro's station field (and the
@@ -104,6 +105,28 @@ async function fetchRawAreaStations(
     }
 
     const promise = (async () => {
+        // v668: try the PREWARMED station field first —
+        // `/api/area-stations/<relationId>` serves the combined all-mode
+        // stop set for a starred city straight from R2 (zero live
+        // Overpass), the same relation-ID-keyed pattern as `/api/refs`.
+        // The worker derives the bbox from the boundary it already has,
+        // so the client never builds a byte-fragile query. On any miss
+        // (uncurated area / cold cache) `elements` is empty and we fall
+        // through to the live poly query below.
+        const relId = primaryRelationId();
+        if (relId !== null) {
+            const warmElements = await fetchPrewarmedStations(relId);
+            if (warmElements && warmElements.length > 0) {
+                const stations = parseStations(warmElements, allowed);
+                if (stations.length > 0) {
+                    // Kick a background warm so the next TTL is covered
+                    // even if this was a stale-but-present hit.
+                    rawStationsCache = { filtersKey, polyRef, stations };
+                    return stations;
+                }
+            }
+        }
+
         // Byte-identical to the seeker's ZoneSidebar call (filters[0]
         // primary + rest as alternatives, nwr / out center, no timeout
         // header) so both roles share one cached Overpass entry. `silent`
@@ -130,27 +153,20 @@ async function fetchRawAreaStations(
             elements.length === 0 &&
             overpassFailureCount() > failuresBefore
         ) {
+            // Ask the worker to warm this relation's station field so the
+            // next load is served from R2 instead of re-hitting a
+            // timing-out live query. Fire-and-forget.
+            if (relId !== null) requestStationWarm(relId);
             throw new Error(
                 "Station scan failed — all Overpass mirrors timed out or rate-limited",
             );
         }
 
-        const seenIds = new Set<number>();
-        const stations: RawStation[] = [];
-        for (const el of elements) {
-            // `out center` puts way/relation coords under `center`.
-            const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
-            const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
-            if (typeof lat !== "number" || typeof lng !== "number") continue;
-            if (seenIds.has(el.id)) continue;
-            seenIds.add(el.id);
-            const name = el.tags?.["name:en"] ?? el.tags?.name;
-            if (!name) continue;
-            const mode = inferMode(el.tags ?? {});
-            if (!mode || !allowed.includes(mode)) continue;
-            stations.push({ id: el.id, name, lat, lng, mode });
-        }
+        const stations = parseStations(elements, allowed);
         rawStationsCache = { filtersKey, polyRef, stations };
+        // Warm the prewarm entry for next time (a live poly fetch means
+        // the relation endpoint missed). Fire-and-forget, deduped.
+        if (relId !== null) requestStationWarm(relId);
         return stations;
     })();
     rawStationsInFlight = { filtersKey, polyRef, promise };
@@ -161,6 +177,76 @@ async function fetchRawAreaStations(
             rawStationsInFlight = null;
         }
     }
+}
+
+/** Parse a `out center` element list into RawStations, filtered to the
+ *  allowed modes. Shared by the prewarmed-endpoint and live-poly paths. */
+function parseStations(
+    elements: OverpassElement[],
+    allowed: TransitMode[],
+): RawStation[] {
+    const seenIds = new Set<number>();
+    const stations: RawStation[] = [];
+    for (const el of elements) {
+        // `out center` puts way/relation coords under `center`.
+        const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
+        const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
+        if (typeof lat !== "number" || typeof lng !== "number") continue;
+        if (seenIds.has(el.id)) continue;
+        seenIds.add(el.id);
+        const name = el.tags?.["name:en"] ?? el.tags?.name;
+        if (!name) continue;
+        const mode = inferMode(el.tags ?? {});
+        if (!mode || !allowed.includes(mode)) continue;
+        stations.push({ id: el.id, name, lat, lng, mode });
+    }
+    return stations;
+}
+
+/** The primary play-area OSM relation id, or null for a custom-drawn /
+ *  non-relation play area (which has no prewarm entry to hit). */
+function primaryRelationId(): number | null {
+    const p = mapGeoLocation.get()?.properties as
+        | { osm_id?: number; osm_type?: string }
+        | undefined;
+    if (p?.osm_type === "R" && typeof p.osm_id === "number" && p.osm_id > 0) {
+        return p.osm_id;
+    }
+    return null;
+}
+
+/** Fetch the prewarmed all-mode station field for a relation, or null on
+ *  miss / error (caller falls back to the live poly query). Read-only —
+ *  the worker never goes upstream on this path. */
+async function fetchPrewarmedStations(
+    relationId: number,
+): Promise<OverpassElement[] | null> {
+    try {
+        const resp = await fetch(
+            `${AREA_STATIONS_BY_RELATION_BASE}/${relationId}`,
+        );
+        if (!resp.ok) return null;
+        const data = (await resp.json()) as { elements?: OverpassElement[] };
+        return data?.elements ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/** Relation ids we've asked the worker to warm this session, so a warm
+ *  fires once per relation, not on every fetch. */
+const stationWarmRequested = new Set<number>();
+
+/** Fire a background warm of a relation's station field on the worker.
+ *  Fire-and-forget; deduped per session. */
+function requestStationWarm(relationId: number): void {
+    if (stationWarmRequested.has(relationId)) return;
+    stationWarmRequested.add(relationId);
+    void fetch(`${AREA_STATIONS_BY_RELATION_BASE}/${relationId}?warm=1`).catch(
+        () => {
+            stationWarmRequested.delete(relationId);
+        },
+    );
 }
 
 /** Distance-sort + same-name/nearby dedupe, shared by every consumer. */

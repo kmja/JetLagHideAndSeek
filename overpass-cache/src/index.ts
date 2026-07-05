@@ -538,6 +538,44 @@ export default {
             }
         }
 
+        // Phase 2b: HIDING-ZONE STATIONS, per-city (v668). The hider's
+        // "Hiding zones" overlay + the zone-containment lookups read
+        // `/api/area-stations/<id>`; without this prewarm the FIRST load
+        // in any play area went live to Overpass — and the bus-stop-heavy
+        // query soft-timed-out in dense metros (the Chicago
+        // "loaded-but-empty" report). Isolated per-city (NOT batched with
+        // references) because the bus clause makes it too heavy to bundle
+        // — the same reason body-of-water is fetched alone (v632).
+        // skip-if-fresh keeps repeat ticks cheap; opt-out via
+        // AREA_STATIONS_PREWARM_ENABLED="false".
+        if (env.AREA_STATIONS_PREWARM_ENABLED !== "false") {
+            for (const city of refCities) {
+                const slotOk = await waitForOverpassSlot(
+                    `stations ${city.name}`,
+                );
+                if (!slotOk) {
+                    console.warn(
+                        `[prewarm] stations ${city.name} skipped — slot wait exceeded cap`,
+                    );
+                    continue;
+                }
+                try {
+                    const r = await prewarmAreaStationsForCity(
+                        env,
+                        city,
+                        ttlMs,
+                    );
+                    if (r.status === "stored") {
+                        console.log(
+                            `[prewarm] stations ${city.name}: stored`,
+                        );
+                    }
+                } catch (e) {
+                    console.warn(`[prewarm] stations ${city.name} threw:`, e);
+                }
+            }
+        }
+
         // Phase 3: HSR, per-COUNTRY (v214). HSR is an inter-city
         // network, so one `area["ISO3166-1"=XX]` query per country is
         // complete and gap-free where per-city bboxes overlapped and
@@ -893,6 +931,33 @@ async function handleRequest(
                 );
             }
             return handleReferencesByRelation(request, env, ctx, cors, relId);
+        }
+        if (url.pathname.startsWith("/api/area-stations/")) {
+            // /api/area-stations/<relationId>[?warm=1] (v668) — the
+            // prewarmed hiding-zone STATION field, mirroring /api/refs.
+            const relId = parseInt(
+                url.pathname.slice("/api/area-stations/".length),
+                10,
+            );
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationAreaStations(env, relId).catch((e) =>
+                        console.warn(`warm stations r${relId} threw:`, e),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId },
+                    202,
+                    cors,
+                );
+            }
+            return handleAreaStationsByRelation(request, env, cors, relId);
         }
         if (url.pathname.startsWith("/api/relation-extent/")) {
             const relId = parseInt(
@@ -2248,6 +2313,180 @@ async function warmRelationReferences(
 }
 
 /**
+ * GET /api/area-stations/<relationId> — the prewarmed hiding-zone STATION
+ * field for a play area, by STABLE relation-id key (v668). The hider's
+ * "Hiding zones" overlay + the map-tap/zone-picker "which zone am I in"
+ * lookups read this so a starred city's stations paint from R2 with zero
+ * live Overpass — closing the last un-prewarmed hiding-zones surface
+ * (the Chicago "loaded but empty" report was a heavy, un-prewarmed
+ * bus-stop scan soft-timing-out on the client's live poly query).
+ *
+ * Mirrors `handleReferencesByRelation` exactly: derives the SAME
+ * boundary-geometry extent (`canonicalReferenceExtent`), rebuilds the
+ * one station query, and serves the existing entry. Read-only — any miss
+ * returns `{ elements: [] }` so the client falls back to its live poly
+ * query (which is what it did before). All modes are returned; the
+ * client filters to the game's allowed set.
+ */
+async function handleAreaStationsByRelation(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = buildAreaStationsBboxQuery(ext);
+    const cacheKey = await r2KeyForQuery(query);
+
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("area-stations-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        // Stations change slowly; serve present-but-stale rather than a
+        // live round trip (the cron/laptop refresh handles staleness).
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/**
+ * Background warm of one relation's hiding-zone station field, keyed
+ * canonically so a later GET /api/area-stations/<id> hits it (v668).
+ * Mirrors `warmRelationReferences`: ensure the boundary (the bbox
+ * source), derive the same extent the read path derives, then warm the
+ * station query under the identical key. Buffered + abort-guarded (the
+ * bus-heavy body is the most likely to soft-time-out) so a timed-out
+ * body is never stored. Fire-and-forget; failures are swallowed.
+ */
+async function warmRelationAreaStations(
+    env: Env,
+    relationId: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+
+    // 1. Ensure the boundary geometry is cached — it's the bbox source.
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary(st) r${relationId}`))) {
+            return;
+        }
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-stations",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+
+    // 2. Derive the canonical extent (identical walk to the read path).
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+
+    // 3. Warm the stations under the canonical key, skip-if-fresh.
+    const stationsQuery = buildAreaStationsBboxQuery(ext);
+    const stationsKey = await r2KeyForQuery(stationsQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${stationsKey}`);
+        if (head) {
+            const cachedAt = parseInt(
+                head.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-stations r${relationId}`))) return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(stationsQuery),
+    );
+    if (!up) return;
+    const body = await up.text();
+    // v667/v668: never store an aborted body (Overpass soft timeout).
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, stationsKey, body, {
+            kind: "area-stations",
+            warmedBy: "on-add",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm area-stations r${relationId} store failed:`, e);
+    }
+}
+
+/** Per-city hiding-zone station field — the combined all-mode stop query
+ *  for a city's bbox, keyed identically to the read endpoint. Isolated
+ *  (its own query, not batched with references) because the bus-stop
+ *  clause makes it heavy in dense metros — the same reason
+ *  `body-of-water` is fetched alone (v632). */
+async function prewarmAreaStationsForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ status: string }> {
+    const ext = await canonicalReferenceExtent(env, city);
+    if (!ext) return { status: "skipped-no-extent" };
+    return prewarmQuery(
+        env,
+        buildAreaStationsBboxQuery(ext),
+        city,
+        ttlMs,
+        "area-stations",
+    );
+}
+
+/**
  * GET /api/transit/<relationId>/<mode> — fetch prewarmed per-city transit
  * routes by STABLE relation-id key instead of the byte-fragile
  * SHA-256(query) key.
@@ -3272,6 +3511,59 @@ function buildReferenceBboxQuery(
     ).join("\n");
     return `
 [out:json][timeout:120]${bboxFilter};
+(
+${body}
+);
+out center;
+`;
+}
+
+/**
+ * Hiding-zone STOP selectors, byte-identical (as a set) to the client's
+ * `HIDING_ZONE_FILTERS_BY_MODE` in src/lib/gameSetup.ts, enumerated for
+ * ALL transit modes. The hiding-zones overlay fetches every mode and
+ * filters to the game's allowed set client-side, so ONE prewarmed
+ * station set per city covers every allowed-mode subset. Keep in
+ * lockstep with the client's per-mode filters.
+ *
+ * Byte-identity is entirely WITHIN this worker: `buildAreaStationsBboxQuery`
+ * is the single producer used by BOTH the prewarm and the read endpoint's
+ * key derivation. The client never builds this query — it hits
+ * `/api/area-stations/<id>` and gets the served set — so there's no
+ * cross-codebase drift (the same lesson as the v359 /api/refs endpoint).
+ */
+const AREA_STATION_FILTERS: string[] = [
+    "[railway=station][subway=yes]",
+    "[station=subway]",
+    "[railway=station][subway!=yes]",
+    "[railway=halt]",
+    "[railway=tram_stop]",
+    "[railway=halt][light_rail=yes]",
+    "[highway=bus_stop]",
+    "[amenity=ferry_terminal]",
+    "[public_transport=platform][platform=ferry]",
+];
+
+/** Hiding zones sit INSIDE the play area, so the station bbox needs no
+ *  reference-style 50 km pad — a small pad just catches boundary-edge
+ *  stops. Keeping it small also keeps the (bus-heavy) query lighter. */
+const AREA_STATION_PAD_KM = 2;
+
+/**
+ * Build the combined hiding-zone STATION query for a play area's bbox.
+ * `[timeout:180]` (not the interpreter default) because a dense metro's
+ * bus-stop scan is heavy and we want every second Overpass will give
+ * before it soft-aborts — the exact Chicago failure that motivated
+ * prewarming this. Same `buildBboxFilter` + `out center` shape as the
+ * reference query so the derived R2 key is stable.
+ */
+function buildAreaStationsBboxQuery(
+    extent: [number, number, number, number],
+): string {
+    const bboxFilter = buildBboxFilter(extent, AREA_STATION_PAD_KM);
+    const body = AREA_STATION_FILTERS.map((f) => `nwr${f};`).join("\n");
+    return `
+[out:json][timeout:180]${bboxFilter};
 (
 ${body}
 );

@@ -531,6 +531,30 @@ function referenceQuery(extent) {
     return `\n[out:json][timeout:120]${bb};\n(\n${body}\n);\nout center;\n`;
 }
 
+// v668: hiding-zone STATION field. EXACT byte-for-byte mirror of
+// AREA_STATION_FILTERS + buildAreaStationsBboxQuery in
+// overpass-cache/src/index.ts (all-mode stop selectors, 2 km pad,
+// timeout:180). The R2 key hashes this exact string, and the worker's
+// /api/area-stations/<id> read endpoint rebuilds it from the boundary
+// extent — so this must match the worker builder, not the client.
+const AREA_STATION_FILTERS = [
+    "[railway=station][subway=yes]",
+    "[station=subway]",
+    "[railway=station][subway!=yes]",
+    "[railway=halt]",
+    "[railway=tram_stop]",
+    "[railway=halt][light_rail=yes]",
+    "[highway=bus_stop]",
+    "[amenity=ferry_terminal]",
+    "[public_transport=platform][platform=ferry]",
+];
+const PAD_KM_STATIONS = 2;
+function areaStationsQuery(extent) {
+    const bb = bboxFilter(extent, PAD_KM_STATIONS);
+    const body = AREA_STATION_FILTERS.map((f) => `nwr${f};`).join("\n");
+    return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout center;\n`;
+}
+
 // Byte-identical to buildHsrCountryQuery in overpass-cache/src/index.ts
 // and src/maps/api/playAreaPrefetch.ts. The R2 key hashes this exact
 // string.
@@ -570,6 +594,24 @@ function adjacentSubUnitsQuery(osmId, level) {
 }
 
 /* ------------------------- Network helpers ------------------------ */
+
+/** True when an Overpass JSON body carries a runtime-error `remark`
+ *  (soft timeout / OOM). The remark sits at the END of the body, so the
+ *  tail pre-check keeps clean bodies cheap. Mirrors isAbortedOverpassText
+ *  in overpass-cache/src/index.ts. */
+function isAbortedOverpassText(text) {
+    const tail = text.length > 4096 ? text.slice(-4096) : text;
+    if (!tail.includes('"remark"')) return false;
+    try {
+        const parsed = JSON.parse(text);
+        return (
+            typeof parsed?.remark === "string" &&
+            /runtime error|timed out|out of memory/i.test(parsed.remark)
+        );
+    } catch {
+        return false;
+    }
+}
 
 async function fetchOverpass(query, label) {
     // Up to 3 attempts. Between attempts we re-check /api/status so a
@@ -612,6 +654,17 @@ async function fetchOverpass(query, label) {
                 return null;
             }
             const text = await resp.text();
+            // v668: Overpass soft-fails with HTTP 200 + a runtime-error
+            // `remark` + empty/truncated elements when it hits its
+            // server-side time/memory limit. Never upload that — it would
+            // poison R2 (the exact Chicago hiding-zones failure). Treat it
+            // like a failed fetch so the next run retries.
+            if (isAbortedOverpassText(text)) {
+                console.warn(
+                    `  ✗ ${label} overpass soft-timeout (abort remark) — discarding (${dur} ms)`,
+                );
+                return null;
+            }
             return { text, ms: dur };
         } catch (e) {
             const dur = Date.now() - t0;
@@ -1144,6 +1197,42 @@ async function processCity(city) {
             }
             await sleep(DELAY_MS);
         }
+        }
+    }
+
+    // v668: hiding-zone STATION field — the hider's "Hiding zones"
+    // overlay + zone-containment lookups read /api/area-stations/<id>,
+    // which keys off the SAME boundary-geometry extent as refs. Warming
+    // it here means a starred city's stations paint from R2 with zero
+    // live Overpass (the Chicago "loaded-but-empty" fix). On by default
+    // whenever refs run; the bus-heavy body shares the 180 s timeout +
+    // pacing, and a failure just leaves it to the on-tap client fetch.
+    if (refExtent && DO_REFS) {
+        const q = areaStationsQuery(refExtent);
+        if (await isFresh(q, "stations")) {
+            console.log(`  ⤼ stations already cached — skipping`);
+        } else {
+            const res = await fetchOverpass(q, "stations");
+            if (res) {
+                const parsed = safeJSON(res.text);
+                if (parsed) {
+                    try {
+                        const r = await uploadToWorker({
+                            query: q,
+                            bodyText: res.text,
+                            kind: "area-stations",
+                            sourceName: city.name,
+                            sourceRelationId: String(city.relationId),
+                        });
+                        console.log(
+                            `  ✓ stations stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms, ${parsed.elements?.length ?? 0} elements)`,
+                        );
+                    } catch (e) {
+                        console.warn(`  ✗ stations upload: ${e.message}`);
+                    }
+                }
+                await sleep(DELAY_MS);
+            }
         }
     }
 
