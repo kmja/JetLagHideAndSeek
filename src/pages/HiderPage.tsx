@@ -4,7 +4,9 @@ import { Suspense } from "react";
 import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
 import { ClosingInWatcher } from "@/components/ClosingInWatcher";
+import { GamePausedOverlay } from "@/components/GamePausedOverlay";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
+import { HandLimitEnforcer } from "@/components/HandLimitEnforcer";
 import { HiderHandFan } from "@/components/HiderHandFan";
 import { HiderReachOverlay } from "@/components/HiderReachOverlay";
 import { HiderView } from "@/components/HiderView";
@@ -159,6 +161,11 @@ export function HiderPage() {
                 Tapping the fan opens a full-screen carousel where the
                 hider plays / casts / discards the focused card. */}
             <HiderHandFan />
+            {/* Rulebook p44: force the hider to discard down to their hand
+                limit the moment a draw takes them over it. */}
+            <HandLimitEnforcer />
+            {/* Manual game pause — full-screen curtain while paused. */}
+            <GamePausedOverlay />
         </div>
     );
 }

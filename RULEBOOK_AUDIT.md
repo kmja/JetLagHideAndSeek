@@ -187,14 +187,48 @@ from live GPS) as the zone; forfeit remains only the technical fallback
 when no station can be resolved (no GPS / empty area). Grace-phase copy
 updated (warning tone, "your nearest station becomes your zone").
 
-### Still open from this pass (selected for follow-up)
-- Randomize repeat-cost accounting is inverted (original marked asked /
-  substitute not — rulebook is the reverse).
-- Manual game-pause (freeze all timers) not implemented.
-- 10-min new-hider planning window not modeled.
-- Hand-limit-6 is advisory (no forced discard-down).
+### D6 · Hand-limit-6 enforcement — advisory → forced ✅ v672
+Rulebook p71/p363: over the hand limit, the hider must immediately
+play/discard down to it. Was an ignorable "over cap" banner. New
+`HandLimitEnforcer` (mounted on `HiderPage`) is a non-dismissible modal
+that takes over whenever `hiderHand.length > hiderHandLimit`, listing the
+hand with per-card Discard buttons, and auto-closes the instant the hand
+is back at/under the limit (7/8 with the hand-expand powerup).
+
+### D7 · Manual game pause ✅ v672
+Rulebook "General Tips": you can always pause; every in-game timer stops;
+resume from the same spot. New `manualPausedAt` atom (`gameSetup.ts`)
+folded into `effectiveHiddenDebitMs` (so scored time freezes live, same
+mechanism as the location-share pause) + `src/lib/gamePause.ts`
+(`pauseGame`/`resumeGame`). Resume repays the paused span correctly by
+phase: a HIDING-period pause shifts `hidingPeriodEndsAt` forward (the
+countdown resumes where it stopped); a SEEKING pause banks into
+`hiddenDebitMs`; pending answer-window `arrivedAt` timestamps and any
+active Move `seekersFrozenUntil` shift forward too. UI: a "Pause game"
+button in `AppSettingsDrawer` (in-game only) + a full-screen
+`GamePausedOverlay` curtain with a live pause clock + Resume, mounted on
+both pages. Reset per round in `resetSharedRoundState`. **Local-scoped**
+(freezes this device's clocks; a synced pause would ride `SetupState`) —
+fine for solo; the physical "everyone stays put" rule is player-enforced.
+
+### D8 · 10-min new-hider planning window — already satisfied ✅ v672
+No code change: after a round ends, `startNewRound` nulls
+`hidingPeriodEndsAt` (staging `pendingHidingDurationMin`), so the app
+returns to the lobby's "Start round" button and the new hider plans, then
+taps Start when ready. This unbounded start-when-ready window covers the
+rulebook's "up to 10 minutes" (a soft cap to keep a tabletop moving, not
+a hard rule the app must enforce).
+
+### Still open from this pass (deferred — own focused change)
+- **Randomize repeat-cost accounting is inverted** (original marked asked
+  / substitute not — rulebook is the reverse). Deferred: the fix threads
+  through the intricate v597 randomize-SPLIT on BOTH the hider inbox
+  identity AND the seeker-side `randomizedAway` uniqueness, with no test
+  coverage — high regression risk to a working flow, so it wants its own
+  change + tests rather than a tail-of-batch edit.
 - Duplicate's passive end-of-round time-bonus doubling not modeled; and
-  "only one active ask/transit-blocking curse at a time" unenforced.
+  "only one active ask/transit-blocking curse at a time" unenforced
+  (both LOW severity, not selected for this pass).
 
 ## Notes
 - Scoring formula (v671): the hidden time

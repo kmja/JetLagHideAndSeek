@@ -706,16 +706,59 @@ export const gamePausedForLocationAt = persistentAtom<number | null>(
     },
 );
 
+/* ─────────────────── Manual game pause (rulebook) ─────────────────── */
+
+/**
+ * Unix ms the game was MANUALLY paused (rulebook "General Tips": you can
+ * always pause; all in-game timers stop; on resume everyone is where the
+ * pause began). Distinct from the location-share pause
+ * (`gamePausedForLocationAt`) so the two can't stomp each other, but it
+ * feeds the SAME `effectiveHiddenDebitMs` scoring freeze. Null when
+ * running. Reset each round via `resetSharedRoundState`.
+ */
+export const manualPausedAt = persistentAtom<number | null>(
+    "jlhs:manualPausedAt",
+    null,
+    {
+        encode: (v) => (v === null ? "" : String(v)),
+        decode: (v) => (v ? Number(v) : null),
+    },
+);
+
+/**
+ * Whether the current manual pause began DURING the hiding period. On
+ * resume this decides how the pause is repaid: a hiding-period pause
+ * shifts `hidingPeriodEndsAt` forward (the countdown resumes where it
+ * stopped); a seeking pause banks into `hiddenDebitMs` (scored time
+ * freezes). Only meaningful while `manualPausedAt` is set.
+ */
+export const manualPauseWasHiding = persistentAtom<boolean>(
+    "jlhs:manualPauseWasHiding",
+    false,
+    {
+        encode: (v) => (v ? "1" : ""),
+        decode: (v) => v === "1",
+    },
+);
+
 /**
  * Total ms to subtract from the hider's hidden time for clock pauses:
- * the banked `hiddenDebitMs` PLUS, while a location pause is in
- * progress, the live elapsed pause so the displayed/scored time freezes
- * immediately rather than only correcting on resume. `now` is passed so
- * callers can drive it from their shared 1 Hz clock.
+ * the banked `hiddenDebitMs` PLUS, while a pause (location OR manual) is
+ * in progress, the live elapsed pause so the displayed/scored time
+ * freezes immediately rather than only correcting on resume. `now` is
+ * passed so callers can drive it from their shared 1 Hz clock. (A manual
+ * pause during the hiding period repays via a `hidingPeriodEndsAt` shift
+ * instead — see `resumeGame` — so its live term is harmless there: the
+ * scored time is `max(0, foundAt − endsAt …)`, which is 0 pre-seeking.)
  */
 export function effectiveHiddenDebitMs(now: number = Date.now()): number {
     const banked = hiddenDebitMs.get();
-    const pausedAt = gamePausedForLocationAt.get();
+    const locPaused = gamePausedForLocationAt.get();
+    const manPaused = manualPausedAt.get();
+    const pausedAt =
+        locPaused != null && manPaused != null
+            ? Math.min(locPaused, manPaused)
+            : (locPaused ?? manPaused);
     const live = pausedAt != null ? Math.max(0, now - pausedAt) : 0;
     return banked + live;
 }

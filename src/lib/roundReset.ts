@@ -37,6 +37,8 @@ import {
     hiddenDebitMs,
     hidingPeriodEndsAt,
     locationGraceStartedAt,
+    manualPausedAt,
+    manualPauseWasHiding,
     resetMapOverlays,
     seekersFrozenUntil,
     seekingStartFiredFor,
@@ -93,6 +95,10 @@ export function resetSharedRoundState(): void {
     hiddenDebitMs.set(0);
     locationGraceStartedAt.set(null);
     gamePausedForLocationAt.set(null);
+    // Manual pause is per-round too (a paused round shouldn't resume
+    // paused into the next).
+    manualPausedAt.set(null);
+    manualPauseWasHiding.set(false);
 
     // Endgame handshake — per-round; clear both the seeker's claim and
     // the hider's confirmation so the new round can't open mid-endgame.

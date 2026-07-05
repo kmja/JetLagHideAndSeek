@@ -390,8 +390,14 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v670`. Use `git log` for the per-version detail;
-the headline arcs since the v414 rulebook-audit pass:
+build stamp. Current: `v672`. Use `git log` for the per-version detail;
+the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
+conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
+time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared
+`resetSharedRoundState()` for host+guest round resets, matching/measuring
+un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
+(`HandLimitEnforcer`), and a manual game pause (`gamePause.ts` +
+`GamePausedOverlay`, folded into `effectiveHiddenDebitMs`)):
 
 - **Universal hider auto-grading wired into the answer flow** —
   `hiderifyQuestion` (`src/maps/index.ts`, the same engine the seeker

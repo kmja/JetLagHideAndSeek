@@ -5,6 +5,7 @@ import { AppConfirmHost } from "@/components/AppConfirmHost";
 import { AppPromptHost } from "@/components/AppPromptHost";
 import { AppShell } from "@/components/AppShell";
 import { BottomNav } from "@/components/BottomNav";
+import { GamePausedOverlay } from "@/components/GamePausedOverlay";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HiderTimer } from "@/components/HiderTimer";
 import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
@@ -309,6 +310,8 @@ export function SeekerPage() {
                     <AppPromptHost />
                     <GameStartWatcher />
                     <MultiplayerBoot />
+                    {/* Manual game pause — full-screen curtain while paused. */}
+                    <GamePausedOverlay />
                 </SidebarProviderR>
             </SidebarProviderL>
         </div>
