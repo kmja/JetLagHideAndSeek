@@ -32,6 +32,7 @@ import {
     appendDiscoveredCities,
     type CityEntry,
     getPopularCities,
+    HAND_CURATED,
     loadDiscoveredCities,
     missingExtentRelations,
     parkNames,
@@ -901,6 +902,9 @@ async function handleRequest(
         }
         if (url.pathname === "/admin/prewarmed-cities") {
             return handleAdminPrewarmedCities(request, env, cors);
+        }
+        if (url.pathname === "/admin/adjacent-curation-status") {
+            return handleAdminAdjacentCurationStatus(request, env, cors);
         }
         if (url.pathname === "/admin/rediscover") {
             return handleAdminRediscover(request, env, cors);
@@ -4318,42 +4322,12 @@ async function prewarmAdjacentSearchForCity(
     //    TTL, so this doesn't balloon the cron.
     let neighbourResult: number[] = [];
     try {
-        const neighbourIds = new Set<number>();
-        const sources = [buildTopologicalAdjacencyQuery(city.relationId)];
-        if (adminLevel) {
-            sources.push(buildAdjacentAdminQuery(adminLevel, lat, lng, radius));
-        }
-        for (const q of sources) {
-            try {
-                const key = await r2KeyForQuery(q);
-                const obj = await env.CACHE.get(`overpass/${key}`);
-                if (!obj) continue;
-                const parsed = JSON.parse(await readR2Text(obj)) as {
-                    elements?: Array<{
-                        type?: string;
-                        id?: number;
-                        tags?: Record<string, string>;
-                    }>;
-                };
-                for (const el of parsed.elements ?? []) {
-                    if (
-                        el?.type === "relation" &&
-                        typeof el.id === "number" &&
-                        el.id !== city.relationId &&
-                        el.tags?.type === "boundary" &&
-                        el.tags?.boundary === "administrative"
-                    ) {
-                        neighbourIds.add(el.id);
-                    }
-                }
-            } catch {
-                /* skip this source */
-            }
-        }
-        const cappedNeighbours = [...neighbourIds].slice(
-            0,
-            MAX_NEIGHBOUR_BOUNDARIES,
-        );
+        // Neighbour ids come from the topological + admin-band results the
+        // steps above just stored, via the shared read-only derivation so
+        // the cron gate and the /admin/adjacent-curation-status readout see
+        // a byte-identical neighbour set (one producer — no drift).
+        const cappedNeighbours = (await deriveAdjacentNeighbourIds(env, city))
+            .ids;
         // v676: FULL adjacent-area curation. The user's rule is that an
         // added adjacent area is a first-class part of the play area — so
         // its references AND hiding-zone stations must be prewarmed too,
@@ -4445,6 +4419,90 @@ async function relationFullyCurated(
     } catch {
         return false;
     }
+}
+
+/**
+ * Read-only derivation of a city's adjacent-area neighbour relation ids
+ * (v676) — the SINGLE producer of that set, used by both the cron's
+ * curation gate (`prewarmAdjacentSearchForCity` step 5) and the
+ * `/admin/adjacent-curation-status` readout, so they can't drift. Reads
+ * the already-cached topological-adjacency + admin-band results (the same
+ * queries the cron warms in the steps above and the client fires in the
+ * wizard) and returns the boundary/administrative relation ids among them,
+ * excluding the city itself, capped at MAX_NEIGHBOUR_BOUNDARIES. Never
+ * fetches upstream.
+ *
+ * `adjacencyKnown` reports whether the topological-adjacency query was
+ * found in cache at all — so a caller can distinguish "genuinely no
+ * neighbours" (known, empty) from "adjacency not prewarmed yet" (unknown).
+ * The cron path always has it warmed in the same pass, so it's true there;
+ * the read-only status endpoint uses it to avoid reporting an un-warmed
+ * city as vacuously fully-curated.
+ */
+async function deriveAdjacentNeighbourIds(
+    env: Env,
+    city: CityEntry,
+): Promise<{ ids: number[]; adjacencyKnown: boolean }> {
+    if (!city.extent) return { ids: [], adjacencyKnown: false };
+    const [maxLat, minLng, minLat, maxLng] = city.extent;
+    const lat = (maxLat + minLat) / 2;
+    const lng = (minLng + maxLng) / 2;
+    const radius = ADJACENT_SEARCH_RADIUS_KM;
+
+    // Admin level from the cached admin-level query (needed for the band).
+    let adminLevel: string | null = null;
+    try {
+        const alKey = await r2KeyForQuery(buildAdminLevelQuery(city.relationId));
+        const alObj = await env.CACHE.get(`overpass/${alKey}`);
+        if (alObj) {
+            const parsed = JSON.parse(await readR2Text(alObj)) as {
+                elements?: Array<{ tags?: Record<string, string> }>;
+            };
+            adminLevel = parsed.elements?.[0]?.tags?.admin_level ?? null;
+        }
+    } catch {
+        /* no admin level — topological source still works */
+    }
+
+    const neighbourIds = new Set<number>();
+    let adjacencyKnown = false;
+    const topoQuery = buildTopologicalAdjacencyQuery(city.relationId);
+    const sources = [topoQuery];
+    if (adminLevel) {
+        sources.push(buildAdjacentAdminQuery(adminLevel, lat, lng, radius));
+    }
+    for (const q of sources) {
+        try {
+            const key = await r2KeyForQuery(q);
+            const obj = await env.CACHE.get(`overpass/${key}`);
+            if (!obj) continue;
+            if (q === topoQuery) adjacencyKnown = true;
+            const parsed = JSON.parse(await readR2Text(obj)) as {
+                elements?: Array<{
+                    type?: string;
+                    id?: number;
+                    tags?: Record<string, string>;
+                }>;
+            };
+            for (const el of parsed.elements ?? []) {
+                if (
+                    el?.type === "relation" &&
+                    typeof el.id === "number" &&
+                    el.id !== city.relationId &&
+                    el.tags?.type === "boundary" &&
+                    el.tags?.boundary === "administrative"
+                ) {
+                    neighbourIds.add(el.id);
+                }
+            }
+        } catch {
+            /* skip this source */
+        }
+    }
+    return {
+        ids: [...neighbourIds].slice(0, MAX_NEIGHBOUR_BOUNDARIES),
+        adjacencyKnown,
+    };
 }
 
 /** Read an R2 object as text. Handles the gzip-compressed entries
@@ -6786,6 +6844,146 @@ async function handleAdminPrewarmedCities(
         };
         return jsonResponse(
             { count: cities.length, scanned, truncated, cities },
+            200,
+            cors,
+        );
+    } catch (e) {
+        return jsonResponse(
+            { error: e instanceof Error ? e.message : String(e) },
+            500,
+            cors,
+        );
+    }
+}
+
+/**
+ * `GET /admin/adjacent-curation-status?secret=<…>` — the AUTHORITATIVE
+ * readout of the v676 adjacent-area curation gate, per curated city. Unlike
+ * `/admin/prewarmed-cities` (which infers coverage from R2 `customMetadata`
+ * and so under-reports `batched` references + on-demand warms), this runs
+ * the EXACT server-side `relationFullyCurated` check — reading the real
+ * boundary/refs/stations R2 keys — over each city's neighbour set (derived
+ * by the shared `deriveAdjacentNeighbourIds`, byte-identical to the cron
+ * gate). So its `allCurated` per city is precisely what would stamp
+ * `adjacentsCuratedAt` and what `WARM_REQUIRE_ADJACENTS` would gate the star
+ * on.
+ *
+ * Query params:
+ *   scope   = "hand-curated" (default) | "all" | "top"
+ *   top     = N when scope=top (default 100)
+ *   limit   = max cities to actually probe (default 60, cap 200) — bounds
+ *             the R2-op cost, since each city does ~3 + neighbours×3 reads.
+ *
+ * Per-city row: { name, relationId, hasExtent, adjacencyKnown,
+ *   neighboursTotal, neighboursCurated, allCurated, stamped }. Top-level:
+ *   { scope, targets, probed, fullyCurated, stamped, adjacencyUnknown }.
+ */
+async function handleAdminAdjacentCurationStatus(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    try {
+        const url = new URL(request.url);
+        const scope = url.searchParams.get("scope") ?? "hand-curated";
+        const topN = parseInt(url.searchParams.get("top") ?? "100", 10) || 100;
+        const limit = Math.min(
+            parseInt(url.searchParams.get("limit") ?? "60", 10) || 60,
+            200,
+        );
+
+        const all = await getPopularCities(env);
+        let targets: CityEntry[];
+        if (scope === "all") {
+            targets = all;
+        } else if (scope === "top") {
+            targets = all.slice(0, topN);
+        } else {
+            // hand-curated: the merged (extent/stamp-carrying) copies of the
+            // HAND_CURATED relation ids.
+            const handIds = new Set(HAND_CURATED.map((c) => c.relationId));
+            targets = all.filter((c) => handIds.has(c.relationId));
+        }
+        const probe = targets.slice(0, limit);
+
+        const rows: Array<{
+            name: string;
+            relationId: number;
+            hasExtent: boolean;
+            adjacencyKnown: boolean;
+            neighboursTotal: number;
+            neighboursCurated: number;
+            allCurated: boolean;
+            stamped: number | null;
+        }> = [];
+        let fullyCurated = 0;
+        let stamped = 0;
+        let adjacencyUnknown = 0;
+
+        for (const city of probe) {
+            const stampedAt =
+                typeof city.adjacentsCuratedAt === "number"
+                    ? city.adjacentsCuratedAt
+                    : null;
+            if (stampedAt !== null) stamped++;
+            if (!city.extent) {
+                rows.push({
+                    name: city.name,
+                    relationId: city.relationId,
+                    hasExtent: false,
+                    adjacencyKnown: false,
+                    neighboursTotal: 0,
+                    neighboursCurated: 0,
+                    allCurated: false,
+                    stamped: stampedAt,
+                });
+                continue;
+            }
+            const { ids, adjacencyKnown } = await deriveAdjacentNeighbourIds(
+                env,
+                city,
+            );
+            if (!adjacencyKnown) adjacencyUnknown++;
+            const results = await Promise.all(
+                ids.map((id) => relationFullyCurated(env, id)),
+            );
+            const neighboursCurated = results.filter(Boolean).length;
+            // Only "fully curated" if we actually KNOW the neighbour set
+            // (adjacency prewarmed) AND every neighbour is curated. A
+            // known-empty neighbour set (island city) counts as curated.
+            const allCurated =
+                adjacencyKnown && neighboursCurated === ids.length;
+            if (allCurated) fullyCurated++;
+            rows.push({
+                name: city.name,
+                relationId: city.relationId,
+                hasExtent: true,
+                adjacencyKnown,
+                neighboursTotal: ids.length,
+                neighboursCurated,
+                allCurated,
+                stamped: stampedAt,
+            });
+        }
+
+        rows.sort(
+            (a, b) =>
+                Number(a.allCurated) - Number(b.allCurated) ||
+                (a.name ?? "~").localeCompare(b.name ?? "~"),
+        );
+        return jsonResponse(
+            {
+                scope,
+                targets: targets.length,
+                probed: probe.length,
+                fullyCurated,
+                stamped,
+                adjacencyUnknown,
+                cities: rows,
+            },
             200,
             cors,
         );

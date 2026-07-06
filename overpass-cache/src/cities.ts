@@ -60,7 +60,7 @@ export interface CityEntry {
     adjacentsCuratedAt?: number;
 }
 
-const HAND_CURATED: CityEntry[] = [
+export const HAND_CURATED: CityEntry[] = [
     // North America
     { name: "New York City", relationId: 175905 },
     { name: "Los Angeles", relationId: 207359 },
