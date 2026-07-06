@@ -1292,7 +1292,7 @@ export function PlayAreaStep({
                                         {warm && (
                                             <Star
                                                 className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
-                                                aria-label="Prewarmed — loads fast"
+                                                aria-label="Fully cached, including adjacent areas — plays offline-fast"
                                             />
                                         )}
                                     </div>
@@ -1510,7 +1510,7 @@ export function PlayAreaStep({
                                                         {warm && (
                                                             <Star
                                                                 className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
-                                                                aria-label="Prewarmed — loads fast"
+                                                                aria-label="Fully cached, including adjacent areas — plays offline-fast"
                                                             />
                                                         )}
                                                     </div>

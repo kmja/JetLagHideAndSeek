@@ -3,10 +3,12 @@ import { atom } from "nanostores";
 import { WARM_CITIES_URL } from "./constants";
 
 /**
- * "Warm" (prewarmed) city set — the relation ids the worker prewarms for
- * fast, Overpass-free play (curated/discovered cities with a backfilled
- * extent). Fetched once from `GET /api/warm-cities`, cached in this atom,
- * and read by the play-area search to star matching results.
+ * "Warm" (fully cached) city set — the relation ids the worker reports as
+ * FULLY cached for Overpass-free play: the primary area's boundary +
+ * references + hiding-zone stations AND every adjacent area, all present in
+ * R2 (v679, the `fullyCuratedAt` gate; a star means "fully cached, including
+ * adjacent areas"). Fetched once from `GET /api/warm-cities`, cached in this
+ * atom, and read by the play-area search to star matching results.
  *
  * `null` = not loaded yet (or the fetch failed and can retry). An empty
  * Set = loaded, nothing warm. The set is small (a few hundred to ~1k ids)

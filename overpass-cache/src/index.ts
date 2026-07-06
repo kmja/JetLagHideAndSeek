@@ -641,13 +641,13 @@ export default {
                         `[prewarm] adjacent ${city.name}: stored ${r.stored}`,
                     );
                 }
-                // v676: once every adjacent area is fully curated (boundary
-                // + refs + stations all in R2), stamp `adjacentsCuratedAt`
-                // so the star gate (WARM_REQUIRE_ADJACENTS) can trust it. A
-                // city with no discoverable neighbours stamps vacuously. We
-                // only WRITE on a state change (unstamped→curated,
-                // stamp-stale→refresh, or curated→regressed) to avoid an R2
-                // write every tick.
+                // v676/v679: stamp the curation markers. `adjacentsCuratedAt`
+                // = every adjacent area fully cached (boundary+refs+stations).
+                // `fullyCuratedAt` = THAT plus the PRIMARY itself fully cached
+                // — the single "ready to play, nothing hits Overpass" marker
+                // the in-app star reflects (a star means "fully cached,
+                // including adjacent areas"). We only WRITE on a state change
+                // to avoid an R2 write every tick.
                 if (env.ADJACENT_CURATION_ENABLED !== "false") {
                     try {
                         // Non-empty neighbour set → curated iff every one is.
@@ -656,7 +656,7 @@ export default {
                         // cached), never when both adjacency sources silently
                         // failed — otherwise a total-adjacency-failure city
                         // would wrongly stamp as "no neighbours, done".
-                        const allCurated =
+                        const adjacentsCurated =
                             r.neighbourIds.length > 0
                                 ? (
                                       await Promise.all(
@@ -666,26 +666,50 @@ export default {
                                       )
                                   ).every(Boolean)
                                 : r.adjacencyKnown;
-                        const stampedAt = city.adjacentsCuratedAt;
-                        const stampAge =
-                            typeof stampedAt === "number"
-                                ? Date.now() - stampedAt
+                        // The primary's own boundary+refs+stations — warmed in
+                        // Phases 1/2/2b of this same tick, so it's present by
+                        // now for a city that made it this far.
+                        const primaryCurated = await relationFullyCurated(
+                            env,
+                            city.relationId,
+                        );
+                        const fullyCurated = primaryCurated && adjacentsCurated;
+
+                        const patch: Partial<CityEntry> = {};
+                        let changed = false;
+
+                        const adjStamp = city.adjacentsCuratedAt;
+                        const adjAge =
+                            typeof adjStamp === "number"
+                                ? Date.now() - adjStamp
                                 : Infinity;
-                        if (allCurated && stampAge > ttlMs) {
-                            await upsertDiscoveredCity(env, {
-                                ...city,
-                                adjacentsCuratedAt: Date.now(),
-                            });
+                        if (adjacentsCurated && adjAge > ttlMs) {
+                            patch.adjacentsCuratedAt = Date.now();
+                            changed = true;
+                        } else if (!adjacentsCurated && adjStamp !== undefined) {
+                            patch.adjacentsCuratedAt = undefined;
+                            changed = true;
+                        }
+
+                        const fullStamp = city.fullyCuratedAt;
+                        const fullAge =
+                            typeof fullStamp === "number"
+                                ? Date.now() - fullStamp
+                                : Infinity;
+                        if (fullyCurated && fullAge > ttlMs) {
+                            patch.fullyCuratedAt = Date.now();
+                            changed = true;
+                        } else if (!fullyCurated && fullStamp !== undefined) {
+                            patch.fullyCuratedAt = undefined;
+                            changed = true;
+                        }
+
+                        if (changed) {
+                            await upsertDiscoveredCity(env, { ...city, ...patch });
                             console.log(
-                                `[prewarm] adjacent ${city.name}: curation complete (${r.neighbourIds.length} neighbours)`,
-                            );
-                        } else if (!allCurated && stampedAt !== undefined) {
-                            await upsertDiscoveredCity(env, {
-                                ...city,
-                                adjacentsCuratedAt: undefined,
-                            });
-                            console.log(
-                                `[prewarm] adjacent ${city.name}: curation regressed — star stamp cleared`,
+                                `[prewarm] ${city.name}: curation ${
+                                    fullyCurated ? "COMPLETE (starred)" : "partial"
+                                } — primary=${primaryCurated} adjacents=${adjacentsCurated} (${r.neighbourIds.length} neighbours)`,
                             );
                         }
                     } catch (e) {
@@ -2122,23 +2146,24 @@ async function handleWarmCities(
     cors: HeadersInit,
 ): Promise<Response> {
     let ids: number[] = [];
-    // v676: when WARM_REQUIRE_ADJACENTS is "true", a city only counts as
-    // warm (starred) once its adjacent areas are fully curated too — the
-    // user's rule that a city can't be starred unless its neighbours are
-    // curated. Default OFF so a deploy doesn't mass-de-star every city
-    // while the cron backfills `adjacentsCuratedAt`; flip to "true" once
-    // enough cities carry the stamp.
-    const requireAdjacents = env.WARM_REQUIRE_ADJACENTS === "true";
+    // v679: the star means "FULLY cached, including adjacent areas". A city
+    // is warm (starred) only once the cron has stamped `fullyCuratedAt` —
+    // the PRIMARY's boundary+refs+stations AND every adjacent area all
+    // present in R2. This is the single "ready to play, zero Overpass"
+    // marker; there is one list (the merged `getPopularCities` union) and
+    // the star is its truthful "done" subset. Escape hatch: set
+    // WARM_STAR_LENIENT="true" to revert to the old "has extent" behaviour
+    // (broader but not a guarantee of full caching) without a code change.
+    const lenient = env.WARM_STAR_LENIENT === "true";
     try {
         const cities = await getPopularCities(env);
         ids = cities
-            .filter(
-                (c) =>
-                    Array.isArray(c.extent) &&
-                    c.extent.length === 4 &&
-                    typeof c.relationId === "number" &&
-                    (!requireAdjacents ||
-                        typeof c.adjacentsCuratedAt === "number"),
+            .filter((c) =>
+                typeof c.relationId !== "number"
+                    ? false
+                    : lenient
+                      ? Array.isArray(c.extent) && c.extent.length === 4
+                      : typeof c.fullyCuratedAt === "number",
             )
             .map((c) => c.relationId);
     } catch (e) {
@@ -6927,35 +6952,49 @@ async function handleAdminAdjacentCurationStatus(
             name: string;
             relationId: number;
             hasExtent: boolean;
+            primaryCached: boolean;
             adjacencyKnown: boolean;
             neighboursTotal: number;
             neighboursCurated: number;
-            allCurated: boolean;
-            stamped: number | null;
+            adjacentsCurated: boolean;
+            fullyCached: boolean;
+            stampedAdjacents: number | null;
+            stampedFully: number | null;
         }> = [];
-        let fullyCurated = 0;
-        let stamped = 0;
+        let fullyCached = 0; // live-verified primary + adjacents
+        let stampedFully = 0; // carry the fullyCuratedAt stamp (the star)
         let adjacencyUnknown = 0;
 
         for (const city of probe) {
-            const stampedAt =
+            const adjStamp =
                 typeof city.adjacentsCuratedAt === "number"
                     ? city.adjacentsCuratedAt
                     : null;
-            if (stampedAt !== null) stamped++;
+            const fullStamp =
+                typeof city.fullyCuratedAt === "number"
+                    ? city.fullyCuratedAt
+                    : null;
+            if (fullStamp !== null) stampedFully++;
             if (!city.extent) {
                 rows.push({
                     name: city.name,
                     relationId: city.relationId,
                     hasExtent: false,
+                    primaryCached: false,
                     adjacencyKnown: false,
                     neighboursTotal: 0,
                     neighboursCurated: 0,
-                    allCurated: false,
-                    stamped: stampedAt,
+                    adjacentsCurated: false,
+                    fullyCached: false,
+                    stampedAdjacents: adjStamp,
+                    stampedFully: fullStamp,
                 });
                 continue;
             }
+            const primaryCached = await relationFullyCurated(
+                env,
+                city.relationId,
+            );
             const { ids, adjacencyKnown } = await deriveAdjacentNeighbourIds(
                 env,
                 city,
@@ -6971,35 +7010,44 @@ async function handleAdminAdjacentCurationStatus(
             // Rome in the snapshot). Empty set → only vacuously curated when
             // adjacency is actually KNOWN (topological cached + genuinely
             // empty), never when it just hasn't been prewarmed.
-            const allCurated =
+            const adjacentsCurated =
                 ids.length > 0
                     ? neighboursCurated === ids.length
                     : adjacencyKnown;
-            if (allCurated) fullyCurated++;
+            // The star = primary fully cached AND adjacents fully cached.
+            const fully = primaryCached && adjacentsCurated;
+            if (fully) fullyCached++;
             rows.push({
                 name: city.name,
                 relationId: city.relationId,
                 hasExtent: true,
+                primaryCached,
                 adjacencyKnown,
                 neighboursTotal: ids.length,
                 neighboursCurated,
-                allCurated,
-                stamped: stampedAt,
+                adjacentsCurated,
+                fullyCached: fully,
+                stampedAdjacents: adjStamp,
+                stampedFully: fullStamp,
             });
         }
 
         rows.sort(
             (a, b) =>
-                Number(a.allCurated) - Number(b.allCurated) ||
+                Number(a.fullyCached) - Number(b.fullyCached) ||
                 (a.name ?? "~").localeCompare(b.name ?? "~"),
         );
         return jsonResponse(
             {
                 scope,
+                starMeaning:
+                    env.WARM_STAR_LENIENT === "true"
+                        ? "lenient: has-extent"
+                        : "strict: fully cached incl. adjacents",
                 targets: targets.length,
                 probed: probe.length,
-                fullyCurated,
-                stamped,
+                fullyCached,
+                stampedFully,
                 adjacencyUnknown,
                 cities: rows,
             },

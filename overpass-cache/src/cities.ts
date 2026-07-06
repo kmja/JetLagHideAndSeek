@@ -58,6 +58,16 @@ export interface CityEntry {
      *  islands-with-no-neighbours may lack it (a no-neighbour city stamps
      *  vacuously). */
     adjacentsCuratedAt?: number;
+    /** Unix ms at which the cron last verified this city is FULLY cached
+     *  (v679) — the PRIMARY relation's boundary + references + hiding-zone
+     *  stations all present in R2 AND every adjacent area curated
+     *  (`adjacentsCuratedAt`). This is the single "ready to play, nothing
+     *  hits Overpass" marker and the ONLY thing the in-app star reflects by
+     *  default (`handleWarmCities`): a star means "fully cached, including
+     *  adjacent areas". Stamped/cleared by `prewarmAdjacentSearchForCity`'s
+     *  Phase-4 caller alongside `adjacentsCuratedAt`. Optional — a city is
+     *  unstarred until it's earned. */
+    fullyCuratedAt?: number;
 }
 
 export const HAND_CURATED: CityEntry[] = [

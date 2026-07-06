@@ -59,15 +59,16 @@ export interface Env {
      *  v676). The heavy refs+stations warms are skip-if-fresh + throttled,
      *  so repeat ticks are cheap. */
     ADJACENT_CURATION_ENABLED?: string;
-    /** Feature flag gating the STAR requirement on adjacent curation
-     *  (v676). When "true", `/api/warm-cities` (the star hint) only
-     *  reports a city once BOTH its `extent` is backfilled AND every
-     *  adjacent area is fully curated (`adjacentsCuratedAt` stamped by
-     *  Phase 4). Default OFF (any truthy-but-not-"true" or unset) so a
-     *  deploy doesn't mass-DE-star every city while the cron catches up
-     *  curating adjacents — flip to "true" once enough cities carry the
-     *  stamp. Opt-IN. */
-    WARM_REQUIRE_ADJACENTS?: string;
+    /** Star-semantics escape hatch (v679). By DEFAULT the in-app star
+     *  (`/api/warm-cities`) means "FULLY cached, including adjacent areas"
+     *  — it reports only cities the cron has stamped `fullyCuratedAt`
+     *  (primary boundary+refs+stations AND every adjacent area cached).
+     *  Set to the exact string "true" to revert to the pre-v679 behaviour:
+     *  star = "has a backfilled `extent`" (broader, appears sooner, but NOT
+     *  a guarantee of full caching). Intended only as a temporary fallback
+     *  if the strict star is too sparse before the cron/laptop backfill
+     *  catches up. Replaces the v676 `WARM_REQUIRE_ADJACENTS` opt-in. */
+    WARM_STAR_LENIENT?: string;
     /** Bearer token guarding `/admin/*` endpoints. Configure via
      *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
     ADMIN_SECRET?: string;
