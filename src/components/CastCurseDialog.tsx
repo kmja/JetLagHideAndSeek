@@ -19,7 +19,11 @@ import {
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
-import { CURSE_DRAINED_BRAIN } from "@/lib/curseEnforcement";
+import {
+    activeBlockingCurse,
+    CURSE_DRAINED_BRAIN,
+    curseBlocksAsking,
+} from "@/lib/curseEnforcement";
 import { gameSize } from "@/lib/gameSetup";
 import type { CurseCard } from "@/lib/hiderDeck";
 import {
@@ -100,6 +104,15 @@ export function CastCurseDialog({
         [],
     );
     const isDrainedBrain = card?.name === CURSE_DRAINED_BRAIN;
+    const $activeBlocker = useStore(activeBlockingCurse);
+    // Rulebook p386: only one ask-blocking curse can be active at a time.
+    // Block casting a SECOND one while a different ask-blocker the hider
+    // cast is still active (the seekers must clear it first).
+    const isBlockingCurse = card ? curseBlocksAsking(card.name) : false;
+    const blockedByActiveCurse =
+        isBlockingCurse &&
+        $activeBlocker !== null &&
+        $activeBlocker !== card?.name;
     const fizzleRule = card ? DICE_FIZZLE[card.name] : undefined;
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
@@ -229,6 +242,8 @@ export function CastCurseDialog({
 
     const canCast =
         !sharing &&
+        // Rulebook p386: can't stack a second ask-blocking curse.
+        !blockedByActiveCurse &&
         // Cards with a fizzle rule need a SETTLED roll before the
         // action button enables; cards without can cast right away.
         (fizzleRule === undefined || settled !== null) &&
@@ -325,6 +340,11 @@ export function CastCurseDialog({
      * boost. Called from each successful-cast branch below.
      */
     const onCurseLanded = () => {
+        // Rulebook p386: record an ask-blocking curse as active so a
+        // second one can't be cast until the seekers clear this one.
+        if (curseBlocksAsking(card.name)) {
+            activeBlockingCurse.set(card.name);
+        }
         if (card.name === "Curse of the Overflowing Chalice") {
             activateOverflowingChalice();
             toast.info(
@@ -858,6 +878,39 @@ export function CastCurseDialog({
                                 </span>
                             </div>
                         )}
+
+                    {/* Rulebook p386: an ask-blocking curse is already
+                        active, so this one can't be cast until the seekers
+                        clear the first. The hider marks it cleared when the
+                        seekers tell them (same trust model as real-world
+                        curses). */}
+                    {blockedByActiveCurse && (
+                        <div
+                            className={cn(
+                                "rounded-sm border px-3 py-2 flex flex-col gap-2",
+                                "border-destructive/40 bg-destructive/10",
+                                "text-xs leading-snug",
+                            )}
+                            role="status"
+                        >
+                            <span>
+                                <span className="font-semibold">
+                                    {$activeBlocker}
+                                </span>{" "}
+                                is still blocking the seekers from asking. You
+                                can only have one such curse active at a time —
+                                wait for the seekers to clear it (rulebook p44).
+                            </span>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 self-start text-xs"
+                                onClick={() => activeBlockingCurse.set(null)}
+                            >
+                                Seekers cleared it
+                            </Button>
+                        </div>
+                    )}
 
                     <div className="flex flex-row gap-2 sm:justify-end">
                         {/* "Not now" only makes sense before the roll

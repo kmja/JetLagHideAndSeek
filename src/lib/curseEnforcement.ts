@@ -29,6 +29,41 @@ export const CURSE_SPOTTY_MEMORY = "Curse of Spotty Memory";
 export const CURSE_URBAN_EXPLORER = "Curse of the Urban Explorer";
 
 /**
+ * The curses the app enforces as "prevents the seekers from asking".
+ * Rulebook p386: there can't be more than one active curse preventing
+ * asking (or taking transit) at a time — the hider must wait for the
+ * active one to be cleared before playing another. We enforce this
+ * mutual-exclusion at cast time for exactly the curses the app models as
+ * ask-blockers (the real-world transit-blockers the app can't detect are
+ * left to the players, as with all real-world curse effects).
+ */
+export const CURSE_ASK_BLOCKERS: ReadonlySet<string> = new Set([
+    CURSE_DRAINED_BRAIN,
+    CURSE_SPOTTY_MEMORY,
+    CURSE_URBAN_EXPLORER,
+]);
+
+/** Whether a curse (by name) is one the app enforces as an ask-blocker. */
+export function curseBlocksAsking(name: string): boolean {
+    return CURSE_ASK_BLOCKERS.has(name);
+}
+
+/**
+ * The name of the ask-blocking curse the HIDER has cast that is still
+ * active on the seekers, or null. Set when the hider casts an ask-blocker
+ * and cleared when the hider marks it cleared (the seekers must tell them,
+ * per rulebook p386) — or automatically at round end via
+ * `resetSharedRoundState`. Used by `CastCurseDialog` to block casting a
+ * SECOND ask-blocker while one is still active. Hider-side + persistent so
+ * a reload mid-curse keeps the constraint.
+ */
+export const activeBlockingCurse = persistentAtom<string | null>(
+    "jlhs:activeBlockingCurse",
+    null,
+    { encode: (v) => v ?? "", decode: (v) => v || null },
+);
+
+/**
  * d6 → category mapping for Spotty Memory (6 categories, one per face).
  * Order is fixed so a given roll always maps to the same category.
  */

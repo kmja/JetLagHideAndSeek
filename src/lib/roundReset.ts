@@ -24,7 +24,11 @@ import {
     questionModified,
     questions,
 } from "@/lib/context";
-import { seekerOnTransit, spottyMemoryCategory } from "@/lib/curseEnforcement";
+import {
+    activeBlockingCurse,
+    seekerOnTransit,
+    spottyMemoryCategory,
+} from "@/lib/curseEnforcement";
 import {
     closingInWarningLevel,
     endgameConfirmedAt,
@@ -73,6 +77,7 @@ export function resetSharedRoundState(): void {
     receivedCurses.set([]);
     spottyMemoryCategory.set(null);
     seekerOnTransit.set(false);
+    activeBlockingCurse.set(null);
 
     // Hider-side: inbox, hand, deck, discard, hand limit, pending draw,
     // hiding zone/spot, found-at, forfeit flag, chalice charges.

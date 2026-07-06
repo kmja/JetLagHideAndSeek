@@ -245,11 +245,32 @@ hider's optimistic `markHandled` kept the ORIGINAL identity.
 - Tests: `tests/repeatQuestion.test.ts` (+2 — substitute counts, original
   stays fresh; radar preset swap).
 
-### Still open (LOW severity, not selected)
-- Duplicate's passive end-of-round time-bonus doubling not modeled (an
-  unplayed Duplicate held at round end should copy a time bonus). Manual
-  Duplicate works; only the auto-tally of a held one is missing.
-- "Only one active ask/transit-blocking curse at a time" unenforced.
+### D10 · Duplicate passive end-of-round doubling ✅ v674
+Rulebook p379: an unplayed Duplicate held at round end copies any time
+bonus in hand ("effectively doubling that bonus"). `tallyTimeBonusMinutes`
+(`hiderDeck.ts`) now adds, per held `duplicate` powerup, the value of the
+LARGEST time bonus in hand (the hider-maximising choice; several
+Duplicates each copy that largest bonus; a Duplicate with no bonus to
+copy is worth 0). Flows into the scored total everywhere `tally…` is used
+(FinalScoreBanner, roundLog, EndOfRoundDialog) and the live
+"bonus-if-held" projection. Actively-played Duplicates already become
+real `time-bonus` clones, so they're counted by the sum instead. Tests:
+`tests/economyRules.test.ts`.
+
+### D11 · One active ask/transit-blocking curse at a time ✅ v674
+Rulebook p386: only one asking-blocking curse can be active; the hider
+must wait for it to be cleared before casting another. Enforced for the
+curses the app actually models as ask-blockers (`CURSE_ASK_BLOCKERS` =
+Drained Brain / Spotty Memory / Urban Explorer; real-world transit
+blockers stay player-managed like all real-world curse effects). New
+`activeBlockingCurse` atom (`curseEnforcement.ts`, per-round reset) is set
+when the hider casts an ask-blocker (`CastCurseDialog.onCurseLanded`);
+casting a SECOND ask-blocker while one is active is blocked (`canCast`
+gate) with an inline notice + a "Seekers cleared it" button (same trust
+model as clearing real-world curses). Tests: `tests/economyRules.test.ts`.
+
+The second rulebook conformance pass (section D) is now CLOSED — every
+identified gap is either fixed or a documented intentional deviation.
 
 ## Notes
 - Scoring formula (v671): the hidden time

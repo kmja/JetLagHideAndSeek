@@ -565,16 +565,36 @@ function makeId(): string {
 /* ─────────────────────────── Time-bonus tally ─────────────────────────── */
 
 /** Sum the minute values of all time-bonus cards currently in hand,
- *  scaled to the given game size. Used for the projected-total display. */
+ *  scaled to the given game size — PLUS the passive value of any unplayed
+ *  Duplicate powerup held at round end.
+ *
+ *  Rulebook p379: "If a duplicate remains in your hand at the end of the
+ *  round, it can be used as a copy of any time bonus in your hand,
+ *  effectively doubling that bonus." So each held Duplicate copies the
+ *  LARGEST time bonus in hand (the hider-maximising choice); with several
+ *  Duplicates, each independently copies that largest bonus. A Duplicate
+ *  held with no time bonus to copy is worth nothing. (A Duplicate the
+ *  hider actively PLAYS onto a bonus becomes a real `kind:"time-bonus"`
+ *  clone and is counted by the sum above instead — this passive path only
+ *  covers Duplicates still sitting as powerups at round end.)
+ *
+ *  Also used live during the round as the "bonus if held at round end"
+ *  projection, so including the Duplicate potential there is correct. */
 export function tallyTimeBonusMinutes(
     hand: Card[],
     size: GameSize,
 ): number {
     let total = 0;
+    let maxBonus = 0;
+    let heldDuplicates = 0;
     for (const card of hand) {
         if (card.kind === "time-bonus") {
-            total += card.minutes[size] ?? 0;
+            const m = card.minutes[size] ?? 0;
+            total += m;
+            if (m > maxBonus) maxBonus = m;
+        } else if (card.kind === "powerup" && card.powerup === "duplicate") {
+            heldDuplicates++;
         }
     }
-    return total;
+    return total + heldDuplicates * maxBonus;
 }
