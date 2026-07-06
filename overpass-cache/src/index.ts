@@ -32,7 +32,7 @@ import {
     appendDiscoveredCities,
     type CityEntry,
     getPopularCities,
-    HAND_CURATED,
+    SEED_CITIES,
     loadDiscoveredCities,
     missingExtentRelations,
     parkNames,
@@ -387,17 +387,25 @@ export default {
         // to ~1350 entries; hourly cron × 10/run drains the backlog
         // in ~6 days even from cold. The remaining ~20 s of the
         // scheduled budget goes to the prewarm pass below.
-        try {
-            const discovered = await discoverCandidates(env, 10);
-            if (discovered.length > 0) {
-                console.log(
-                    `[discover] +${discovered.length}: ${discovered
-                        .map((d) => d.name)
-                        .join(", ")}`,
-                );
+        // v680: the speculative name-discovery pass is OFF by default now.
+        // The prewarm list is the world-cities.json seed (biggest cities)
+        // PLUS organic player-driven growth (POST /api/register-area) — no
+        // more resolving a bundled candidate-name backlog against Photon.
+        // The code + `/admin/discover` stay for manual use; opt back in with
+        // NAME_DISCOVERY_ENABLED="true".
+        if (env.NAME_DISCOVERY_ENABLED === "true") {
+            try {
+                const discovered = await discoverCandidates(env, 10);
+                if (discovered.length > 0) {
+                    console.log(
+                        `[discover] +${discovered.length}: ${discovered
+                            .map((d) => d.name)
+                            .join(", ")}`,
+                    );
+                }
+            } catch (e) {
+                console.warn("Discovery pass failed:", e);
             }
-        } catch (e) {
-            console.warn("Discovery pass failed:", e);
         }
         // Repair pass: a previous version of this cron called
         // `resolveNameViaPhoton(name)` to backfill extents on bare
@@ -1056,6 +1064,9 @@ async function handleRequest(
         }
         if (url.pathname === "/api/warm-cities") {
             return handleWarmCities(env, cors);
+        }
+        if (url.pathname === "/api/register-area") {
+            return handleRegisterArea(request, env, cors);
         }
         if (url.pathname.startsWith("/api/transit/")) {
             // /api/transit/<relationId>/<mode>[?warm=1] (v386)
@@ -5556,6 +5567,99 @@ async function handleAdminStoreCityExtent(
     }
 }
 
+/** Hard cap on how large the R2 growth doc may get via the PUBLIC
+ *  register-area endpoint — a backstop against someone spamming junk
+ *  relation ids into the prewarm list. The curated seed is separate
+ *  (bundled), so this only bounds organic player-driven growth. */
+const REGISTER_AREA_MAX_GROWTH = 20000;
+
+/**
+ * `POST /api/register-area` (PUBLIC) — the runtime-growth path (v680): when
+ * a player picks a play area that ISN'T already in the prewarm set, the
+ * client registers it here so the cron starts caching it (and its adjacent
+ * areas) and it eventually earns a star. This is how "the list grows as
+ * players use the app" — the curated world-cities seed is the floor, actual
+ * usage extends it.
+ *
+ * Body `{relationId, name}`. The WORKER derives the extent via
+ * `bboxFromRelation` (same canonical producer as the cron/admin path), then
+ * upserts into the R2 growth doc — identical to `/admin/store-city-extent`
+ * but keyless. Guardrails, since it's public: it no-ops for a relation
+ * already known-with-extent (idempotent, no churn), refuses once the growth
+ * doc hits `REGISTER_AREA_MAX_GROWTH`, and only stores relations that
+ * actually resolve to a real boundary extent (junk ids derive nothing and
+ * are dropped). All non-fatal outcomes return 200 with a `status` so the
+ * client can fire-and-forget.
+ */
+async function handleRegisterArea(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "POST" },
+        });
+    }
+    let body: { name?: unknown; relationId?: unknown };
+    try {
+        body = (await request.json()) as { name?: unknown; relationId?: unknown };
+    } catch {
+        return jsonResponse({ error: "invalid JSON body" }, 400, cors);
+    }
+    const relationId = Number(body.relationId);
+    if (!Number.isFinite(relationId) || relationId <= 0) {
+        return jsonResponse(
+            { error: "relationId (positive number) required" },
+            400,
+            cors,
+        );
+    }
+    const name =
+        typeof body.name === "string" && body.name.trim()
+            ? body.name.trim()
+            : null;
+    if (!name) {
+        return jsonResponse({ error: "name required" }, 400, cors);
+    }
+    // Idempotent: already seeded/registered with an extent → nothing to do.
+    try {
+        const cities = await getPopularCities(env);
+        const existing = cities.find((c) => c.relationId === relationId);
+        if (existing?.extent) {
+            return jsonResponse(
+                { status: "already-registered", relationId },
+                200,
+                cors,
+            );
+        }
+    } catch {
+        /* fall through — treat as unknown */
+    }
+    // Abuse backstop: bound the public growth doc.
+    try {
+        const growth = await loadDiscoveredCities(env);
+        if (growth.length >= REGISTER_AREA_MAX_GROWTH) {
+            return jsonResponse({ status: "growth-full", relationId }, 200, cors);
+        }
+    } catch {
+        /* ignore — proceed best-effort */
+    }
+    const extent = await bboxFromRelation(relationId).catch(() => null);
+    if (!extent) {
+        // Not a resolvable boundary (or a transient miss) — don't store junk.
+        return jsonResponse({ status: "no-extent", relationId }, 200, cors);
+    }
+    try {
+        await upsertDiscoveredCity(env, { name, relationId, extent });
+        return jsonResponse({ status: "registered", relationId, name }, 200, cors);
+    } catch (e) {
+        console.warn(`register-area upsert failed r${relationId}:`, e);
+        return jsonResponse({ status: "store-failed", relationId }, 200, cors);
+    }
+}
+
 async function handleAdminStoreTilePack(
     request: Request,
     env: Env,
@@ -6927,7 +7031,10 @@ async function handleAdminAdjacentCurationStatus(
     }
     try {
         const url = new URL(request.url);
-        const scope = url.searchParams.get("scope") ?? "hand-curated";
+        // scope: "seed" (default) = the top-N of the bundled world-cities
+        // seed (biggest cities, population-sorted); "top" = first N of the
+        // full merged list; "all" = everything.
+        const scope = url.searchParams.get("scope") ?? "seed";
         const topN = parseInt(url.searchParams.get("top") ?? "100", 10) || 100;
         const limit = Math.min(
             parseInt(url.searchParams.get("limit") ?? "60", 10) || 60,
@@ -6941,10 +7048,12 @@ async function handleAdminAdjacentCurationStatus(
         } else if (scope === "top") {
             targets = all.slice(0, topN);
         } else {
-            // hand-curated: the merged (extent/stamp-carrying) copies of the
-            // HAND_CURATED relation ids.
-            const handIds = new Set(HAND_CURATED.map((c) => c.relationId));
-            targets = all.filter((c) => handIds.has(c.relationId));
+            // seed: the merged (extent/stamp-carrying) copies of the first
+            // topN seed relation ids (the biggest cities).
+            const seedIds = new Set(
+                SEED_CITIES.slice(0, topN).map((c) => c.relationId),
+            );
+            targets = all.filter((c) => seedIds.has(c.relationId));
         }
         const probe = targets.slice(0, limit);
 

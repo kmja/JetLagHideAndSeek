@@ -69,6 +69,14 @@ export interface Env {
      *  if the strict star is too sparse before the cron/laptop backfill
      *  catches up. Replaces the v676 `WARM_REQUIRE_ADJACENTS` opt-in. */
     WARM_STAR_LENIENT?: string;
+    /** Feature flag for the legacy speculative name-discovery cron pass
+     *  (v680). OFF by default: the prewarm list is now the world-cities.json
+     *  seed (biggest cities) plus organic player-driven growth
+     *  (POST /api/register-area), so the cron no longer resolves a bundled
+     *  candidate-name backlog against Photon. Set to "true" to re-enable the
+     *  old discovery pass (the code + `/admin/discover` remain for manual
+     *  use regardless). */
+    NAME_DISCOVERY_ENABLED?: string;
     /** Bearer token guarding `/admin/*` endpoints. Configure via
      *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
     ADMIN_SECRET?: string;

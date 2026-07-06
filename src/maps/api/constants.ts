@@ -119,6 +119,11 @@ export const RELATION_EXTENT_BASE = `${JLHS_WORKER_BASE}/api/relation-extent`;
  *  curated/discovered cities with a backfilled extent (v641). The play-area
  *  search stars matching results so users can spot fast-loading regions. */
 export const WARM_CITIES_URL = `${JLHS_WORKER_BASE}/api/warm-cities`;
+/** Runtime-growth endpoint (v680): POST {relationId, name} to register a
+ *  player-picked play area that isn't in the prewarm seed, so the cron
+ *  starts caching it (+ adjacents) and it eventually earns a star. The list
+ *  of prewarmed areas grows as players use the app. */
+export const REGISTER_AREA_URL = `${JLHS_WORKER_BASE}/api/register-area`;
 /** Base URL for relation-id-keyed per-city transit (v386). Mirrors
  *  REFS_BY_RELATION_BASE: the client fetches
  *  `${TRANSIT_BY_RELATION_BASE}/<relationId>/<mode>` and the worker

@@ -6,7 +6,11 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
-import { LOCATION_FIRST_TAG, REFS_BY_RELATION_BASE } from "@/maps/api/constants";
+import {
+    LOCATION_FIRST_TAG,
+    REFS_BY_RELATION_BASE,
+    REGISTER_AREA_URL,
+} from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
 import { CacheType } from "@/maps/api/types";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
@@ -515,6 +519,47 @@ function requestWarm(relationId: number): void {
     });
 }
 
+/** Relation ids we've registered for persistent prewarm this session. */
+const registerRequested = new Set<number>();
+
+/**
+ * v680: register a played area into the worker's growth list so the cron
+ * keeps caching it (+ its adjacents) and it eventually earns a star — this
+ * is how "the prewarm list grows as players use the app". Fire-and-forget +
+ * deduped per session; the worker no-ops for anything already in the seed /
+ * already registered, so this is cheap even when the area is already warm.
+ */
+function requestRegisterArea(relationId: number, name: string): void {
+    if (registerRequested.has(relationId)) return;
+    registerRequested.add(relationId);
+    void fetch(REGISTER_AREA_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ relationId, name }),
+    }).catch(() => {
+        // Network blip — allow a retry on a later pass.
+        registerRequested.delete(relationId);
+    });
+}
+
+/** Extract a usable place name + relation id from a play-area feature's
+ *  Photon properties, or null if it isn't a relation. */
+function relationTargetFrom(
+    properties: unknown,
+): { relationId: number; name: string } | null {
+    const p = properties as
+        | { osm_id?: number; osm_type?: string; name?: string; city?: string }
+        | undefined;
+    if (p?.osm_type !== "R" || typeof p.osm_id !== "number" || p.osm_id <= 0) {
+        return null;
+    }
+    const name =
+        (typeof p.name === "string" && p.name.trim()) ||
+        (typeof p.city === "string" && p.city.trim()) ||
+        `relation ${p.osm_id}`;
+    return { relationId: p.osm_id, name };
+}
+
 // v360: warm-on-add. Kick off a background warm the moment an adjacent
 // area is added, rather than waiting for the first question to probe it.
 // nanostores `subscribe` fires synchronously with the current value, so a
@@ -529,19 +574,21 @@ function requestWarm(relationId: number): void {
 // user interaction, preserving "warm the moment it's added".
 if (typeof window !== "undefined") {
     queueMicrotask(() => {
+        // Primary play area: warm its refs AND register it for persistent
+        // prewarm (v680) the moment it's chosen / restored.
+        mapGeoLocation.subscribe((loc) => {
+            const t = relationTargetFrom(loc?.properties);
+            if (!t) return;
+            requestWarm(t.relationId);
+            requestRegisterArea(t.relationId, t.name);
+        });
         additionalMapGeoLocations.subscribe((extras) => {
             for (const e of extras) {
                 if (!e.added) continue;
-                const ep = e.location?.properties as
-                    | { osm_id?: number; osm_type?: string }
-                    | undefined;
-                if (
-                    ep?.osm_type === "R" &&
-                    typeof ep.osm_id === "number" &&
-                    ep.osm_id > 0
-                ) {
-                    requestWarm(ep.osm_id);
-                }
+                const t = relationTargetFrom(e.location?.properties);
+                if (!t) continue;
+                requestWarm(t.relationId);
+                requestRegisterArea(t.relationId, t.name);
             }
         });
     });
