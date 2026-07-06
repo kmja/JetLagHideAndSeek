@@ -650,15 +650,22 @@ export default {
                 // write every tick.
                 if (env.ADJACENT_CURATION_ENABLED !== "false") {
                     try {
+                        // Non-empty neighbour set → curated iff every one is.
+                        // Empty set → only "curated" (vacuously) if we KNOW
+                        // adjacency was actually discovered (topological query
+                        // cached), never when both adjacency sources silently
+                        // failed — otherwise a total-adjacency-failure city
+                        // would wrongly stamp as "no neighbours, done".
                         const allCurated =
-                            r.neighbourIds.length === 0 ||
-                            (
-                                await Promise.all(
-                                    r.neighbourIds.map((id) =>
-                                        relationFullyCurated(env, id),
-                                    ),
-                                )
-                            ).every(Boolean);
+                            r.neighbourIds.length > 0
+                                ? (
+                                      await Promise.all(
+                                          r.neighbourIds.map((id) =>
+                                              relationFullyCurated(env, id),
+                                          ),
+                                      )
+                                  ).every(Boolean)
+                                : r.adjacencyKnown;
                         const stampedAt = city.adjacentsCuratedAt;
                         const stampAge =
                             typeof stampedAt === "number"
@@ -4206,8 +4213,13 @@ async function prewarmAdjacentSearchForCity(
     env: Env,
     city: CityEntry,
     ttlMs: number,
-): Promise<{ stored: number; neighbourIds: number[] }> {
-    if (!city.extent) return { stored: 0, neighbourIds: [] };
+): Promise<{
+    stored: number;
+    neighbourIds: number[];
+    adjacencyKnown: boolean;
+}> {
+    if (!city.extent)
+        return { stored: 0, neighbourIds: [], adjacencyKnown: false };
     // Photon-style extent: [maxLat, minLng, minLat, maxLng].
     const [maxLat, minLng, minLat, maxLng] = city.extent;
     const lat = (maxLat + minLat) / 2;
@@ -4321,13 +4333,15 @@ async function prewarmAdjacentSearchForCity(
     //    client's worker boundary fetch). Capped + only fetched once per
     //    TTL, so this doesn't balloon the cron.
     let neighbourResult: number[] = [];
+    let adjacencyKnown = false;
     try {
         // Neighbour ids come from the topological + admin-band results the
         // steps above just stored, via the shared read-only derivation so
         // the cron gate and the /admin/adjacent-curation-status readout see
         // a byte-identical neighbour set (one producer — no drift).
-        const cappedNeighbours = (await deriveAdjacentNeighbourIds(env, city))
-            .ids;
+        const derived = await deriveAdjacentNeighbourIds(env, city);
+        const cappedNeighbours = derived.ids;
+        adjacencyKnown = derived.adjacencyKnown;
         // v676: FULL adjacent-area curation. The user's rule is that an
         // added adjacent area is a first-class part of the play area — so
         // its references AND hiding-zone stations must be prewarmed too,
@@ -4376,7 +4390,7 @@ async function prewarmAdjacentSearchForCity(
         );
     }
 
-    return { stored, neighbourIds: neighbourResult };
+    return { stored, neighbourIds: neighbourResult, adjacencyKnown };
 }
 
 /**
@@ -6951,11 +6965,16 @@ async function handleAdminAdjacentCurationStatus(
                 ids.map((id) => relationFullyCurated(env, id)),
             );
             const neighboursCurated = results.filter(Boolean).length;
-            // Only "fully curated" if we actually KNOW the neighbour set
-            // (adjacency prewarmed) AND every neighbour is curated. A
-            // known-empty neighbour set (island city) counts as curated.
+            // Non-empty neighbour set → curated iff every one is (regardless
+            // of which source found them; a city can have a full neighbour
+            // set from the admin band with the topological query uncached —
+            // Rome in the snapshot). Empty set → only vacuously curated when
+            // adjacency is actually KNOWN (topological cached + genuinely
+            // empty), never when it just hasn't been prewarmed.
             const allCurated =
-                adjacencyKnown && neighboursCurated === ids.length;
+                ids.length > 0
+                    ? neighboursCurated === ids.length
+                    : adjacencyKnown;
             if (allCurated) fullyCurated++;
             rows.push({
                 name: city.name,
