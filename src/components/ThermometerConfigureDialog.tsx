@@ -101,8 +101,10 @@ export function ThermometerConfigureDialog({
     const sigCounts = new Map<string, number>();
     for (const q of $questions) {
         if (q.id !== "thermometer") continue;
-        const d = q.data as ThermometerQuestion;
+        const d = q.data as ThermometerQuestion & { randomizedAway?: boolean };
         if (d.status === "started" || !d.distance) continue;
+        // v673: a randomized-away thermometer isn't considered asked.
+        if (d.randomizedAway === true) continue;
         sigCounts.set(d.distance, (sigCounts.get(d.distance) ?? 0) + 1);
     }
     const usedSigs = new Set(sigCounts.keys());

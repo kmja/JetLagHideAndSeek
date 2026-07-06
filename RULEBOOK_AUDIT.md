@@ -219,16 +219,37 @@ taps Start when ready. This unbounded start-when-ready window covers the
 rulebook's "up to 10 minutes" (a soft cap to keep a tabletop moving, not
 a hard rule the app must enforce).
 
-### Still open from this pass (deferred — own focused change)
-- **Randomize repeat-cost accounting is inverted** (original marked asked
-  / substitute not — rulebook is the reverse). Deferred: the fix threads
-  through the intricate v597 randomize-SPLIT on BOTH the hider inbox
-  identity AND the seeker-side `randomizedAway` uniqueness, with no test
-  coverage — high regression risk to a working flow, so it wants its own
-  change + tests rather than a tail-of-batch edit.
-- Duplicate's passive end-of-round time-bonus doubling not modeled; and
-  "only one active ask/transit-blocking curse at a time" unenforced
-  (both LOW severity, not selected for this pass).
+### D9 · Randomize repeat-cost accounting was inverted ✅ v673
+Rulebook p376: after a Randomize the ORIGINAL question is NOT considered
+asked (re-askable at its original cost) and the SUBSTITUTE IS. The app
+had it backwards. Root cause was path-dependent: the multiplayer/demo
+echo (`GameRoom.ts` / `demoBroker.ts`, `{...q.data, ...answer}`) already
+merged the substitute's identity into the question data, so ONLINE play
+was effectively correct; but SOLO-no-multiplayer never echoes, so the
+hider's optimistic `markHandled` kept the ORIGINAL identity.
+- **Hider side**: `markHandled` (`HiderView.tsx`) takes an optional
+  `dataPatch`; the spatial Randomize passes the substitute's identity
+  fields (the swapped `type`/`locationType`/`radius`+`unit` from
+  `computeRandomizedAnswer`), re-keying the answered inbox entry to the
+  substitute — exactly what the online echo already does, so solo/online
+  now match. `questionIdentity`/`priorAnsweredCount` therefore count the
+  substitute as asked and leave the original re-askable. Veto is
+  untouched (a vetoed question IS considered asked → keeps its identity).
+  Photo Randomize already swapped `data.type` in place, so it was fine.
+- **Seeker side**: the picker's repeat/hard-block sets
+  (`subtypeCounts`/`usedSubtypes` in `AddQuestionDialog`, radar
+  `usedSigs` in `cards/radius.tsx`, thermometer `sigCounts`) now SKIP
+  entries with `data.randomizedAway === true` — the v597 split keeps the
+  original as a `randomizedAway` marker (eliminates nothing), which must
+  not count as asked either.
+- Tests: `tests/repeatQuestion.test.ts` (+2 — substitute counts, original
+  stays fresh; radar preset swap).
+
+### Still open (LOW severity, not selected)
+- Duplicate's passive end-of-round time-bonus doubling not modeled (an
+  unplayed Duplicate held at round end should copy a time bonus). Manual
+  Duplicate works; only the auto-tally of a held one is missing.
+- "Only one active ask/transit-blocking curse at a time" unenforced.
 
 ## Notes
 - Scoring formula (v671): the hidden time

@@ -405,7 +405,14 @@ export const AddQuestionDialog = ({
             const d = q.data as {
                 type?: string;
                 locationType?: string;
+                randomizedAway?: boolean;
             };
+            // v673: a question that was RANDOMIZED away is NOT considered
+            // asked (rulebook p376) — it can be re-asked at its original
+            // cost — so it must not count toward the repeat multiplier or
+            // the hard-block set. The SUBSTITUTE it produced is a separate
+            // entry that counts normally.
+            if (d.randomizedAway === true) continue;
             if (q.id === "matching" || q.id === "measuring") {
                 if (d.type) bump(q.id, d.type);
             } else if (q.id === "tentacles") {

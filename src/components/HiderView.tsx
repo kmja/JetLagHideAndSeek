@@ -449,12 +449,32 @@ function ResponseCardActions({
     const isPhoto = question.id === "photo";
     if (!vetoCard && !showRandomize) return null;
 
-    const markHandled = (reply: Record<string, unknown>) => {
+    const markHandled = (
+        reply: Record<string, unknown>,
+        // v673: optional patch merged into the answered entry's `data`.
+        // Used by Randomize to swap the entry's identity to the SUBSTITUTE
+        // question (rulebook p376: the ORIGINAL is NOT considered asked —
+        // re-askable at its original cost — while the SUBSTITUTE was
+        // asked). Locally this makes `questionIdentity`/`priorAnsweredCount`
+        // key on the substitute; it also exactly mirrors what the
+        // multiplayer/demo echo already does (`{...q.data, ...answer}` in
+        // GameRoom/demoBroker), so solo and online behave identically.
+        // Veto passes no patch — a vetoed question IS considered asked, so
+        // its original identity must stay.
+        dataPatch?: Record<string, unknown>,
+    ) => {
         const inbox = hiderInbox.get();
         hiderInbox.set(
             inbox.map((e) =>
                 e.key === question.key && !e.repliedAt
-                    ? { ...e, repliedAt: Date.now(), reply }
+                    ? {
+                          ...e,
+                          data: dataPatch
+                              ? { ...e.data, ...dataPatch }
+                              : e.data,
+                          repliedAt: Date.now(),
+                          reply,
+                      }
                     : e,
             ),
         );
@@ -537,12 +557,18 @@ function ResponseCardActions({
                 return;
             }
             discardCard(randomizeCard.id);
-            markHandled({
+            const reply = {
                 drag: false,
                 randomized: true,
                 randomizedFrom: result.fromLabel,
                 ...result.answer,
-            });
+            };
+            // Re-key the answered entry to the SUBSTITUTE question's
+            // identity (result.answer carries the swapped type /
+            // locationType / radius+unit) so repeat-cost counts the
+            // substitute as asked and leaves the original re-askable at
+            // its original cost. Same shape the online echo merges.
+            markHandled(reply, reply);
             toast.success(
                 `Randomized to a ${result.toLabel} question — answered automatically and sent to the seeker.`,
                 { autoClose: 5000 },

@@ -143,7 +143,13 @@ export const RadiusQuestionComponent = ({
                         $questions
                             .filter(
                                 (q) =>
-                                    q.id === "radius" && q.key !== questionKey,
+                                    q.id === "radius" &&
+                                    q.key !== questionKey &&
+                                    // v673: a randomized-away radar is NOT
+                                    // considered asked (rulebook p376), so
+                                    // its preset stays re-selectable.
+                                    (q.data as { randomizedAway?: boolean })
+                                        .randomizedAway !== true,
                             )
                             .map((q) => {
                                 const d = q.data as RadiusQuestion;

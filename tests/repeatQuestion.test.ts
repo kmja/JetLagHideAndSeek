@@ -88,3 +88,45 @@ describe("priorAnsweredCount", () => {
         expect(priorAnsweredCount(99, "matching:library")).toBe(0);
     });
 });
+
+describe("randomize repeat-cost accounting (v673, rulebook p376)", () => {
+    beforeEach(() => {
+        hiderInbox.set([]);
+    });
+
+    // After a Randomize, `markHandled` re-keys the answered inbox entry
+    // to the SUBSTITUTE's identity (it merges the substitute's `type` /
+    // `locationType` / `radius` into the entry's `data`). So a museum
+    // matching randomized into a park matching leaves an answered entry
+    // whose `data.type === "park"`.
+    it("counts the SUBSTITUTE as asked, not the original", () => {
+        hiderInbox.set([
+            // museum → randomized to park; entry now carries the substitute.
+            entry(
+                1,
+                "matching",
+                { type: "park", randomized: true, randomizedFrom: "Museum" },
+                true,
+            ),
+        ]);
+        // Re-asking the SUBSTITUTE (park) is a repeat → 1 prior answer.
+        expect(priorAnsweredCount(99, "matching:park")).toBe(1);
+        // Re-asking the ORIGINAL (museum) is fresh → 0 priors (it was
+        // never really asked; re-askable at its original cost).
+        expect(priorAnsweredCount(99, "matching:museum")).toBe(0);
+    });
+
+    it("works for a radar preset swap", () => {
+        // 1 km radar randomized to a 5 km radar → answered entry is 5 km.
+        hiderInbox.set([
+            entry(
+                1,
+                "radius",
+                { radius: 5, unit: "kilometers", randomized: true },
+                true,
+            ),
+        ]);
+        expect(priorAnsweredCount(99, "radius:5kilometers")).toBe(1);
+        expect(priorAnsweredCount(99, "radius:1kilometers")).toBe(0);
+    });
+});
