@@ -350,8 +350,13 @@ function requestStationWarm(relationId: number): void {
 
 /** Warm the station field for EVERY play-area relation (primary + added
  *  adjacent areas). Called after a live poly fetch so the next load of
- *  the whole union is served from R2. */
-function requestStationWarmAll(): void {
+ *  the whole union is served from R2 — and PROACTIVELY when the hiding
+ *  period starts (`GameStartWatcher`), so that a multi-area play area
+ *  (whose ADDED areas usually aren't curated/prewarmed) has its whole
+ *  station union warm in R2 by the time the hider opens the overlay,
+ *  instead of falling to a heavy combined live poly query that soft-times
+ *  out on a dense metro like Vancouver. Deduped per session. */
+export function requestStationWarmAll(): void {
     for (const id of playAreaRelationIdsAll()) requestStationWarm(id);
 }
 
@@ -361,11 +366,19 @@ function sortAndDedupe(stations: AreaStation[]): AreaStation[] {
     const deduped: AreaStation[] = [];
     for (const s of stations) {
         const norm = normaliseName(s.name);
-        const dup = deduped.find(
-            (d) =>
-                normaliseName(d.name) === norm &&
-                haversineMeters(d.lat, d.lng, s.lat, s.lng) < 150,
-        );
+        const dup = deduped.find((d) => {
+            const dist = haversineMeters(d.lat, d.lng, s.lat, s.lng);
+            // Same normalised name + near → one stop under two labels.
+            if (dist < 150 && normaliseName(d.name) === norm) return true;
+            // Directional bus-stop pairs sit on opposite sides of the SAME
+            // intersection (~30-70 m apart) under differently-ordered names
+            // ("Nanaimo NB at Dundas" vs "Dundas EB at Nanaimo") the name
+            // normaliser can't always reconcile — collapse any two bus
+            // stops within 90 m so the overlay isn't a wall of paired dots
+            // at every corner (the Vancouver "loads of duplicates" report).
+            if (d.mode === "bus" && s.mode === "bus" && dist < 90) return true;
+            return false;
+        });
         if (dup) continue;
         deduped.push(s);
     }
@@ -530,11 +543,34 @@ function inferMode(tags: Record<string, string>): TransitMode | null {
     return null;
 }
 
-function normaliseName(name: string): string {
+/**
+ * Normalise a stop name for duplicate detection. Strips diacritics,
+ * bracketed qualifiers, mode/direction words, and normalises common
+ * street suffixes, THEN sorts the remaining tokens so that
+ * differently-ordered names for the same intersection collapse together
+ * ("Nanaimo St at East Hastings St" ≡ "East Hastings St at Nanaimo St").
+ * Deliberately aggressive for bus stops, whose directional/ordering
+ * variants otherwise read as a wall of duplicates.
+ */
+const STOP_NOISE_WORDS =
+    /\b(station|stn|stop|platform|nb|sb|eb|wb|north|south|east|west|northbound|southbound|eastbound|westbound|bay|at)\b/g;
+export function normaliseName(name: string): string {
     return name
         .toLocaleLowerCase()
-        .replace(/\s+/g, " ")
-        .replace(/[.,()/-]/g, "")
-        .replace(/\bstation\b|\bstn\b|\bstop\b/g, "")
-        .trim();
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "") // strip diacritics
+        .replace(/[[(][^\])]*[\])]/g, " ") // drop (..) / [..]
+        .replace(/\bstreet\b/g, "st")
+        .replace(/\bavenue\b/g, "ave")
+        .replace(/\bdrive\b/g, "dr")
+        .replace(/\broad\b/g, "rd")
+        .replace(/\bboulevard\b/g, "blvd")
+        .replace(/\bplace\b/g, "pl")
+        .replace(STOP_NOISE_WORDS, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .sort()
+        .join(" ");
 }

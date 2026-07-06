@@ -792,6 +792,7 @@ export function GameLobbyDialog() {
                                 <PlayAreaPreviewMap
                                     value={$mapGeoLocation!}
                                     height="h-[180px]"
+                                    preferCombinedBoundary
                                 />
                                 {isHost && (
                                     <button

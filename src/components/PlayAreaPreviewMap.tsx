@@ -19,6 +19,7 @@ import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import {
     additionalMapGeoLocations,
     adjacentCandidatePreview,
+    mapGeoJSON,
     toggleAdjacentArea,
 } from "@/lib/context";
 import { clipPolygonToLand } from "@/lib/geometry/client";
@@ -189,6 +190,7 @@ export function PlayAreaPreviewMap({
     veilLabel,
     veilSublabel,
     awaitAdjacent = false,
+    preferCombinedBoundary = false,
 }: {
     value: OpenStreetMap;
     height?: string;
@@ -212,6 +214,16 @@ export function PlayAreaPreviewMap({
      *  candidates); the lobby + summary previews leave it false so they
      *  don't wait on a controller that never mounts. */
     awaitAdjacent?: boolean;
+    /** v674: draw the AUTHORITATIVE combined play-area boundary
+     *  (`mapGeoJSON`, the `determineMapBoundaries` union of primary + every
+     *  added adjacent area, minus subtracted) when it's loaded, instead of
+     *  re-fetching the primary + each neighbour separately via
+     *  `CommittedAreasOverlay`. The lobby passes this so its preview shows
+     *  the exact same shape the in-game map does — the per-area re-fetch
+     *  could miss an added area (the Vancouver "+ North Van didn't show"
+     *  report). The wizard leaves it false (there `value` is a candidate
+     *  being previewed, which may differ from the committed play area). */
+    preferCombinedBoundary?: boolean;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     // v228: opt into the dark-tile CSS filter only when the resolved
@@ -294,17 +306,42 @@ export function PlayAreaPreviewMap({
         };
     }, [osmId, osmType]);
 
-    // The overlay is the real polygon or nothing. No bbox fallback.
+    // v674: the authoritative COMBINED play-area boundary (primary + every
+    // added area), published by `determineMapBoundaries`. When
+    // `preferCombinedBoundary` is on and this is loaded, we draw + frame to
+    // it and skip the per-area `CommittedAreasOverlay` entirely, so the
+    // lobby preview can't disagree with the in-game map.
+    const $combinedBoundary = useStore(mapGeoJSON);
+    const combinedGeom = useMemo<
+        GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+    >(() => {
+        if (!preferCombinedBoundary) return null;
+        const geom = (
+            $combinedBoundary as GeoJSON.FeatureCollection | null
+        )?.features?.[0]?.geometry;
+        if (
+            geom &&
+            (geom.type === "Polygon" || geom.type === "MultiPolygon")
+        ) {
+            return geom as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+        }
+        return null;
+    }, [preferCombinedBoundary, $combinedBoundary]);
+
+    // Prefer the combined boundary; fall back to the primary-only polygon.
+    const effectiveGeom = combinedGeom ?? realPolygon;
+
+    // The overlay is the effective polygon or nothing. No bbox fallback.
     const polygon = useMemo<GeoJSON.Feature<
         GeoJSON.Polygon | GeoJSON.MultiPolygon
     > | null>(() => {
-        if (!realPolygon) return null;
+        if (!effectiveGeom) return null;
         return {
             type: "Feature",
             properties: {},
-            geometry: realPolygon,
+            geometry: effectiveGeom,
         };
-    }, [realPolygon]);
+    }, [effectiveGeom]);
 
     // v438: subscribe to the adjacent-area candidates so the camera can
     // widen to include their pills. Without this, neighbours whose
@@ -352,6 +389,30 @@ export function PlayAreaPreviewMap({
     // The bbox extent was an over-approximation for irregular shapes
     // (Dalarna's bbox swallowed parts of Norway + Uppsala).
     useEffect(() => {
+        // v674: when drawing the COMBINED boundary, frame straight to it —
+        // it already includes every added area, so none of the
+        // candidate/committed-fit gymnastics below apply.
+        if (combinedGeom) {
+            try {
+                const map = mapRef.current?.getMap();
+                if (!map) return;
+                const [minX, minY, maxX, maxY] = turf.bbox({
+                    type: "Feature",
+                    properties: {},
+                    geometry: combinedGeom,
+                } as GeoJSON.Feature) as [number, number, number, number];
+                map.fitBounds(
+                    [
+                        [minX, minY],
+                        [maxX, maxY],
+                    ],
+                    { padding: 24, duration: 400, maxZoom: 12 },
+                );
+            } catch {
+                /* ignore */
+            }
+            return;
+        }
         // When the area has folded-in neighbours, the committed-fit effect
         // below owns framing (primary + every added area); tightening to
         // the primary alone here would just crop them back out.
@@ -374,7 +435,8 @@ export function PlayAreaPreviewMap({
         } catch {
             /* ignore */
         }
-    }, [realPolygon, hasAdded]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [realPolygon, hasAdded, combinedGeom, mapReady]);
 
     // Committed-area fit: frame the camera to the WHOLE assembled play
     // area — the primary plus every ADDED neighbour — whenever the
@@ -385,6 +447,7 @@ export function PlayAreaPreviewMap({
     // and once the primary boundary lands.
     const committedFitRef = useRef<string | null>(null);
     useEffect(() => {
+        if (combinedGeom) return; // v674: combined-boundary framing owns it
         if ($adjacent?.candidates?.length) return; // wizard widen owns it
         const added = $added.filter((e) => e.added && e.location);
         if (added.length === 0) return;
@@ -687,7 +750,10 @@ export function PlayAreaPreviewMap({
                         />
                     </Source>
                 )}
-                <CommittedAreasOverlay />
+                {/* When drawing the authoritative combined boundary, the
+                    added areas are ALREADY in `polygon` — don't also
+                    re-fetch + draw them per-area (which could miss one). */}
+                {!combinedGeom && <CommittedAreasOverlay />}
             </MapGL>
             <MapTilesVeil
                 visible={showVeil}

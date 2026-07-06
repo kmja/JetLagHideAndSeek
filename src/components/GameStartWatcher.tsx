@@ -8,6 +8,7 @@ import {
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
+import { requestStationWarmAll } from "@/lib/journey/stations";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 
 /**
@@ -93,6 +94,17 @@ export function GameStartWatcher() {
         if (playerRole.get() !== "hider") {
             preloadDuringHidingPeriod();
         }
+        // Proactively warm the whole play-area station union (primary +
+        // every added adjacent area) into R2 now, at the START of the
+        // hiding period — so the hider's "Hiding zones" overlay (and the
+        // zone-containment lookups) serve from the prewarm endpoint rather
+        // than a heavy combined live poly query that soft-times-out on a
+        // dense multi-area metro. Added areas usually aren't curated, so
+        // without this the first overlay load in e.g. Vancouver + North
+        // Van + Burnaby falls straight to the timing-out live query.
+        // Fire-and-forget + deduped; the long hiding period gives the
+        // warms ample time to land.
+        requestStationWarmAll();
     }, [$endsAt, $firedFor]);
 
     return null;
