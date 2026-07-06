@@ -640,6 +640,53 @@ export default {
                         `[prewarm] adjacent ${city.name}: stored ${r.stored}`,
                     );
                 }
+                // v676: once every adjacent area is fully curated (boundary
+                // + refs + stations all in R2), stamp `adjacentsCuratedAt`
+                // so the star gate (WARM_REQUIRE_ADJACENTS) can trust it. A
+                // city with no discoverable neighbours stamps vacuously. We
+                // only WRITE on a state change (unstamped→curated,
+                // stamp-stale→refresh, or curated→regressed) to avoid an R2
+                // write every tick.
+                if (env.ADJACENT_CURATION_ENABLED !== "false") {
+                    try {
+                        const allCurated =
+                            r.neighbourIds.length === 0 ||
+                            (
+                                await Promise.all(
+                                    r.neighbourIds.map((id) =>
+                                        relationFullyCurated(env, id),
+                                    ),
+                                )
+                            ).every(Boolean);
+                        const stampedAt = city.adjacentsCuratedAt;
+                        const stampAge =
+                            typeof stampedAt === "number"
+                                ? Date.now() - stampedAt
+                                : Infinity;
+                        if (allCurated && stampAge > ttlMs) {
+                            await upsertDiscoveredCity(env, {
+                                ...city,
+                                adjacentsCuratedAt: Date.now(),
+                            });
+                            console.log(
+                                `[prewarm] adjacent ${city.name}: curation complete (${r.neighbourIds.length} neighbours)`,
+                            );
+                        } else if (!allCurated && stampedAt !== undefined) {
+                            await upsertDiscoveredCity(env, {
+                                ...city,
+                                adjacentsCuratedAt: undefined,
+                            });
+                            console.log(
+                                `[prewarm] adjacent ${city.name}: curation regressed — star stamp cleared`,
+                            );
+                        }
+                    } catch (e) {
+                        console.warn(
+                            `[prewarm] adjacent ${city.name} stamp check threw:`,
+                            e,
+                        );
+                    }
+                }
             } catch (e) {
                 console.warn(`[prewarm] adjacent ${city.name} threw:`, e);
             }
@@ -2064,6 +2111,13 @@ async function handleWarmCities(
     cors: HeadersInit,
 ): Promise<Response> {
     let ids: number[] = [];
+    // v676: when WARM_REQUIRE_ADJACENTS is "true", a city only counts as
+    // warm (starred) once its adjacent areas are fully curated too — the
+    // user's rule that a city can't be starred unless its neighbours are
+    // curated. Default OFF so a deploy doesn't mass-de-star every city
+    // while the cron backfills `adjacentsCuratedAt`; flip to "true" once
+    // enough cities carry the stamp.
+    const requireAdjacents = env.WARM_REQUIRE_ADJACENTS === "true";
     try {
         const cities = await getPopularCities(env);
         ids = cities
@@ -2071,7 +2125,9 @@ async function handleWarmCities(
                 (c) =>
                     Array.isArray(c.extent) &&
                     c.extent.length === 4 &&
-                    typeof c.relationId === "number",
+                    typeof c.relationId === "number" &&
+                    (!requireAdjacents ||
+                        typeof c.adjacentsCuratedAt === "number"),
             )
             .map((c) => c.relationId);
     } catch (e) {
@@ -4146,8 +4202,8 @@ async function prewarmAdjacentSearchForCity(
     env: Env,
     city: CityEntry,
     ttlMs: number,
-): Promise<{ stored: number }> {
-    if (!city.extent) return { stored: 0 };
+): Promise<{ stored: number; neighbourIds: number[] }> {
+    if (!city.extent) return { stored: 0, neighbourIds: [] };
     // Photon-style extent: [maxLat, minLng, minLat, maxLng].
     const [maxLat, minLng, minLat, maxLng] = city.extent;
     const lat = (maxLat + minLat) / 2;
@@ -4260,6 +4316,7 @@ async function prewarmAdjacentSearchForCity(
     //    just stored; keyed on `singleRelationQuery` (byte-identical to the
     //    client's worker boundary fetch). Capped + only fetched once per
     //    TTL, so this doesn't balloon the cron.
+    let neighbourResult: number[] = [];
     try {
         const neighbourIds = new Set<number>();
         const sources = [buildTopologicalAdjacencyQuery(city.relationId)];
@@ -4293,7 +4350,23 @@ async function prewarmAdjacentSearchForCity(
                 /* skip this source */
             }
         }
-        for (const id of [...neighbourIds].slice(0, MAX_NEIGHBOUR_BOUNDARIES)) {
+        const cappedNeighbours = [...neighbourIds].slice(
+            0,
+            MAX_NEIGHBOUR_BOUNDARIES,
+        );
+        // v676: FULL adjacent-area curation. The user's rule is that an
+        // added adjacent area is a first-class part of the play area — so
+        // its references AND hiding-zone stations must be prewarmed too,
+        // not just its boundary outline. For each neighbour we warm the
+        // boundary (the bbox source), then its references + stations under
+        // the SAME canonical relation-id keys the client reads via
+        // `/api/refs/<id>` and `/api/area-stations/<id>`. Both warm helpers
+        // are skip-if-fresh + slot-throttled, so a city whose neighbours
+        // are already warm costs a handful of cheap R2 HEADs. Opt-OUT via
+        // ADJACENT_CURATION_ENABLED="false" (then only boundaries warm, the
+        // pre-v676 behaviour).
+        const fullCuration = env.ADJACENT_CURATION_ENABLED !== "false";
+        for (const id of cappedNeighbours) {
             const r = await prewarmQuery(
                 env,
                 singleRelationQuery(id),
@@ -4302,7 +4375,26 @@ async function prewarmAdjacentSearchForCity(
                 "adjacent-boundary",
             );
             if (r.status === "stored") stored++;
+            if (fullCuration) {
+                try {
+                    await warmRelationReferences(env, id);
+                } catch (e) {
+                    console.warn(
+                        `[adjacent] neighbour refs warm failed r${id} (${city.name}):`,
+                        e,
+                    );
+                }
+                try {
+                    await warmRelationAreaStations(env, id);
+                } catch (e) {
+                    console.warn(
+                        `[adjacent] neighbour stations warm failed r${id} (${city.name}):`,
+                        e,
+                    );
+                }
+            }
         }
+        neighbourResult = cappedNeighbours;
     } catch (e) {
         console.warn(
             `[adjacent] neighbour boundary prewarm failed for ${city.name}:`,
@@ -4310,7 +4402,49 @@ async function prewarmAdjacentSearchForCity(
         );
     }
 
-    return { stored };
+    return { stored, neighbourIds: neighbourResult };
+}
+
+/**
+ * Is a single relation FULLY curated — boundary, references, AND
+ * hiding-zone stations all present in R2 (v676)? Mirrors the read paths:
+ * derive the canonical boundary-geometry extent (the same walk
+ * `warmRelationReferences` / `handleReferencesByRelation` use), then HEAD
+ * the reference + area-station entries under their canonical query keys.
+ * Read-only — never fetches upstream. Used to decide whether a city's
+ * adjacent areas are all curated before stamping `adjacentsCuratedAt`.
+ */
+async function relationFullyCurated(
+    env: Env,
+    relationId: number,
+): Promise<boolean> {
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        const boundaryKey = await r2KeyForQuery(singleRelationQuery(relationId));
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        return false;
+    }
+    if (!boundaryObj) return false;
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        return false;
+    }
+    if (!ext) return false;
+    try {
+        const refsKey = await r2KeyForQuery(buildReferenceBboxQuery(ext));
+        const stationsKey = await r2KeyForQuery(buildAreaStationsBboxQuery(ext));
+        const [refsHead, stHead] = await Promise.all([
+            env.CACHE.head(`overpass/${refsKey}`),
+            env.CACHE.head(`overpass/${stationsKey}`),
+        ]);
+        return Boolean(refsHead) && Boolean(stHead);
+    } catch {
+        return false;
+    }
 }
 
 /** Read an R2 object as text. Handles the gzip-compressed entries

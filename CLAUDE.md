@@ -130,6 +130,8 @@ Wire types are duplicated per side (worker `travel/types.ts` ↔ client `src/lib
 
 **Warm-city star (v642).** The play-area search (`PlayAreaStep` in `GameSetupDialog.tsx`) stars results that are **prewarmed** cities so users can spot fast, Overpass-free regions (v645: the star also shows on the SELECTED play-area summary card, not just the search-results list). The warm set comes from a public `GET /api/warm-cities` (worker `handleWarmCities` → curated/discovered cities with a backfilled `extent`, i.e. reference+adjacency-prewarmable), fetched once + cached in the `warmCityIds` atom (`src/maps/api/warmCities.ts`, `ensureWarmCitiesLoaded`/`isWarmCity`). It's a "which cities do we prewarm" hint, not live cache state — CDN/browser-cached 1 h. The operator's laptop-prewarm `--cold-only` (v641) warms the un-starred tail.
 
+**Adjacent-area full curation + star gate (v676).** A curated city's adjacent municipalities are now curated as first-class play-area members, not just outlined: the cron's Phase-4 `prewarmAdjacentSearchForCity` (`overpass-cache/src/index.ts`) warms each neighbour relation's **boundary + references + hiding-zone stations** (via the existing `warmRelationReferences` + `warmRelationAreaStations`, keyed on the same canonical relation-id keys the client reads via `/api/refs/<id>` and `/api/area-stations/<id>`) — so an "added adjacent area" loads Overpass-free exactly like the primary. Opt-OUT via `ADJACENT_CURATION_ENABLED="false"` (reverts to boundary-only, pre-v676). Once every neighbour is verified fully curated (a read-only `relationFullyCurated` R2-HEAD check on boundary+refs+stations; a no-neighbour city passes vacuously), the caller stamps `adjacentsCuratedAt` on the city's discovered-doc entry (`CityEntry`, `cities.ts`) — written only on state change, cleared on regression. This gates the star: with `WARM_REQUIRE_ADJACENTS="true"`, `handleWarmCities` reports a city as warm only once it has BOTH `extent` and `adjacentsCuratedAt` (the user's rule that a city can only be starred if its adjacent areas are curated). **Defaults OFF** (opt-IN) so a deploy doesn't mass-de-star every city while the cron backfills the stamp — flip on once enough cities carry it. The laptop-prewarm's one-ring pass already fully curates neighbours offline, so the cron's verification passes fast for laptop-warmed cities.
+
 ### Game setup state (src/lib/gameSetup.ts)
 - `setupCompleted` — drives first-load wizard auto-open
 - `playArea` — `{ displayName, lat, lng }` for chosen play region
@@ -390,7 +392,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v675`. Use `git log` for the per-version detail;
+build stamp. Current: `v676`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared

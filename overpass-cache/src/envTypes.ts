@@ -49,6 +49,25 @@ export interface Env {
      *  (the bus clause makes it too heavy to batch). Set to "false" if
      *  the bus-heavy responses strain the worker. */
     AREA_STATIONS_PREWARM_ENABLED?: string;
+    /** Feature flag for the ADJACENT-AREA full curation (v676). When a
+     *  curated city's adjacent municipalities are warmed (Phase 4), the
+     *  cron now warms each neighbour's boundary *plus* its references and
+     *  hiding-zone stations — so an added adjacent area is as fully
+     *  prewarmed as the primary (the user's "added area = first-class play
+     *  area" rule). Opt-OUT: enabled unless set to the exact string
+     *  "false" (then Phase 4 warms only neighbour boundaries, as before
+     *  v676). The heavy refs+stations warms are skip-if-fresh + throttled,
+     *  so repeat ticks are cheap. */
+    ADJACENT_CURATION_ENABLED?: string;
+    /** Feature flag gating the STAR requirement on adjacent curation
+     *  (v676). When "true", `/api/warm-cities` (the star hint) only
+     *  reports a city once BOTH its `extent` is backfilled AND every
+     *  adjacent area is fully curated (`adjacentsCuratedAt` stamped by
+     *  Phase 4). Default OFF (any truthy-but-not-"true" or unset) so a
+     *  deploy doesn't mass-DE-star every city while the cron catches up
+     *  curating adjacents — flip to "true" once enough cities carry the
+     *  stamp. Opt-IN. */
+    WARM_REQUIRE_ADJACENTS?: string;
     /** Bearer token guarding `/admin/*` endpoints. Configure via
      *  `wrangler secret put ADMIN_SECRET` — do NOT commit. */
     ADMIN_SECRET?: string;

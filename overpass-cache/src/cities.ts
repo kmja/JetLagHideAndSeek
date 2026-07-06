@@ -47,6 +47,17 @@ export interface CityEntry {
      *  `mapGeoLocation.properties.extent`, so the R2 entries land
      *  on cache keys the client will actually hit. */
     extent?: [number, number, number, number];
+    /** Unix ms at which the cron last verified that EVERY adjacent area
+     *  of this city is fully curated — each neighbour's boundary,
+     *  references, AND hiding-zone stations present in R2 (v676). Stamped
+     *  by `prewarmAdjacentSearchForCity`'s Phase-4 caller once the
+     *  verification pass passes, cleared if a neighbour regresses. Gates
+     *  the star hint (`/api/warm-cities`) when `WARM_REQUIRE_ADJACENTS`
+     *  is "true": the user's rule that a city can only be starred if its
+     *  adjacent areas are curated too. Optional — legacy entries and
+     *  islands-with-no-neighbours may lack it (a no-neighbour city stamps
+     *  vacuously). */
+    adjacentsCuratedAt?: number;
 }
 
 const HAND_CURATED: CityEntry[] = [
