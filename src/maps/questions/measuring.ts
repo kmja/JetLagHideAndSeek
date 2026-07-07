@@ -514,6 +514,38 @@ const bufferedDeterminer = memoize(
         }),
 );
 
+/**
+ * v688: the "closer" buffer for a DRAFT measuring question — the exact
+ * geodesic region the elimination keeps when `hiderCloser` (everywhere
+ * whose nearest reference is no further than the seeker's). Exposed so the
+ * configure-card impact overlay (`questionImpact.ts`) draws the SAME region
+ * the answer will carve out, instead of re-deriving it from the centroid
+ * point-cache. That mattered for `body-of-water`: the point cache holds
+ * `natural=water` CENTROIDS only — no rivers, and lakes measured from their
+ * middle — so the overlay buffered distant pond centres and marked areas
+ * far from any shore as "closer", disagreeing with both the real cut and
+ * the nearest-reference label. Reuses the memoised `bufferedDeterminer`, so
+ * repeated calls at a stable seeker position are free.
+ */
+export async function measuringDraftBuffer(
+    type: string,
+    lat: number,
+    lng: number,
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    const buffer = await bufferedDeterminer({
+        type,
+        lat,
+        lng,
+        hiderCloser: true,
+        drag: false,
+        color: "black",
+        collapsed: false,
+    } as unknown as MeasuringQuestion);
+    return buffer === false
+        ? null
+        : (buffer as Feature<Polygon | MultiPolygon>);
+}
+
 // v342: memoised sea-level contour region. Keyed on seeker position +
 // play area so the elevation tiles are fetched/decoded + isobanded once
 // per (question, area), not on every map render. Mirrors

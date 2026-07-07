@@ -36,6 +36,7 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
+import { measuringDraftBuffer } from "@/maps/questions/measuring";
 import { arcBufferToPoint } from "@/maps/geo-utils";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
@@ -281,13 +282,29 @@ export function useQuestionImpact(
         }
         if (!playArea) return;
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        const cached = getCachedCategory(family.family);
-        if (!cached || cached.length === 0) return;
         let cancelled = false;
-        const pts = turf.featureCollection(
-            cached.map((f) => turf.point([f.lng, f.lat])),
-        );
-        arcBufferToPoint(pts, lat, lng)
+        // v688: body-of-water is NOT a point family — its references are
+        // lake/reservoir shores AND river/canal lines. Buffering the
+        // `natural=water` CENTROID cache (as the point path below does)
+        // ignored rivers and measured lakes from their middle, so the
+        // overlay marked areas far from any shore as "closer" and
+        // disagreed with the real cut. For water we compute the SAME buffer
+        // the elimination uses (full `out geom` geometry); every other
+        // measuring family is a genuine point set, so the centroid buffer
+        // is exact there.
+        const bufferPromise =
+            family.kind === "water"
+                ? measuringDraftBuffer("body-of-water", lat, lng)
+                : (() => {
+                      const cached = getCachedCategory(family.family);
+                      if (!cached || cached.length === 0) return null;
+                      const pts = turf.featureCollection(
+                          cached.map((f) => turf.point([f.lng, f.lat])),
+                      );
+                      return arcBufferToPoint(pts, lat, lng);
+                  })();
+        if (!bufferPromise) return;
+        Promise.resolve(bufferPromise)
             .then((buffer) => {
                 if (cancelled || !buffer) return;
                 let yes: Feature<Polygon | MultiPolygon> | null = null;
@@ -395,12 +412,16 @@ export function useQuestionImpact(
                     /* keep yes only */
                 }
             }
-        } else if (mode === "measuring" && nearest) {
-            // Prefer the real geodesic union-of-circles region computed by
-            // the effect above (matches the actual elimination). It's only
-            // valid for the current family + seeker position; while it's
-            // still resolving (or unavailable) we draw the cheap half-plane
-            // so the seeker always has immediate feedback.
+        } else if (mode === "measuring") {
+            // Prefer the real geodesic region computed by the effect above
+            // (matches the actual elimination). It's only valid for the
+            // current family + seeker position; while it's still resolving
+            // (or unavailable) we draw the cheap perpendicular-bisector
+            // half-plane so the seeker always has immediate feedback. The
+            // half-plane needs a nearest POINT, so it only applies to point
+            // families with a resolved `nearest`; water renders solely from
+            // the real full-geometry buffer (its "nearest" is a line/shore,
+            // not a centroid — v688).
             const real =
                 measuring &&
                 family.kind !== "city" &&
@@ -413,7 +434,7 @@ export function useQuestionImpact(
             if (real) {
                 out.yes = real.yes ?? undefined;
                 out.no = real.no ?? undefined;
-            } else {
+            } else if (nearest) {
                 const closer = closerHalfPlane({ lat, lng }, nearest, playArea);
                 if (closer) {
                     out.yes = closer;
