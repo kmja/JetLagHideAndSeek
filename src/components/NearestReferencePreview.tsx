@@ -1,5 +1,6 @@
 import * as turf from "@turf/turf";
 import { Loader2, MapPin, Ruler } from "lucide-react";
+import osmtogeojson from "osmtogeojson";
 import { useEffect, useRef, useState } from "react";
 
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
@@ -22,6 +23,7 @@ import {
 import { CacheType } from "@/maps/api/types";
 import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
+import { fetchPrewarmedAreaWater } from "@/maps/api/water";
 
 /**
  * Compact "from the seeker's point of view" preview rendered at the top of
@@ -106,9 +108,12 @@ export function resolveFamily(typeRaw: string): ResolvedFamily {
     }
     if (stripped === "highspeed-measure-shinkansen")
         return { kind: "highspeed-rail" };
-    // Named water bodies — nearest is served from the prewarm cache
-    // (natural=water centroids). Approximate for large lakes, but the
-    // measuring elimination uses full geometry (measuring.ts).
+    // Named water bodies — nearest is the true closest point on any
+    // shore or river/canal line (fetchNearestWater), computed from the
+    // SAME full `out geom` geometry the measuring elimination buffers, so
+    // the preview label agrees with the actual answer (v687). The old
+    // centroid-only cache ignored rivers and measured a lake from its
+    // middle — a river 1 km away lost to a pond 3 km away.
     if (stripped === "body-of-water") return { kind: "water" };
     if (stripped in LOCATION_FIRST_TAG) {
         return { kind: "api", location: stripped as APILocations };
@@ -352,6 +357,13 @@ export async function fetchNearest(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
+    // Water bodies: compute the true nearest point on any shore or
+    // river/canal line from the full `out geom` geometry (v687), NOT the
+    // centroid point-cache — which ignored rivers and measured lakes from
+    // their middle. This is handled first so it bypasses the centroid
+    // `tryCacheNearest` path below (which would win with the wrong ref).
+    if (family.kind === "water") return fetchNearestWater(lat, lng);
+
     // Play-area-wide cache short-circuit. One Overpass call per
     // category per play area instead of N around-radius walks per
     // seeker tap — this is what makes a quick burst of matching
@@ -378,10 +390,7 @@ export async function fetchNearest(
     if (family.kind === "rail-station") return fetchNearestRailStation(lat, lng);
     if (family.kind === "highspeed-rail")
         return fetchNearestHighspeedRail(lat, lng);
-    // Water bodies are served only from the prewarm cache (handled by
-    // tryCacheNearest above). No radius-walk fallback — bail rather than
-    // fall into the api branch below (which needs family.location).
-    if (family.kind === "water") return null;
+    // (water is handled at the top of fetchNearest)
 
     // `api` case fallback — the play-area cache didn't have it (or
     // failed), so walk an Overpass radius from the seeker as the last
@@ -520,6 +529,109 @@ async function fetchNearestCoastline(
         }
     }
     return best ? { name: "Coastline", ...best } : null;
+}
+
+/**
+ * Nearest named body of water — the TRUE closest point on any lake/
+ * reservoir shore OR named river/canal centreline (v687). Reads the SAME
+ * full `out geom` geometry the measuring elimination buffers
+ * (`fetchPrewarmedAreaWater` first — served from R2 for a warm city —
+ * falling back to the live poly query), so the preview label agrees with
+ * the actual answer.
+ *
+ * The old path used the `natural=water` centroid point-cache, which had
+ * two bugs the seeker could see: rivers (mapped as `waterway` LINES) were
+ * absent entirely, and a lake was measured from its middle — so a river
+ * 1 km away lost to a pond 3 km away named "Public Park". Here every water
+ * feature is reduced to line geometry (polygon boundary via
+ * `polygonToLine`, or the line itself) and scanned with
+ * `turf.nearestPointOnLine`, exactly like the coastline fetcher.
+ *
+ * NOT culled to the play-area polygon — matching the elimination, which
+ * buffers the padded-bbox water set (a shore just outside the boundary is
+ * still the nearest body of water, rulebook p17).
+ */
+async function fetchNearestWater(
+    lat: number,
+    lng: number,
+): Promise<NearestRef | null> {
+    let data: { elements?: unknown[] } | null = await fetchPrewarmedAreaWater();
+    if (!data) {
+        try {
+            data = await findPlacesInZone(
+                // Byte-identical to WATER_FILTERS / measuring.ts fallback.
+                '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
+                undefined,
+                "nwr",
+                "geom",
+                ['["waterway"~"^(river|canal)$"]["name"]'],
+                60,
+                /* silent */ true,
+            );
+        } catch (e) {
+            console.warn("fetchNearestWater live fallback failed:", e);
+            return null;
+        }
+    }
+    const fc = osmtogeojson(data as never) as GeoJSON.FeatureCollection;
+    const target = turf.point([lng, lat]);
+    let best: NearestRef | null = null;
+    for (const feature of fc.features) {
+        const g = feature.geometry;
+        if (!g) continue;
+        const props = (feature.properties ?? {}) as Record<string, string>;
+        const name = props["name:en"] ?? props["name"];
+        if (!name) continue;
+        // Flatten multi-geometry, then reduce each part to line geometry.
+        let parts: GeoJSON.Feature[];
+        try {
+            parts = turf.flatten(feature as never).features;
+        } catch {
+            parts = [feature];
+        }
+        for (const part of parts) {
+            const pg = part.geometry;
+            if (!pg) continue;
+            let line:
+                | GeoJSON.Feature<GeoJSON.LineString | GeoJSON.MultiLineString>
+                | GeoJSON.LineString
+                | GeoJSON.MultiLineString
+                | null = null;
+            if (pg.type === "LineString" || pg.type === "MultiLineString") {
+                line = pg;
+            } else if (pg.type === "Polygon") {
+                try {
+                    line = turf.polygonToLine(
+                        part as GeoJSON.Feature<GeoJSON.Polygon>,
+                    ) as GeoJSON.Feature<
+                        GeoJSON.LineString | GeoJSON.MultiLineString
+                    >;
+                } catch {
+                    line = null;
+                }
+            }
+            if (!line) continue;
+            try {
+                const nearest = turf.nearestPointOnLine(line as never, target);
+                const d = turf.distance(target, nearest, { units: "meters" });
+                if (!best || d < best.distanceMeters) {
+                    const coords = nearest.geometry.coordinates as [
+                        number,
+                        number,
+                    ];
+                    best = {
+                        name,
+                        lat: coords[1],
+                        lng: coords[0],
+                        distanceMeters: d,
+                    };
+                }
+            } catch {
+                /* skip malformed part */
+            }
+        }
+    }
+    return best;
 }
 
 /**
