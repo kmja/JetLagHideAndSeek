@@ -72,6 +72,7 @@ import {
     isWarmCity,
     warmCityIds,
 } from "@/maps/api/warmCities";
+import { ensureSeedCitiesLoaded } from "@/maps/api/seedCities";
 
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { MapLoader } from "./MapLoader";
@@ -884,6 +885,8 @@ export function PlayAreaStep({
     const $warmCities = useStore(warmCityIds);
     useEffect(() => {
         void ensureWarmCitiesLoaded();
+        // Seed ids drive the search's primary sort (major city > village).
+        void ensureSeedCitiesLoaded();
     }, []);
     // Tracks whether we're in search mode because the user explicitly
     // tapped "Change area" (true) vs. because we started without a

@@ -1065,6 +1065,9 @@ async function handleRequest(
         if (url.pathname === "/api/warm-cities") {
             return handleWarmCities(env, cors);
         }
+        if (url.pathname === "/api/seed-cities") {
+            return handleSeedCities(cors);
+        }
         if (url.pathname === "/api/register-area") {
             return handleRegisterArea(request, env, cors);
         }
@@ -2183,6 +2186,26 @@ async function handleWarmCities(
     return jsonResponse({ count: ids.length, ids }, 200, {
         ...corsHeadersAsObject(cors),
         "Cache-Control": "public, max-age=3600",
+    });
+}
+
+/**
+ * `GET /api/seed-cities` (public) — the relation ids of the bundled
+ * world-cities SEED (the top-N biggest cities). Distinct from
+ * `/api/warm-cities` (which is the FULLY-CACHED subset, sparse): the seed is
+ * the "which relations are major cities" signal, known immediately from the
+ * bundle, so the play-area search can float a same-named big city above a
+ * village WITHOUT waiting on the cron backfill. Changes only on deploy
+ * (bundled), so it's long-cached. v681.
+ */
+function handleSeedCities(cors: HeadersInit): Response {
+    const ids = SEED_CITIES.filter(
+        (c) => typeof c.relationId === "number" && c.relationId > 0,
+    ).map((c) => c.relationId);
+    return jsonResponse({ count: ids.length, ids }, 200, {
+        ...corsHeadersAsObject(cors),
+        // Bundled + deploy-stable → cache hard.
+        "Cache-Control": "public, max-age=21600",
     });
 }
 

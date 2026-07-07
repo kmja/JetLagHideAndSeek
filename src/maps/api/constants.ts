@@ -119,6 +119,11 @@ export const RELATION_EXTENT_BASE = `${JLHS_WORKER_BASE}/api/relation-extent`;
  *  curated/discovered cities with a backfilled extent (v641). The play-area
  *  search stars matching results so users can spot fast-loading regions. */
 export const WARM_CITIES_URL = `${JLHS_WORKER_BASE}/api/warm-cities`;
+/** Seed-city relation ids (the top-N biggest cities, bundled — NOT the
+ *  sparse fully-cached star set). Used to float a same-named major city
+ *  above a village in the play-area search, immediately, without waiting on
+ *  the cron backfill. v681. */
+export const SEED_CITIES_URL = `${JLHS_WORKER_BASE}/api/seed-cities`;
 /** Runtime-growth endpoint (v680): POST {relationId, name} to register a
  *  player-picked play area that isn't in the prewarm seed, so the cron
  *  starts caching it (+ adjacents) and it eventually earns a star. The list

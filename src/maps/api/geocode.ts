@@ -4,6 +4,11 @@ import uniqBy from "lodash/uniqBy";
 
 import { PHOTON_FORWARD_API, PHOTON_REVERSE_API } from "./constants";
 import { convertToLatLong } from "./geo";
+import {
+    ensureSeedCitiesLoaded,
+    isSeedCity,
+    seedCityIds,
+} from "./seedCities";
 import type { OpenStreetMap } from "./types";
 
 /**
@@ -172,6 +177,13 @@ function rankPlayAreaResults(
     query: string,
     famousCountry: string | null,
 ): OpenStreetMap[] {
+    // v681: seed membership is the PRIMARY sort key — a relation that's one
+    // of the bundled top-N biggest cities floats above everything else, so a
+    // same-named village never beats a major city. The scoring below stays as
+    // the tiebreaker + the fallback for the long tail the seed doesn't cover
+    // (and while the seed set is still loading, where isSeedCity is all-false
+    // and this degrades cleanly to score-only ordering).
+    const seeds = seedCityIds.get();
     const scored = features.map((feature, originalIndex) => {
         const base = scorePlayAreaResult(feature, originalIndex, query);
         // Famous-country bonus — substantial, so a relation in the
@@ -187,11 +199,13 @@ function rankPlayAreaResults(
                 : 0;
         return {
             feature,
+            isSeed: isSeedCity(feature.properties.osm_id, seeds),
             score: base + famousBonus,
             originalIndex,
         };
     });
     scored.sort((a, b) => {
+        if (a.isSeed !== b.isSeed) return a.isSeed ? -1 : 1;
         if (b.score !== a.score) return b.score - a.score;
         return a.originalIndex - b.originalIndex;
     });
@@ -203,6 +217,10 @@ export const geocode = async (
     language: string,
     filter: boolean = true,
 ) => {
+    // Play-area search uses seed membership as its top sort key — kick off
+    // the (once, cached) seed-id load so it's ready. Fire-and-forget: if the
+    // very first search races it, ranking falls back to score-only cleanly.
+    if (filter) void ensureSeedCitiesLoaded();
     const features = (
         await (
             await fetch(
