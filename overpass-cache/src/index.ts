@@ -946,6 +946,9 @@ async function handleRequest(
         if (url.pathname === "/admin/verify-city") {
             return handleAdminVerifyCity(request, env, cors);
         }
+        if (url.pathname === "/admin/inspect-refs") {
+            return handleAdminInspectRefs(request, env, cors);
+        }
         if (url.pathname === "/admin/rediscover") {
             return handleAdminRediscover(request, env, cors);
         }
@@ -5826,6 +5829,111 @@ async function handleAdminVerifyCity(
             cors,
         );
     }
+}
+
+/** Does an OSM element's tags satisfy an Overpass filter string like
+ *  `["diplomatic"="consulate"]` or `["aeroway"="aerodrome"]["iata"]`?
+ *  Parses the `["key"="value"]` / `["key"]` clauses and checks each. */
+function elementMatchesFilter(
+    tags: Record<string, string> | undefined,
+    filter: string,
+): boolean {
+    if (!tags) return false;
+    const re = /\["([^"]+)"(?:="([^"]+)")?\]/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(filter)) !== null) {
+        const key = m[1];
+        const value = m[2];
+        const has = Object.prototype.hasOwnProperty.call(tags, key);
+        if (!has) return false;
+        if (value !== undefined && tags[key] !== value) return false;
+    }
+    return true;
+}
+
+/**
+ * `GET /admin/inspect-refs?id=<relationId>&secret=…` (v684) — read a city's
+ * STORED combined reference body from R2 and report the per-family element
+ * count. Diagnostic for "why is family X empty on this play area": tells a
+ * genuinely-0 family (filter too narrow, e.g. `["diplomatic"="consulate"]`
+ * missing `consulate_general`) apart from a truncated warm (many families
+ * suspiciously low + an abort remark). Read-only; never fetches upstream.
+ */
+async function handleAdminInspectRefs(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    const relationId = parseInt(
+        new URL(request.url).searchParams.get("id") ?? "",
+        10,
+    );
+    if (!Number.isFinite(relationId) || relationId <= 0) {
+        return jsonResponse({ error: "id (relation) query param required" }, 400, cors);
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse(
+            { relationId, cached: false, reason: "no-boundary/extent" },
+            200,
+            cors,
+        );
+    }
+    const query = buildReferenceBboxQuery(ext);
+    const key = await r2KeyForQuery(query);
+    let obj: R2ObjectBody | null = null;
+    try {
+        obj = await env.CACHE.get(`overpass/${key}`);
+    } catch {
+        /* miss */
+    }
+    if (!obj) {
+        return jsonResponse(
+            { relationId, extent: ext, cached: false, reason: "no-refs-entry" },
+            200,
+            cors,
+        );
+    }
+    let text = "";
+    try {
+        text = await readR2Text(obj);
+    } catch {
+        /* unreadable */
+    }
+    const hasRemark = isAbortedOverpassText(text);
+    let elements: Array<{ tags?: Record<string, string> }> = [];
+    try {
+        elements = (JSON.parse(text).elements ?? []) as typeof elements;
+    } catch {
+        /* unparseable */
+    }
+    const families = REFERENCE_FAMILY_FILTERS.map(({ family, filter }) => ({
+        family,
+        filter,
+        count: elements.filter((el) => elementMatchesFilter(el.tags, filter))
+            .length,
+    }));
+    const cachedAt = parseInt(obj.customMetadata?.cachedAt ?? "0", 10) || null;
+    return jsonResponse(
+        {
+            relationId,
+            extent: ext,
+            cached: true,
+            cachedAt,
+            hasRemark,
+            totalElements: elements.length,
+            families,
+            zeroFamilies: families.filter((f) => f.count === 0).map((f) => f.family),
+        },
+        200,
+        cors,
+    );
 }
 
 async function handleAdminStoreTilePack(
