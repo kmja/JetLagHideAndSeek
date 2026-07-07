@@ -25,6 +25,10 @@ import {
     QuestionSpecificLocation,
 } from "@/maps/api";
 import { seaLevelRegion } from "@/maps/api/elevation";
+import {
+    fetchPrewarmedAreaWater,
+    requestWaterWarmAll,
+} from "@/maps/api/water";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -406,17 +410,27 @@ export const determineMeasuringBoundary = async (
             // reflects real shore/bank distance, not a coarse centroid.
             // The `["name"]` filter enforces "named" and drops most pools
             // (which are leisure=swimming_pool, not natural=water anyway).
-            const data = await findPlacesInZone(
-                // MAJOR named water bodies only (v685) — exclude the minor/
-                // artificial `water=` subtypes that flood a dense metro; keep
-                // in lockstep with `filterForFamily("body-of-water")`.
-                '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
-                undefined,
-                "nwr",
-                "geom",
-                ['["waterway"~"^(river|canal)$"]["name"]'],
-                60,
-            );
+            // v687: prefer the prewarmed `/api/water/<id>` set (served from
+            // R2 for a warm city, zero live Overpass) fanned over every
+            // play-area relation. On any cold area it returns null and we
+            // fall back to the live poly query below — then warm every area
+            // so the NEXT body-of-water question is served from cache.
+            const prewarmed = await fetchPrewarmedAreaWater();
+            const data =
+                prewarmed ??
+                (await findPlacesInZone(
+                    // MAJOR named water bodies only (v685) — exclude the
+                    // minor/artificial `water=` subtypes that flood a dense
+                    // metro; MUST stay byte-identical to the worker's
+                    // `WATER_FILTERS` and `filterForFamily("body-of-water")`.
+                    '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
+                    undefined,
+                    "nwr",
+                    "geom",
+                    ['["waterway"~"^(river|canal)$"]["name"]'],
+                    60,
+                ));
+            if (!prewarmed) requestWaterWarmAll();
             const fc = osmtogeojson(data);
             const polys = fc.features.filter(
                 (f): f is Feature<Polygon | MultiPolygon> =>

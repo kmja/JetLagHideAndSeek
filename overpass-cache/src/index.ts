@@ -618,6 +618,36 @@ export default {
             }
         }
 
+        // Phase 2c: NAMED-WATER geometry, per-city (v687). The measuring
+        // body-of-water elimination reads `/api/water/<id>`; without this
+        // prewarm the FIRST body-of-water question in any play area went
+        // live to Overpass — and the heavy `out geom` water scan
+        // soft-timed-out in dense metros (the same class as the Chicago
+        // bus-stop failure). Isolated per-city (NOT batched with
+        // references) because the `natural=water` geometry is the heaviest
+        // reference family — the reason it was pulled from the combined
+        // refs query (v632). skip-if-fresh keeps repeat ticks cheap;
+        // opt-out via WATER_PREWARM_ENABLED="false".
+        if (env.WATER_PREWARM_ENABLED !== "false") {
+            for (const city of refCities) {
+                const slotOk = await waitForOverpassSlot(`water ${city.name}`);
+                if (!slotOk) {
+                    console.warn(
+                        `[prewarm] water ${city.name} skipped — slot wait exceeded cap`,
+                    );
+                    continue;
+                }
+                try {
+                    const r = await prewarmWaterForCity(env, city, ttlMs);
+                    if (r.status === "stored") {
+                        console.log(`[prewarm] water ${city.name}: stored`);
+                    }
+                } catch (e) {
+                    console.warn(`[prewarm] water ${city.name} threw:`, e);
+                }
+            }
+        }
+
         // Phase 3: HSR, per-COUNTRY (v214). HSR is an inter-city
         // network, so one `area["ISO3166-1"=XX]` query per country is
         // complete and gap-free where per-city bboxes overlapped and
@@ -1052,6 +1082,39 @@ async function handleRequest(
                 );
             }
             return handleAreaStationsByRelation(request, env, cors, relId);
+        }
+        if (url.pathname.startsWith("/api/water/")) {
+            // /api/water/<relationId>[?warm=1] (v687) — the prewarmed
+            // named-water-body geometry (`out geom` lakes/reservoirs +
+            // named river/canal centrelines) for a play area, mirroring
+            // /api/area-stations. The measuring body-of-water ELIMINATION
+            // (heavy `out geom` water scan) reads this so a warm city
+            // never runs it live — the same class of soft-timeout that
+            // motivated isolating body-of-water from the combined refs
+            // query (v632).
+            const relId = parseInt(
+                url.pathname.slice("/api/water/".length),
+                10,
+            );
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationWater(env, relId).catch((e) =>
+                        console.warn(`warm water r${relId} threw:`, e),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId },
+                    202,
+                    cors,
+                );
+            }
+            return handleWaterByRelation(request, env, cors, relId);
         }
         if (url.pathname.startsWith("/api/relation-extent/")) {
             const relId = parseInt(
@@ -2619,6 +2682,175 @@ async function prewarmAreaStationsForCity(
 }
 
 /**
+ * GET /api/water/<relationId> — the prewarmed named-water-body geometry
+ * for a play area, by STABLE relation-id key (v687). The measuring
+ * body-of-water ELIMINATION reads this so a warm city serves the heavy
+ * `out geom` water scan from R2 with zero live Overpass — closing the
+ * last per-question-type live hole for starred cities.
+ *
+ * Mirrors `handleAreaStationsByRelation` exactly: derives the SAME
+ * boundary-geometry extent (`canonicalReferenceExtent`), rebuilds the one
+ * water query, and serves the existing entry. Read-only — any miss returns
+ * `{ elements: [] }` so the client falls back to its live poly query.
+ */
+async function handleWaterByRelation(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = buildWaterBboxQuery(ext);
+    const cacheKey = await r2KeyForQuery(query);
+
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("water-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        // Water bodies change slowly; serve present-but-stale rather than a
+        // live round trip (the cron/laptop refresh handles staleness).
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/**
+ * Background warm of one relation's named-water geometry, keyed
+ * canonically so a later GET /api/water/<id> hits it (v687). Mirrors
+ * `warmRelationAreaStations`: ensure the boundary (the bbox source),
+ * derive the same extent the read path derives, then warm the water
+ * query under the identical key. Buffered + abort-guarded (the `out geom`
+ * water body is heavy) so a timed-out body is never stored.
+ */
+async function warmRelationWater(
+    env: Env,
+    relationId: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+
+    // 1. Ensure the boundary geometry is cached — it's the bbox source.
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary(wt) r${relationId}`))) {
+            return;
+        }
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-water",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+
+    // 2. Derive the canonical extent (identical walk to the read path).
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+
+    // 3. Warm the water set under the canonical key, skip-if-fresh.
+    const waterQuery = buildWaterBboxQuery(ext);
+    const waterKey = await r2KeyForQuery(waterQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${waterKey}`);
+        if (head) {
+            const cachedAt = parseInt(
+                head.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-water r${relationId}`))) return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(waterQuery),
+    );
+    if (!up) return;
+    const body = await up.text();
+    // Never store an aborted body (Overpass soft timeout).
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, waterKey, body, {
+            kind: "water",
+            warmedBy: "on-add",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm water r${relationId} store failed:`, e);
+    }
+}
+
+/** Per-city named-water geometry — the `out geom` water query for a
+ *  city's bbox, keyed identically to the read endpoint. Isolated (its own
+ *  query, never batched with references) because the `natural=water`
+ *  geometry scan is the heaviest reference family in a dense metro — the
+ *  same reason it was excluded from the combined refs query (v632). */
+async function prewarmWaterForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ status: string }> {
+    const ext = await canonicalReferenceExtent(env, city);
+    if (!ext) return { status: "skipped-no-extent" };
+    return prewarmQuery(
+        env,
+        buildWaterBboxQuery(ext),
+        city,
+        ttlMs,
+        "water",
+    );
+}
+
+/**
  * GET /api/transit/<relationId>/<mode> — fetch prewarmed per-city transit
  * routes by STABLE relation-id key instead of the byte-fragile
  * SHA-256(query) key.
@@ -3704,6 +3936,50 @@ function buildAreaStationsBboxQuery(
 ${body}
 );
 out center;
+`;
+}
+
+/**
+ * Named-water filters for the measuring body-of-water ELIMINATION.
+ * MUST stay byte-identical to the client's live-fallback query:
+ *   - primary filter + first alternative in `measuring.ts` (case
+ *     "body-of-water"), and
+ *   - `filterForFamily("body-of-water")` in `playAreaPrefetch.ts`.
+ * MAJOR named bodies only — the `["water"!~...]` exclusion drops the
+ * minor/artificial subtypes (ponds, basins, pools, fountains, moats,
+ * tanks, ditches, wastewater) that flood a dense metro (v685); the
+ * second filter adds named river/canal centrelines (mapped as lines,
+ * not areas). Rulebook p11: "any named body of water … excluding pools".
+ */
+const WATER_FILTERS: string[] = [
+    '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
+    '["waterway"~"^(river|canal)$"]["name"]',
+];
+
+/** Small pad like the station field — the play area plus a touch of its
+ *  surroundings, so a shore just outside the boundary still counts as the
+ *  nearest body of water (rulebook p17), without ballooning the heavy
+ *  `out geom` scan the way a reference-style 50 km pad would. */
+const WATER_PAD_KM = 2;
+
+/**
+ * Build the named-water GEOMETRY query for a play area's bbox. `out geom`
+ * (not `out center`) so the client gets full lake/river shore geometry for
+ * the seeker-distance buffer, matching what the live poly query returns.
+ * `[timeout:180]` because the `natural=water` geometry scan is the heaviest
+ * reference family in a dense metro (the reason it's isolated — v632).
+ */
+function buildWaterBboxQuery(
+    extent: [number, number, number, number],
+): string {
+    const bboxFilter = buildBboxFilter(extent, WATER_PAD_KM);
+    const body = WATER_FILTERS.map((f) => `nwr${f};`).join("\n");
+    return `
+[out:json][timeout:180]${bboxFilter};
+(
+${body}
+);
+out geom;
 `;
 }
 

@@ -15,6 +15,10 @@ import {
 } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
 import { CacheType } from "@/maps/api/types";
+import {
+    fetchPrewarmedAreaWater,
+    requestWaterWarmAll,
+} from "@/maps/api/water";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import type { APILocations } from "@/maps/schema";
 
@@ -396,6 +400,47 @@ function featureFromElement(el: any): PrefetchedFeature | null {
     return { lat, lng: lon, name, tags };
 }
 
+/** Representative point for an `out geom` element (v687). The prewarmed
+ *  water endpoint returns full geometry, not `out center`, so a way/relation
+ *  has no `center` — derive one from its `bounds` or the mean of its
+ *  geometry so the nearest-reference preview + availability count can treat
+ *  a lake/reservoir as a point, exactly as they did with the live `out
+ *  center` query. */
+function featureFromGeomElement(el: any): PrefetchedFeature | null {
+    const tags = (el.tags ?? {}) as Record<string, string>;
+    const name = tags["name:en"] ?? tags["name"];
+    if (!name) return null;
+    let lat: number | undefined;
+    let lon: number | undefined;
+    if (Number.isFinite(el.lat) && Number.isFinite(el.lon)) {
+        lat = el.lat;
+        lon = el.lon;
+    } else if (el.center && Number.isFinite(el.center.lat)) {
+        lat = el.center.lat;
+        lon = el.center.lon;
+    } else if (el.bounds && Number.isFinite(el.bounds.minlat)) {
+        lat = (el.bounds.minlat + el.bounds.maxlat) / 2;
+        lon = (el.bounds.minlon + el.bounds.maxlon) / 2;
+    } else if (Array.isArray(el.geometry) && el.geometry.length) {
+        let slat = 0;
+        let slon = 0;
+        let n = 0;
+        for (const g of el.geometry) {
+            if (g && Number.isFinite(g.lat) && Number.isFinite(g.lon)) {
+                slat += g.lat;
+                slon += g.lon;
+                n++;
+            }
+        }
+        if (n > 0) {
+            lat = slat / n;
+            lon = slon / n;
+        }
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat: lat as number, lng: lon as number, name, tags };
+}
+
 /** Whether an Overpass element belongs to a given family, by tags.
  *  Used to partition a single combined query's results back into the
  *  per-family caches. */
@@ -613,6 +658,26 @@ if (typeof window !== "undefined") {
 async function runSingleFamilyBboxFetch(
     family: FamilyKey,
 ): Promise<PrefetchedFeature[]> {
+    // v687: body-of-water is prewarmed as `out geom` under
+    // `/api/water/<id>`. Serve the point cache (nearest-reference preview +
+    // availability count) from that same set for a warm city — deriving a
+    // representative point per water body — so a starred city never runs
+    // the heavy water scan live here either. On a cold miss, warm every
+    // area and fall through to the live `out center` query below.
+    if (family === "body-of-water") {
+        const prewarmed = await fetchPrewarmedAreaWater();
+        if (prewarmed) {
+            const feats: PrefetchedFeature[] = [];
+            for (const el of prewarmed.elements) {
+                if (!elementMatchesFamily(el, family)) continue;
+                const feat =
+                    featureFromElement(el) ?? featureFromGeomElement(el);
+                if (feat) feats.push(feat);
+            }
+            return feats;
+        }
+        requestWaterWarmAll();
+    }
     const filter = filterForFamily(family);
     const bboxFilter = buildPaddedBboxFilter(50);
     if (!bboxFilter) return [];

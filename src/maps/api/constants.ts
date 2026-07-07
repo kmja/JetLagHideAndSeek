@@ -146,6 +146,17 @@ export const TRANSIT_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/transit`;
  *  live Overpass on a warm city. `?warm=1` triggers a background warm.
  *  See handleAreaStationsByRelation in overpass-cache/src/index.ts. */
 export const AREA_STATIONS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/area-stations`;
+/** Base URL for the relation-id-keyed prewarmed named-water GEOMETRY
+ *  (v687). Mirrors AREA_STATIONS_BY_RELATION_BASE: the client fetches
+ *  `${WATER_BY_RELATION_BASE}/<relationId>` and the worker derives the
+ *  bbox server-side from the boundary it already has, then serves the
+ *  `out geom` named-water set (lakes/reservoirs + river/canal
+ *  centrelines) — so the measuring body-of-water elimination cuts from R2
+ *  with zero live Overpass on a warm city (the heavy scan was the reason
+ *  body-of-water is isolated from the combined refs query, v632).
+ *  `?warm=1` triggers a background warm. See handleWaterByRelation in
+ *  overpass-cache/src/index.ts. */
+export const WATER_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/water`;
 /** Base URL for self-hosted map glyphs + sprites (v349), proxied +
  *  R2-cached by the worker from protomaps.github.io/basemaps-assets.
  *  The MapLibre style's `glyphs` and `sprite` URLs point here so the

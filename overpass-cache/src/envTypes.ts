@@ -49,6 +49,14 @@ export interface Env {
      *  (the bus clause makes it too heavy to batch). Set to "false" if
      *  the bus-heavy responses strain the worker. */
     AREA_STATIONS_PREWARM_ENABLED?: string;
+    /** Feature flag for the NAMED-WATER geometry prewarm (Phase 2c,
+     *  v687 — the measuring body-of-water elimination, served by
+     *  `/api/water/<id>`). Opt-OUT: enabled unless set to the exact
+     *  string "false". The `out geom` water scan is fetched per-city in
+     *  isolation (the `natural=water` geometry is the heaviest reference
+     *  family). Set to "false" if the responses strain the worker; the
+     *  client falls back to its live poly query, as before. */
+    WATER_PREWARM_ENABLED?: string;
     /** Feature flag for the ADJACENT-AREA full curation (v676). When a
      *  curated city's adjacent municipalities are warmed (Phase 4), the
      *  cron now warms each neighbour's boundary *plus* its references and

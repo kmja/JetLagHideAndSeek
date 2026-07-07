@@ -152,6 +152,11 @@ const DO_REFS = !args["skip-references"];
 const DO_HSR = !args["skip-hsr"];
 const DO_DISCOVER = !args["skip-discover"];
 const DO_TRANSIT = !args["skip-transit"];
+// v687: warm the named-water GEOMETRY for the measuring body-of-water
+// elimination (served by /api/water/<id>). Keyed off the same
+// boundary-geometry extent as refs; on by default whenever refs run.
+// --skip-water to drop (the client falls back to its live poly query).
+const DO_WATER = !args["skip-water"];
 const DO_PHOTON = !args["skip-photon"];
 // v440: warm the wizard's "extend play area" adjacent-search queries
 // per city (topological adjacency, admin-level, adjacent band, transit
@@ -564,6 +569,23 @@ function areaStationsQuery(extent) {
     const bb = bboxFilter(extent, PAD_KM_STATIONS);
     const body = AREA_STATION_FILTERS.map((f) => `nwr${f};`).join("\n");
     return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout center;\n`;
+}
+
+// v687: named-water GEOMETRY for the measuring body-of-water elimination.
+// EXACT byte-for-byte mirror of WATER_FILTERS + buildWaterBboxQuery in
+// overpass-cache/src/index.ts (major named bodies + river/canal
+// centrelines, 2 km pad, timeout:180, `out geom`). The R2 key hashes this
+// exact string, and the worker's /api/water/<id> read endpoint rebuilds it
+// from the boundary extent — so this must match the worker builder.
+const WATER_FILTERS = [
+    '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
+    '["waterway"~"^(river|canal)$"]["name"]',
+];
+const PAD_KM_WATER = 2;
+function waterQuery(extent) {
+    const bb = bboxFilter(extent, PAD_KM_WATER);
+    const body = WATER_FILTERS.map((f) => `nwr${f};`).join("\n");
+    return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout geom;\n`;
 }
 
 // Byte-identical to buildHsrCountryQuery in overpass-cache/src/index.ts
@@ -1345,6 +1367,42 @@ async function processCity(city) {
                         );
                     } catch (e) {
                         console.warn(`  ✗ stations upload: ${e.message}`);
+                    }
+                }
+                await sleep(DELAY_MS);
+            }
+        }
+    }
+
+    // v687: named-water GEOMETRY — the measuring body-of-water elimination
+    // reads /api/water/<id>, keyed off the SAME boundary-geometry extent as
+    // refs/stations. Warming it here means a starred city's water question
+    // cuts from R2 with zero live Overpass — the heavy `out geom`
+    // water scan was the last per-question-type live hole (it soft-timed-out
+    // on dense metros like Paris). On by default whenever refs run; a
+    // failure just leaves it to the on-tap client fetch.
+    if (refExtent && DO_REFS && DO_WATER) {
+        const q = waterQuery(refExtent);
+        if (await isFresh(q, "water")) {
+            console.log(`  ⤼ water already cached — skipping`);
+        } else {
+            const res = await fetchOverpass(q, "water");
+            if (res) {
+                const parsed = safeJSON(res.text);
+                if (parsed) {
+                    try {
+                        const r = await uploadToWorker({
+                            query: q,
+                            bodyText: res.text,
+                            kind: "water",
+                            sourceName: city.name,
+                            sourceRelationId: String(city.relationId),
+                        });
+                        console.log(
+                            `  ✓ water stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms, ${parsed.elements?.length ?? 0} elements)`,
+                        );
+                    } catch (e) {
+                        console.warn(`  ✗ water upload: ${e.message}`);
                     }
                 }
                 await sleep(DELAY_MS);
