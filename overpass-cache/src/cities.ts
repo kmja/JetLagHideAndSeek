@@ -82,27 +82,15 @@ export interface CityEntry {
 }
 
 /**
- * Hand corrections that win over the generated seed (v680). The
- * `world-cities.json` generator reconciles ids against Photon so it
- * SHOULD match in-app search — but if a regeneration ever picks the wrong
- * admin level for a city, pin the right id here (mergeUnique lists this
- * first, so it wins). Keep this tiny; it is NOT a parallel city list.
- *
- * London is the canonical example: 175342 (Greater London, admin_level 5)
- * is what Photon's re-ranked top result resolves "London" to — the old
- * 65606 (admin_level 6) was prewarmed but never requested (a curated-id /
- * Photon-id drift that left London cold). Prewarm must track the client's
- * resolution, not a hand-picked id.
+ * The bundled prewarm seed (v680): the generated world-cities list, and
+ * nothing else. No hand-correction/override layer — the generator
+ * (`scripts/build-world-cities.mjs`) resolves each city through the app's
+ * EXACT play-area ranking, so every relation id is the one in-app search
+ * returns BY CONSTRUCTION. If a specific city ever resolves wrong, fix it
+ * at the source (regenerate, or correct the entry in world-cities.json),
+ * not with a parallel override list — that was the sprawl we removed.
  */
-export const CITY_OVERRIDES: CityEntry[] = [
-    { name: "London", relationId: 175342 },
-];
-
-/** The bundled seed = generated world-cities list, corrections on top. */
-export const SEED_CITIES: CityEntry[] = [
-    ...CITY_OVERRIDES,
-    ...(WORLD_CITIES as CityEntry[]),
-];
+export const SEED_CITIES: CityEntry[] = WORLD_CITIES as CityEntry[];
 
 /**
  * Dedupe + merge, first-wins by relationId (with field-fill: a later

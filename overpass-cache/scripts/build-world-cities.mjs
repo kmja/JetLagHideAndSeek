@@ -9,12 +9,15 @@
  *
  *   1. WIKIDATA (one SPARQL query) → the top-N cities by population, each
  *      with its OSM relation id (P402) and country code. Free, keyless.
- *   2. PHOTON reconcile (--reconcile, default ON) → for each city, forward-
- *      geocode its name the way the APP does and prefer the relation id
- *      PHOTON returns, because the in-app star matches a search result by
- *      `properties.osm_id`. A "correct" OSM id Photon never returns is
- *      useless (the London 65606-vs-175342 drift). Wikidata's id is the
- *      fallback when Photon yields nothing usable.
+ *   2. PHOTON reconcile (--reconcile, default ON) → for each city, resolve
+ *      its name through the APP'S EXACT play-area ranking (a verbatim port
+ *      of geocode.ts's rankPlayAreaResults) and take the top relation. The
+ *      in-app star matches a search result by `properties.osm_id`, so the
+ *      baked id must be the one the app's search returns — this makes the
+ *      seed correct BY CONSTRUCTION (no hand-maintained override list). A
+ *      "correct" OSM id the app never surfaces is useless (the London
+ *      65606-vs-175342 drift). Wikidata's id is the fallback when Photon
+ *      yields no usable relation.
  *   3. EXTENT (--extent, default OFF) → derive each relation's bbox via
  *      polygons.osm.fr (same source the client uses). Optional because the
  *      worker cron/laptop already backfill extents; bake them only if you
@@ -107,30 +110,109 @@ async function fetchWikidata() {
     return out;
 }
 
-/** Photon forward-geocode → the relation id the APP would resolve this
- *  name to. Returns the reconciled relationId (or null to keep Wikidata's). */
-async function photonRelationId(name, wikidataRelId) {
+// ─────────────────────────────────────────────────────────────────────
+// App-identical play-area ranking. PORTED VERBATIM from the client's
+// src/maps/api/geocode.ts (PLACE_TYPE_SCORE + scorePlayAreaResult +
+// rankPlayAreaResults + the geocode() filter/dedupe). This MUST stay in
+// sync with geocode.ts: the in-app play-area search stars a result by its
+// osm_id, so the generator has to pick the SAME relation the app's search
+// would return — otherwise a baked id silently fails to match the star.
+// Keeping it identical is what lets us drop the hand-maintained override
+// list entirely (the seed is correct by construction).
+// ─────────────────────────────────────────────────────────────────────
+const PLACE_TYPE_SCORE = {
+    country: 1200,
+    city: 1000, town: 900, municipality: 850, village: 800, suburb: 600,
+    hamlet: 500, borough: 450, district: 400, neighbourhood: 300, quarter: 300,
+    locality: 200,
+    state: 500, region: 400, province: 300, county: 200, administrative: 100,
+};
+
+function scorePlayAreaResult(feature, originalIndex, query) {
+    const p = feature.properties ?? {};
+    const name = (p.name ?? "").toLowerCase();
+    const q = query.toLowerCase().trim();
+    const photonRankBonus = 80 / Math.sqrt(originalIndex + 1);
+    const typeFromValue = PLACE_TYPE_SCORE[(p.osm_value ?? "").toLowerCase()] ?? 0;
+    const typeFromType = PLACE_TYPE_SCORE[(p.type ?? "").toLowerCase()] ?? 0;
+    const typeBonus = Math.max(typeFromValue, typeFromType);
+    let areaBonus = 0;
+    const extent = p.extent; // app-order [maxLat, minLng, minLat, maxLng]
+    if (extent && extent.length >= 4) {
+        const [maxLat, minLng, minLat, maxLng] = extent;
+        if ([maxLat, minLat, minLng, maxLng].every((n) => typeof n === "number")) {
+            const midLat = (maxLat + minLat) / 2;
+            const km2 =
+                Math.abs(maxLat - minLat) * 111 *
+                Math.abs(maxLng - minLng) * 111 *
+                Math.cos((midLat * Math.PI) / 180);
+            if (km2 > 0) areaBonus = Math.min(600, Math.log10(km2) * 100);
+        }
+    }
+    const stripSuffix = (s) =>
+        s.replace(
+            /\s+(kommun|län|municipality|county|district|prefecture|province|borough)$/i,
+            "",
+        );
+    const strippedName = stripSuffix(name);
+    const strippedQ = stripSuffix(q);
+    let exactNameBonus = 0;
+    if (strippedName === strippedQ) exactNameBonus = 500;
+    else if (strippedName.startsWith(strippedQ + " ")) exactNameBonus = 300;
+    return photonRankBonus + typeBonus + areaBonus + exactNameBonus;
+}
+
+function rankPlayAreaResults(features, query, famousCountry) {
+    const scored = features.map((feature, originalIndex) => {
+        const base = scorePlayAreaResult(feature, originalIndex, query);
+        const country = (feature.properties?.country ?? "").toLowerCase();
+        const famousBonus =
+            famousCountry && country === famousCountry.toLowerCase() ? 700 : 0;
+        return { feature, score: base + famousBonus, originalIndex };
+    });
+    scored.sort((a, b) =>
+        b.score !== a.score ? b.score - a.score : a.originalIndex - b.originalIndex,
+    );
+    return scored.map((s) => s.feature);
+}
+
+/** Resolve a city name to a relation EXACTLY as the app's play-area search
+ *  does (geocode(name, "en", true)) and return the top relation's id — the
+ *  id the in-app star will match. Falls back to Wikidata's id when Photon
+ *  yields no usable relation. */
+async function appResolveRelationId(name, wikidataRelId) {
     const url =
-        "https://photon.komoot.io/api/?limit=8&q=" + encodeURIComponent(name);
-    let json;
+        "https://photon.komoot.io/api/?lang=en&q=" + encodeURIComponent(name);
+    let features;
     try {
         const res = await fetch(url, { headers: { "User-Agent": UA } });
-        if (!res.ok) return null;
-        json = await res.json();
+        if (!res.ok) return wikidataRelId;
+        features = (await res.json()).features ?? [];
     } catch {
-        return null;
-    }
-    const rels = (json.features ?? []).filter(
-        (f) => f.properties?.osm_type === "R" && f.properties?.osm_id,
-    );
-    if (rels.length === 0) return null;
-    // If Wikidata's id is among Photon's results, it agrees — keep it.
-    if (rels.some((f) => f.properties.osm_id === wikidataRelId)) {
         return wikidataRelId;
     }
-    // Otherwise prefer Photon's TOP relation for this name — that's the id
-    // the in-app search will actually return, so the star will match.
-    return rels[0].properties.osm_id;
+    // Convert Photon extent [minLng,maxLat,maxLng,minLat] → app order
+    // [maxLat,minLng,minLat,maxLng], mirroring geocode().
+    for (const f of features) {
+        const e = f.properties?.extent;
+        if (e && e.length >= 4) {
+            f.properties.extent = [e[1], e[0], e[3], e[2]];
+        }
+    }
+    const famousCountry = features[0]?.properties?.country ?? null;
+    const seen = new Set();
+    const deduped = features.filter((f) => {
+        const pr = f.properties ?? {};
+        if (pr.osm_type !== "R") return false;
+        const key = (pr.osm_key ?? "").toLowerCase();
+        if (key !== "place" && key !== "boundary") return false;
+        if (seen.has(pr.osm_id)) return false;
+        seen.add(pr.osm_id);
+        return true;
+    });
+    if (deduped.length === 0) return wikidataRelId;
+    const ranked = rankPlayAreaResults(deduped, name, famousCountry);
+    return ranked[0]?.properties?.osm_id ?? wikidataRelId;
 }
 
 /** polygons.osm.fr bbox → Photon-style [maxLat, minLng, minLat, maxLng]. */
@@ -180,7 +262,7 @@ async function main() {
         let fixed = 0;
         for (let i = 0; i < cities.length; i++) {
             const c = cities[i];
-            const rid = await photonRelationId(c.name, c.relationId);
+            const rid = await appResolveRelationId(c.name, c.relationId);
             if (rid && rid !== c.relationId) {
                 c.relationId = rid;
                 fixed++;
