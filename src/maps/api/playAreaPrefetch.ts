@@ -634,8 +634,22 @@ out center;
     return feats;
 }
 
-async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
-    if (filters.length === 0) return [];
+/**
+ * Fetch the combined reference set for the play area. Returns
+ * `{ elements, complete }` where `complete` is true ONLY when the result
+ * was served ENTIRELY from the worker's R2 cache (every play-area relation
+ * was a clean `/api/refs/<id>` hit). A complete result is AUTHORITATIVE —
+ * a family with 0 elements is GENUINELY 0, not truncated — so the caller
+ * must NOT fall back to a live single-family query for empty families
+ * (that would hit public mirrors for a fully-prewarmed city, breaking the
+ * "starred = no Overpass" promise). `complete` is false when any area was
+ * cold and we fell to the live/primary bbox query, where truncation is a
+ * real risk and per-family recovery is justified.
+ */
+async function runBboxOverpassFetch(
+    filters: string[],
+): Promise<{ elements: any[]; complete: boolean }> {
+    if (filters.length === 0) return { elements: [], complete: true };
 
     // v359: fan out over EVERY play-area relation (primary + added
     // adjacent areas) via the STABLE relation-id-keyed endpoint. The
@@ -697,11 +711,15 @@ async function runBboxOverpassFetch(filters: string[]): Promise<any[]> {
         // `unioned` rather than merge it, since the family partition
         // downstream doesn't dedup by id and a merge would double-count.)
         if (allHit && unioned.length > 0) {
-            return unioned;
+            // Served entirely from R2 for every play-area relation →
+            // authoritative + complete. No live query touched.
+            return { elements: unioned, complete: true };
         }
     }
 
-    return runPrimaryBboxFetch(filters);
+    // Fell to the live/primary bbox query (a cold area, custom-drawn play
+    // area, or empty union) — NOT guaranteed complete.
+    return { elements: await runPrimaryBboxFetch(filters), complete: false };
 }
 
 /** The legacy primary-only bbox reference query — the fallback when the
@@ -1124,7 +1142,7 @@ async function runPrefetchFamiliesInOneQuery(
         // crenellated county boundary can't blow the request-size
         // budget that the v190 poly: path tripped on.
         const filters = todo.map(filterForFamily);
-        const elements = await runBboxOverpassFetch(filters);
+        const { elements, complete } = await runBboxOverpassFetch(filters);
         const emptyFamilies: FamilyKey[] = [];
         for (const family of todo) {
             const feats: PrefetchedFeature[] = [];
@@ -1134,25 +1152,28 @@ async function runPrefetchFamiliesInOneQuery(
                 if (feat) feats.push(feat);
             }
             if (feats.length === 0) {
-                // The combined query came back without anything for
-                // this family. Two real reasons this happens:
-                //   1. The play area genuinely has no instances (no
-                //      aquariums in a forest county, no airports in a
-                //      neighborhood — fine, the cache should record 0).
-                //   2. The unioned Overpass query was too big for the
-                //      mirror and got truncated — symptom is "8 of 8
-                //      categories warm, 0 in each except railway"
-                //      (railway came first in the union and finished
-                //      under the server's budget; the rest fell off).
-                // We can't tell the two apart from one response, so we
-                // re-issue per-family for any 0-result family. A
-                // single-family query is small (sub-second on a
-                // healthy mirror) and the existing prefetchCategory
-                // path already R2-caches + dedups in-flight + reports
-                // status — so falling through to it is the natural
-                // fix. Don't pre-emptively write 0 to the cache yet;
-                // prefetchCategory will write the authoritative count.
-                emptyFamilies.push(family);
+                // The combined query came back without anything for this
+                // family. Two real reasons:
+                //   1. The play area genuinely has no instances (no zoo in
+                //      a small town — fine, record 0).
+                //   2. A LIVE unioned query was too big and got truncated
+                //      — some families fell off the server's budget.
+                // We can only confuse the two when the result came from a
+                // LIVE query (`!complete`). When the result was served
+                // ENTIRELY from the worker's prewarmed R2 (`complete`), it
+                // is AUTHORITATIVE: 0 is genuinely 0. Record it and DO NOT
+                // re-fetch — a single-family live query for a fully-
+                // prewarmed ("starred") city would hit public mirrors,
+                // breaking the "no Overpass in a warm city" promise. (If a
+                // family looks wrongly 0 for a warm city, that's a filter
+                // bug to fix at the source + re-warm, NOT a runtime live
+                // fallback — see /admin/inspect-refs.)
+                if (complete) {
+                    cache.set(cacheKey(family), []);
+                    bumpStatus({ warmedKey: cacheKey(family), count: 0 });
+                } else {
+                    emptyFamilies.push(family);
+                }
             } else {
                 cache.set(cacheKey(family), feats);
                 bumpStatus({
