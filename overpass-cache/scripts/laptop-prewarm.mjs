@@ -624,13 +624,15 @@ function isAbortedOverpassText(text) {
     }
 }
 
+const FETCH_MAX_ATTEMPTS = 4;
+
 async function fetchOverpass(query, label) {
-    // Up to 3 attempts. Between attempts we re-check /api/status so a
-    // 429 from a transient burst doesn't make us give up immediately —
-    // but we don't loop forever either, since a persistent 429 means
-    // the server genuinely wants us to back off and the cron / next
-    // run will catch this city later.
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    // Up to FETCH_MAX_ATTEMPTS attempts. Between attempts we re-check
+    // /api/status so a 429 from a transient burst doesn't make us give up
+    // immediately — but we don't loop forever either, since a persistent
+    // 429/5xx means the server genuinely wants us to back off and the cron
+    // / next run will catch this city later.
+    for (let attempt = 1; attempt <= FETCH_MAX_ATTEMPTS; attempt++) {
         await waitForSlot(label);
         const t0 = Date.now();
         const ctrl = new AbortController();
@@ -653,12 +655,27 @@ async function fetchOverpass(query, label) {
                 const ra = parseInt(resp.headers.get("Retry-After") ?? "", 10);
                 const waitSec = Number.isFinite(ra) ? ra : 10;
                 console.warn(
-                    `  ⚠ ${label} 429, retry ${attempt}/3 after ${waitSec} s`,
+                    `  ⚠ ${label} 429, retry ${attempt}/${FETCH_MAX_ATTEMPTS} after ${waitSec} s`,
                 );
                 await sleep(waitSec * 1000);
                 continue;
             }
             if (!resp.ok) {
+                // 5xx (502/503/504) + Cloudflare 5xx are TRANSIENT gateway/
+                // overload responses on a busy mirror — a fast 504 (a few
+                // seconds) is the front-end shedding load, NOT a genuine
+                // 120 s query timeout. Retry with escalating backoff (the
+                // loop re-waits for a slot first). Heavy metros usually
+                // succeed on a later attempt when load drops. 4xx other
+                // than 429 are permanent (malformed query) → give up.
+                if (resp.status >= 500 && attempt < FETCH_MAX_ATTEMPTS) {
+                    const waitSec = Math.min(10 * attempt, 40);
+                    console.warn(
+                        `  ⚠ ${label} overpass ${resp.status} ${resp.statusText} (${dur} ms), retry ${attempt}/${FETCH_MAX_ATTEMPTS} after ${waitSec} s`,
+                    );
+                    await sleep(waitSec * 1000);
+                    continue;
+                }
                 console.warn(
                     `  ✗ ${label} overpass ${resp.status} ${resp.statusText} (${dur} ms)`,
                 );
@@ -687,7 +704,7 @@ async function fetchOverpass(query, label) {
             clearTimeout(timer);
         }
     }
-    console.warn(`  ✗ ${label} gave up after 3 attempts`);
+    console.warn(`  ✗ ${label} gave up after ${FETCH_MAX_ATTEMPTS} attempts`);
     return null;
 }
 
