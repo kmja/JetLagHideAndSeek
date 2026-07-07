@@ -216,6 +216,42 @@ export const LOCATION_FIRST_TAG: {
     park: "leisure",
 };
 
+/** Overpass value-match override for API locations whose OSM tagging needs
+ *  more than an exact `key=value`. Consulates are tagged BOTH
+ *  `diplomatic=consulate` AND `diplomatic=consulate_general` — the rulebook
+ *  counts both, excluding only honorary consuls (`diplomatic=honorary_consul`),
+ *  so a bare `["diplomatic"="consulate"]` filter finds 0 in cities like Oslo
+ *  where the consulates are all `consulate_general` (v685). Maps loc → the
+ *  full Overpass bracket filter (quoted style). */
+const API_LOCATION_FILTER_OVERRIDE: Partial<Record<APILocations, string>> = {
+    consulate: '["diplomatic"~"^consulate"]',
+};
+
+/** The Overpass tag-filter for an API location — the override above, else
+ *  the generic exact `["key"="loc"]`. The SINGLE producer used by the
+ *  reference cache (`playAreaPrefetch`), the matching/measuring elimination,
+ *  and the nearest-reference preview, so they always target the SAME OSM
+ *  set (the combined-refs family filter in `REFERENCE_FAMILY_FILTERS` on the
+ *  worker must be kept byte-identical). */
+export function apiLocationFilter(loc: APILocations): string {
+    return (
+        API_LOCATION_FILTER_OVERRIDE[loc] ??
+        `["${LOCATION_FIRST_TAG[loc]}"="${loc}"]`
+    );
+}
+
+/** Whether an element's tags match an API location — mirrors
+ *  `apiLocationFilter` for client-side partitioning of a combined query. */
+export function apiLocationMatches(
+    loc: APILocations,
+    tags: Record<string, string>,
+): boolean {
+    if (loc === "consulate") {
+        return /^consulate/.test(tags["diplomatic"] ?? "");
+    }
+    return tags[LOCATION_FIRST_TAG[loc]] === loc;
+}
+
 export const BLANK_GEOJSON = {
     type: "FeatureCollection",
     features: [

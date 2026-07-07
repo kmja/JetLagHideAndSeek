@@ -7,6 +7,8 @@ import {
     polyGeoJSON,
 } from "@/lib/context";
 import {
+    apiLocationFilter,
+    apiLocationMatches,
     LOCATION_FIRST_TAG,
     REFS_BY_RELATION_BASE,
     REGISTER_AREA_URL,
@@ -136,8 +138,7 @@ export function hasAnyReferenceCached(families: FamilyKey[]): boolean {
  *  `(area.regionN)` itself. */
 function filterForFamily(family: FamilyKey): string {
     if (family.startsWith("api:")) {
-        const loc = family.slice(4) as APILocations;
-        return `["${LOCATION_FIRST_TAG[loc]}"="${loc}"]`;
+        return apiLocationFilter(family.slice(4) as APILocations);
     }
     if (family.startsWith("brand:")) {
         return `["brand:wikidata"="${family.slice(6)}"]`;
@@ -148,7 +149,16 @@ function filterForFamily(family: FamilyKey): string {
     // name filter drops unnamed ditches + most pools. Rivers mapped only as
     // waterway centerlines are added by the elimination path (measuring.ts),
     // not this point cache.
-    if (family === "body-of-water") return '["natural"="water"]["name"]';
+    if (family === "body-of-water") {
+        // Named water bodies (rulebook p11) but MAJOR only — exclude the
+        // minor/artificial `water=` subtypes (ponds, basins, pools,
+        // fountains, moats, tanks, ditches, wastewater) that flood a dense
+        // metro's count and geometry. Un-subtagged `natural=water` and the
+        // major subtypes (lake/river/reservoir/lagoon/canal) still pass
+        // (`!~` also matches elements with no `water` tag). v685 — the goal
+        // is to make body-of-water light enough to not time out (test Paris).
+        return '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]';
+    }
     if (family === "rail-station") return '["railway"="station"]';
     throw new Error(`unknown family ${family}`);
 }
@@ -392,8 +402,7 @@ function featureFromElement(el: any): PrefetchedFeature | null {
 function elementMatchesFamily(el: any, family: FamilyKey): boolean {
     const tags = el.tags ?? {};
     if (family.startsWith("api:")) {
-        const loc = family.slice(4) as APILocations;
-        return tags[LOCATION_FIRST_TAG[loc]] === loc;
+        return apiLocationMatches(family.slice(4) as APILocations, tags);
     }
     if (family.startsWith("brand:")) {
         return tags["brand:wikidata"] === family.slice(6);

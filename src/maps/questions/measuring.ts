@@ -19,7 +19,7 @@ import {
     fetchCoastline,
     findPlacesInZone,
     findPlacesSpecificInZone,
-    LOCATION_FIRST_TAG,
+    apiLocationFilter,
     nearestToQuestion,
     prettifyLocation,
     QuestionSpecificLocation,
@@ -258,7 +258,7 @@ export const determineMeasuringBoundary = async (
             const location = question.type.split("-full")[0] as APILocations;
 
             const data = await findPlacesInZone(
-                `[${LOCATION_FIRST_TAG[location]}=${location}]`,
+                apiLocationFilter(location),
                 // No loadingText: the picker has its own inline
                 // progress UI; toast.promise here stacks duplicates
                 // when the nearest-reference preview and the main
@@ -407,7 +407,10 @@ export const determineMeasuringBoundary = async (
             // The `["name"]` filter enforces "named" and drops most pools
             // (which are leisure=swimming_pool, not natural=water anyway).
             const data = await findPlacesInZone(
-                '["natural"="water"]["name"]',
+                // MAJOR named water bodies only (v685) — exclude the minor/
+                // artificial `water=` subtypes that flood a dense metro; keep
+                // in lockstep with `filterForFamily("body-of-water")`.
+                '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
                 undefined,
                 "nwr",
                 "geom",

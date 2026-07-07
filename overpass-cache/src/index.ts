@@ -3003,7 +3003,11 @@ const REFERENCE_FAMILY_FILTERS: { family: string; filter: string }[] = [
     { family: "airport", filter: '["aeroway"="aerodrome"]["iata"]' },
     { family: "api:aquarium", filter: '["tourism"="aquarium"]' },
     { family: "api:cinema", filter: '["amenity"="cinema"]' },
-    { family: "api:consulate", filter: '["diplomatic"="consulate"]' },
+    // v685: `~"^consulate"` catches `diplomatic=consulate` AND
+    // `consulate_general` (excludes `honorary_consul`) — a bare
+    // `="consulate"` found 0 in Oslo. Byte-identical to the client's
+    // apiLocationFilter("consulate") in src/maps/api/constants.ts.
+    { family: "api:consulate", filter: '["diplomatic"~"^consulate"]' },
     { family: "api:golf_course", filter: '["leisure"="golf_course"]' },
     { family: "api:hospital", filter: '["amenity"="hospital"]' },
     { family: "api:library", filter: '["amenity"="library"]' },
@@ -5839,14 +5843,23 @@ function elementMatchesFilter(
     filter: string,
 ): boolean {
     if (!tags) return false;
-    const re = /\["([^"]+)"(?:="([^"]+)")?\]/g;
+    // Clauses: ["key"], ["key"="v"], ["key"~"re"], ["key"!~"re"].
+    const re = /\["([^"]+)"(?:(=|!=|~|!~)"([^"]+)")?\]/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(filter)) !== null) {
         const key = m[1];
-        const value = m[2];
+        const op = m[2];
+        const value = m[3];
         const has = Object.prototype.hasOwnProperty.call(tags, key);
+        if (op === "!~") {
+            // Overpass !~ matches when the key is absent OR doesn't match.
+            if (has && new RegExp(value).test(tags[key])) return false;
+            continue;
+        }
         if (!has) return false;
-        if (value !== undefined && tags[key] !== value) return false;
+        if (op === "=" && tags[key] !== value) return false;
+        if (op === "!=" && tags[key] === value) return false;
+        if (op === "~" && !new RegExp(value).test(tags[key])) return false;
     }
     return true;
 }

@@ -21,7 +21,7 @@ import {
     fetchCoastline,
     findAdminBoundary,
     findPlacesInZone,
-    LOCATION_FIRST_TAG,
+    apiLocationFilter,
     nearestToQuestion,
     prettifyLocation,
     trainLineNodeFinder,
@@ -90,7 +90,7 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
             const location = question.type.split("-full")[0] as APILocations;
 
             const data = await findPlacesInZone(
-                `[${LOCATION_FIRST_TAG[location]}=${location}]`,
+                apiLocationFilter(location),
                 // No loadingText: the picker has its own inline
                 // progress UI; toast.promise here stacks duplicates
                 // when the nearest-reference preview and the main
