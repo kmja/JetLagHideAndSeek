@@ -135,6 +135,17 @@ const ONLY_CITY = args["only-city"] ? String(args["only-city"]) : null;
 // its time re-`check-fresh`ing the popular front of the list (which the
 // cron keeps warm). Ignored with --only-city.
 const COLD_ONLY = !!args["cold-only"];
+// v684: process the world-cities SEED (biggest cities) FIRST, in population
+// order, instead of the default shuffle — so the cities you're most likely
+// to play (and NA/EU majors) warm before the long auto-discovered tail.
+const SEED_FIRST = !!args["seed-first"];
+// v684: after warming, call POST /admin/verify-city per city so the star
+// (`fullyCuratedAt`) is stamped IMMEDIATELY instead of waiting for the cron
+// to happen to pick that city. On by default; --skip-verify to drop.
+// `--verify-only` skips all warming and just runs the verify pass (useful
+// right after a completed warm run to light up the stars).
+const DO_VERIFY = !args["skip-verify"];
+const VERIFY_ONLY = !!args["verify-only"];
 const DELAY_MS = args["delay-ms"] ? parseInt(args["delay-ms"], 10) : 2000;
 const DO_BOUNDARIES = !args["skip-boundaries"];
 const DO_REFS = !args["skip-references"];
@@ -932,6 +943,94 @@ async function listCities() {
     }
     const data = await resp.json();
     return data.cities ?? [];
+}
+
+/** v684: the ordered seed relation ids (biggest cities, population-desc)
+ *  from the public /api/seed-cities. Used by --seed-first to warm the
+ *  cities you actually play before the auto-discovered tail. Empty on
+ *  failure (→ seed-first degrades to the default order). */
+async function fetchSeedIds() {
+    try {
+        const resp = await fetchRetry(
+            `${WORKER}/api/seed-cities`,
+            {},
+            "seed-cities",
+        );
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        return Array.isArray(data.ids) ? data.ids : [];
+    } catch {
+        return [];
+    }
+}
+
+/** Reorder the city list so seed cities come FIRST, in seed (population)
+ *  order, then everything else in its existing order. */
+function orderSeedFirst(cities, seedIds) {
+    if (seedIds.length === 0) return cities;
+    const byId = new Map(cities.map((c) => [c.relationId, c]));
+    const seen = new Set();
+    const out = [];
+    for (const id of seedIds) {
+        const c = byId.get(id);
+        if (c) {
+            out.push(c);
+            seen.add(id);
+        }
+    }
+    for (const c of cities) {
+        if (!seen.has(c.relationId)) out.push(c);
+    }
+    return out;
+}
+
+/** v684: ask the worker to verify + stamp one city's star
+ *  (fullyCuratedAt) NOW. Read-only R2 HEADs server-side (no Overpass), so
+ *  it's cheap and safe to call right after warming. Returns the result or
+ *  null on failure. */
+async function verifyCity(relationId) {
+    try {
+        const resp = await fetchRetry(
+            `${WORKER}/admin/verify-city`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${SECRET}`,
+                },
+                body: JSON.stringify({ relationId }),
+            },
+            "verify-city",
+        );
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch {
+        return null;
+    }
+}
+
+/** Run the verify pass over a list of cities: stamp the star for every one
+ *  that's fully cached (primary + adjacents). No Overpass, so it's fast. */
+async function verifyStars(cities) {
+    console.log(`=== verifying stars for ${cities.length} cities ===`);
+    let starred = 0;
+    for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        const v = await verifyCity(c.relationId);
+        if (v?.fullyCurated) {
+            starred++;
+            if (v.stamped) {
+                console.log(`  ★ ${c.name} — fully cached (stamped)`);
+            }
+        }
+        if ((i + 1) % 50 === 0) {
+            console.log(
+                `  … verified ${i + 1}/${cities.length} (${starred} starred so far)`,
+            );
+        }
+        await sleep(80); // gentle on the worker; these are R2-only ops
+    }
+    console.log(`=== verify done — ${starred}/${cities.length} fully cached ===`);
 }
 
 /**
@@ -2149,7 +2248,7 @@ async function processOneRing(cities) {
     const top = cities.slice(0, ONE_RING_TOP);
     const cityIds = new Set(cities.map((c) => c.relationId));
     const seen = new Set();
-    let discovered = 0;
+    const processed = []; // v684: return neighbours warmed, for the verify pass
     console.log(
         `=== one-ring: neighbors of top ${top.length} cities as full play areas (max ${ONE_RING_MAX_PER_CITY}/city) ===`,
     );
@@ -2167,10 +2266,10 @@ async function processOneRing(cities) {
         for (const n of neighbors) {
             if (seen.has(n.relationId) || cityIds.has(n.relationId)) continue;
             seen.add(n.relationId);
-            discovered++;
             try {
                 // Treat the neighbour as any other play area.
                 await processCity(n);
+                processed.push(n);
             } catch (e) {
                 console.warn(
                     `  ! one-ring process ${n.name} (r${n.relationId}) failed:`,
@@ -2180,8 +2279,9 @@ async function processOneRing(cities) {
         }
     }
     console.log(
-        `=== one-ring: processed ${discovered} unique neighbour play areas ===`,
+        `=== one-ring: processed ${processed.length} unique neighbour play areas ===`,
     );
+    return processed;
 }
 
 async function main() {
@@ -2196,7 +2296,7 @@ async function main() {
         }
     }
 
-    if (DO_DISCOVER && !ONLY_CITY) {
+    if (DO_DISCOVER && !ONLY_CITY && !VERIFY_ONLY) {
         try {
             await drainDiscovery();
         } catch (e) {
@@ -2204,8 +2304,24 @@ async function main() {
         }
     }
 
-    const cities = await listCities();
+    let cities = await listCities();
     console.log(`fetched ${cities.length} cities; processing up to ${MAX_CITIES}`);
+
+    if (SEED_FIRST) {
+        const seedIds = await fetchSeedIds();
+        cities = orderSeedFirst(cities, seedIds);
+        console.log(
+            `--seed-first: ${seedIds.length} seed cities ordered first (biggest → smallest)`,
+        );
+    }
+
+    // v684: --verify-only — skip all warming, just stamp stars for cities
+    // that are already fully cached (e.g. right after a completed warm run).
+    if (VERIFY_ONLY && !ONLY_CITY) {
+        await verifyStars(cities.slice(0, MAX_CITIES));
+        console.log("=== done (verify-only) ===");
+        return;
+    }
 
     let todo = cities.slice(0, MAX_CITIES);
     if (ONLY_CITY) {
@@ -2253,9 +2369,13 @@ async function main() {
         // cron's per-run shuffle) — a run then warms a fresh slice rather
         // than always re-walking the list head. Deterministic order isn't
         // needed here; the per-query check-fresh makes it idempotent.
-        for (let i = todo.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [todo[i], todo[j]] = [todo[j], todo[i]];
+        // SKIP the shuffle with --seed-first: the point there is to warm the
+        // biggest cities first, in order.
+        if (!SEED_FIRST) {
+            for (let i = todo.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [todo[i], todo[j]] = [todo[j], todo[i]];
+            }
         }
     }
     for (let i = 0; i < todo.length; i++) {
@@ -2273,9 +2393,10 @@ async function main() {
     // the main loop so the top cities' boundaries are already cached for
     // the centroid/admin_level lookups in findNeighbors, then processes
     // each neighbour as a full play area.
+    let oneRingProcessed = [];
     if (DO_ONE_RING && !ONLY_CITY) {
         try {
-            await processOneRing(cities);
+            oneRingProcessed = (await processOneRing(cities)) ?? [];
         } catch (e) {
             console.warn(`! one-ring pass failed:`, e?.message ?? e);
         }
@@ -2289,6 +2410,26 @@ async function main() {
             await processHsrCountries();
         } catch (e) {
             console.warn(`! HSR pass failed:`, e?.message ?? e);
+        }
+    }
+
+    // v684: verify + stamp stars now (primary + adjacents both cached), so
+    // the app lights up immediately instead of waiting for the cron to pick
+    // each city. Runs after one-ring so a city's adjacents are warm before
+    // it's checked. Verify covers the processed cities AND the one-ring
+    // neighbours (which became fully-cached play areas of their own).
+    if (DO_VERIFY && !ONLY_CITY) {
+        try {
+            const verifyList = [...todo];
+            if (DO_ONE_RING) {
+                const seen = new Set(verifyList.map((c) => c.relationId));
+                for (const c of oneRingProcessed) {
+                    if (!seen.has(c.relationId)) verifyList.push(c);
+                }
+            }
+            await verifyStars(verifyList);
+        } catch (e) {
+            console.warn(`! verify pass failed:`, e?.message ?? e);
         }
     }
 

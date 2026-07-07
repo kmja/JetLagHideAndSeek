@@ -161,6 +161,24 @@ const SLOT_WAIT_MAX_MS = 30_000;
  *  request always resolves well inside Cloudflare's hang threshold. */
 const USER_SLOT_WAIT_MS = 8_000;
 
+/** v684: inter-fetch pacing floor for the CRON upstream path. A run of
+ *  quick warms (many skip-if-stale HEADs punctuated by the occasional real
+ *  fetch) could otherwise fire back-to-back the instant slots free and
+ *  burst the mirror. Enforcing a minimum gap since the last cron upstream
+ *  proceed mirrors the laptop prewarmer's `DELAY_MS` floor. Module-scoped
+ *  state persists across the isolate; the live path never calls this. */
+const CRON_UPSTREAM_MIN_GAP_MS = 500;
+let lastCronUpstreamAt = 0;
+async function paceCronUpstream(): Promise<void> {
+    const gap = Date.now() - lastCronUpstreamAt;
+    if (gap < CRON_UPSTREAM_MIN_GAP_MS) {
+        await new Promise((r) =>
+            setTimeout(r, CRON_UPSTREAM_MIN_GAP_MS - gap),
+        );
+    }
+    lastCronUpstreamAt = Date.now();
+}
+
 async function fetchOverpassStatus(): Promise<string | null> {
     // v367: hard timeout. Without a signal, this fetch hangs forever
     // when overpass-api.de's /api/status wedges (accepts the connection
@@ -191,6 +209,15 @@ async function fetchOverpassStatus(): Promise<string | null> {
 async function waitForOverpassSlot(
     label: string,
     maxTotalMs: number = SLOT_WAIT_MAX_MS,
+    // v684: what to do when the slot state is UNCERTAIN — the budget ran
+    // out or /api/status is itself unreachable. A LIVE request passes
+    // `true` (proceed blind, race the mirror, fail fast — there's a user
+    // waiting). The CRON leaves it `false` (default): decline the fetch and
+    // catch the work next tick, NEVER hammer Overpass on a status wobble.
+    // This is the core of why the cron used to earn 429s where the serial
+    // laptop prewarmer doesn't — the laptop always waits for a real slot;
+    // the cron used to "proceed blind" here and burst.
+    proceedWhenUncertain: boolean = false,
 ): Promise<boolean> {
     // v367: bound the TOTAL time spent here. The cron can afford the full
     // 30 s; a LIVE request (fetchUpstreamStreaming) passes a small budget
@@ -200,20 +227,20 @@ async function waitForOverpassSlot(
     const start = Date.now();
     const remaining = () => maxTotalMs - (Date.now() - start);
     for (let attempt = 0; attempt < 6; attempt++) {
-        if (remaining() <= 0) return true; // budget gone — proceed, race, fail fast
+        if (remaining() <= 0) return proceedWhenUncertain; // budget gone
         const status = await fetchOverpassStatus();
         if (!status) {
             // /api/status itself unreachable. Could be a transient
             // blip or genuine downtime — sleep briefly and try once
-            // more; if still down, just let the caller proceed (they
-            // can race the upstream call and fail fast on their own).
+            // more; if still down, the LIVE path proceeds (races + fails
+            // fast) while the CRON declines (skips this tick).
             if (attempt >= 1) {
                 console.warn(
-                    `[slot] ${label}: /api/status unreachable twice, proceeding blind`,
+                    `[slot] ${label}: /api/status unreachable twice, ${proceedWhenUncertain ? "proceeding blind" : "skipping"}`,
                 );
-                return true;
+                return proceedWhenUncertain;
             }
-            if (remaining() < 3000) return true;
+            if (remaining() < 3000) return proceedWhenUncertain;
             await new Promise((r) => setTimeout(r, 3000));
             continue;
         }
@@ -223,6 +250,12 @@ async function waitForOverpassSlot(
             if (attempt > 0) {
                 console.log(`[slot] ${label}: slot free, proceeding`);
             }
+            // v684: pacing floor for the cron path — even with a slot free,
+            // don't fire back-to-back. Mirrors the laptop's inter-fetch
+            // delay so a run of quick warms can't burst the mirror. The
+            // live path (proceedWhenUncertain) skips the floor: a user is
+            // waiting and it's already serialized by USER_SLOT_WAIT_MS.
+            if (!proceedWhenUncertain) await paceCronUpstream();
             return true;
         }
         const waits = [...status.matchAll(/in\s+(\d+)\s+seconds?/gi)].map(
@@ -627,6 +660,22 @@ export default {
         // hit live mirrors for every curated city. Prewarming them here
         // makes the wizard's extend step near-instant for any city the
         // cron has covered.
+        // v684: bound the COLD heavy adjacent curation per tick. Only the
+        // first N picked cities may fully-curate their ~14 neighbours
+        // (boundary+refs+stations) this tick; the rest still warm the cheap
+        // adjacency queries + neighbour boundaries but defer the heavy
+        // refs+stations to a later tick. Combined with the slot gate's
+        // skip-on-uncertain + pacing floor, this stops a single tick from
+        // queuing hundreds of cold Overpass fetches. Already-warm neighbours
+        // are cheap R2 HEADs regardless, so a fully-warmed world (post
+        // laptop-prewarm) isn't throttled by this. Tunable via env.
+        let heavyCityBudget = parseInt(
+            env.ADJACENT_HEAVY_CITIES_PER_TICK ?? "4",
+            10,
+        );
+        if (!Number.isFinite(heavyCityBudget) || heavyCityBudget < 0) {
+            heavyCityBudget = 4;
+        }
         for (const city of picked) {
             if (!city.extent) continue;
             const slotOk = await waitForOverpassSlot(
@@ -638,11 +687,14 @@ export default {
                 );
                 continue;
             }
+            const allowHeavy = heavyCityBudget > 0;
+            if (allowHeavy) heavyCityBudget--;
             try {
                 const r = await prewarmAdjacentSearchForCity(
                     env,
                     city,
                     ttlMs,
+                    allowHeavy,
                 );
                 if (r.stored > 0) {
                     console.log(
@@ -658,66 +710,12 @@ export default {
                 // to avoid an R2 write every tick.
                 if (env.ADJACENT_CURATION_ENABLED !== "false") {
                     try {
-                        // Non-empty neighbour set → curated iff every one is.
-                        // Empty set → only "curated" (vacuously) if we KNOW
-                        // adjacency was actually discovered (topological query
-                        // cached), never when both adjacency sources silently
-                        // failed — otherwise a total-adjacency-failure city
-                        // would wrongly stamp as "no neighbours, done".
-                        const adjacentsCurated =
-                            r.neighbourIds.length > 0
-                                ? (
-                                      await Promise.all(
-                                          r.neighbourIds.map((id) =>
-                                              relationFullyCurated(env, id),
-                                          ),
-                                      )
-                                  ).every(Boolean)
-                                : r.adjacencyKnown;
-                        // The primary's own boundary+refs+stations — warmed in
-                        // Phases 1/2/2b of this same tick, so it's present by
-                        // now for a city that made it this far.
-                        const primaryCurated = await relationFullyCurated(
-                            env,
-                            city.relationId,
-                        );
-                        const fullyCurated = primaryCurated && adjacentsCurated;
-
-                        const patch: Partial<CityEntry> = {};
-                        let changed = false;
-
-                        const adjStamp = city.adjacentsCuratedAt;
-                        const adjAge =
-                            typeof adjStamp === "number"
-                                ? Date.now() - adjStamp
-                                : Infinity;
-                        if (adjacentsCurated && adjAge > ttlMs) {
-                            patch.adjacentsCuratedAt = Date.now();
-                            changed = true;
-                        } else if (!adjacentsCurated && adjStamp !== undefined) {
-                            patch.adjacentsCuratedAt = undefined;
-                            changed = true;
-                        }
-
-                        const fullStamp = city.fullyCuratedAt;
-                        const fullAge =
-                            typeof fullStamp === "number"
-                                ? Date.now() - fullStamp
-                                : Infinity;
-                        if (fullyCurated && fullAge > ttlMs) {
-                            patch.fullyCuratedAt = Date.now();
-                            changed = true;
-                        } else if (!fullyCurated && fullStamp !== undefined) {
-                            patch.fullyCuratedAt = undefined;
-                            changed = true;
-                        }
-
-                        if (changed) {
-                            await upsertDiscoveredCity(env, { ...city, ...patch });
+                        const v = await verifyAndStampCity(env, city, ttlMs);
+                        if (v.stamped) {
                             console.log(
                                 `[prewarm] ${city.name}: curation ${
-                                    fullyCurated ? "COMPLETE (starred)" : "partial"
-                                } — primary=${primaryCurated} adjacents=${adjacentsCurated} (${r.neighbourIds.length} neighbours)`,
+                                    v.fullyCurated ? "COMPLETE (starred)" : "partial"
+                                } — primary=${v.primaryCached} adjacents=${v.adjacentsCurated} (${v.neighboursTotal} neighbours)`,
                             );
                         }
                     } catch (e) {
@@ -944,6 +942,9 @@ async function handleRequest(
         }
         if (url.pathname === "/admin/adjacent-curation-status") {
             return handleAdminAdjacentCurationStatus(request, env, cors);
+        }
+        if (url.pathname === "/admin/verify-city") {
+            return handleAdminVerifyCity(request, env, cors);
         }
         if (url.pathname === "/admin/rediscover") {
             return handleAdminRediscover(request, env, cors);
@@ -1794,7 +1795,9 @@ async function fetchUpstreamStreaming(
     // When the budget runs out we proceed and race the mirror anyway —
     // the mirror race is itself abort-bounded (UPSTREAM_TIMEOUT_MS), so
     // the whole call still resolves. The cron keeps the full 30 s budget.
-    await waitForOverpassSlot(`user-fetch ${status}`, USER_SLOT_WAIT_MS);
+    // v684: `true` = proceed-blind when uncertain (a user is waiting); the
+    // cron callers keep the default (skip on uncertainty).
+    await waitForOverpassSlot(`user-fetch ${status}`, USER_SLOT_WAIT_MS, true);
     const upstream = await upstreamSemaphore.run(() =>
         fetchFromMirrorChainWithRetry(query),
     );
@@ -4272,6 +4275,13 @@ async function prewarmAdjacentSearchForCity(
     env: Env,
     city: CityEntry,
     ttlMs: number,
+    // v684: whether THIS city may do the heavy per-neighbour refs+stations
+    // warm this tick. The caller gates it on a per-tick budget so a single
+    // cron tick can't queue hundreds of cold heavy fetches (which is what
+    // pressured Overpass's rate limit). When false, neighbours still get
+    // their cheap boundary warmed — the city just doesn't fully-curate its
+    // adjacents this tick and will on a later tick when it's in budget.
+    allowHeavyCuration: boolean = true,
 ): Promise<{
     stored: number;
     neighbourIds: number[];
@@ -4412,7 +4422,8 @@ async function prewarmAdjacentSearchForCity(
         // are already warm costs a handful of cheap R2 HEADs. Opt-OUT via
         // ADJACENT_CURATION_ENABLED="false" (then only boundaries warm, the
         // pre-v676 behaviour).
-        const fullCuration = env.ADJACENT_CURATION_ENABLED !== "false";
+        const fullCuration =
+            env.ADJACENT_CURATION_ENABLED !== "false" && allowHeavyCuration;
         for (const id of cappedNeighbours) {
             const r = await prewarmQuery(
                 env,
@@ -4575,6 +4586,78 @@ async function deriveAdjacentNeighbourIds(
     return {
         ids: [...neighbourIds].slice(0, MAX_NEIGHBOUR_BOUNDARIES),
         adjacencyKnown,
+    };
+}
+
+/**
+ * Verify a city's full-curation state and stamp `adjacentsCuratedAt` /
+ * `fullyCuratedAt` on state change (v684). The SINGLE producer of the star
+ * stamp — used by the cron's Phase-4 caller AND the `/admin/verify-city`
+ * endpoint the laptop-prewarmer calls, so stars can be earned the instant
+ * the laptop finishes a city instead of waiting on the cron. Read-only
+ * except the one conditional stamp write; never fetches upstream.
+ *
+ *   adjacentsCurated = every neighbour fully cached (boundary+refs+stations),
+ *     or — for a genuinely neighbour-less city (adjacency KNOWN + empty) —
+ *     vacuously true. Unknown adjacency (not prewarmed) is NOT curated.
+ *   fullyCurated     = adjacentsCurated AND the PRIMARY itself fully cached.
+ *                      This is exactly what the in-app star reflects.
+ */
+async function verifyAndStampCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{
+    primaryCached: boolean;
+    adjacentsCurated: boolean;
+    fullyCurated: boolean;
+    neighboursTotal: number;
+    stamped: boolean;
+}> {
+    const { ids, adjacencyKnown } = await deriveAdjacentNeighbourIds(env, city);
+    const adjacentsCurated =
+        ids.length > 0
+            ? (
+                  await Promise.all(
+                      ids.map((id) => relationFullyCurated(env, id)),
+                  )
+              ).every(Boolean)
+            : adjacencyKnown;
+    const primaryCached = await relationFullyCurated(env, city.relationId);
+    const fullyCurated = primaryCached && adjacentsCurated;
+
+    const patch: Partial<CityEntry> = {};
+    let changed = false;
+
+    const adjStamp = city.adjacentsCuratedAt;
+    const adjAge =
+        typeof adjStamp === "number" ? Date.now() - adjStamp : Infinity;
+    if (adjacentsCurated && adjAge > ttlMs) {
+        patch.adjacentsCuratedAt = Date.now();
+        changed = true;
+    } else if (!adjacentsCurated && adjStamp !== undefined) {
+        patch.adjacentsCuratedAt = undefined;
+        changed = true;
+    }
+
+    const fullStamp = city.fullyCuratedAt;
+    const fullAge =
+        typeof fullStamp === "number" ? Date.now() - fullStamp : Infinity;
+    if (fullyCurated && fullAge > ttlMs) {
+        patch.fullyCuratedAt = Date.now();
+        changed = true;
+    } else if (!fullyCurated && fullStamp !== undefined) {
+        patch.fullyCuratedAt = undefined;
+        changed = true;
+    }
+
+    if (changed) await upsertDiscoveredCity(env, { ...city, ...patch });
+    return {
+        primaryCached,
+        adjacentsCurated,
+        fullyCurated,
+        neighboursTotal: ids.length,
+        stamped: changed,
     };
 }
 
@@ -5680,6 +5763,68 @@ async function handleRegisterArea(
     } catch (e) {
         console.warn(`register-area upsert failed r${relationId}:`, e);
         return jsonResponse({ status: "store-failed", relationId }, 200, cors);
+    }
+}
+
+/**
+ * `POST /admin/verify-city` (secret) — run the star verification for one
+ * city NOW and stamp `fullyCuratedAt` / `adjacentsCuratedAt` if it passes
+ * (v684). Same server-side check as the cron's Phase-4 stamp (shared
+ * `verifyAndStampCity`), exposed so the laptop-prewarmer can earn the star
+ * the instant it finishes warming a city + its adjacents — instead of
+ * waiting for the cron to happen to pick that city. Body `{relationId}`.
+ * Returns the live verification result + whether a stamp was written.
+ */
+async function handleAdminVerifyCity(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...cors, Allow: "POST" },
+        });
+    }
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    let body: { relationId?: unknown };
+    try {
+        body = (await request.json()) as { relationId?: unknown };
+    } catch {
+        return jsonResponse({ error: "invalid JSON body" }, 400, cors);
+    }
+    const relationId = Number(body.relationId);
+    if (!Number.isFinite(relationId) || relationId <= 0) {
+        return jsonResponse(
+            { error: "relationId (positive number) required" },
+            400,
+            cors,
+        );
+    }
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+    // Use the stored city (extent + current stamps) so the verifier can
+    // derive neighbours and preserve name; fall back to a bare entry.
+    let city: CityEntry | undefined;
+    try {
+        city = (await getPopularCities(env)).find(
+            (c) => c.relationId === relationId,
+        );
+    } catch {
+        /* fall through to bare */
+    }
+    if (!city) city = { name: `relation ${relationId}`, relationId };
+    try {
+        const v = await verifyAndStampCity(env, city, ttlMs);
+        return jsonResponse({ relationId, name: city.name, ...v }, 200, cors);
+    } catch (e) {
+        return jsonResponse(
+            { error: e instanceof Error ? e.message : String(e) },
+            500,
+            cors,
+        );
     }
 }
 

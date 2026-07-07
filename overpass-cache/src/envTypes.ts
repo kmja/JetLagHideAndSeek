@@ -59,6 +59,13 @@ export interface Env {
      *  v676). The heavy refs+stations warms are skip-if-fresh + throttled,
      *  so repeat ticks are cheap. */
     ADJACENT_CURATION_ENABLED?: string;
+    /** Max cities that may do the HEAVY adjacent curation (per-neighbour
+     *  refs+stations) in a single cron tick (v684, default 4). Bounds cold
+     *  Overpass volume per tick so the cron can't burst the mirror's rate
+     *  limit; the rest defer their heavy warms to a later tick. Cheap
+     *  (already-warm) neighbours aren't affected. Raise after a full laptop
+     *  prewarm, or lower if the mirror is still complaining. */
+    ADJACENT_HEAVY_CITIES_PER_TICK?: string;
     /** Star-semantics escape hatch (v679). By DEFAULT the in-app star
      *  (`/api/warm-cities`) means "FULLY cached, including adjacent areas"
      *  — it reports only cities the cron has stamped `fullyCuratedAt`
