@@ -31,10 +31,23 @@
  * Usage:
  *   node scripts/build-world-cities.mjs [--limit N] [--no-reconcile]
  *        [--extent] [--replace] [--out world-cities.json]
+ *        [--region na,eu] [--continents Q49,Q46] [--new-limit N]
  *        [--email you@example.com]
  *
  *   --limit N       how many cities to pull from Wikidata (default 500;
  *                   raise to 3000 once you've validated the ids match).
+ *                   With --region/--continents, set this to a BUFFER above
+ *                   --new-limit (the top cities in a region are usually
+ *                   already seeded, so query more to find N NEW ones).
+ *   --region R      convenience continent filter — comma list of aliases:
+ *                   na (North America), eu (Europe), sa, af, as, oc.
+ *                   Maps to Wikidata continent QIDs. e.g. --region na,eu.
+ *   --continents Q  explicit Wikidata continent QIDs (comma), if you want
+ *                   ids not covered by --region. Merged with --region.
+ *   --new-limit N   in MERGE mode, cap the run to the N BIGGEST cities that
+ *                   aren't already in the file (by population). Existing
+ *                   entries are always kept; this only bounds how many NEW
+ *                   ones this run appends. Ignored with --replace.
  *   --no-reconcile  skip the Photon id-agreement pass (faster, riskier).
  *   --extent        derive + bake each city's bbox (adds ~1 req/city).
  *   --replace       overwrite the file; default MERGES into the existing
@@ -68,17 +81,53 @@ const REPLACE = !!arg("replace", false);
 const OUT = resolve(PKG_ROOT, String(arg("out", "world-cities.json")));
 const EMAIL = String(arg("email", "worldcities@example.com"));
 const UA = `JetLagHideAndSeek-worldcities/1.0 (${EMAIL})`;
+const NEW_LIMIT = arg("new-limit", false)
+    ? parseInt(String(arg("new-limit")), 10) || 0
+    : 0;
+
+// Continent filter (--region aliases + --continents QIDs). Empty = worldwide.
+const REGION_TO_QID = {
+    na: "Q49", // North America
+    eu: "Q46", // Europe
+    sa: "Q18", // South America
+    af: "Q15", // Africa
+    as: "Q48", // Asia
+    oc: "Q55643", // Oceania
+};
+const continentQids = new Set();
+const regionArg = arg("region", false);
+if (regionArg && typeof regionArg === "string") {
+    for (const r of regionArg.split(",").map((s) => s.trim().toLowerCase())) {
+        if (REGION_TO_QID[r]) continentQids.add(REGION_TO_QID[r]);
+        else if (r) console.warn(`[world-cities] unknown --region "${r}"`);
+    }
+}
+const continentsArg = arg("continents", false);
+if (continentsArg && typeof continentsArg === "string") {
+    for (const q of continentsArg.split(",").map((s) => s.trim())) {
+        if (/^Q\d+$/.test(q)) continentQids.add(q);
+    }
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Top-N cities by population WITH an OSM relation id. P279* keeps it to
  *  city-like classes; if Wikidata times out, lower --limit or drop the
- *  transitive subclass hop. */
+ *  transitive subclass hop. When continents are given, join through the
+ *  city's country (P17) to its continent (P30) and filter — so a run can
+ *  target just North America + Europe, etc. */
+const continentFilter =
+    continentQids.size > 0
+        ? `  ?city wdt:P17 ?country .
+  ?country wdt:P30 ?continent .
+  FILTER(?continent IN (${[...continentQids].map((q) => `wd:${q}`).join(", ")}))`
+        : "";
 const SPARQL = `
-SELECT ?city ?cityLabel ?pop ?osmrel WHERE {
+SELECT DISTINCT ?city ?cityLabel ?pop ?osmrel WHERE {
   ?city wdt:P1082 ?pop .
   ?city wdt:P402 ?osmrel .
   ?city wdt:P31/wdt:P279* wd:Q515 .
+${continentFilter}
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en,mul". }
 }
 ORDER BY DESC(?pop)
@@ -257,9 +306,29 @@ async function main() {
     let cities = await fetchWikidata();
     console.log(`[world-cities] Wikidata returned ${cities.length} cities`);
 
+    // Load the existing file up front so we can tell NEW cities from ones
+    // already seeded — both for the --new-limit cap and the early-stop that
+    // avoids reconciling the whole buffer once we have enough new ones.
+    let prior = [];
+    if (!REPLACE && existsSync(OUT)) {
+        try {
+            prior = JSON.parse(readFileSync(OUT, "utf8"));
+        } catch {
+            prior = [];
+        }
+    }
+    const priorIds = new Set(prior.map((c) => c.relationId));
+
     if (RECONCILE) {
-        console.log(`[world-cities] reconciling ids via Photon (~1 req/s) …`);
+        console.log(
+            `[world-cities] reconciling ids via Photon (~1 req/s)` +
+                (NEW_LIMIT ? `, stopping at ${NEW_LIMIT} new` : "") +
+                ` …`,
+        );
         let fixed = 0;
+        let newCount = 0;
+        const seen = new Set();
+        const kept = [];
         for (let i = 0; i < cities.length; i++) {
             const c = cities[i];
             const rid = await appResolveRelationId(c.name, c.relationId);
@@ -267,17 +336,46 @@ async function main() {
                 c.relationId = rid;
                 fixed++;
             }
+            // Re-dedupe: a reconcile can collapse two names onto one relation.
+            if (seen.has(c.relationId)) {
+                await sleep(1100);
+                continue;
+            }
+            seen.add(c.relationId);
+            kept.push(c);
+            if (!priorIds.has(c.relationId)) newCount++;
             if ((i + 1) % 50 === 0) {
-                console.log(`  … ${i + 1}/${cities.length} (${fixed} corrected)`);
+                console.log(
+                    `  … ${i + 1}/${cities.length} (${fixed} corrected, ${newCount} new)`,
+                );
+            }
+            // Early stop: we have the N biggest not-yet-seeded cities (the
+            // SPARQL is population-desc, so these ARE the biggest new ones).
+            if (NEW_LIMIT && newCount >= NEW_LIMIT) {
+                console.log(
+                    `[world-cities] reached --new-limit ${NEW_LIMIT} new cities — stopping early`,
+                );
+                break;
             }
             await sleep(1100);
         }
-        console.log(`[world-cities] reconcile done — ${fixed} ids corrected`);
-        // Re-dedupe: a reconcile can collapse two names onto one relation.
-        const seen = new Set();
-        cities = cities.filter((c) =>
-            seen.has(c.relationId) ? false : (seen.add(c.relationId), true),
+        cities = kept;
+        console.log(
+            `[world-cities] reconcile done — ${fixed} ids corrected, ${newCount} new`,
         );
+    } else if (NEW_LIMIT) {
+        // No reconcile: cap by Wikidata id vs the existing file.
+        const seen = new Set();
+        const kept = [];
+        let newCount = 0;
+        for (const c of cities) {
+            if (seen.has(c.relationId)) continue;
+            seen.add(c.relationId);
+            kept.push(c);
+            if (!priorIds.has(c.relationId)) newCount++;
+            if (newCount >= NEW_LIMIT) break;
+        }
+        cities = kept;
     }
 
     if (DO_EXTENT) {
@@ -293,9 +391,9 @@ async function main() {
     }
 
     // Merge into (or replace) the existing file.
+    const newlyAdded = cities.filter((c) => !priorIds.has(c.relationId)).length;
     let merged = cities;
-    if (!REPLACE && existsSync(OUT)) {
-        const prior = JSON.parse(readFileSync(OUT, "utf8"));
+    if (!REPLACE && prior.length > 0) {
         const byId = new Map();
         for (const c of prior) byId.set(c.relationId, c);
         for (const c of cities) byId.set(c.relationId, { ...byId.get(c.relationId), ...c });
@@ -310,7 +408,9 @@ async function main() {
     writeFileSync(OUT, JSON.stringify(merged, null, 0) + "\n");
     console.log(
         `[world-cities] wrote ${merged.length} cities → ${OUT}` +
-            (REPLACE ? " (replaced)" : " (merged)"),
+            (REPLACE
+                ? " (replaced)"
+                : ` (merged; +${newlyAdded} new, ${prior.length} kept)`),
     );
     console.log(
         `[world-cities] next: commit the file, then the cron/laptop caches ` +
