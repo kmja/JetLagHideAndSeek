@@ -94,6 +94,16 @@ const OVERPASS_MIRRORS = [
 // 502 promptly when the mirrors are genuinely down, so the client can
 // fall back (radius walk) instead of seeing an unreadable error.
 const UPSTREAM_TIMEOUT_MS = 25_000;
+// v696: a SHORTER per-attempt timeout for the USER-facing live path only.
+// The user path is `waitForOverpassSlot(USER_SLOT_WAIT_MS) + mirror race`,
+// and Cloudflare kills the isolate with a CORS-LESS 500 (which hard-blocks
+// the browser, masking the graceful fail-over) past ~30 s wall-clock. With
+// the old 8 s slot + 25 s race = 33 s, a game-start during an Overpass
+// outage reliably tripped that. Slot 3 s + race 20 s = 23 s keeps the worker
+// safely under the wall-clock so it returns its own CORS'd 502 and the
+// client falls over cleanly. The cron keeps the full 25 s (no wall-clock
+// pressure) for heavy prewarm queries.
+const USER_UPSTREAM_TIMEOUT_MS = 20_000;
 
 const CACHE_API_TTL_SECS = 24 * 60 * 60; // 24 h at the edge
 
@@ -159,7 +169,7 @@ const SLOT_WAIT_MAX_MS = 30_000;
  *  land on a free slot when one's near, then proceed to race the mirror
  *  (itself abort-bounded) if the slot is far off. v367: chosen so the
  *  request always resolves well inside Cloudflare's hang threshold. */
-const USER_SLOT_WAIT_MS = 8_000;
+const USER_SLOT_WAIT_MS = 3_000;
 
 /** v684: inter-fetch pacing floor for the CRON upstream path. A run of
  *  quick warms (many skip-if-stale HEADs punctuated by the occasional real
@@ -1634,7 +1644,10 @@ function synthesisMembersFromGeometry(geom: any, relationId: number) {
     return out;
 }
 
-async function fetchFromMirrorChain(query: string): Promise<Response | null> {
+async function fetchFromMirrorChain(
+    query: string,
+    timeoutMs: number = UPSTREAM_TIMEOUT_MS,
+): Promise<Response | null> {
     // Boundary queries (relation(N);out geom;) RACE the three
     // Overpass mirrors against polygons.openstreetmap.fr as tier-1
     // co-equals — first success wins. Previous design (v196) put
@@ -1663,7 +1676,7 @@ async function fetchFromMirrorChain(query: string): Promise<Response | null> {
             return null;
         });
     }
-    racers.push(() => fetchFromOverpassMirrors(query));
+    racers.push(() => fetchFromOverpassMirrors(query, timeoutMs));
 
     // First non-null wins. If both racers ultimately fail, we get null
     // here and the outer retry kicks in.
@@ -1722,11 +1735,12 @@ async function raceFirstSuccess(
  *  several tier-1 racers. */
 async function fetchFromOverpassMirrors(
     query: string,
+    timeoutMs: number = UPSTREAM_TIMEOUT_MS,
 ): Promise<Response | null> {
     const encoded = encodeURIComponent(query);
     const controllers = OVERPASS_MIRRORS.map(() => new AbortController());
     const timers: ReturnType<typeof setTimeout>[] = controllers.map((c) =>
-        setTimeout(() => c.abort(), UPSTREAM_TIMEOUT_MS),
+        setTimeout(() => c.abort(), timeoutMs),
     );
 
     // Large play-area polygons push the encoded query well past the
@@ -1803,13 +1817,14 @@ async function fetchFromOverpassMirrors(
  *  remaining wall-clock budget). */
 async function fetchFromMirrorChainWithRetry(
     query: string,
+    timeoutMs: number = UPSTREAM_TIMEOUT_MS,
 ): Promise<Response | null> {
     const t0 = Date.now();
-    const first = await fetchFromMirrorChain(query);
+    const first = await fetchFromMirrorChain(query, timeoutMs);
     if (first) return first;
     if (Date.now() - t0 > 6000) return null;
     await new Promise((r) => setTimeout(r, 1200));
-    return await fetchFromMirrorChain(query);
+    return await fetchFromMirrorChain(query, timeoutMs);
 }
 
 /**
@@ -1864,8 +1879,11 @@ async function fetchUpstreamStreaming(
     // v684: `true` = proceed-blind when uncertain (a user is waiting); the
     // cron callers keep the default (skip on uncertainty).
     await waitForOverpassSlot(`user-fetch ${status}`, USER_SLOT_WAIT_MS, true);
+    // v696: user path uses the SHORTER timeout so slot-wait + race stays
+    // under Cloudflare's ~30 s wall-clock (else the isolate is killed with a
+    // CORS-less 500 that hard-blocks the browser instead of a clean 502).
     const upstream = await upstreamSemaphore.run(() =>
-        fetchFromMirrorChainWithRetry(query),
+        fetchFromMirrorChainWithRetry(query, USER_UPSTREAM_TIMEOUT_MS),
     );
     if (!upstream) return null;
     return streamCompressIntoR2(env, ctx, cacheKey, upstream, {}, cors, status);
