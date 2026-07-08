@@ -3953,7 +3953,12 @@ out center;
  */
 const WATER_FILTERS: string[] = [
     '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
-    '["waterway"~"^(river|canal)$"]["name"]',
+    // v690: NO `["name"]` on the line filter — OSM tags a river's name on
+    // only some segments, so per-segment name-gating left the overlay
+    // skipping unnamed segments of an obvious river. Type filter still
+    // excludes drains/streams/ditches. Keep byte-identical to measuring.ts
+    // + laptop-prewarm.mjs + NearestReferencePreview.tsx.
+    '["waterway"~"^(river|canal)$"]',
 ];
 
 /** Small pad like the station field — the play area plus a touch of its

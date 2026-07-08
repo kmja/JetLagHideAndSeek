@@ -427,7 +427,16 @@ export const determineMeasuringBoundary = async (
                     undefined,
                     "nwr",
                     "geom",
-                    ['["waterway"~"^(river|canal)$"]["name"]'],
+                    // v690: NO `["name"]` on the line filter — OSM often
+                    // tags a river's name on only some of its way segments,
+                    // so requiring a name per-segment left gaps where the
+                    // overlay stopped following an obvious river (an unnamed
+                    // `waterway=river` segment of the Sahibi near Delhi).
+                    // Rivers/canals are bodies of water even unnamed; the
+                    // `^(river|canal)$` type filter still excludes
+                    // drains/streams/ditches. Named-only stays on the
+                    // `natural=water` POLYGON filter (unnamed ponds excluded).
+                    ['["waterway"~"^(river|canal)$"]'],
                     60,
                 ));
             if (!prewarmed) requestWaterWarmAll();

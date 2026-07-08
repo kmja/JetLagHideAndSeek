@@ -579,7 +579,9 @@ function areaStationsQuery(extent) {
 // from the boundary extent — so this must match the worker builder.
 const WATER_FILTERS = [
     '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
-    '["waterway"~"^(river|canal)$"]["name"]',
+    // v690: NO `["name"]` on the line filter (unnamed river/canal segments
+    // are still bodies of water). Byte-identical to the worker builder.
+    '["waterway"~"^(river|canal)$"]',
 ];
 const PAD_KM_WATER = 2;
 function waterQuery(extent) {

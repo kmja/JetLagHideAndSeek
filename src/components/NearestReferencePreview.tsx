@@ -564,7 +564,9 @@ async function fetchNearestWater(
                 undefined,
                 "nwr",
                 "geom",
-                ['["waterway"~"^(river|canal)$"]["name"]'],
+                // v690: NO `["name"]` on the line filter (unnamed river/
+                // canal segments count); byte-identical to WATER_FILTERS.
+                ['["waterway"~"^(river|canal)$"]'],
                 60,
                 /* silent */ true,
             );
