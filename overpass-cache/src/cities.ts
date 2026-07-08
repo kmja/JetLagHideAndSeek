@@ -79,6 +79,19 @@ export interface CityEntry {
      *  Phase-4 caller alongside `adjacentsCuratedAt`. Optional — a city is
      *  unstarred until it's earned. */
     fullyCuratedAt?: number;
+    /** Unix ms at which this city's PRIMARY relation was last verified fully
+     *  cached (boundary + references + hiding-zone stations all in R2) —
+     *  independent of adjacent areas (v690). This is the DEFAULT star gate:
+     *  a star means "this city's core play area runs Overpass-free". The
+     *  stricter `fullyCuratedAt` (primary + every adjacent) is behind
+     *  `WARM_STAR_STRICT="true"`; the looser extent-only star is behind
+     *  `WARM_STAR_LENIENT="true"`. Rationale: OSM has no "greater metro"
+     *  relation to seed (Stockholm's suburbs are separate municipalities),
+     *  so players extend to the metro by ADDING specific neighbours — which
+     *  self-warm (and are one-ring-prewarmed) on add. Gating the star on ALL
+     *  ~15 neighbours made big cities almost never star (7/3334); the
+     *  primary being cached is what the normal game actually needs. */
+    primaryCuratedAt?: number;
 }
 
 /**
@@ -129,6 +142,12 @@ function mergeUnique(...lists: CityEntry[][]): CityEntry[] {
                 entry.fullyCuratedAt !== undefined
             ) {
                 existing.fullyCuratedAt = entry.fullyCuratedAt;
+            }
+            if (
+                existing.primaryCuratedAt === undefined &&
+                entry.primaryCuratedAt !== undefined
+            ) {
+                existing.primaryCuratedAt = entry.primaryCuratedAt;
             }
         }
     }

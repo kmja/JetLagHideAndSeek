@@ -2229,25 +2229,30 @@ async function handleWarmCities(
     cors: HeadersInit,
 ): Promise<Response> {
     let ids: number[] = [];
-    // v679: the star means "FULLY cached, including adjacent areas". A city
-    // is warm (starred) only once the cron has stamped `fullyCuratedAt` —
-    // the PRIMARY's boundary+refs+stations AND every adjacent area all
-    // present in R2. This is the single "ready to play, zero Overpass"
-    // marker; there is one list (the merged `getPopularCities` union) and
-    // the star is its truthful "done" subset. Escape hatch: set
-    // WARM_STAR_LENIENT="true" to revert to the old "has extent" behaviour
-    // (broader but not a guarantee of full caching) without a code change.
+    // v690: the star means "this city's PRIMARY play area runs Overpass-free"
+    // — a city is warm once `primaryCuratedAt` is stamped (its own
+    // boundary+refs+stations all in R2). The stricter "primary + EVERY
+    // adjacent" gate (`fullyCuratedAt`) made big cities almost never star
+    // (7/3334) because one flaky neighbour warm blocks the whole city, and
+    // it doesn't match usage: players extend to a metro by ADDING a few
+    // specific neighbours, which self-warm (and are one-ring-prewarmed) on
+    // add — they don't need all ~15 cached up front. Two escape hatches
+    // (precedence lenient > strict > default):
+    //   WARM_STAR_STRICT="true"  → require fullyCuratedAt (primary+adjacents)
+    //   WARM_STAR_LENIENT="true" → require only a backfilled extent (loosest;
+    //                              NOT a guarantee refs/stations are cached)
     const lenient = env.WARM_STAR_LENIENT === "true";
+    const strict = env.WARM_STAR_STRICT === "true";
     try {
         const cities = await getPopularCities(env);
         ids = cities
-            .filter((c) =>
-                typeof c.relationId !== "number"
-                    ? false
-                    : lenient
-                      ? Array.isArray(c.extent) && c.extent.length === 4
-                      : typeof c.fullyCuratedAt === "number",
-            )
+            .filter((c) => {
+                if (typeof c.relationId !== "number") return false;
+                if (lenient)
+                    return Array.isArray(c.extent) && c.extent.length === 4;
+                if (strict) return typeof c.fullyCuratedAt === "number";
+                return typeof c.primaryCuratedAt === "number";
+            })
             .map((c) => c.relationId);
     } catch (e) {
         console.warn("warm-cities lookup failed:", e);
@@ -4936,6 +4941,21 @@ async function verifyAndStampCity(
         changed = true;
     } else if (!fullyCurated && fullStamp !== undefined) {
         patch.fullyCuratedAt = undefined;
+        changed = true;
+    }
+
+    // v690: the DEFAULT star gate — PRIMARY fully cached (boundary+refs+
+    // stations), independent of adjacents. Stamped/cleared just like
+    // fullyCuratedAt so `handleWarmCities` reads a cheap marker, not a live
+    // R2 sweep.
+    const primStamp = city.primaryCuratedAt;
+    const primAge =
+        typeof primStamp === "number" ? Date.now() - primStamp : Infinity;
+    if (primaryCached && primAge > ttlMs) {
+        patch.primaryCuratedAt = Date.now();
+        changed = true;
+    } else if (!primaryCached && primStamp !== undefined) {
+        patch.primaryCuratedAt = undefined;
         changed = true;
     }
 
@@ -7641,7 +7661,9 @@ async function handleAdminAdjacentCurationStatus(
             stampedFully: number | null;
         }> = [];
         let fullyCached = 0; // live-verified primary + adjacents
-        let stampedFully = 0; // carry the fullyCuratedAt stamp (the star)
+        let stampedFully = 0; // carry the fullyCuratedAt stamp
+        let primaryCachedCount = 0; // live-verified PRIMARY (the v690 star)
+        let stampedPrimary = 0; // carry the primaryCuratedAt stamp (the star)
         let adjacencyUnknown = 0;
 
         for (const city of probe) {
@@ -7654,6 +7676,7 @@ async function handleAdminAdjacentCurationStatus(
                     ? city.fullyCuratedAt
                     : null;
             if (fullStamp !== null) stampedFully++;
+            if (typeof city.primaryCuratedAt === "number") stampedPrimary++;
             if (!city.extent) {
                 rows.push({
                     name: city.name,
@@ -7696,6 +7719,7 @@ async function handleAdminAdjacentCurationStatus(
             // The star = primary fully cached AND adjacents fully cached.
             const fully = primaryCached && adjacentsCurated;
             if (fully) fullyCached++;
+            if (primaryCached) primaryCachedCount++;
             rows.push({
                 name: city.name,
                 relationId: city.relationId,
@@ -7722,9 +7746,15 @@ async function handleAdminAdjacentCurationStatus(
                 starMeaning:
                     env.WARM_STAR_LENIENT === "true"
                         ? "lenient: has-extent"
-                        : "strict: fully cached incl. adjacents",
+                        : env.WARM_STAR_STRICT === "true"
+                          ? "strict: fully cached incl. adjacents"
+                          : "default: primary fully cached",
                 targets: targets.length,
                 probed: probe.length,
+                // v690: the default star = primaryCached. `fullyCached`
+                // (primary+adjacents) is kept for the stricter picture.
+                primaryCached: primaryCachedCount,
+                stampedPrimary,
                 fullyCached,
                 stampedFully,
                 adjacencyUnknown,
