@@ -399,6 +399,54 @@ async function main() {
         for (const c of cities) byId.set(c.relationId, { ...byId.get(c.relationId), ...c });
         merged = [...byId.values()];
     }
+
+    // Same-city, different-id dedupe. relationId dedupe alone can't catch a
+    // city that appears twice under different ids — a legacy hand-curated
+    // "City, Country" entry vs the reconciled Wikidata "City" entry (the
+    // Paris #7444 / #71525, Gothenburg, Manchester dups). Collapse by
+    // normalised core name (strip ", …", diacritics, a trailing " DC"):
+    // within a name group, if ANY entry carries a population it's the
+    // reconciled Wikidata one — keep it (highest pop) and drop the rest;
+    // if none has a population, keep the shortest (barest) name. This only
+    // ever drops a NO-population duplicate when a WITH-population same-name
+    // entry exists, so it can't merge two distinct real cities that both
+    // came from the population-ranked query.
+    const coreName = (s) =>
+        String(s || "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[̀-ͯ]/g, "")
+            .replace(/,.*$/, "")
+            .replace(/\s+d\.?c\.?$/, "")
+            .trim();
+    const nameGroups = new Map();
+    for (const c of merged) {
+        const k = coreName(c.name);
+        if (!nameGroups.has(k)) nameGroups.set(k, []);
+        nameGroups.get(k).push(c);
+    }
+    let collapsed = 0;
+    merged = [];
+    for (const group of nameGroups.values()) {
+        if (group.length === 1) {
+            merged.push(group[0]);
+            continue;
+        }
+        const best = [...group].sort((a, b) => {
+            const pa = typeof a.population === "number" ? a.population : -1;
+            const pb = typeof b.population === "number" ? b.population : -1;
+            if (pb !== pa) return pb - pa;
+            return String(a.name).length - String(b.name).length;
+        })[0];
+        merged.push(best);
+        collapsed += group.length - 1;
+    }
+    if (collapsed > 0) {
+        console.log(
+            `[world-cities] collapsed ${collapsed} same-city duplicate id(s)`,
+        );
+    }
+
     // Stable order: population desc (unranked last), then name.
     merged.sort(
         (a, b) =>
