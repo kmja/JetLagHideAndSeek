@@ -65,6 +65,14 @@ export interface CityEntry {
      *  islands-with-no-neighbours may lack it (a no-neighbour city stamps
      *  vacuously). */
     adjacentsCuratedAt?: number;
+    /** ISO 3166-1 alpha-2 country code (uppercase), when known (v693 —
+     *  from the world-cities.json seed's Wikidata P297, or the all-the-cities
+     *  backfill for legacy entries). The region tag the laptop warm-order
+     *  (`--priority-regions`) and any future per-country cap key off, and
+     *  what makes the geographic distribution exact. Optional — a few
+     *  entries whose country couldn't be resolved lack it (they warm last
+     *  under a priority order). */
+    country?: string;
     /** Population, when known (from the world-cities.json Wikidata seed,
      *  v680). Used only to sort the seed "biggest first"; the worker does
      *  not otherwise consume it. Optional. */
@@ -128,6 +136,9 @@ function mergeUnique(...lists: CityEntry[][]): CityEntry[] {
             // has.
             if (existing.extent === undefined && entry.extent !== undefined) {
                 existing.extent = entry.extent;
+            }
+            if (existing.country === undefined && entry.country !== undefined) {
+                existing.country = entry.country;
             }
             if (
                 existing.adjacentsCuratedAt === undefined &&

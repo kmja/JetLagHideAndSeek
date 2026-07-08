@@ -139,6 +139,29 @@ const COLD_ONLY = !!args["cold-only"];
 // order, instead of the default shuffle — so the cities you're most likely
 // to play (and NA/EU majors) warm before the long auto-discovered tail.
 const SEED_FIRST = !!args["seed-first"];
+// v693: warm the PLAYER-relevant regions first. The seed is a pure
+// population ranking (44% Asia, 20% China), but a US YouTube show's audience
+// plays in the US + English-speaking world + Western Europe — so warming
+// biggest-population-first stars Chongqing before Manchester. This orders
+// the whole city list by region TIER (the list order below = the tiers),
+// then by population within each tier, so the stars players actually use
+// light up first. Non-listed / unknown-country cities warm last (by
+// population). Bare `--priority-regions` uses the default list; pass
+// `--priority-regions US,GB,CA,…` to customise the tiers/order.
+const DEFAULT_PRIORITY_REGIONS = [
+    "US", "CA", "GB", "IE", "AU", "NZ", // English-speaking (the core audience)
+    "DE", "FR", "ES", "IT", "NL", "BE", "AT", "CH", "PT", // Western Europe
+    "SE", "NO", "DK", "FI", "IS", // Nordics
+];
+const PRIORITY_REGIONS = (() => {
+    const v = args["priority-regions"];
+    if (!v) return null;
+    if (v === true) return DEFAULT_PRIORITY_REGIONS;
+    return String(v)
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => /^[A-Z]{2}$/.test(s));
+})();
 // v684: after warming, call POST /admin/verify-city per city so the star
 // (`fullyCuratedAt`) is stamped IMMEDIATELY instead of waiting for the cron
 // to happen to pick that city. On by default; --skip-verify to drop.
@@ -1023,6 +1046,22 @@ function orderSeedFirst(cities, seedIds) {
         if (!seen.has(c.relationId)) out.push(c);
     }
     return out;
+}
+
+/** v693: order the city list by PRIORITY-REGION tier (list index), then by
+ *  population within each tier. A city whose `country` isn't in the list (or
+ *  is unknown) sorts last, by population. So `US,GB,…` warms every US city
+ *  (biggest first), then every UK city, …, then the rest. Requires the seed
+ *  to carry `country` (baked by the generator / backfilled). */
+function orderByPriorityRegions(cities, regions) {
+    const rank = new Map(regions.map((c, i) => [c, i]));
+    const rankOf = (c) =>
+        c.country && rank.has(c.country) ? rank.get(c.country) : Infinity;
+    return [...cities].sort(
+        (a, b) =>
+            rankOf(a) - rankOf(b) ||
+            (b.population ?? -1) - (a.population ?? -1),
+    );
 }
 
 /** v684: ask the worker to verify + stamp one city's star
@@ -2384,7 +2423,17 @@ async function main() {
     let cities = await listCities();
     console.log(`fetched ${cities.length} cities; processing up to ${MAX_CITIES}`);
 
-    if (SEED_FIRST) {
+    // v693: --priority-regions takes precedence over --seed-first (it already
+    // orders by population within each region tier, so it subsumes "biggest
+    // first" while adding the player-region tiers on top).
+    if (PRIORITY_REGIONS) {
+        const withCountry = cities.filter((c) => c.country).length;
+        cities = orderByPriorityRegions(cities, PRIORITY_REGIONS);
+        console.log(
+            `--priority-regions: warming ${PRIORITY_REGIONS.join(",")} first ` +
+                `(then by population); ${withCountry}/${cities.length} cities have a country tag`,
+        );
+    } else if (SEED_FIRST) {
         const seedIds = await fetchSeedIds();
         cities = orderSeedFirst(cities, seedIds);
         console.log(
@@ -2446,9 +2495,9 @@ async function main() {
         // cron's per-run shuffle) — a run then warms a fresh slice rather
         // than always re-walking the list head. Deterministic order isn't
         // needed here; the per-query check-fresh makes it idempotent.
-        // SKIP the shuffle with --seed-first: the point there is to warm the
-        // biggest cities first, in order.
-        if (!SEED_FIRST) {
+        // SKIP the shuffle with --seed-first / --priority-regions: the point
+        // there is to warm cities in a deliberate order, not a random slice.
+        if (!SEED_FIRST && !PRIORITY_REGIONS) {
             for (let i = todo.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [todo[i], todo[j]] = [todo[j], todo[i]];

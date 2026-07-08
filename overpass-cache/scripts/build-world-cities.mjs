@@ -116,18 +116,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *  transitive subclass hop. When continents are given, join through the
  *  city's country (P17) to its continent (P30) and filter — so a run can
  *  target just North America + Europe, etc. */
-const continentFilter =
+// Country ISO 3166-1 alpha-2 (P297) via the city's country (P17), baked
+// into each entry as `country` — the region tag the laptop warm-order and
+// per-country cap key off, and what makes the distribution analysis exact.
+// When continents are requested we already bind ?country for the P30
+// filter; otherwise bind it OPTIONALly so a worldwide run still gets codes.
+const whereBody =
     continentQids.size > 0
         ? `  ?city wdt:P17 ?country .
   ?country wdt:P30 ?continent .
-  FILTER(?continent IN (${[...continentQids].map((q) => `wd:${q}`).join(", ")}))`
-        : "";
+  FILTER(?continent IN (${[...continentQids].map((q) => `wd:${q}`).join(", ")}))
+  OPTIONAL { ?country wdt:P297 ?iso . }`
+        : `  OPTIONAL {
+    ?city wdt:P17 ?country .
+    ?country wdt:P297 ?iso .
+  }`;
 const SPARQL = `
-SELECT DISTINCT ?city ?cityLabel ?pop ?osmrel WHERE {
+SELECT DISTINCT ?city ?cityLabel ?pop ?osmrel ?iso WHERE {
   ?city wdt:P1082 ?pop .
   ?city wdt:P402 ?osmrel .
   ?city wdt:P31/wdt:P279* wd:Q515 .
-${continentFilter}
+${whereBody}
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en,mul". }
 }
 ORDER BY DESC(?pop)
@@ -150,11 +159,13 @@ async function fetchWikidata() {
         const relationId = parseInt(r.osmrel?.value ?? "", 10);
         const name = r.cityLabel?.value ?? "";
         const population = parseInt(r.pop?.value ?? "", 10) || undefined;
+        const iso = (r.iso?.value ?? "").trim().toUpperCase();
+        const country = /^[A-Z]{2}$/.test(iso) ? iso : undefined;
         if (!Number.isFinite(relationId) || relationId <= 0) continue;
         if (!name || name.startsWith("Q")) continue; // unlabeled
         if (seen.has(relationId)) continue;
         seen.add(relationId);
-        out.push({ name, relationId, population });
+        out.push({ name, relationId, population, country });
     }
     return out;
 }
@@ -396,7 +407,18 @@ async function main() {
     if (!REPLACE && prior.length > 0) {
         const byId = new Map();
         for (const c of prior) byId.set(c.relationId, c);
-        for (const c of cities) byId.set(c.relationId, { ...byId.get(c.relationId), ...c });
+        for (const c of cities) {
+            const existing = byId.get(c.relationId) ?? {};
+            // Field-fill: never let a new query with a MISSING country wipe a
+            // country the prior file already had (Wikidata P297 is sometimes
+            // absent); prefer a present value from either side.
+            byId.set(c.relationId, {
+                ...existing,
+                ...c,
+                country: c.country ?? existing.country,
+                population: c.population ?? existing.population,
+            });
+        }
         merged = [...byId.values()];
     }
 
