@@ -2229,20 +2229,22 @@ async function handleWarmCities(
     cors: HeadersInit,
 ): Promise<Response> {
     let ids: number[] = [];
-    // v690: the star means "this city's PRIMARY play area runs Overpass-free"
-    // — a city is warm once `primaryCuratedAt` is stamped (its own
-    // boundary+refs+stations all in R2). The stricter "primary + EVERY
-    // adjacent" gate (`fullyCuratedAt`) made big cities almost never star
-    // (7/3334) because one flaky neighbour warm blocks the whole city, and
-    // it doesn't match usage: players extend to a metro by ADDING a few
-    // specific neighbours, which self-warm (and are one-ring-prewarmed) on
-    // add — they don't need all ~15 cached up front. Two escape hatches
-    // (precedence lenient > strict > default):
-    //   WARM_STAR_STRICT="true"  → require fullyCuratedAt (primary+adjacents)
-    //   WARM_STAR_LENIENT="true" → require only a backfilled extent (loosest;
-    //                              NOT a guarantee refs/stations are cached)
+    // The star means "FULLY cached, including adjacent areas" (v679, kept as
+    // the default). A star is a PROMISE: selecting a starred city offers
+    // adding its adjacent areas, so if those aren't warm the player hits
+    // live-Overpass errors mid-game — a broken promise. So a city is warm
+    // ONLY once the cron/laptop has stamped `fullyCuratedAt` (the PRIMARY's
+    // boundary+refs+stations AND every adjacent area all present in R2). It
+    // takes time to warm every adjacent of the whole seed, but the operator
+    // runs the laptop continuously and we get there — sparse-but-truthful
+    // beats broad-but-lying. (The v690 primary-only default was reverted:
+    // it dropped the adjacency guarantee the star exists to make.) Escape
+    // hatch: `WARM_STAR_LENIENT="true"` reverts to the extent-only star
+    // (broader, appears sooner, but NOT a full-cache guarantee) — intended
+    // only as a temporary fallback. The separate `primaryCuratedAt` stamp is
+    // a DIAGNOSTIC (surfaced in /admin/adjacent-curation-status so the
+    // operator can watch primary-progress vs full-progress), never the star.
     const lenient = env.WARM_STAR_LENIENT === "true";
-    const strict = env.WARM_STAR_STRICT === "true";
     try {
         const cities = await getPopularCities(env);
         ids = cities
@@ -2250,8 +2252,7 @@ async function handleWarmCities(
                 if (typeof c.relationId !== "number") return false;
                 if (lenient)
                     return Array.isArray(c.extent) && c.extent.length === 4;
-                if (strict) return typeof c.fullyCuratedAt === "number";
-                return typeof c.primaryCuratedAt === "number";
+                return typeof c.fullyCuratedAt === "number";
             })
             .map((c) => c.relationId);
     } catch (e) {
@@ -7746,13 +7747,12 @@ async function handleAdminAdjacentCurationStatus(
                 starMeaning:
                     env.WARM_STAR_LENIENT === "true"
                         ? "lenient: has-extent"
-                        : env.WARM_STAR_STRICT === "true"
-                          ? "strict: fully cached incl. adjacents"
-                          : "default: primary fully cached",
+                        : "strict: fully cached incl. adjacents",
                 targets: targets.length,
                 probed: probe.length,
-                // v690: the default star = primaryCached. `fullyCached`
-                // (primary+adjacents) is kept for the stricter picture.
+                // The star = fullyCached (primary + adjacents). primaryCached
+                // is a DIAGNOSTIC — how many primaries are done, so the
+                // operator can watch progress toward the (stricter) star.
                 primaryCached: primaryCachedCount,
                 stampedPrimary,
                 fullyCached,

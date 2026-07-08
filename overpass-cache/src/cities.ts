@@ -81,16 +81,14 @@ export interface CityEntry {
     fullyCuratedAt?: number;
     /** Unix ms at which this city's PRIMARY relation was last verified fully
      *  cached (boundary + references + hiding-zone stations all in R2) —
-     *  independent of adjacent areas (v690). This is the DEFAULT star gate:
-     *  a star means "this city's core play area runs Overpass-free". The
-     *  stricter `fullyCuratedAt` (primary + every adjacent) is behind
-     *  `WARM_STAR_STRICT="true"`; the looser extent-only star is behind
-     *  `WARM_STAR_LENIENT="true"`. Rationale: OSM has no "greater metro"
-     *  relation to seed (Stockholm's suburbs are separate municipalities),
-     *  so players extend to the metro by ADDING specific neighbours — which
-     *  self-warm (and are one-ring-prewarmed) on add. Gating the star on ALL
-     *  ~15 neighbours made big cities almost never star (7/3334); the
-     *  primary being cached is what the normal game actually needs. */
+     *  independent of adjacent areas. This is a progress DIAGNOSTIC only
+     *  (surfaced in `/admin/adjacent-curation-status` as `primaryCached`/
+     *  `stampedPrimary`), NOT the star: the star is the strict
+     *  `fullyCuratedAt` (primary + every adjacent), since selecting a starred
+     *  city offers adding its adjacents and an un-warm adjacent would be a
+     *  broken promise. Lets the operator watch "primaries done" vs "fully
+     *  done" while the adjacent warming grinds through the whole seed.
+     *  Stamped/cleared by `verifyAndStampCity` alongside `fullyCuratedAt`. */
     primaryCuratedAt?: number;
 }
 

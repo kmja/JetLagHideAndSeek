@@ -82,22 +82,14 @@ export interface Env {
      *  star = "has a backfilled `extent`" (broader, appears sooner, but NOT
      *  a guarantee of full caching). Intended only as a temporary fallback
      *  if the strict star is too sparse before the cron/laptop backfill
-     *  catches up. Replaces the v676 `WARM_REQUIRE_ADJACENTS` opt-in.
-     *  Note (v690): the DEFAULT star is now "primary fully cached"
-     *  (`primaryCuratedAt`), NOT the strict primary+adjacents gate — see
-     *  `WARM_STAR_STRICT`. Lenient still beats both. */
+     *  catches up. Replaces the v676 `WARM_REQUIRE_ADJACENTS` opt-in. The
+     *  DEFAULT (this flag unset) is the STRICT star — primary + every
+     *  adjacent cached — because selecting a starred city offers adding its
+     *  adjacents, so an un-warm adjacent would be a broken promise (a v690
+     *  experiment defaulting to primary-only was reverted for that reason).
+     *  The separate `primaryCuratedAt` stamp is only a progress DIAGNOSTIC
+     *  in `/admin/adjacent-curation-status`, never the star. */
     WARM_STAR_LENIENT?: string;
-    /** Star-semantics escape hatch, opposite direction (v690). The DEFAULT
-     *  in-app star means "this city's PRIMARY play area runs Overpass-free"
-     *  (`primaryCuratedAt` — its own boundary+refs+stations in R2),
-     *  regardless of adjacent areas. Set to the exact string "true" to
-     *  require the STRICT gate instead (`fullyCuratedAt` — primary AND every
-     *  adjacent). The strict gate is truer but nearly unreachable for big
-     *  cities (one flaky neighbour warm blocks the star: 7/3334 observed),
-     *  and it doesn't match usage — players extend to a metro by adding a
-     *  few specific neighbours, which self-warm on add. Precedence:
-     *  WARM_STAR_LENIENT > WARM_STAR_STRICT > default (primary). */
-    WARM_STAR_STRICT?: string;
     /** Feature flag for the legacy speculative name-discovery cron pass
      *  (v680). OFF by default: the prewarm list is now the world-cities.json
      *  seed (biggest cities) plus organic player-driven growth
