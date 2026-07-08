@@ -140,6 +140,17 @@ function mergeUnique(...lists: CityEntry[][]): CityEntry[] {
             if (existing.country === undefined && entry.country !== undefined) {
                 existing.country = entry.country;
             }
+            // v694 fix: fill population too. Without this, a growth-doc entry
+            // (player-added / discovered — no population) that shadows a seed
+            // city dropped the seed's population, so the laptop warm-order
+            // (--priority-regions, --seed-first) sorted it as pop -1 and
+            // warmed it LAST within its tier (NYC after Manhattan).
+            if (
+                existing.population === undefined &&
+                entry.population !== undefined
+            ) {
+                existing.population = entry.population;
+            }
             if (
                 existing.adjacentsCuratedAt === undefined &&
                 entry.adjacentsCuratedAt !== undefined
