@@ -2572,7 +2572,13 @@ async function main() {
     // + star stamp) before the next, so a city is fully READY and STARRED in
     // warm order (NYC whole, then LA whole, …). The separate tail-end
     // one-ring + batch-verify passes are skipped — they're inline now.
-    const cityCompleteSeen = new Set(todo.map((c) => c.relationId));
+    // The dedup set starts EMPTY: it only prevents re-warming a suburb shared
+    // between two adjacent cities. It must NOT be pre-seeded with the todo
+    // ids — a neighbour that's ALSO a seed city (Newark near NYC) still has
+    // to be warmed NOW so NYC can earn its star immediately; when Newark
+    // later comes up on its own it just re-hits skip-if-fresh. (v696.1 fix:
+    // pre-seeding blocked NYC from warming those neighbours → star pending.)
+    const cityCompleteSeen = new Set();
     let oneRingProcessed = [];
     if (CITY_COMPLETE && !ONLY_CITY) {
         for (let i = 0; i < todo.length; i++) {
