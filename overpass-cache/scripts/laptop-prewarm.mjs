@@ -14,7 +14,7 @@
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
  *     [--only-city <relationId|name>] \
- *     [--cold-only] \
+ *     [--cold-only] [--skip-starred] [--adjacents] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
  *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
@@ -135,6 +135,18 @@ const ONLY_CITY = args["only-city"] ? String(args["only-city"]) : null;
 // its time re-`check-fresh`ing the popular front of the list (which the
 // cron keeps warm). Ignored with --only-city.
 const COLD_ONLY = !!args["cold-only"];
+// v701: `--skip-starred` drops cities that already carry the relevant STAR
+// so a restart doesn't re-walk (HEAD every query + verify) the cities it
+// already finished. In the DEFAULT primaries pass it skips cities in
+// /api/warm-cities (primaryCuratedAt); in the --adjacents pass it skips
+// /api/adjacent-ready-cities (adjacentsCuratedAt). Distinct from --cold-only
+// (which keys off /admin/prewarmed-cities' boundary+adjacency heuristic):
+// this keys off the actual star gate, so "skip what's done" means exactly
+// what the app shows as done. CAVEAT: after a cache-key filter change (a new
+// reference filter, a wrapper edit), do a FULL pass WITHOUT this flag first —
+// a star stamped under the old key would otherwise be skipped and never
+// re-verified/re-warmed under the new key. Ignored with --only-city.
+const SKIP_STARRED = !!args["skip-starred"];
 // v684: process the world-cities SEED (biggest cities) FIRST, in population
 // order, instead of the default shuffle — so the cities you're most likely
 // to play (and NA/EU majors) warm before the long auto-discovered tail.
@@ -1187,6 +1199,29 @@ async function verifyStars(cities) {
         await sleep(80); // gentle on the worker; these are R2-only ops
     }
     console.log(`=== verify done — ${starred}/${cities.length} primary-warm ===`);
+}
+
+/**
+ * v701: the set of relation ids that already carry a STAR, read from the
+ * public gate endpoint (no auth). `kind="warm"` → /api/warm-cities
+ * (primaryCuratedAt, the ⭐); `kind="adjacent"` → /api/adjacent-ready-cities
+ * (adjacentsCuratedAt). Used by --skip-starred to drop already-done cities so
+ * a restart heads straight to the un-done tail. Returns an empty set on any
+ * failure (so --skip-starred degrades to "process everything"). Ids are
+ * stringified to match the todo filter.
+ */
+async function fetchStarredRelationIds(kind) {
+    const path =
+        kind === "adjacent" ? "/api/adjacent-ready-cities" : "/api/warm-cities";
+    try {
+        const resp = await fetchRetry(`${WORKER}${path}`, {}, "starred-cities");
+        if (!resp.ok) return new Set();
+        const data = await resp.json();
+        const ids = Array.isArray(data.ids) ? data.ids : [];
+        return new Set(ids.map((n) => String(n)));
+    } catch {
+        return new Set();
+    }
 }
 
 /**
@@ -2707,6 +2742,24 @@ async function main() {
                 todo = todo.filter((c) => !warm.has(String(c.relationId)));
                 console.log(
                     `--cold-only: skipped ${before - todo.length} already-warm cities; ${todo.length} cold remain`,
+                );
+            }
+        }
+        // v701: --skip-starred — drop cities already carrying the star for
+        // THIS pass (default = primary star; --adjacents = adjacent-ready),
+        // so a restart doesn't re-walk finished cities.
+        if (SKIP_STARRED) {
+            const kind = DO_ADJACENTS ? "adjacent" : "warm";
+            const starred = await fetchStarredRelationIds(kind);
+            if (starred.size > 0) {
+                const before = todo.length;
+                todo = todo.filter((c) => !starred.has(String(c.relationId)));
+                console.log(
+                    `--skip-starred: skipped ${before - todo.length} already-${kind === "adjacent" ? "adjacent-ready" : "starred"} cities; ${todo.length} remain`,
+                );
+            } else {
+                console.warn(
+                    `--skip-starred: no ${kind} stars returned — processing all (endpoint empty/unreachable?)`,
                 );
             }
         }
