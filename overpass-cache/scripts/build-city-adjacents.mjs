@@ -100,6 +100,8 @@ const MIN_DENSITY = parseFloat(arg("min-density", "0.2"));
 const CONTIGUOUS = !arg("no-contiguous", false);
 const CONCURRENCY = parseInt(arg("concurrency", "4"), 10) || 4;
 const DELAY_MS = parseInt(arg("delay-ms", "600"), 10);
+const VERBOSE = !!arg("verbose", false);
+const PROBE = !!arg("probe", false);
 const OUT = resolve(PKG_ROOT, String(arg("out", "world-cities.json")));
 const EMAIL = String(arg("email", "worldcities@example.com"));
 const UA = `JetLagHideAndSeek-adjacents/1.0 (${EMAIL})`;
@@ -107,7 +109,17 @@ const UA = `JetLagHideAndSeek-adjacents/1.0 (${EMAIL})`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── Overpass ──────────────────────────────────────────────────────────
+// PRIMARY endpoint is the app's OWN overpass-cache worker — the exact path the
+// browser (and the validated /debug/adjacency tool) uses. It does mirror
+// rotation, R2 caching, and abort-remark handling server-side, so the script
+// gets identical results to the browser and doesn't get rate-limited hitting
+// public mirrors directly (which returned empty/failed for every stops query).
+// Public mirrors stay as a fallback if the worker is unreachable.
+const WORKER_BASE =
+    String(arg("worker", "")) ||
+    "https://jlhs-overpass-cache.karl-mj-andersson.workers.dev";
 const OVERPASS_ENDPOINTS = [
+    `${WORKER_BASE}/api/interpreter`,
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.osm.ch/api/interpreter",
@@ -614,6 +626,8 @@ async function findAdjacents(city) {
     }
     const primaryPolygon = dropFarExclaves(rawPrimary);
     const { lat, lng } = largestComponentCentre(rawPrimary);
+    if (VERBOSE)
+        console.log(`    centroid=${lat.toFixed(4)},${lng.toFixed(4)}`);
 
     const primaryLevel =
         LEVEL === "auto" ? await fetchAdminLevel(primaryOsmId) : LEVEL;
@@ -622,6 +636,10 @@ async function findAdjacents(city) {
         fetchRailStops(lat, lng, RADIUS_KM, KINDS),
         fetchAdminCandidates(primaryLevel, lat, lng, RADIUS_KM),
     ]);
+    if (VERBOSE)
+        console.log(
+            `    stops=${stops.length} candidates=${adminCandidates.length} level=${primaryLevel}`,
+        );
     if (stops.length === 0) {
         return { ids: [], names: [], note: "0 stops (check centroid/kinds)" };
     }
@@ -760,7 +778,54 @@ function selectCities(all) {
     return list;
 }
 
+/** `--probe`: one boundary fetch + one subway stops query for Helsinki, with
+ *  full HTTP diagnostics. Isolates "is Overpass reachable at all from this
+ *  machine" from the selection logic — run this first if a real run returns
+ *  0 stops everywhere. */
+async function probe() {
+    console.log(`[probe] worker=${WORKER_BASE}`);
+    console.log(`[probe] fetching Helsinki (r34914) boundary…`);
+    const geom = await fetchBoundary(34914);
+    if (!geom) {
+        console.log(`[probe] ✗ boundary fetch returned null`);
+        return;
+    }
+    const { lat, lng } = largestComponentCentre(geom);
+    console.log(
+        `[probe] ✓ boundary ${geom.type}, centroid ${lat.toFixed(4)},${lng.toFixed(4)}`,
+    );
+    const q = buildStopsQueryForKind(lat, lng, RADIUS_KM, "subway");
+    for (const url of OVERPASS_ENDPOINTS) {
+        try {
+            const res = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "User-Agent": UA,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: "data=" + encodeURIComponent(q),
+            });
+            const text = await res.text();
+            let count = "?";
+            try {
+                count = (JSON.parse(text).elements ?? []).length;
+            } catch {
+                /* not json */
+            }
+            console.log(
+                `[probe] ${url}\n        status=${res.status} bytes=${text.length} nodes=${count} head=${JSON.stringify(text.slice(0, 160))}`,
+            );
+        } catch (e) {
+            console.log(`[probe] ${url}\n        ERROR ${e}`);
+        }
+    }
+}
+
 async function main() {
+    if (PROBE) {
+        await probe();
+        return;
+    }
     const all = JSON.parse(readFileSync(OUT, "utf8"));
     const byRel = new Map(all.map((c) => [c.relationId, c]));
     const targets = selectCities(all);
