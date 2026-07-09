@@ -35,7 +35,17 @@ import { fetchRawBoundaryPolygon } from "./polygonsOsmFr";
 import type { OpenStreetMap } from "./types";
 import { CacheType } from "./types";
 
-export type RailRouteKind = "subway" | "light_rail" | "commuter" | "tram";
+/** The transit modes the reach can follow — ALL the game's allowed modes,
+ *  not just rail. Bus + ferry matter: Amsterdam's north-of-IJ areas are
+ *  ferry/bus-served, so a rail-only reach left them as gaps. "commuter" is
+ *  `route=train` (local/suburban), kept separate from long-distance. */
+export type RailRouteKind =
+    | "subway"
+    | "light_rail"
+    | "commuter"
+    | "tram"
+    | "bus"
+    | "ferry";
 
 export interface TransitReachCandidate {
     /** OSM relation id of the municipality. */
@@ -110,6 +120,13 @@ export function buildRailNetworkStopsQuery(
         routeSelectors.push(`relation["route"="light_rail"]${around};`);
     if (kinds.includes("tram"))
         routeSelectors.push(`relation["route"="tram"]${around};`);
+    if (kinds.includes("ferry"))
+        routeSelectors.push(`relation["route"="ferry"]${around};`);
+    if (kinds.includes("bus"))
+        // Bus is the heavy one — a metro has hundreds of routes and their
+        // stops number in the thousands — but it's the mode that fills the
+        // ferry/rail gaps (rural neighbours a player can still reach by bus).
+        routeSelectors.push(`relation["route"="bus"]${around};`);
     if (kinds.includes("commuter"))
         // v706: match `route=train` EXCLUDING only long-distance / high-speed
         // / night services, instead of REQUIRING service=commuter|suburban.
@@ -143,6 +160,9 @@ function inferStopKind(tags?: Record<string, string>): RailRouteKind {
     if (tags.light_rail === "yes" || tags.station === "light_rail")
         return "light_rail";
     if (tags.railway === "tram_stop" || tags.tram === "yes") return "tram";
+    if (tags.amenity === "ferry_terminal" || tags.ferry === "yes")
+        return "ferry";
+    if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
     return "commuter";
 }
 

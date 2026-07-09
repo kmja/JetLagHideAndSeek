@@ -55,6 +55,8 @@ const KIND_OPTIONS: RailRouteKind[] = [
     "light_rail",
     "commuter",
     "tram",
+    "ferry",
+    "bus",
 ];
 const PRESETS = [
     "Stockholm",
@@ -115,10 +117,16 @@ interface AdminCandidate {
 export function DebugAdjacencyPage() {
     const [query, setQuery] = useState("Stockholm");
     const [radiusKm, setRadiusKm] = useState(40);
+    // Default to ALL the game's transit modes (bus + ferry included) — the
+    // reach is "everywhere any allowed mode goes", not just rail. Bus is
+    // heavy; toggle it off if a run is slow.
     const [kinds, setKinds] = useState<RailRouteKind[]>([
         "subway",
         "light_rail",
         "commuter",
+        "tram",
+        "ferry",
+        "bus",
     ]);
     const [adminLevel, setAdminLevel] = useState("auto");
     const [sortKey, setSortKey] = useState<SortKey>("area");
