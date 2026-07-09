@@ -375,6 +375,47 @@ function extentAreaKm2(ext: [number, number, number, number]): number {
  * Polygon or a compact MultiPolygon. Distance-agnostic: a big offshore island
  * 35 km out is still dropped because it's small relative to the mainland.
  */
+/** True (geodesic) area of one polygon ring-set, km². Falls back to the bbox
+ *  estimate if turf throws. Used instead of bbox area so a component with a
+ *  HUGE bbox but little real land — Tokyo's Izu/Ogasawara island region, a
+ *  ~500 km-wide scatter of tiny islands — doesn't masquerade as the "largest"
+ *  landmass and drag the mainland's centroid out to sea. */
+function truePolyAreaKm2(poly: GeoJSON.Position[][]): number {
+    try {
+        const m2 = area({ type: "Polygon", coordinates: poly } as never);
+        if (Number.isFinite(m2) && m2 > 0) return m2 / 1e6;
+    } catch {
+        /* fall through */
+    }
+    return extentAreaKm2(polygonExtent({ type: "Polygon", coordinates: poly }));
+}
+
+/** Bbox-midpoint of a boundary's LARGEST component by TRUE area — the robust
+ *  query anchor. A city's mainland dwarfs every offshore island in real land
+ *  area, so this lands on the city core even when the whole-boundary bbox
+ *  midpoint sits in open ocean between the mainland and far-flung islands
+ *  (Tokyo owns the Izu + Ogasawara chain ~1000 km south). */
+function largestComponentCentre(
+    geom: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): { lat: number; lng: number } {
+    const polys: GeoJSON.Position[][][] =
+        geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+    let best = polys[0] ?? [];
+    let bestArea = -Infinity;
+    for (const poly of polys) {
+        const a = truePolyAreaKm2(poly);
+        if (a > bestArea) {
+            bestArea = a;
+            best = poly;
+        }
+    }
+    const [maxLat, minLng, minLat, maxLng] = polygonExtent({
+        type: "Polygon",
+        coordinates: best,
+    });
+    return { lat: (maxLat + minLat) / 2, lng: (minLng + maxLng) / 2 };
+}
+
 export function dropFarExclaves(
     geom: GeoJSON.Polygon | GeoJSON.MultiPolygon,
 ): GeoJSON.Polygon | GeoJSON.MultiPolygon {
@@ -382,7 +423,9 @@ export function dropFarExclaves(
         return geom;
     const parts = geom.coordinates.map((poly) => {
         const ext = polygonExtent({ type: "Polygon", coordinates: poly });
-        return { poly, ext, area: extentAreaKm2(ext) };
+        // TRUE area, not bbox area — a wide scatter of tiny islands has a big
+        // bbox but little land, and must NOT out-rank the compact mainland.
+        return { poly, ext, area: truePolyAreaKm2(poly) };
     });
     const largest = parts.reduce((a, b) => (b.area > a.area ? b : a));
     const MIN_FRACTION = 0.15;
@@ -447,12 +490,13 @@ export async function findTransitReachCandidates(
         ? dropFarExclaves(rawPrimaryPolygon)
         : null;
 
-    const { lat, lng } = primaryPolygon
-        ? (() => {
-              const [maxLat, minLng, minLat, maxLng] =
-                  polygonExtent(primaryPolygon);
-              return { lat: (maxLat + minLat) / 2, lng: (minLng + maxLng) / 2 };
-          })()
+    // Anchor on the LARGEST TRUE-AREA component of the raw boundary (the
+    // mainland), NOT the cleaned-polygon bbox midpoint. Two components a
+    // `dropFarExclaves` pass happens to keep (a mainland + a near peninsula,
+    // or a stubborn large-bbox maritime scatter) would push a bbox midpoint
+    // off the city; the largest-land-mass centre stays on the core.
+    const { lat, lng } = rawPrimaryPolygon
+        ? largestComponentCentre(rawPrimaryPolygon)
         : await resolvePrimaryCentroid(primary);
 
     const [stops, adminCandidates] = await Promise.all([
