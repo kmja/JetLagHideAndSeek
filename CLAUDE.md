@@ -530,8 +530,10 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   band neighbours filtered by a `hasMatchingTransit` bbox flag) AND a
   prototype TRANSIT-REACH selector (`findTransitReachCandidates`,
   `src/maps/api/transitReach.ts`) that inverts the question: fetch the
-  primary's rail network (subway + light-rail + `route=train service~
-  commuter|suburban`), take every stop those routes serve, and return the
+  primary's rail network (subway + light-rail + `route=train` excluding
+  long-distance/high-speed — broad enough to catch differently-tagged local
+  rail like Stockholm's Roslagsbanan to Täby, radius-bounded), take every
+  stop those routes serve, and return the
   municipalities the stops land in (point-in-polygon against each
   candidate's real boundary) — literally "everywhere the subway / commuter
   train runs". Shows the two candidate sets side by side (in-both / rail-

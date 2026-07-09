@@ -103,8 +103,16 @@ export function buildRailNetworkStopsQuery(
     if (kinds.includes("tram"))
         routeSelectors.push(`relation["route"="tram"]${around};`);
     if (kinds.includes("commuter"))
+        // v706: match `route=train` EXCLUDING only long-distance / high-speed
+        // / night services, instead of REQUIRING service=commuter|suburban.
+        // The strict form missed local rail that's tagged differently or not
+        // at all — Stockholm's Roslagsbanan (narrow-gauge SL rail to Täby)
+        // wasn't `service=commuter`, so Täby dropped out. `!~` also matches
+        // routes with NO `service` tag (untagged local lines). Over-reach from
+        // an intercity line that merely passes through is bounded by the
+        // admin-candidate radius (its far stops match no nearby municipality).
         routeSelectors.push(
-            `relation["route"="train"]["service"~"^(commuter|suburban)$"]${around};`,
+            `relation["route"="train"]["service"!~"^(long_distance|high_speed|night|car|car_shuttle)$"]${around};`,
         );
     return `
 [out:json][timeout:90];
