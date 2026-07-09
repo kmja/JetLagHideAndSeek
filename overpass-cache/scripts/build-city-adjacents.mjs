@@ -145,8 +145,72 @@ async function overpass(query, tries = 4) {
     throw lastErr ?? new Error("Overpass failed");
 }
 
-// ── boundary polygon (out geom → osmtogeojson) ──────────────────────────
-async function fetchBoundary(relationId) {
+// ── boundary polygon ────────────────────────────────────────────────────
+// PRIMARY source is polygons.openstreetmap.fr — a dedicated, server-cached
+// GeoJSON service (exactly what the app uses). It returns a clean
+// Polygon/MultiPolygon directly and does NOT rate-limit like the Overpass
+// interpreter, so hammering it for hundreds of candidate boundaries is safe.
+// The Overpass `out geom` + osmtogeojson path is only the fallback.
+const POLY_GEOJSON = "https://polygons.openstreetmap.fr/get_geojson.py";
+const POLY_INDEX = "https://polygons.openstreetmap.fr/";
+
+function normalizeToPolyGeometry(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.type === "Polygon" || raw.type === "MultiPolygon") return raw;
+    if (raw.type === "Feature") {
+        const g = raw.geometry;
+        if (g && (g.type === "Polygon" || g.type === "MultiPolygon")) return g;
+        return null;
+    }
+    if (raw.type === "FeatureCollection") {
+        for (const f of raw.features ?? []) {
+            const g = f?.geometry;
+            if (g && (g.type === "Polygon" || g.type === "MultiPolygon"))
+                return g;
+        }
+    }
+    if (raw.type === "GeometryCollection") {
+        for (const g of raw.geometries ?? []) {
+            if (g && (g.type === "Polygon" || g.type === "MultiPolygon"))
+                return g;
+        }
+    }
+    return null;
+}
+
+async function fetchPolyOsmFr(relationId) {
+    const url = `${POLY_GEOJSON}?id=${relationId}&params=0`;
+    let text;
+    try {
+        const res = await fetch(url, {
+            headers: { "User-Agent": UA, Accept: "application/json" },
+        });
+        if (!res.ok) return { geom: null, retry: false };
+        text = (await res.text()).trim();
+    } catch {
+        return { geom: null, retry: false };
+    }
+    if (text === "None") return { geom: null, retry: true }; // not yet built
+    if (!text || text.startsWith("<") || text.startsWith("!"))
+        return { geom: null, retry: false };
+    try {
+        return { geom: normalizeToPolyGeometry(JSON.parse(text)), retry: false };
+    } catch {
+        return { geom: null, retry: false };
+    }
+}
+
+async function triggerPolyBuild(relationId) {
+    try {
+        await fetch(`${POLY_INDEX}?id=${relationId}`, {
+            headers: { "User-Agent": UA },
+        });
+    } catch {
+        /* fire-and-forget */
+    }
+}
+
+async function fetchBoundaryViaOverpass(relationId) {
     const q = `[out:json][timeout:120];relation(${relationId});out geom;`;
     let json;
     try {
@@ -156,8 +220,6 @@ async function fetchBoundary(relationId) {
     }
     const elements = json?.elements;
     if (!Array.isArray(elements)) return null;
-    // Ensure the relation carries boundary tags so osmtogeojson stitches
-    // rings instead of emitting raw LineStrings (mirrors polygonsOsmFr.ts).
     const annotated = {
         elements: elements.map((el) =>
             el?.type === "relation" && el?.id === relationId
@@ -185,6 +247,20 @@ async function fetchBoundary(relationId) {
     return null;
 }
 
+async function fetchBoundary(relationId) {
+    let { geom, retry } = await fetchPolyOsmFr(relationId);
+    if (geom) return geom;
+    if (retry) {
+        // polygons.osm.fr hasn't precomputed this one yet — kick a build and
+        // retry once after a short wait (same as the app's first-time path).
+        await triggerPolyBuild(relationId);
+        await sleep(4000);
+        ({ geom } = await fetchPolyOsmFr(relationId));
+        if (geom) return geom;
+    }
+    return fetchBoundaryViaOverpass(relationId);
+}
+
 async function fetchAdminLevel(relationId) {
     const q = `[out:json][timeout:60];relation(${relationId});out tags;`;
     try {
@@ -197,26 +273,35 @@ async function fetchAdminLevel(relationId) {
 }
 
 // ── transit-reach queries (ported from transitReach.ts) ─────────────────
-function buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds) {
+/** One route-selector per kind. Kept separate so the stops fetch can query
+ *  each mode on its OWN Overpass call — a huge metro's bus network alone can
+ *  time out and, in a combined query, would zero out subway/rail too. */
+function routeSelectorFor(kind, around) {
+    switch (kind) {
+        case "subway":
+            return `relation["route"="subway"]${around};`;
+        case "light_rail":
+            return `relation["route"="light_rail"]${around};`;
+        case "tram":
+            return `relation["route"="tram"]${around};`;
+        case "ferry":
+            return `relation["route"="ferry"]${around};`;
+        case "bus":
+            return `relation["route"="bus"]${around};`;
+        case "commuter":
+            return `relation["route"="train"]["service"!~"^(long_distance|high_speed|night|car|car_shuttle)$"]${around};`;
+        default:
+            return "";
+    }
+}
+
+function buildStopsQueryForKind(lat, lng, radiusKm, kind) {
     const r = Math.round(radiusKm * 1000);
-    const around = `(around:${r},${lat},${lng})`;
-    const sel = [];
-    if (kinds.includes("subway"))
-        sel.push(`relation["route"="subway"]${around};`);
-    if (kinds.includes("light_rail"))
-        sel.push(`relation["route"="light_rail"]${around};`);
-    if (kinds.includes("tram")) sel.push(`relation["route"="tram"]${around};`);
-    if (kinds.includes("ferry"))
-        sel.push(`relation["route"="ferry"]${around};`);
-    if (kinds.includes("bus")) sel.push(`relation["route"="bus"]${around};`);
-    if (kinds.includes("commuter"))
-        sel.push(
-            `relation["route"="train"]["service"!~"^(long_distance|high_speed|night|car|car_shuttle)$"]${around};`,
-        );
+    const sel = routeSelectorFor(kind, `(around:${r},${lat},${lng})`);
     return `
-[out:json][timeout:120];
+[out:json][timeout:180];
 (
-${sel.join("\n")}
+${sel}
 )->.routes;
 node(r.routes);
 out;
@@ -240,33 +325,26 @@ out tags bb;
 }
 
 async function fetchRailStops(lat, lng, radiusKm, kinds) {
-    let json;
-    try {
-        json = await overpass(
-            buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds),
-        );
-    } catch {
-        return [];
-    }
     const stops = [];
-    for (const el of json.elements ?? []) {
-        if (el.type !== "node") continue;
-        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
-        stops.push({ lat: el.lat, lon: el.lon, kind: inferStopKind(el.tags) });
+    const failed = [];
+    for (const kind of kinds) {
+        let json;
+        try {
+            json = await overpass(buildStopsQueryForKind(lat, lng, radiusKm, kind));
+        } catch {
+            failed.push(kind); // e.g. Tokyo's bus net times out — keep the rest
+            continue;
+        }
+        for (const el of json.elements ?? []) {
+            if (el.type !== "node") continue;
+            if (typeof el.lat !== "number" || typeof el.lon !== "number")
+                continue;
+            stops.push({ lat: el.lat, lon: el.lon, kind });
+        }
     }
+    if (failed.length)
+        console.log(`    (stops: ${failed.join("+")} mode(s) timed out, skipped)`);
     return stops;
-}
-
-function inferStopKind(tags) {
-    if (!tags) return "commuter";
-    if (tags.station === "subway" || tags.subway === "yes") return "subway";
-    if (tags.light_rail === "yes" || tags.station === "light_rail")
-        return "light_rail";
-    if (tags.railway === "tram_stop" || tags.tram === "yes") return "tram";
-    if (tags.amenity === "ferry_terminal" || tags.ferry === "yes")
-        return "ferry";
-    if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
-    return "commuter";
 }
 
 async function fetchAdminCandidates(primaryLevel, lat, lng, radiusKm) {
