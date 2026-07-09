@@ -4863,6 +4863,13 @@ async function deriveAdjacentNeighbourIds(
         /* no admin level — topological source still works */
     }
 
+    // Primary's admin_level as a number, for the containing-boundary filter
+    // below (drop the state/county that engulfs the city — v697).
+    const primaryLevelNum =
+        adminLevel && Number.isFinite(parseInt(adminLevel, 10))
+            ? parseInt(adminLevel, 10)
+            : null;
+
     const neighbourIds = new Set<number>();
     let adjacencyKnown = false;
     const topoQuery = buildTopologicalAdjacencyQuery(city.relationId);
@@ -4891,6 +4898,26 @@ async function deriveAdjacentNeighbourIds(
                     el.tags?.type === "boundary" &&
                     el.tags?.boundary === "administrative"
                 ) {
+                    // v697: EXCLUDE containing/parent boundaries — the topo
+                    // pass returns the county/state/country whose boundary
+                    // shares ways with the city's coast/border (New York
+                    // STATE #61320 came back as an NYC "neighbour", a
+                    // state-sized play area that soft-timed-out on refs).
+                    // A real adjacent municipality is at the SAME admin_level
+                    // or FINER (numerically >=); anything coarser (smaller
+                    // number) engulfs the primary — never a play-area
+                    // expansion. Mirrors the client's `withinLevelWindow`
+                    // lower bound. Missing/unparseable levels are kept (can't
+                    // reason — same as the client's no-op fallback).
+                    const elLvlRaw = el.tags.admin_level;
+                    const elLvl = elLvlRaw ? parseInt(elLvlRaw, 10) : NaN;
+                    if (
+                        primaryLevelNum !== null &&
+                        Number.isFinite(elLvl) &&
+                        elLvl < primaryLevelNum
+                    ) {
+                        continue;
+                    }
                     neighbourIds.add(el.id);
                 }
             }
