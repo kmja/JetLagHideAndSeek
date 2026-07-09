@@ -191,6 +191,7 @@ export function PlayAreaPreviewMap({
     veilSublabel,
     awaitAdjacent = false,
     preferCombinedBoundary = false,
+    deferReveal = false,
 }: {
     value: OpenStreetMap;
     height?: string;
@@ -224,6 +225,16 @@ export function PlayAreaPreviewMap({
      *  report). The wizard leaves it false (there `value` is a candidate
      *  being previewed, which may differ from the committed play area). */
     preferCombinedBoundary?: boolean;
+    /** v703: keep the loading veil up until tiles actually paint, even on a
+     *  polygon-cache hit. The lobby preview is a FRESHLY-mounted GL instance
+     *  (separate from the wizard's — closing the setup dialog destroyed that
+     *  one), so its canvas is blank at mount; the cache-hit fast path
+     *  (`initialRevealed`) then revealed a BLANK canvas that repainted in
+     *  view — the "lobby reloaded the map" flash. Deferring the reveal shows
+     *  a clean loader until the tiles land instead. The wizard leaves this
+     *  false: there the cache-hit fast path avoids a veil flash when `value`
+     *  swaps within the already-painted mounted instance. */
+    deferReveal?: boolean;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     // v228: opt into the dark-tile CSS filter only when the resolved
@@ -650,7 +661,8 @@ export function PlayAreaPreviewMap({
         // at mount, so honour the full gate instead of flashing the map
         // and then widening. On a full cache hit the gate still clears in
         // well under a second (cached boundary + HTTP-cached tiles).
-        initialRevealed: cacheHitAtMount.current && !awaitAdjacent,
+        initialRevealed:
+            cacheHitAtMount.current && !awaitAdjacent && !deferReveal,
     });
 
     // v382: surface the reveal moment to the wizard so it can fade in

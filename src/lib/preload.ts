@@ -169,6 +169,29 @@ export function runPreloadForBucket(
     else if (bucket === "transit") runTransitPreload();
 }
 
+/**
+ * Bound a preload step so it always reaches a terminal state (v703). A
+ * hung fetch — the transit relation-endpoint `fetch()` has no timeout, and
+ * the live-Overpass fallback is a 190 s wait — otherwise left a step's
+ * `await` pending forever, so the progress stuck at e.g. "5/6" and the
+ * bucket stayed in-flight with no failure ever surfaced. On timeout the
+ * race rejects, the caller's catch treats it as a failed step (no data,
+ * no timestamp) and the loop moves on, so the bucket resolves to an honest
+ * un-badged state the user can retry with "Load now".
+ */
+const PRELOAD_STEP_TIMEOUT_MS = 45_000;
+function withPreloadTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+    return Promise.race([
+        p,
+        new Promise<T>((_, reject) =>
+            setTimeout(
+                () => reject(new Error(`preload step timed out: ${label}`)),
+                PRELOAD_STEP_TIMEOUT_MS,
+            ),
+        ),
+    ]);
+}
+
 function runMapPreload(): void {
     // Idempotent — a second call while one is in flight just returns.
     if (preloadBucketInFlight.get().map) return;
@@ -278,7 +301,14 @@ function runReferencesPreload(): void {
     // Wire-byte accounting via cacheFetch instrumentation. Cache hits
     // contribute zero bytes — accurate "data the user actually downloaded".
     startMeter("references");
-    void prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES)
+    void withPreloadTimeout(
+        prefetchFamiliesInOneQuery(STANDARD_REFERENCE_FAMILIES),
+        "references",
+    )
+        .catch(() => {
+            // Timed out / failed — fall through to the .then so the bucket
+            // resolves (badge stays off if nothing cached) instead of hanging.
+        })
         .then(() => {
             preloadBucketBytes.set({
                 ...preloadBucketBytes.get(),
@@ -402,14 +432,17 @@ function runTransitPreload(): void {
     void (async () => {
         if (hsrQuery) {
             try {
-                const d = await getOverpassData(
-                    hsrQuery,
-                    undefined,
-                    CacheType.ZONE_CACHE,
-                    undefined,
-                    false,
-                    undefined,
-                    true,
+                const d = await withPreloadTimeout(
+                    getOverpassData(
+                        hsrQuery,
+                        undefined,
+                        CacheType.ZONE_CACHE,
+                        undefined,
+                        false,
+                        undefined,
+                        true,
+                    ),
+                    "hsr",
                 );
                 if (
                     d &&
@@ -427,12 +460,15 @@ function runTransitPreload(): void {
 
         for (const mode of modes) {
             try {
-                const fc = await fetchTransitRoutesFeatures(mode, true);
+                const fc = await withPreloadTimeout(
+                    fetchTransitRoutesFeatures(mode, true),
+                    mode,
+                );
                 if (fc?.features && fc.features.length > 0) {
                     anyTransitData = true;
                 }
             } catch {
-                /* swallow */
+                /* swallow — timeout or fetch error; badge stays honest */
             } finally {
                 markDone(mode);
             }

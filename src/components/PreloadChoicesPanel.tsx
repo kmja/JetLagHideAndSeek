@@ -335,21 +335,37 @@ function BucketStatus({
         );
     }
 
+    if (!enabled) {
+        return (
+            <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full shrink-0 bg-muted-foreground/30" />
+                <span className="text-xs text-muted-foreground">
+                    Disabled — won't be downloaded
+                </span>
+            </div>
+        );
+    }
+    // Enabled but not downloaded / not in flight. v703: give the user a
+    // real "Load now" button — the preload otherwise runs only at hiding-
+    // period start, and a partially-failed run (a timed-out step) leaves the
+    // bucket un-downloaded with no way to retry from the UI.
     return (
-        <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2">
-            <span
-                className={cn(
-                    "w-2 h-2 rounded-full shrink-0",
-                    enabled ? "bg-yellow-400/70" : "bg-muted-foreground/30",
-                )}
-            />
-            <span className="text-xs text-muted-foreground">
-                {enabled
-                    ? gameStarted
-                        ? "Not downloaded — will load on demand"
-                        : "Not downloaded yet — will run at hiding period start"
-                    : "Disabled — won't be downloaded"}
-            </span>
+        <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md flex items-center gap-2 justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2 h-2 rounded-full shrink-0 bg-yellow-400/70" />
+                <span className="text-xs text-muted-foreground truncate">
+                    {gameStarted
+                        ? "Not downloaded"
+                        : "Not downloaded yet — loads at hiding-period start"}
+                </span>
+            </div>
+            <button
+                type="button"
+                onClick={() => runPreloadForBucket(bucketId)}
+                className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+                Load now
+            </button>
         </div>
     );
 }

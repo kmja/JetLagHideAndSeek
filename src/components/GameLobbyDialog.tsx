@@ -793,6 +793,7 @@ export function GameLobbyDialog() {
                                     value={$mapGeoLocation!}
                                     height="h-[180px]"
                                     preferCombinedBoundary
+                                    deferReveal
                                 />
                                 {isHost && (
                                     <button
