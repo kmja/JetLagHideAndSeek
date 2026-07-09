@@ -536,7 +536,12 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   candidate's real boundary) — literally "everywhere the subway / commuter
   train runs". Shows the two candidate sets side by side (in-both / rail-
   only / admin-only) so the idea can be eyeballed on Stockholm + presets
-  before it's wired into the wizard. **NOT the default yet** — read-only
+  before it's wired into the wizard. **Prefer few-large over many-small
+  (v706):** a `candidate level` control (auto / 6 county / 7 / 8 city)
+  targets a COARSER admin level so a metro returns a handful of counties
+  instead of dozens of tiny suburbs (Chicago's annoyance); plus per-
+  candidate area (km²), a `largest / most-stops / nearest` sort (default
+  largest), and a min-area slider. **NOT the default yet** — read-only
   inspector, writes no global state; the wizard still uses admin-adjacency.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
   overlay at once via a `preview` prop on each overlay (shadows its

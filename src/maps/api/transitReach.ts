@@ -42,6 +42,10 @@ export interface TransitReachCandidate {
     distanceKm: number;
     /** The route kinds whose stops reach it (subway / commuter / …). */
     kinds: RailRouteKind[];
+    /** Estimated bbox area, km² — the "few large over many small" signal. */
+    areaKm2: number;
+    /** OSM admin_level of this candidate (coarser = larger unit). */
+    adminLevel: string | null;
     /** [maxLat, minLng, minLat, maxLng] — Photon order, for framing. */
     extent: [number, number, number, number];
 }
@@ -68,6 +72,8 @@ interface RailStop {
 interface AdminStub {
     id: number;
     name: string;
+    adminLevel: string | null;
+    areaKm2: number;
     extent: [number, number, number, number];
     lat: number;
     lng: number;
@@ -187,15 +193,19 @@ async function resolvePrimaryCentroid(
     return { lat, lng };
 }
 
-/** Admin municipalities near the centroid — reuse the shipped band query at
- *  the primary's own level when known, else the broad local-admin sweep. */
+/** Admin municipalities near the centroid. With `adminLevelOverride` set,
+ *  queries THAT level (e.g. "6" = county) instead of the primary's own — the
+ *  "few large over many small" lever: a coarser level returns a handful of
+ *  counties rather than dozens of tiny suburbs (Chicago's problem). Default
+ *  uses the primary's own level, else the broad local-admin sweep. */
 async function fetchAdminCandidates(
     primary: OpenStreetMap,
     lat: number,
     lng: number,
     radiusKm: number,
+    adminLevelOverride?: string,
 ): Promise<AdminStub[]> {
-    const primaryLevel = primary.properties.type;
+    const primaryLevel = adminLevelOverride ?? primary.properties.type;
     const isNumericLevel =
         typeof primaryLevel === "string" && /^\d+$/.test(primaryLevel);
     const query = isNumericLevel
@@ -234,6 +244,8 @@ async function fetchAdminCandidates(
         out.push({
             id: el.id,
             name,
+            adminLevel: el.tags?.admin_level ?? null,
+            areaKm2: bboxAreaKm2(el.bounds),
             extent: [
                 el.bounds.maxlat,
                 el.bounds.minlon,
@@ -245,6 +257,19 @@ async function fetchAdminCandidates(
         });
     }
     return out;
+}
+
+function bboxAreaKm2(b: {
+    minlat: number;
+    minlon: number;
+    maxlat: number;
+    maxlon: number;
+}): number {
+    const midLat = (b.minlat + b.maxlat) / 2;
+    const latKm = Math.abs(b.maxlat - b.minlat) * 111;
+    const lngKm =
+        Math.abs(b.maxlon - b.minlon) * 111 * Math.cos((midLat * Math.PI) / 180);
+    return latKm * lngKm * 0.55; // match BBOX_FILL_FACTOR
 }
 
 function haversineKm(
@@ -278,6 +303,9 @@ export async function findTransitReachCandidates(
     options: {
         radiusKm?: number;
         kinds?: RailRouteKind[];
+        /** Override the candidate admin_level ("6" = county, "7", "8" =
+         *  municipality). Coarser = fewer, larger adjacents. */
+        adminLevel?: string;
     } = {},
 ): Promise<TransitReachResult> {
     const radiusKm = options.radiusKm ?? 40;
@@ -292,7 +320,13 @@ export async function findTransitReachCandidates(
             console.warn("[transit-reach] rail stops fetch failed:", e);
             return [] as RailStop[];
         }),
-        fetchAdminCandidates(primary, lat, lng, radiusKm).catch((e) => {
+        fetchAdminCandidates(
+            primary,
+            lat,
+            lng,
+            radiusKm,
+            options.adminLevel,
+        ).catch((e) => {
             console.warn("[transit-reach] admin candidates fetch failed:", e);
             return [] as AdminStub[];
         }),
@@ -356,6 +390,8 @@ export async function findTransitReachCandidates(
                 stopCount: inside.length,
                 distanceKm: haversineKm(lat, lng, cand.lat, cand.lng),
                 kinds: [...kindSet],
+                areaKm2: cand.areaKm2,
+                adminLevel: cand.adminLevel,
                 extent: cand.extent,
             });
         }

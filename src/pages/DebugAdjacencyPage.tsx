@@ -33,13 +33,51 @@ const KIND_OPTIONS: RailRouteKind[] = [
 const PRESETS = [
     "Stockholm",
     "New York City",
+    "Chicago",
     "London",
     "Paris",
     "Berlin",
-    "Chicago",
-    "Sydney",
+    "Munich",
+    "Hamburg",
+    "Madrid",
+    "Barcelona",
+    "Amsterdam",
     "Copenhagen",
+    "Oslo",
+    "Helsinki",
+    "Vienna",
+    "Prague",
+    "Warsaw",
+    "Budapest",
+    "Rome",
+    "Milan",
+    "Lisbon",
+    "Zurich",
+    "Brussels",
+    "Toronto",
+    "Montreal",
+    "Vancouver",
+    "Boston",
+    "Washington",
+    "San Francisco",
+    "Los Angeles",
+    "Philadelphia",
+    "Sydney",
+    "Melbourne",
+    "Tokyo",
+    "Osaka",
+    "Seoul",
+    "Singapore",
+    "Hong Kong",
 ];
+
+const ADMIN_LEVELS: { label: string; value: string }[] = [
+    { label: "auto", value: "auto" },
+    { label: "6 (county)", value: "6" },
+    { label: "7", value: "7" },
+    { label: "8 (city)", value: "8" },
+];
+type SortKey = "area" | "stops" | "distance";
 
 interface AdminCandidate {
     name: string;
@@ -56,6 +94,9 @@ export function DebugAdjacencyPage() {
         "light_rail",
         "commuter",
     ]);
+    const [adminLevel, setAdminLevel] = useState("auto");
+    const [sortKey, setSortKey] = useState<SortKey>("area");
+    const [minAreaKm2, setMinAreaKm2] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [primaryName, setPrimaryName] = useState<string | null>(null);
@@ -100,12 +141,14 @@ export function DebugAdjacencyPage() {
                         console.warn("admin adjacency failed", e);
                         return [] as AdminCandidate[];
                     }),
-                findTransitReachCandidates(primary, { radiusKm, kinds }).catch(
-                    (e) => {
-                        console.warn("transit reach failed", e);
-                        return null;
-                    },
-                ),
+                findTransitReachCandidates(primary, {
+                    radiusKm,
+                    kinds,
+                    adminLevel: adminLevel === "auto" ? undefined : adminLevel,
+                }).catch((e) => {
+                    console.warn("transit reach failed", e);
+                    return null;
+                }),
             ]);
             setAdmin(adminRes);
             setReach(reachRes);
@@ -117,7 +160,15 @@ export function DebugAdjacencyPage() {
     };
 
     const adminIds = new Set((admin ?? []).map((a) => a.relationId));
-    const reachIds = new Set((reach?.candidates ?? []).map((c) => c.relationId));
+    const reachCandidates = (reach?.candidates ?? [])
+        .filter((c) => c.areaKm2 >= minAreaKm2)
+        .slice()
+        .sort((a, b) => {
+            if (sortKey === "area") return b.areaKm2 - a.areaKm2;
+            if (sortKey === "stops") return b.stopCount - a.stopCount;
+            return a.distanceKm - b.distanceKm;
+        });
+    const reachIds = new Set(reachCandidates.map((c) => c.relationId));
 
     return (
         <div className="min-h-screen bg-background text-foreground p-4 md:p-8">
@@ -211,6 +262,67 @@ export function DebugAdjacencyPage() {
                             {loading ? "Running…" : "Compare"}
                         </button>
                     </div>
+                    <div className="flex flex-wrap items-end gap-4 border-t border-border/60 pt-3">
+                        <div className="flex flex-col gap-1 text-xs">
+                            Candidate level (re-run to apply)
+                            <div className="flex gap-2">
+                                {ADMIN_LEVELS.map((lvl) => (
+                                    <button
+                                        key={lvl.value}
+                                        type="button"
+                                        onClick={() => setAdminLevel(lvl.value)}
+                                        className={cn(
+                                            "rounded-md border px-2 py-1",
+                                            adminLevel === lvl.value
+                                                ? "bg-primary/15 border-primary text-foreground"
+                                                : "border-border text-muted-foreground",
+                                        )}
+                                    >
+                                        {lvl.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-1 text-xs">
+                            Sort transit-reach
+                            <div className="flex gap-2">
+                                {(
+                                    [
+                                        ["area", "largest"],
+                                        ["stops", "most stops"],
+                                        ["distance", "nearest"],
+                                    ] as [SortKey, string][]
+                                ).map(([k, label]) => (
+                                    <button
+                                        key={k}
+                                        type="button"
+                                        onClick={() => setSortKey(k)}
+                                        className={cn(
+                                            "rounded-md border px-2 py-1",
+                                            sortKey === k
+                                                ? "bg-primary/15 border-primary text-foreground"
+                                                : "border-border text-muted-foreground",
+                                        )}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <label className="flex flex-col gap-1 text-xs">
+                            Min area: {minAreaKm2} km²
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={5}
+                                value={minAreaKm2}
+                                onChange={(e) =>
+                                    setMinAreaKm2(Number(e.target.value))
+                                }
+                            />
+                        </label>
+                    </div>
                 </div>
 
                 {error && (
@@ -273,18 +385,18 @@ export function DebugAdjacencyPage() {
                         <div className="rounded-lg border border-border">
                             <div className="border-b border-border px-3 py-2 text-sm font-semibold">
                                 Transit-reach (prototype) —{" "}
-                                {reach?.candidates.length ?? 0}
+                                {reachCandidates.length}
                             </div>
                             <ul className="divide-y divide-border/60 max-h-[60vh] overflow-y-auto">
-                                {(reach?.candidates ?? []).map((c) => (
+                                {reachCandidates.map((c) => (
                                     <li
                                         key={c.relationId}
                                         className="flex items-center justify-between px-3 py-1.5 text-sm"
                                     >
-                                        <span className="flex items-center gap-2">
+                                        <span className="flex items-center gap-2 min-w-0">
                                             <span
                                                 className={cn(
-                                                    "w-1.5 h-1.5 rounded-full",
+                                                    "w-1.5 h-1.5 rounded-full shrink-0",
                                                     adminIds.has(c.relationId)
                                                         ? "bg-success"
                                                         : "bg-info",
@@ -295,11 +407,18 @@ export function DebugAdjacencyPage() {
                                                         : "rail-only (not admin-adjacent)"
                                                 }
                                             />
-                                            {c.name}
+                                            <span className="truncate">
+                                                {c.name}
+                                            </span>
+                                            {c.adminLevel && (
+                                                <span className="shrink-0 text-[10px] text-muted-foreground">
+                                                    L{c.adminLevel}
+                                                </span>
+                                            )}
                                         </span>
-                                        <span className="text-xs text-muted-foreground tabular-nums">
-                                            {c.stopCount} stops ·{" "}
-                                            {c.kinds.join("/")}
+                                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                                            {Math.round(c.areaKm2)} km² ·{" "}
+                                            {c.stopCount} stops
                                         </span>
                                     </li>
                                 ))}
