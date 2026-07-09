@@ -611,6 +611,7 @@ let AREA_STATION_FILTERS = [
     "[railway=tram_stop]",
     "[railway=halt][light_rail=yes]",
     "[highway=bus_stop]",
+    "[public_transport=platform][bus=yes]",
     "[amenity=ferry_terminal]",
     "[public_transport=platform][platform=ferry]",
 ];

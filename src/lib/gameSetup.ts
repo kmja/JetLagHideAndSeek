@@ -854,8 +854,12 @@ export const HIDING_ZONE_FILTERS_BY_MODE: Record<TransitMode, string[]> = {
     // Light-rail / streetcar / tram stops.
     tram: ["[railway=tram_stop]", "[railway=halt][light_rail=yes]"],
     // Bus stops — the big one (Stockholm-scale games can omit this to
-    // keep the station count tractable).
-    bus: ["[highway=bus_stop]"],
+    // keep the station count tractable). `highway=bus_stop` is the classic
+    // tag, but a lot of the world (Nairobi's matatu network, and PTv2
+    // networks generally) maps bus stops ONLY as `public_transport=platform`
+    // + `bus=yes` with no `highway=bus_stop`, so without the second selector
+    // those cities show zero bus hiding zones even with a dense bus overlay.
+    bus: ["[highway=bus_stop]", "[public_transport=platform][bus=yes]"],
     // Ferry terminals + ferry-platform PT nodes.
     ferry: ["[amenity=ferry_terminal]", "[public_transport=platform][platform=ferry]"],
 };
