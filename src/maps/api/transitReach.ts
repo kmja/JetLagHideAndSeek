@@ -356,34 +356,35 @@ function extentAreaKm2(ext: [number, number, number, number]): number {
 }
 
 /**
- * Drop far-flung exclaves from a boundary (v713). Hamburg legally owns Neuwerk
- * — a tiny island ~100 km out in the North Sea — so its boundary polygon has a
- * component way out at sea. That "red boundary out at sea" is impractical to
- * include in a play area, AND it wildly inflates the primary's bounding box
- * (which would break the relative area cap below). Keeps the largest component
- * plus any component within `keepKm` of it; drops the rest. No-op for a single
- * Polygon or a compact MultiPolygon.
+ * Drop offshore islands / far exclaves from a boundary (v713, tightened v715).
+ * Two cases:
+ *   - Hamburg legally owns Neuwerk (tiny island ~100 km out in the North Sea).
+ *   - LA County's boundary includes the Channel Islands (Catalina ~35 km off,
+ *     San Clemente ~100 km, San Nicolas …) — no one hides on San Clemente.
+ * Both inflate the bbox (breaking the relative area cap) and are impractical
+ * play-area members. Keeps the LARGEST component plus any that's either
+ * SUBSTANTIAL (≥15% of the largest — a real second land mass, not an island)
+ * or NEAR it (bboxes within ~5 km — a neighbourhood across a thin strait/
+ * river). Drops the small, separated bits (islands). No-op for a single
+ * Polygon or a compact MultiPolygon. Distance-agnostic: a big offshore island
+ * 35 km out is still dropped because it's small relative to the mainland.
  */
 export function dropFarExclaves(
     geom: GeoJSON.Polygon | GeoJSON.MultiPolygon,
-    keepKm = 45,
 ): GeoJSON.Polygon | GeoJSON.MultiPolygon {
     if (geom.type !== "MultiPolygon" || geom.coordinates.length <= 1)
         return geom;
     const parts = geom.coordinates.map((poly) => {
         const ext = polygonExtent({ type: "Polygon", coordinates: poly });
-        return {
-            poly,
-            cLat: (ext[0] + ext[2]) / 2,
-            cLng: (ext[1] + ext[3]) / 2,
-            area: extentAreaKm2(ext),
-        };
+        return { poly, ext, area: extentAreaKm2(ext) };
     });
     const largest = parts.reduce((a, b) => (b.area > a.area ? b : a));
+    const MIN_FRACTION = 0.15;
     const kept = parts.filter(
         (p) =>
             p === largest ||
-            haversineKm(largest.cLat, largest.cLng, p.cLat, p.cLng) <= keepKm,
+            p.area >= MIN_FRACTION * largest.area ||
+            bboxesNear(p.ext, largest.ext, 0.05),
     );
     if (kept.length === geom.coordinates.length) return geom;
     return { type: "MultiPolygon", coordinates: kept.map((k) => k.poly) };
@@ -526,6 +527,10 @@ export async function findTransitReachCandidates(
             } catch {
                 poly = null;
             }
+            // Drop offshore islands from the candidate too (LA County's
+            // Channel Islands) — for the map, the stop test, and eventually
+            // the cached play-area shape.
+            if (poly) poly = dropFarExclaves(poly);
             // Drop candidates already inside the primary play area (a real
             // polygon-overlap test — robust to donut districts like Munich's
             // Landkreis). Needs the candidate polygon; a null poly (fetch
@@ -555,15 +560,20 @@ export async function findTransitReachCandidates(
             }
             const kindSet = new Set<RailRouteKind>();
             for (const s of inside) kindSet.add(s.kind);
+            // Recompute extent + area from the island-FREE polygon so the map
+            // fit-bounds doesn't zoom out to the ocean and the relative area
+            // cap isn't inflated by offshore islands. Fall back to the
+            // Overpass bbox when there's no polygon.
+            const cleanExt = poly ? polygonExtent(poly) : cand.extent;
             candidates.push({
                 relationId: cand.id,
                 name: cand.name,
                 stopCount: inside.length,
                 distanceKm: haversineKm(lat, lng, cand.lat, cand.lng),
                 kinds: [...kindSet],
-                areaKm2: cand.areaKm2,
+                areaKm2: poly ? extentAreaKm2(cleanExt) : cand.areaKm2,
                 adminLevel: cand.adminLevel,
-                extent: cand.extent,
+                extent: cleanExt,
                 polygon: poly,
             });
         }
