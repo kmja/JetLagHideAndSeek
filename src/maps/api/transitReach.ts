@@ -343,6 +343,27 @@ export async function findTransitReachCandidates(
         }),
     ]);
 
+    // The primary's own boundary — used to DROP candidates that sit inside it.
+    // Transit-reach is about extending the play area OUTWARD; London's boroughs
+    // (Camden, Westminster …) are `admin_level 8` full of Tube stops but they
+    // are already INSIDE Greater London, so offering them as adjacents is
+    // wrong. `centre inside the primary` = already in the play area → skip.
+    const primaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
+        () => null,
+    );
+    const insidePrimary = (cand: AdminStub): boolean => {
+        if (!primaryPolygon) return false;
+        try {
+            return booleanPointInPolygon([cand.lng, cand.lat], {
+                type: "Feature",
+                properties: {},
+                geometry: primaryPolygon,
+            } as never);
+        } catch {
+            return false;
+        }
+    };
+
     const candidates: TransitReachCandidate[] = [];
     const unreached: { relationId: number; name: string }[] = [];
 
@@ -352,6 +373,8 @@ export async function findTransitReachCandidates(
     const runNext = async (): Promise<void> => {
         while (idx < adminCandidates.length) {
             const cand = adminCandidates[idx++];
+            // Skip candidates already inside the primary play area.
+            if (insidePrimary(cand)) continue;
             // Cheap bbox pre-filter: stops that could possibly be inside.
             const [maxLat, minLng, minLat, maxLng] = cand.extent;
             const bboxStops = stops.filter(
