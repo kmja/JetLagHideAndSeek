@@ -98,6 +98,16 @@ export interface CityEntry {
      *  done" while the adjacent warming grinds through the whole seed.
      *  Stamped/cleared by `verifyAndStampCity` alongside `fullyCuratedAt`. */
     primaryCuratedAt?: number;
+    /** The FIXED transit-reach adjacent set (Topic 2), precomputed offline by
+     *  `scripts/build-city-adjacents.mjs` — the municipalities the city's
+     *  subway / light-rail / commuter-train / tram / ferry / bus network
+     *  actually reaches (validated in `/debug/adjacency`). Baked here so the
+     *  wizard READS a fixed set instead of re-running the heavy selection at
+     *  play time, and the cron/laptop cache exactly these relations as
+     *  first-class adjacent play areas. OSM relation ids, no prefix. Optional
+     *  — a city that hasn't been through the generator yet lacks it (and the
+     *  consumers fall back to the live admin-adjacency selector). */
+    adjacentRelationIds?: number[];
 }
 
 /**

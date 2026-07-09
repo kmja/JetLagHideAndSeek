@@ -400,7 +400,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v705`. Use `git log` for the per-version detail;
+build stamp. Current: `v722`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared
@@ -549,8 +549,38 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   over the rail stops (amber dots) + the primary boundary (red), so a set can
   be judged geographically without knowing the city. Coterminous duplicates
   (NYC's Queens borough L7 vs Queens County L6) are collapsed by bbox-IoU, and NESTED candidates (Bronxville village inside Westchester County) drop the contained one, keeping only the container.
+  **Enclave containment (v720):** an enclave (Kauniainen wholly inside Espoo)
+  is an OSM HOLE in the container, so `booleanPointInPolygon(enclave, Espoo)`
+  is false (centre in the hole) and dedup kept both — `centreInside` now tests
+  the container's `fillHoles`ed outer ring. **Island-owning primaries (v721):**
+  Tokyo owns the Izu/Ogasawara islands ~1000 km south; that region has a huge
+  BBOX but little land, so `dropFarExclaves` (which ranked components by bbox
+  area) treated it as the "largest" and its `bboxesNear` fallback kept the
+  islands, dragging the query centroid to the open ocean (2 stops). Fixed:
+  `dropFarExclaves` ranks components by TRUE geodesic area, and the query
+  centroid anchors on the largest TRUE-area component (`largestComponentCentre`,
+  the mainland) instead of the multi-component bbox midpoint.
   **NOT the default yet** — read-only inspector, writes no global state; the
   wizard still uses admin-adjacency.
+- **Offline transit-reach adjacent generator** (v722,
+  `overpass-cache/scripts/build-city-adjacents.mjs`) — the agreed Topic-2
+  architecture: don't run the heavy transit-reach selection at wizard time,
+  PRECOMPUTE it once offline and bake a FIXED `adjacentRelationIds: number[]`
+  (new optional `CityEntry` field) onto each `world-cities.json` city. The
+  wizard/cron/laptop then READ + cache exactly those relations (no runtime
+  Overpass, no runtime selection). The script is a faithful node PORT of
+  `findTransitReachCandidates` + its helpers (hand-synced, same coupling as
+  `build-world-cities.mjs` porting `rankPlayAreaResults`) — Overpass over
+  rotating mirrors (soft-timeout `remark` sniff), boundaries via
+  `relation;out geom;` + `osmtogeojson`, turf for the geometry. Defaults mirror
+  the validated debug-tool settings (radius 40 km, all six modes, primary's own
+  admin level, min 2 stops, area cap 10×, min density 0.2/km², contiguous-only),
+  all `--flag`-overridable; `--only`/`--limit`/`--skip-existing` for targeted or
+  resumable runs; incremental save every 5 cities. Must run on a machine that
+  can reach Overpass (CI/sandbox egress blocks it). **Consumers not yet
+  rewired** — `PlayAreaExtensions.tsx` (wizard) + `deriveAdjacentNeighbourIds`
+  (star gate) still use live admin-adjacency; wiring them to read the baked set
+  is the next step once the generated data is reviewed.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
   overlay at once via a `preview` prop on each overlay (shadows its
   atoms, writes nothing global), plus a light/dark toggle. The debug
