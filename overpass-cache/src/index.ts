@@ -986,6 +986,9 @@ async function handleRequest(
         if (url.pathname === "/admin/verify-city") {
             return handleAdminVerifyCity(request, env, cors);
         }
+        if (url.pathname === "/admin/city-neighbours") {
+            return handleAdminCityNeighbours(request, env, cors);
+        }
         if (url.pathname === "/admin/inspect-refs") {
             return handleAdminInspectRefs(request, env, cors);
         }
@@ -6153,6 +6156,89 @@ async function handleAdminVerifyCity(
             cors,
         );
     }
+}
+
+/**
+ * `GET /admin/city-neighbours?relationId=<N>&secret=<…>` (v696) — the EXACT
+ * adjacent-area relation ids the star gate checks for this city
+ * (`deriveAdjacentNeighbourIds`, from cached topological adjacency, capped at
+ * 14), plus best-effort names. The laptop-prewarmer's `--city-complete` mode
+ * warms precisely THESE so the neighbours it caches match the ones
+ * `verifyAndStampCity` requires — the laptop's own `findNeighbors`
+ * (admin_level-around) diverges badly for megacities (NYC is admin_level 5:
+ * no same-level neighbours, so it found none, and the city could never earn
+ * its star). Requires the city's adjacent-search queries to be cached first
+ * (the caller warms the primary before asking). Read-only.
+ */
+async function handleAdminCityNeighbours(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    const relationId = Number(
+        new URL(request.url).searchParams.get("relationId"),
+    );
+    if (!Number.isFinite(relationId) || relationId <= 0) {
+        return jsonResponse(
+            { error: "relationId (positive number) required" },
+            400,
+            cors,
+        );
+    }
+    let city: CityEntry | undefined;
+    try {
+        city = (await getPopularCities(env)).find(
+            (c) => c.relationId === relationId,
+        );
+    } catch {
+        /* fall through */
+    }
+    if (!city) city = { name: `relation ${relationId}`, relationId };
+    // deriveAdjacentNeighbourIds needs an extent for the admin-band midpoint;
+    // fall back to the boundary-geometry extent if the stored one is absent.
+    if (!city.extent) {
+        const ext = await canonicalReferenceExtent(env, city);
+        if (ext) city = { ...city, extent: ext };
+    }
+    const { ids, adjacencyKnown } = await deriveAdjacentNeighbourIds(env, city);
+    // Best-effort names from the cached topological adjacency result (the
+    // same source the ids come from) so the laptop's logs are readable.
+    const nameById = new Map<number, string>();
+    try {
+        const topoKey = await r2KeyForQuery(
+            buildTopologicalAdjacencyQuery(relationId),
+        );
+        const obj = await env.CACHE.get(`overpass/${topoKey}`);
+        if (obj) {
+            const parsed = JSON.parse(await readR2Text(obj)) as {
+                elements?: Array<{
+                    type?: string;
+                    id?: number;
+                    tags?: Record<string, string>;
+                }>;
+            };
+            for (const el of parsed.elements ?? []) {
+                if (el?.type === "relation" && typeof el.id === "number") {
+                    const nm = el.tags?.name ?? el.tags?.["name:en"];
+                    if (nm) nameById.set(el.id, nm);
+                }
+            }
+        }
+    } catch {
+        /* names best-effort */
+    }
+    const neighbours = ids.map((id) => ({
+        relationId: id,
+        name: nameById.get(id) ?? `r${id}`,
+    }));
+    return jsonResponse(
+        { relationId, adjacencyKnown, count: neighbours.length, neighbours },
+        200,
+        cors,
+    );
 }
 
 /** Does an OSM element's tags satisfy an Overpass filter string like

@@ -1076,6 +1076,29 @@ function orderByPriorityRegions(cities, regions) {
  *  (fullyCuratedAt) NOW. Read-only R2 HEADs server-side (no Overpass), so
  *  it's cheap and safe to call right after warming. Returns the result or
  *  null on failure. */
+/** v696: the EXACT adjacent-area relation ids the star gate checks for this
+ *  city (`deriveAdjacentNeighbourIds` on the worker, from cached topological
+ *  adjacency). Used by --city-complete so the neighbours warmed match the
+ *  ones `verifyAndStampCity` requires — the local `findNeighbors`
+ *  (admin_level-around) misses a megacity's real neighbours (NYC at
+ *  admin_level 5 has none at its own level). Requires the city's
+ *  adjacent-search queries to be cached first (processCity warms them).
+ *  Returns [] on any failure. */
+async function fetchCityNeighbours(relationId) {
+    try {
+        const resp = await fetchRetry(
+            `${WORKER}/admin/city-neighbours?relationId=${relationId}`,
+            { headers: { Authorization: `Bearer ${SECRET}` } },
+            "city-neighbours",
+        );
+        if (!resp.ok) return [];
+        const data = await resp.json();
+        return Array.isArray(data.neighbours) ? data.neighbours : [];
+    } catch {
+        return [];
+    }
+}
+
 async function verifyCity(relationId) {
     try {
         const resp = await fetchRetry(
@@ -2420,13 +2443,17 @@ async function processCityComplete(city, globalSeen) {
     await processCity(city);
 
     if (DO_ONE_RING) {
-        let neighbors = [];
-        try {
-            neighbors = await findNeighbors(city);
-        } catch (e) {
-            console.warn(
-                `  ! adjacents discover ${city.name} failed:`,
-                e?.message ?? e,
+        // v696: use the WORKER's neighbour set (the exact ids the star gate
+        // checks), not the local admin_level-around findNeighbors — the two
+        // diverge for megacities (NYC found 0 locally but the gate wants 14).
+        // The primary's adjacent-search queries were just warmed by
+        // processCity above, so the endpoint can derive them from R2.
+        let neighbors = await fetchCityNeighbours(city.relationId);
+        if (neighbors.length > 0) {
+            console.log(
+                `  ⇢ ${neighbors.length} adjacent area(s) to warm: ${neighbors
+                    .map((n) => n.name)
+                    .join(", ")}`,
             );
         }
         for (const n of neighbors) {
