@@ -742,10 +742,27 @@ function bboxIoU(
 const CANDIDATE_SUFFIX_RE =
     /\b(county|kommun|comune|gemeinde|municipality|parish|borough)\b/i;
 
+/** Drop the holes from a polygon, keeping only outer ring(s). An ENCLAVE
+ *  (Kauniainen inside Espoo) is mapped in OSM as a hole punched out of the
+ *  container, so a plain point-in-polygon against the container returns FALSE
+ *  for the enclave's centre (it sits in the hole). Testing against the filled
+ *  outer boundary instead correctly reports the enclave as contained. */
+function fillHoles(
+    poly: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): GeoJSON.Polygon | GeoJSON.MultiPolygon {
+    if (poly.type === "Polygon") {
+        return { type: "Polygon", coordinates: [poly.coordinates[0]] };
+    }
+    return {
+        type: "MultiPolygon",
+        coordinates: poly.coordinates.map((p) => [p[0]]),
+    };
+}
+
 /** Is candidate `c`'s centre inside candidate `k`? Uses `k`'s real polygon
- *  when we have it (fetched for the point-in-polygon stop test), else `k`'s
- *  bbox. The "prefer the bigger container" test (Bronxville inside Westchester
- *  County). */
+ *  (with holes filled — see `fillHoles`, so enclaves count as contained) when
+ *  we have it, else `k`'s bbox. The "prefer the bigger container" test
+ *  (Bronxville inside Westchester County; Kauniainen inside Espoo). */
 function centreInside(
     c: TransitReachCandidate,
     k: TransitReachCandidate,
@@ -757,7 +774,7 @@ function centreInside(
             return booleanPointInPolygon(pt, {
                 type: "Feature",
                 properties: {},
-                geometry: k.polygon,
+                geometry: fillHoles(k.polygon),
             } as never);
         } catch {
             /* fall through to bbox */
