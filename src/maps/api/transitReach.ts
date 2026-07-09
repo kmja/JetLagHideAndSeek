@@ -305,6 +305,70 @@ function haversineKm(
     return 2 * R * Math.asin(Math.sqrt(x));
 }
 
+/** [maxLat, minLng, minLat, maxLng] bbox of a (Multi)Polygon's coordinates. */
+function polygonExtent(
+    geom: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+): [number, number, number, number] {
+    let minLat = Infinity,
+        maxLat = -Infinity,
+        minLng = Infinity,
+        maxLng = -Infinity;
+    const rings =
+        geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
+    for (const poly of rings) {
+        for (const [lng, lat] of poly[0] ?? []) {
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+            if (lng < minLng) minLng = lng;
+            if (lng > maxLng) maxLng = lng;
+        }
+    }
+    return [maxLat, minLng, minLat, maxLng];
+}
+
+function extentAreaKm2(ext: [number, number, number, number]): number {
+    const [maxLat, minLng, minLat, maxLng] = ext;
+    const midLat = (minLat + maxLat) / 2;
+    const latKm = Math.abs(maxLat - minLat) * 111;
+    const lngKm =
+        Math.abs(maxLng - minLng) * 111 * Math.cos((midLat * Math.PI) / 180);
+    return latKm * lngKm * 0.55;
+}
+
+/**
+ * Drop far-flung exclaves from a boundary (v713). Hamburg legally owns Neuwerk
+ * — a tiny island ~100 km out in the North Sea — so its boundary polygon has a
+ * component way out at sea. That "red boundary out at sea" is impractical to
+ * include in a play area, AND it wildly inflates the primary's bounding box
+ * (which would break the relative area cap below). Keeps the largest component
+ * plus any component within `keepKm` of it; drops the rest. No-op for a single
+ * Polygon or a compact MultiPolygon.
+ */
+export function dropFarExclaves(
+    geom: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+    keepKm = 45,
+): GeoJSON.Polygon | GeoJSON.MultiPolygon {
+    if (geom.type !== "MultiPolygon" || geom.coordinates.length <= 1)
+        return geom;
+    const parts = geom.coordinates.map((poly) => {
+        const ext = polygonExtent({ type: "Polygon", coordinates: poly });
+        return {
+            poly,
+            cLat: (ext[0] + ext[2]) / 2,
+            cLng: (ext[1] + ext[3]) / 2,
+            area: extentAreaKm2(ext),
+        };
+    });
+    const largest = parts.reduce((a, b) => (b.area > a.area ? b : a));
+    const kept = parts.filter(
+        (p) =>
+            p === largest ||
+            haversineKm(largest.cLat, largest.cLng, p.cLat, p.cLng) <= keepKm,
+    );
+    if (kept.length === geom.coordinates.length) return geom;
+    return { type: "MultiPolygon", coordinates: kept.map((k) => k.poly) };
+}
+
 /**
  * Compute the transit-reach candidate set for a primary play area.
  *
@@ -325,6 +389,12 @@ export async function findTransitReachCandidates(
         /** Keep only the reached areas connected to the primary (drops
          *  isolated far districts a through-line pulls in). Default true. */
         contiguousOnly?: boolean;
+        /** Drop candidates whose area is more than this multiple of the
+         *  primary's — a country-agnostic "not a whole province" cap. A
+         *  neighbouring municipality/county is a few × the city; a province
+         *  is 15-40×. Default 10. Applied BEFORE the containment dedup so a
+         *  province doesn't swallow the municipalities inside it. */
+        maxAreaRatio?: number;
     } = {},
 ): Promise<TransitReachResult> {
     const radiusKm = options.radiusKm ?? 40;
@@ -362,9 +432,14 @@ export async function findTransitReachCandidates(
     // ("holes all around Munich"). `candidate ≥90% inside the primary` is the
     // correct containment predicate: ~1.0 for a fully-inside borough, ~0 for a
     // donut that merely wraps the city.
-    const primaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
+    const rawPrimaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
         () => null,
     );
+    // Drop far exclaves (Hamburg's Neuwerk) so the primary bbox — used by the
+    // relative area cap + the inside-cull + contiguity seeding — is sane.
+    const primaryPolygon = rawPrimaryPolygon
+        ? dropFarExclaves(rawPrimaryPolygon)
+        : null;
     const primaryFeature = primaryPolygon
         ? ({
               type: "Feature",
@@ -372,6 +447,10 @@ export async function findTransitReachCandidates(
               geometry: primaryPolygon,
           } as GeoJSON.Feature)
         : null;
+    const primaryAreaKm2 = primaryPolygon
+        ? extentAreaKm2(polygonExtent(primaryPolygon))
+        : null;
+    const maxAreaRatio = options.maxAreaRatio ?? 10;
     const mostlyInsidePrimary = (
         candPoly: GeoJSON.Polygon | GeoJSON.MultiPolygon,
     ): boolean => {
@@ -479,7 +558,17 @@ export async function findTransitReachCandidates(
         (a, b) => b.stopCount - a.stopCount || a.distanceKm - b.distanceKm,
     );
 
-    let finalCandidates = dedupeNested(candidates);
+    // Relative area cap FIRST — drop whole provinces (Madrid's Guadalajara/
+    // Toledo, reached by Cercanías) that are vastly larger than the city, so
+    // the containment dedup then keeps the municipalities inside them instead
+    // of collapsing to the province. Skipped when we couldn't size the primary.
+    let sized = candidates;
+    if (primaryAreaKm2 && primaryAreaKm2 > 0) {
+        sized = candidates.filter(
+            (c) => c.areaKm2 <= maxAreaRatio * primaryAreaKm2,
+        );
+    }
+    let finalCandidates = dedupeNested(sized);
     if (options.contiguousOnly !== false && primaryFeature) {
         finalCandidates = filterContiguous(finalCandidates, primaryFeature);
     }

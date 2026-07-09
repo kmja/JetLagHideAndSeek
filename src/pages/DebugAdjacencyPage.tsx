@@ -12,6 +12,7 @@ import { geocode } from "@/maps/api/geocode";
 import { findExtensionCandidates } from "@/maps/api/playAreaExtensions";
 import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import {
+    dropFarExclaves,
     findTransitReachCandidates,
     type RailRouteKind,
     type TransitReachResult,
@@ -124,6 +125,7 @@ export function DebugAdjacencyPage() {
     const [minAreaKm2, setMinAreaKm2] = useState(0);
     const [minStops, setMinStops] = useState(2);
     const [contiguousOnly, setContiguousOnly] = useState(true);
+    const [maxAreaRatio, setMaxAreaRatio] = useState(10);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [primaryName, setPrimaryName] = useState<string | null>(null);
@@ -156,7 +158,7 @@ export function DebugAdjacencyPage() {
             }
             setPrimaryName(primary.properties.name ?? query);
             void fetchRawBoundaryPolygon(primary.properties.osm_id)
-                .then((p) => setPrimaryPoly(p))
+                .then((p) => setPrimaryPoly(p ? dropFarExclaves(p) : null))
                 .catch(() => setPrimaryPoly(null));
             const [adminRes, reachRes] = await Promise.all([
                 findExtensionCandidates(primary, ALL_MODES, {
@@ -182,6 +184,7 @@ export function DebugAdjacencyPage() {
                     kinds,
                     adminLevel: adminLevel === "auto" ? undefined : adminLevel,
                     contiguousOnly,
+                    maxAreaRatio,
                 }).catch((e) => {
                     console.warn("transit reach failed", e);
                     return null;
@@ -454,6 +457,19 @@ export function DebugAdjacencyPage() {
                                 value={minAreaKm2}
                                 onChange={(e) =>
                                     setMinAreaKm2(Number(e.target.value))
+                                }
+                            />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                            Max area ×primary: {maxAreaRatio}
+                            <input
+                                type="range"
+                                min={2}
+                                max={40}
+                                step={1}
+                                value={maxAreaRatio}
+                                onChange={(e) =>
+                                    setMaxAreaRatio(Number(e.target.value))
                                 }
                             />
                         </label>
