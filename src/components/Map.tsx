@@ -723,7 +723,38 @@ export function Map({ className }: MapProps) {
         }
         return g.type === "Feature" ? g : null;
     };
+    // v702: frame the newly-eliminated slice so the flash animation is
+    // actually seen — an elimination off the current viewport would blink
+    // and fade before the seeker ever looked there. Skip the camera move
+    // when the slice is already fully in view (no jerk when it's on-screen),
+    // and cap the zoom so a tiny sliver doesn't rocket in and lose context.
+    const fitMapToFlash = (delta: GeoJSON.Feature) => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        try {
+            const bb = turf.bbox(delta); // [minLng, minLat, maxLng, maxLat]
+            if (!bb.every((n) => Number.isFinite(n))) return;
+            const view = map.getBounds();
+            const fullyInView =
+                bb[0] >= view.getWest() &&
+                bb[2] <= view.getEast() &&
+                bb[1] >= view.getSouth() &&
+                bb[3] <= view.getNorth();
+            if (fullyInView) return;
+            map.fitBounds(
+                [
+                    [bb[0], bb[1]],
+                    [bb[2], bb[3]],
+                ],
+                { padding: 60, duration: 700, maxZoom: 14 },
+            );
+        } catch (e) {
+            console.warn("Map flash fit failed:", e);
+        }
+    };
+
     const triggerEliminationFlash = (delta: GeoJSON.Feature) => {
+        fitMapToFlash(delta);
         flashTimersRef.current.forEach((t) => window.clearTimeout(t));
         flashTimersRef.current = [];
         // Blink the red wash on-off-on-off (two quick pulses), then leave

@@ -461,6 +461,22 @@ export const determineMeasuringBoundary = async (
             if (lines.length > 0) {
                 out.push(highSpeedBase(lines));
             }
+            // v702: fold in the SEA. OSM tags the open sea and large bays as
+            // `natural=coastline` (a SEPARATE family), NOT `natural=water`, so
+            // a coastal metro's biggest body of water (Houston's Galveston Bay
+            // / ship channel / the Gulf) was invisible here — and an area
+            // sitting IN the bay measured its nearest water as a far inland
+            // lake and read "further from water". Rulebook p11 counts "any
+            // named body of water", and the bay/sea IS one, so add the bundled
+            // coastline as lines (clipped to the play-area frame, same helper
+            // the coastline + border subtypes use) so distance-to-sea buffers
+            // like distance-to-river. Inland cities clip to nothing → no-op.
+            try {
+                const coastLines = clipLinesToBbox(await fetchCoastline(), bBox);
+                if (coastLines.length > 0) out.push(highSpeedBase(coastLines));
+            } catch (e) {
+                console.warn("body-of-water coastline merge failed:", e);
+            }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;
         }

@@ -550,6 +550,13 @@ async function fetchNearestCoastline(
  * NOT culled to the play-area polygon — matching the elimination, which
  * buffers the padded-bbox water set (a shore just outside the boundary is
  * still the nearest body of water, rulebook p17).
+ *
+ * v702: also considers the SEA (coastline), matching the elimination — OSM
+ * tags the open sea / large bays as `natural=coastline`, not `natural=water`,
+ * so a coastal metro's nearest "water" would otherwise skip the bay for a far
+ * inland lake. Only counts coast within the same play-area frame the
+ * elimination clips to (a 3° pad), so an inland city doesn't show a distant
+ * coast.
  */
 async function fetchNearestWater(
     lat: number,
@@ -632,6 +639,29 @@ async function fetchNearestWater(
                 /* skip malformed part */
             }
         }
+    }
+    // v702: fold in the SEA, gated to the play-area frame (3° pad, matching
+    // the elimination's clipLinesToBbox). Without this a coastal metro's
+    // nearest body of water skipped the bay/sea (coastline, not natural=water)
+    // and pointed at a far inland lake — the "reference outside the play area"
+    // + "in-water marked further" bug.
+    try {
+        const coast = await fetchNearestCoastline(lat, lng);
+        if (coast) {
+            const poly = polyGeoJSON.get();
+            const bb = poly ? turf.bbox(poly) : null;
+            const inFrame =
+                !bb ||
+                (coast.lng >= bb[0] - 3 &&
+                    coast.lng <= bb[2] + 3 &&
+                    coast.lat >= bb[1] - 3 &&
+                    coast.lat <= bb[3] + 3);
+            if (inFrame && (!best || coast.distanceMeters < best.distanceMeters)) {
+                best = coast;
+            }
+        }
+    } catch {
+        /* no coast / load failed — keep the water best */
     }
     return best;
 }
