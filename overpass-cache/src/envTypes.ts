@@ -74,22 +74,21 @@ export interface Env {
      *  (already-warm) neighbours aren't affected. Raise after a full laptop
      *  prewarm, or lower if the mirror is still complaining. */
     ADJACENT_HEAVY_CITIES_PER_TICK?: string;
-    /** Star-semantics escape hatch (v679). By DEFAULT the in-app star
-     *  (`/api/warm-cities`) means "FULLY cached, including adjacent areas"
-     *  — it reports only cities the cron has stamped `fullyCuratedAt`
-     *  (primary boundary+refs+stations AND every adjacent area cached).
-     *  Set to the exact string "true" to revert to the pre-v679 behaviour:
-     *  star = "has a backfilled `extent`" (broader, appears sooner, but NOT
-     *  a guarantee of full caching). Intended only as a temporary fallback
-     *  if the strict star is too sparse before the cron/laptop backfill
-     *  catches up. Replaces the v676 `WARM_REQUIRE_ADJACENTS` opt-in. The
-     *  DEFAULT (this flag unset) is the STRICT star — primary + every
-     *  adjacent cached — because selecting a starred city offers adding its
-     *  adjacents, so an un-warm adjacent would be a broken promise (a v690
-     *  experiment defaulting to primary-only was reverted for that reason).
-     *  The separate `primaryCuratedAt` stamp is only a progress DIAGNOSTIC
-     *  in `/admin/adjacent-curation-status`, never the star. */
+    /** Star-semantics escape hatches (v699.1). By DEFAULT the in-app star
+     *  (`/api/warm-cities`) means "PRIMARY play area fully cached"
+     *  (`primaryCuratedAt` — the city's own boundary+refs+stations in R2),
+     *  the achievable guarantee that a normal game runs Overpass-free. The
+     *  "broken promise" of a starred city offering un-warm adjacents is
+     *  handled separately: the app only shows the adjacent-add UI for cities
+     *  in `/api/adjacent-ready-cities` (`adjacentsCuratedAt`), so a cold
+     *  adjacent is never offered. Precedence lenient > strict > default:
+     *    WARM_STAR_LENIENT="true" → loosest, star = "has a backfilled
+     *      `extent`" (broader/sooner, but NOT a cache guarantee).
+     *    WARM_STAR_STRICT="true" → the v692 gate, star = primary + EVERY
+     *      adjacent cached (`fullyCuratedAt`); truer but big cities rarely
+     *      earn it (one flaky neighbour blocks the whole city). */
     WARM_STAR_LENIENT?: string;
+    WARM_STAR_STRICT?: string;
     /** Feature flag for the legacy speculative name-discovery cron pass
      *  (v680). OFF by default: the prewarm list is now the world-cities.json
      *  seed (biggest cities) plus organic player-driven growth

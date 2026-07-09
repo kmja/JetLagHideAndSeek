@@ -186,24 +186,24 @@ const DO_PHOTON = !args["skip-photon"];
 // stations, megacity sub-units). Mirrors the worker cron's
 // prewarmAdjacentSearchForCity. On by default; --skip-adjacent to drop.
 const DO_ADJACENT = !args["skip-adjacent"];
-// v360 / v442: one-ring neighbour warming. After the main city loop,
-// discover the adjacent admin areas of the top N cities and process each
-// as a FULL play area (boundary, refs, transit, metro, elevation, photon,
-// adjacent-search) — so an area a seeker folds in via "Extend play area"
-// behaves exactly like the primary. v442 made it DEFAULT-ON (it's the
-// point of warming adjacent areas) — pass --skip-one-ring to drop it.
-// `--one-ring-top=N` bounds the city count (default 100); the city list
-// leads with HAND_CURATED majors, so "first N" is a reasonable most-
-// played proxy (there's no population field to rank by).
-const DO_ONE_RING = !args["skip-one-ring"];
-// v696: warm each city COMPLETELY before moving to the next — primary, then
-// its adjacent areas (as full play areas), then verify + stamp its star —
-// instead of warming ALL primaries first and doing the one-ring pass at the
-// end. So NYC + adjacents are fully cached and STARRED before LA starts,
-// which is what you want with --priority-regions (player cities light up
-// whole, in order). The tail-end one-ring + batch-verify passes are skipped
-// (they're now inline per city). Pairs naturally with --priority-regions.
-const CITY_COMPLETE = !!args["city-complete"];
+// v699.1: the legacy always-on one-ring pass is retired — adjacents are now
+// the opt-in `--adjacents` phase (see DO_ADJACENTS above), using the worker's
+// authoritative neighbour set. `processOneRing`/`findNeighbors` remain below
+// but are no longer called (kept for reference / possible reuse).
+// v699.1: TWO-PHASE warming.
+//   DEFAULT (no flag) = PRIMARIES ONLY. Warm each curated city's own play
+//     area (boundary/refs/stations/transit/water/…), verify → stamp
+//     `primaryCuratedAt` (the ⭐: a normal game on this city is
+//     Overpass-free). Fast; every curated city earns its star. NO adjacents.
+//   --adjacents (alias --city-complete) = the ADJACENTS phase. Per city
+//     (primary skip-if-fresh), warm its adjacent areas as full play areas
+//     via the worker's real neighbour set, verify → stamp `adjacentsCuratedAt`
+//     so the app can offer "extend play area" for it. Heavier; run it AFTER
+//     a default pass has starred the primaries.
+// So: run the default first (all primaries ⭐), then --adjacents to fill
+// extend-support city-by-city. --city-complete is kept as the alias since it
+// already does primary+adjacents per city.
+const DO_ADJACENTS = !!args["adjacents"] || !!args["city-complete"];
 const ONE_RING_TOP = args["one-ring-top"]
     ? parseInt(args["one-ring-top"], 10)
     : 100;
@@ -2442,7 +2442,7 @@ async function processOneRing(cities) {
 async function processCityComplete(city, globalSeen) {
     await processCity(city);
 
-    if (DO_ONE_RING) {
+    {
         // v696: use the WORKER's neighbour set (the exact ids the star gate
         // checks), not the local admin_level-around findNeighbors — the two
         // diverge for megacities (NYC found 0 locally but the gate wants 14).
@@ -2604,19 +2604,20 @@ async function main() {
             }
         }
     }
-    // v696: --city-complete warms each city end-to-end (primary + adjacents
-    // + star stamp) before the next, so a city is fully READY and STARRED in
-    // warm order (NYC whole, then LA whole, …). The separate tail-end
-    // one-ring + batch-verify passes are skipped — they're inline now.
-    // The dedup set starts EMPTY: it only prevents re-warming a suburb shared
-    // between two adjacent cities. It must NOT be pre-seeded with the todo
-    // ids — a neighbour that's ALSO a seed city (Newark near NYC) still has
-    // to be warmed NOW so NYC can earn its star immediately; when Newark
-    // later comes up on its own it just re-hits skip-if-fresh. (v696.1 fix:
-    // pre-seeding blocked NYC from warming those neighbours → star pending.)
+    // v699.1: TWO-PHASE.
+    //   --adjacents → processCityComplete per city (primary skip-if-fresh +
+    //     adjacent areas via the worker's real neighbour set + stamp
+    //     adjacentsCuratedAt). The dedup set starts EMPTY so a shared suburb
+    //     isn't re-warmed across two adjacent cities, but each city still
+    //     warms all its own neighbours (a neighbour that's also a seed city
+    //     just re-hits skip-if-fresh when it comes up on its own).
+    //   DEFAULT → PRIMARIES ONLY (no adjacents, no one-ring). Fast; the batch
+    //     verify at the end stamps primaryCuratedAt (the ⭐).
+    // The legacy one-ring pass (processOneRing/findNeighbors) is retired — its
+    // admin_level-around discovery diverged from the star gate for megacities;
+    // --adjacents uses the worker's authoritative set instead.
     const cityCompleteSeen = new Set();
-    let oneRingProcessed = [];
-    if (CITY_COMPLETE && !ONLY_CITY) {
+    if (DO_ADJACENTS && !ONLY_CITY) {
         for (let i = 0; i < todo.length; i++) {
             try {
                 await processCityComplete(todo[i], cityCompleteSeen);
@@ -2638,18 +2639,6 @@ async function main() {
                 console.log(`--- progress: ${i + 1}/${todo.length} ---`);
             }
         }
-
-        // v360 / v442: one-ring neighbour warming (default on). Runs after
-        // the main loop so the top cities' boundaries are already cached for
-        // the centroid/admin_level lookups in findNeighbors, then processes
-        // each neighbour as a full play area.
-        if (DO_ONE_RING && !ONLY_CITY) {
-            try {
-                oneRingProcessed = (await processOneRing(cities)) ?? [];
-            } catch (e) {
-                console.warn(`! one-ring pass failed:`, e?.message ?? e);
-            }
-        }
     }
 
     // HSR runs once after the city loop — it's keyed by country, not
@@ -2663,21 +2652,13 @@ async function main() {
         }
     }
 
-    // v684: verify + stamp stars now (primary + adjacents both cached), so
-    // the app lights up immediately instead of waiting for the cron to pick
-    // each city. Runs after one-ring so a city's adjacents are warm before
-    // it's checked. Verify covers the processed cities AND the one-ring
-    // neighbours (which became fully-cached play areas of their own).
-    if (DO_VERIFY && !ONLY_CITY && !CITY_COMPLETE) {
+    // v699.1: in the DEFAULT (primaries-only) pass, verify + stamp the star
+    // now (primaryCuratedAt) so the app lights up immediately. The
+    // --adjacents pass already verifies inline per city (processCityComplete),
+    // so it skips this batch pass.
+    if (DO_VERIFY && !ONLY_CITY && !DO_ADJACENTS) {
         try {
-            const verifyList = [...todo];
-            if (DO_ONE_RING) {
-                const seen = new Set(verifyList.map((c) => c.relationId));
-                for (const c of oneRingProcessed) {
-                    if (!seen.has(c.relationId)) verifyList.push(c);
-                }
-            }
-            await verifyStars(verifyList);
+            await verifyStars([...todo]);
         } catch (e) {
             console.warn(`! verify pass failed:`, e?.message ?? e);
         }

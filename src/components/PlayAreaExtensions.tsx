@@ -3,6 +3,11 @@ import { MapPin, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
+    adjacentReadyIds,
+    ensureAdjacentReadyLoaded,
+    isAdjacentReady,
+} from "@/maps/api/adjacentReadyCities";
+import {
     additionalMapGeoLocations,
     adjacentCandidatePreview,
     toggleAdjacentArea,
@@ -47,6 +52,21 @@ const candidateCache = new Map<string, AdjacentAreaCandidate[]>();
 export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     const $allowedTransit = useStore(allowedTransit);
     const $additional = useStore(additionalMapGeoLocations);
+    const $adjacentReady = useStore(adjacentReadyIds);
+
+    // v699.1: only OFFER adjacent-adding for a primary whose neighbours are
+    // fully prewarmed (`/api/adjacent-ready-cities`). Otherwise a tapped
+    // neighbour would drop the player to live Overpass mid-game — the "broken
+    // promise" the star gate used to (over-)guard against. While the set is
+    // still loading (null) `isAdjacentReady` is false, so we default to hiding
+    // the picker rather than flashing a possibly-cold offer.
+    useEffect(() => {
+        void ensureAdjacentReadyLoaded();
+    }, []);
+    const extendable = isAdjacentReady(
+        primary.properties.osm_id,
+        $adjacentReady,
+    );
 
     const cacheKey = `${primary.properties.osm_id}:${[...$allowedTransit].sort().join(",")}`;
     const [candidates, setCandidates] = useState<AdjacentAreaCandidate[]>(
@@ -66,6 +86,15 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         // on the committed `mapGeoLocation` so an edit-mode reopen doesn't
         // wipe already-saved neighbours. This controller only fetches the
         // candidate set for the current primary.
+        // Not adjacent-ready → don't fetch or offer any neighbours. Report
+        // "ready, zero candidates" so the preview map resolves cleanly (no
+        // tappable boundaries) instead of spinning.
+        if (!extendable) {
+            setCandidates([]);
+            setStatus("ready");
+            return;
+        }
+
         const cached = candidateCache.get(cacheKey);
         if (cached) {
             setCandidates(cached);
@@ -96,7 +125,7 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cacheKey]);
+    }, [cacheKey, extendable]);
 
     // Publish candidates + status for the preview map's tappable-boundary
     // overlay AND its reveal gate. We always publish a non-null value

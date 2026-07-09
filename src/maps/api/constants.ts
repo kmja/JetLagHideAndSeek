@@ -119,6 +119,12 @@ export const RELATION_EXTENT_BASE = `${JLHS_WORKER_BASE}/api/relation-extent`;
  *  curated/discovered cities with a backfilled extent (v641). The play-area
  *  search stars matching results so users can spot fast-loading regions. */
 export const WARM_CITIES_URL = `${JLHS_WORKER_BASE}/api/warm-cities`;
+/** Adjacent-ready city relation ids (v699.1): cities whose ADJACENT areas are
+ *  fully prewarmed (`adjacentsCuratedAt`). The wizard shows the "add
+ *  neighbouring area" picker ONLY for a primary in this set, so a player can
+ *  never fold in a cold adjacent that would drop them to live Overpass. The
+ *  ⭐ star (WARM_CITIES_URL) is the orthogonal "primary is warm" signal. */
+export const ADJACENT_READY_CITIES_URL = `${JLHS_WORKER_BASE}/api/adjacent-ready-cities`;
 /** Seed-city relation ids (the top-N biggest cities, bundled — NOT the
  *  sparse fully-cached star set). Used to float a same-named major city
  *  above a village in the play-area search, immediately, without waiting on

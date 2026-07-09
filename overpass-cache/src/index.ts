@@ -1145,6 +1145,9 @@ async function handleRequest(
         if (url.pathname === "/api/warm-cities") {
             return handleWarmCities(env, cors);
         }
+        if (url.pathname === "/api/adjacent-ready-cities") {
+            return handleAdjacentReadyCities(env, cors);
+        }
         if (url.pathname === "/api/seed-cities") {
             return handleSeedCities(cors);
         }
@@ -2236,36 +2239,36 @@ async function canonicalReferenceExtent(
  * maxLng].
  */
 /**
- * `GET /api/warm-cities` (public) — the relation ids of the cities that are
- * set up for fast, prewarmed play (v641): curated/discovered cities that
- * have a backfilled `extent`, which is the gate for the reference +
- * adjacency prewarm. The app stars matching play-area search results so a
- * user can see at a glance which regions load without touching Overpass.
- * Cheap (in-memory `getPopularCities`), public, and CDN/browser-cached — it
- * changes only slowly (as cities are discovered/backfilled). Does NOT leak
- * live cache contents; it's just "which cities do we prewarm".
+ * `GET /api/warm-cities` (public) — the relation ids of the cities whose
+ * PRIMARY play area is fully cached (v699.1: `primaryCuratedAt` — boundary +
+ * references + hiding-zone stations in R2), the achievable guarantee that a
+ * normal game on this city runs Overpass-free. The app stars matching
+ * play-area search results so a user can see at a glance which regions load
+ * without touching Overpass. Cheap (in-memory `getPopularCities`), public,
+ * and CDN/browser-cached — it changes only slowly (as cities are warmed).
+ * Does NOT leak live cache contents; it's just "which cities are warm".
  */
 async function handleWarmCities(
     env: Env,
     cors: HeadersInit,
 ): Promise<Response> {
     let ids: number[] = [];
-    // The star means "FULLY cached, including adjacent areas" (v679, kept as
-    // the default). A star is a PROMISE: selecting a starred city offers
-    // adding its adjacent areas, so if those aren't warm the player hits
-    // live-Overpass errors mid-game — a broken promise. So a city is warm
-    // ONLY once the cron/laptop has stamped `fullyCuratedAt` (the PRIMARY's
-    // boundary+refs+stations AND every adjacent area all present in R2). It
-    // takes time to warm every adjacent of the whole seed, but the operator
-    // runs the laptop continuously and we get there — sparse-but-truthful
-    // beats broad-but-lying. (The v690 primary-only default was reverted:
-    // it dropped the adjacency guarantee the star exists to make.) Escape
-    // hatch: `WARM_STAR_LENIENT="true"` reverts to the extent-only star
-    // (broader, appears sooner, but NOT a full-cache guarantee) — intended
-    // only as a temporary fallback. The separate `primaryCuratedAt` stamp is
-    // a DIAGNOSTIC (surfaced in /admin/adjacent-curation-status so the
-    // operator can watch primary-progress vs full-progress), never the star.
+    // v699.1: the star means "PRIMARY play area is fully cached" —
+    // `primaryCuratedAt` (the city's own boundary+refs+stations in R2), the
+    // ACHIEVABLE guarantee that a normal game on this city runs Overpass-free.
+    // The old "broken promise" worry — a starred city offers adjacent-adding
+    // that isn't warm — is now handled a BETTER way: the app only shows the
+    // adjacent-add UI for cities in the SEPARATE `/api/adjacent-ready-cities`
+    // set (stamped `adjacentsCuratedAt`), so a cold adjacent is never offered.
+    // Two orthogonal signals: ⭐ = primary warm (this endpoint); "can extend"
+    // = adjacents warm (the other endpoint). This replaces the v692 strict
+    // gate (primary + ALL adjacents), which made big cities almost never star
+    // (7/3334) because one flaky neighbour blocked the whole city. Escape
+    // hatches (precedence lenient > strict > default): WARM_STAR_STRICT="true"
+    // restores the primary+adjacents gate; WARM_STAR_LENIENT="true" is the
+    // loosest extent-only star (NOT a cache guarantee).
     const lenient = env.WARM_STAR_LENIENT === "true";
+    const strict = env.WARM_STAR_STRICT === "true";
     try {
         const cities = await getPopularCities(env);
         ids = cities
@@ -2273,11 +2276,46 @@ async function handleWarmCities(
                 if (typeof c.relationId !== "number") return false;
                 if (lenient)
                     return Array.isArray(c.extent) && c.extent.length === 4;
-                return typeof c.fullyCuratedAt === "number";
+                if (strict) return typeof c.fullyCuratedAt === "number";
+                return typeof c.primaryCuratedAt === "number";
             })
             .map((c) => c.relationId);
     } catch (e) {
         console.warn("warm-cities lookup failed:", e);
+    }
+    return jsonResponse({ count: ids.length, ids }, 200, {
+        ...corsHeadersAsObject(cors),
+        "Cache-Control": "public, max-age=3600",
+    });
+}
+
+/**
+ * `GET /api/adjacent-ready-cities` (public, v699.1) — the relation ids of
+ * cities whose ADJACENT areas are fully prewarmed (`adjacentsCuratedAt`
+ * stamped: every neighbour's boundary+refs+stations in R2). The app shows
+ * the "add neighbouring municipality" picker ONLY for a primary in this set,
+ * so a player can never fold in a cold adjacent that would drop them to live
+ * Overpass mid-game. Distinct from `/api/warm-cities` (the ⭐ = primary
+ * warm): a city can be starred and playable while its adjacents are still
+ * warming, in which case it simply offers no extend option yet. Same cheap
+ * in-memory + CDN-cached shape as warm-cities.
+ */
+async function handleAdjacentReadyCities(
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    let ids: number[] = [];
+    try {
+        const cities = await getPopularCities(env);
+        ids = cities
+            .filter(
+                (c) =>
+                    typeof c.relationId === "number" &&
+                    typeof c.adjacentsCuratedAt === "number",
+            )
+            .map((c) => c.relationId);
+    } catch (e) {
+        console.warn("adjacent-ready-cities lookup failed:", e);
     }
     return jsonResponse({ count: ids.length, ids }, 200, {
         ...corsHeadersAsObject(cors),
