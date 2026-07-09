@@ -418,7 +418,71 @@ export async function findTransitReachCandidates(
         primaryOsmId,
         primaryName,
         stops,
-        candidates,
+        candidates: dedupeCoterminous(candidates),
         unreached,
     };
+}
+
+/** Bounding-box intersection-over-union of two Photon extents
+ *  [maxLat, minLng, minLat, maxLng]. ~1.0 = the two rectangles coincide. */
+function bboxIoU(
+    a: [number, number, number, number],
+    b: [number, number, number, number],
+): number {
+    const aN = a[0],
+        aW = a[1],
+        aS = a[2],
+        aE = a[3];
+    const bN = b[0],
+        bW = b[1],
+        bS = b[2],
+        bE = b[3];
+    const iS = Math.max(aS, bS);
+    const iN = Math.min(aN, bN);
+    const iW = Math.max(aW, bW);
+    const iE = Math.min(aE, bE);
+    if (iN <= iS || iE <= iW) return 0;
+    const inter = (iN - iS) * (iE - iW);
+    const areaA = (aN - aS) * (aE - aW);
+    const areaB = (bN - bS) * (bE - bW);
+    const union = areaA + areaB - inter;
+    return union > 0 ? inter / union : 0;
+}
+
+/**
+ * Collapse COTERMINOUS duplicates — two OSM relations covering the same
+ * ground at different admin_levels (NYC's borough "Queens" L7 vs county
+ * "Queens County" L6; city-and-county pairs like San Francisco; a `place=`
+ * relation shadowing its admin twin). They'd otherwise list the same area
+ * twice. Greedy over the stop-sorted list: keep a candidate unless its bbox
+ * nearly coincides (IoU ≥ 0.75) with one already kept. Prefer the kept one
+ * (more stops); on a tie the earlier-sorted (larger area / nearer) wins, and
+ * we drop the "County"/"Kommun"-suffixed twin in favour of the plainer
+ * borough/city name when the survivor would otherwise be the suffixed one.
+ */
+function dedupeCoterminous(
+    candidates: TransitReachCandidate[],
+): TransitReachCandidate[] {
+    const kept: TransitReachCandidate[] = [];
+    const suffixed = (n: string) =>
+        /\b(county|kommun|comune|gemeinde|municipality|parish|borough)\b/i.test(
+            n,
+        );
+    for (const c of candidates) {
+        const dupeIdx = kept.findIndex(
+            (k) => bboxIoU(k.extent, c.extent) >= 0.75,
+        );
+        if (dupeIdx === -1) {
+            kept.push(c);
+            continue;
+        }
+        // Coterminous with an already-kept candidate. Prefer the plainer
+        // name (e.g. "Queens" over "Queens County") when the incumbent is
+        // the suffixed twin and this one isn't; otherwise keep the incumbent.
+        const incumbent = kept[dupeIdx];
+        if (suffixed(incumbent.name) && !suffixed(c.name)) {
+            kept[dupeIdx] = { ...c, stopCount: incumbent.stopCount };
+        }
+    }
+    return kept;
 }
