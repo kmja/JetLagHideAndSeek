@@ -1151,6 +1151,9 @@ async function handleRequest(
         if (url.pathname === "/api/seed-cities") {
             return handleSeedCities(cors);
         }
+        if (url.pathname === "/api/reference-filters") {
+            return handleReferenceFilters(cors);
+        }
         if (url.pathname === "/api/register-area") {
             return handleRegisterArea(request, env, cors);
         }
@@ -2341,6 +2344,37 @@ function handleSeedCities(cors: HeadersInit): Response {
         // Bundled + deploy-stable → cache hard.
         "Cache-Control": "public, max-age=21600",
     });
+}
+
+/**
+ * `GET /api/reference-filters` (public) — the CANONICAL Overpass filter
+ * ingredients this worker keys its prewarm caches on: the combined reference
+ * family filters (+ pad), the hiding-zone station filters (+ pad), and the
+ * named-water filters (+ pad). The laptop-prewarmer fetches this at startup
+ * and OVERRIDES its local copies, so a byte-drift in its hand-mirrored arrays
+ * (e.g. the v686 consulate `="consulate"` → `~"^consulate"` change that
+ * orphaned every laptop-warmed city's refs under a dead key) self-heals
+ * instead of silently warming to keys the worker/app never read. Static +
+ * deploy-stable, so cache hard. The client never needs this (it hits the
+ * relation-id read endpoints), so it's laptop-facing only — but public +
+ * keyless for simplicity.
+ */
+function handleReferenceFilters(cors: HeadersInit): Response {
+    return jsonResponse(
+        {
+            referenceFilters: REFERENCE_FAMILY_FILTERS.map((f) => f.filter),
+            referencePadKm: PAD_KM,
+            stationFilters: AREA_STATION_FILTERS,
+            stationPadKm: AREA_STATION_PAD_KM,
+            waterFilters: WATER_FILTERS,
+            waterPadKm: WATER_PAD_KM,
+        },
+        200,
+        {
+            ...corsHeadersAsObject(cors),
+            "Cache-Control": "public, max-age=21600",
+        },
+    );
 }
 
 async function handleRelationExtent(

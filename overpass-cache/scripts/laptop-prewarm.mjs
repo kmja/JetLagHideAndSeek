@@ -340,7 +340,7 @@ async function waitForSlot(label) {
  * the query string. Any whitespace drift and the upload won't match
  * the client's lookup. */
 
-const PAD_KM_REF = 50; // mirrors PAD_KM in worker
+let PAD_KM_REF = 50; // mirrors PAD_KM in worker (synced at startup)
 
 // HSR is prewarmed per-COUNTRY (v214), not per-city. EXACT mirror of
 // HSR_COUNTRIES in overpass-cache/src/index.ts and
@@ -380,11 +380,18 @@ const HSR_COUNTRIES = [
 // overpass-cache/src/index.ts. Order matters because the R2 cache
 // key is a hash of the query string — any reorder produces a key
 // the client won't ever hit, so the upload would be wasted.
-const REFERENCE_FAMILY_FILTERS = [
+// `let` (not const): syncReferenceFilters() overrides these at startup from
+// the worker's /api/reference-filters so a hand-mirror drift self-heals.
+let REFERENCE_FAMILY_FILTERS = [
     { filter: '["aeroway"="aerodrome"]["iata"]' },
     { filter: '["tourism"="aquarium"]' },
     { filter: '["amenity"="cinema"]' },
-    { filter: '["diplomatic"="consulate"]' },
+    // v686: `~"^consulate"` (was `="consulate"`) — MUST match the worker's
+    // REFERENCE_FAMILY_FILTERS byte-for-byte or the refs R2 key diverges and
+    // every laptop-warmed city misses its refs (the "no star / missing refs"
+    // bug). The startup sync below fetches the canonical set and overrides
+    // this list so a future drift self-heals instead of silently orphaning.
+    { filter: '["diplomatic"~"^consulate"]' },
     { filter: '["leisure"="golf_course"]' },
     { filter: '["amenity"="hospital"]' },
     { filter: '["amenity"="library"]' },
@@ -584,7 +591,7 @@ function referenceQuery(extent) {
 // timeout:180). The R2 key hashes this exact string, and the worker's
 // /api/area-stations/<id> read endpoint rebuilds it from the boundary
 // extent — so this must match the worker builder, not the client.
-const AREA_STATION_FILTERS = [
+let AREA_STATION_FILTERS = [
     "[railway=station][subway=yes]",
     "[station=subway]",
     "[railway=station][subway!=yes]",
@@ -595,7 +602,7 @@ const AREA_STATION_FILTERS = [
     "[amenity=ferry_terminal]",
     "[public_transport=platform][platform=ferry]",
 ];
-const PAD_KM_STATIONS = 2;
+let PAD_KM_STATIONS = 2;
 function areaStationsQuery(extent) {
     const bb = bboxFilter(extent, PAD_KM_STATIONS);
     const body = AREA_STATION_FILTERS.map((f) => `nwr${f};`).join("\n");
@@ -608,13 +615,13 @@ function areaStationsQuery(extent) {
 // centrelines, 2 km pad, timeout:180, `out geom`). The R2 key hashes this
 // exact string, and the worker's /api/water/<id> read endpoint rebuilds it
 // from the boundary extent — so this must match the worker builder.
-const WATER_FILTERS = [
+let WATER_FILTERS = [
     '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
     // v690: NO `["name"]` on the line filter (unnamed river/canal segments
     // are still bodies of water). Byte-identical to the worker builder.
     '["waterway"~"^(river|canal)$"]',
 ];
-const PAD_KM_WATER = 2;
+let PAD_KM_WATER = 2;
 function waterQuery(extent) {
     const bb = bboxFilter(extent, PAD_KM_WATER);
     const body = WATER_FILTERS.map((f) => `nwr${f};`).join("\n");
@@ -2538,8 +2545,100 @@ async function processCityComplete(city, globalSeen) {
     }
 }
 
+/**
+ * v700: pull the CANONICAL reference/station/water filter set from the worker
+ * (`/api/reference-filters`) and OVERRIDE the local hand-mirrored copies, so a
+ * byte-drift in this script (e.g. the v686 consulate `="consulate"` →
+ * `~"^consulate"` change that orphaned every laptop-warmed city's refs under a
+ * dead R2 key) self-heals instead of silently warming to keys the worker/app
+ * never read. Loud when it corrects a drift. Degrades to the local copies if
+ * the endpoint is unreachable (an old worker without the route, offline, etc.)
+ * — those copies are now correct, so a miss is safe.
+ */
+async function syncReferenceFilters() {
+    let data;
+    try {
+        const resp = await fetchRetry(
+            `${WORKER}/api/reference-filters`,
+            {},
+            "reference-filters",
+        );
+        if (!resp.ok) {
+            console.warn(
+                `! reference-filters HTTP ${resp.status} — using local filter copies`,
+            );
+            return;
+        }
+        data = await resp.json();
+    } catch (e) {
+        console.warn(
+            `! reference-filters fetch failed (${e?.message ?? e}) — using local filter copies`,
+        );
+        return;
+    }
+    const applyList = (label, remote, localArr, toLocal, fromLocal) => {
+        if (!Array.isArray(remote) || remote.length === 0) return;
+        const before = localArr.map(fromLocal).join("\n");
+        const after = remote.join("\n");
+        if (before !== after) {
+            console.warn(
+                `  ! ${label} filters DRIFTED from the worker — overriding local copy:`,
+            );
+            console.warn(`      local : ${before.replace(/\n/g, " | ")}`);
+            console.warn(`      worker: ${after.replace(/\n/g, " | ")}`);
+        }
+        return remote.map(toLocal);
+    };
+    const nextRef = applyList(
+        "reference",
+        data.referenceFilters,
+        REFERENCE_FAMILY_FILTERS,
+        (f) => ({ filter: f }),
+        (o) => o.filter,
+    );
+    if (nextRef) REFERENCE_FAMILY_FILTERS = nextRef;
+    const nextStations = applyList(
+        "station",
+        data.stationFilters,
+        AREA_STATION_FILTERS,
+        (f) => f,
+        (f) => f,
+    );
+    if (nextStations) AREA_STATION_FILTERS = nextStations;
+    const nextWater = applyList(
+        "water",
+        data.waterFilters,
+        WATER_FILTERS,
+        (f) => f,
+        (f) => f,
+    );
+    if (nextWater) WATER_FILTERS = nextWater;
+    const applyPad = (label, remote, local, set) => {
+        if (typeof remote !== "number" || !Number.isFinite(remote)) return;
+        if (remote !== local) {
+            console.warn(
+                `  ! ${label} pad DRIFTED (local ${local} km → worker ${remote} km) — overriding`,
+            );
+            set(remote);
+        }
+    };
+    applyPad("reference", data.referencePadKm, PAD_KM_REF, (v) => {
+        PAD_KM_REF = v;
+    });
+    applyPad("station", data.stationPadKm, PAD_KM_STATIONS, (v) => {
+        PAD_KM_STATIONS = v;
+    });
+    applyPad("water", data.waterPadKm, PAD_KM_WATER, (v) => {
+        PAD_KM_WATER = v;
+    });
+}
+
 async function main() {
     console.log(`=== laptop-prewarm against ${WORKER} ===`);
+
+    // Sync the cache-key filter set from the worker FIRST, before any query is
+    // built, so we never warm to a drifted (dead) R2 key.
+    await syncReferenceFilters();
 
     if (DO_TILE_PACKS) {
         tilePacksEnabled = checkPmtilesBinary();
