@@ -48,6 +48,9 @@ export interface TransitReachCandidate {
     adminLevel: string | null;
     /** [maxLat, minLng, minLat, maxLng] — Photon order, for framing. */
     extent: [number, number, number, number];
+    /** Real boundary polygon (fetched for the point-in-polygon test) — for
+     *  the debug map. Null when the boundary fetch missed (bbox was used). */
+    polygon: GeoJSON.Polygon | GeoJSON.MultiPolygon | null;
 }
 
 export interface TransitReachResult {
@@ -401,6 +404,7 @@ export async function findTransitReachCandidates(
                 areaKm2: cand.areaKm2,
                 adminLevel: cand.adminLevel,
                 extent: cand.extent,
+                polygon: poly,
             });
         }
     };

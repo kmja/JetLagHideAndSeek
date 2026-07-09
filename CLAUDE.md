@@ -543,8 +543,14 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   targets a COARSER admin level so a metro returns a handful of counties
   instead of dozens of tiny suburbs (Chicago's annoyance); plus per-
   candidate area (km²), a `largest / most-stops / nearest` sort (default
-  largest), and a min-area slider. **NOT the default yet** — read-only
-  inspector, writes no global state; the wizard still uses admin-adjacency.
+  largest), min-stops + min-area sliders (cut the 1-2-stop slivers), and a
+  **MapLibre preview** (v709) painting the reached municipalities as real
+  boundary polygons — green = in both selectors, blue = rail-only additions —
+  over the rail stops (amber dots) + the primary boundary (red), so a set can
+  be judged geographically without knowing the city. Coterminous duplicates
+  (NYC's Queens borough L7 vs Queens County L6) are collapsed by bbox-IoU.
+  **NOT the default yet** — read-only inspector, writes no global state; the
+  wizard still uses admin-adjacency.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
   overlay at once via a `preview` prop on each overlay (shadows its
   atoms, writes nothing global), plus a light/dark toggle. The debug

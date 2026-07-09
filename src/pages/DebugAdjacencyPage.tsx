@@ -1,17 +1,42 @@
 import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 import { Link } from "react-router-dom";
 
 import type { TransitMode } from "@/lib/gameSetup";
+import { PLAY_AREA_COLOR } from "@/lib/playAreaStyle";
+import { protomapsMapLibreStyle } from "@/lib/protomapsStyle";
+import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { geocode } from "@/maps/api/geocode";
 import { findExtensionCandidates } from "@/maps/api/playAreaExtensions";
+import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import {
     findTransitReachCandidates,
     type RailRouteKind,
     type TransitReachResult,
 } from "@/maps/api/transitReach";
 import type { OpenStreetMap } from "@/maps/api/types";
+import { useStore } from "@nanostores/react";
+
+function bboxPolygonFromExtent(
+    ext: [number, number, number, number],
+): GeoJSON.Polygon {
+    // extent order: [maxLat, minLng, minLat, maxLng].
+    const [maxLat, minLng, minLat, maxLng] = ext;
+    return {
+        type: "Polygon",
+        coordinates: [
+            [
+                [minLng, minLat],
+                [maxLng, minLat],
+                [maxLng, maxLat],
+                [minLng, maxLat],
+                [minLng, minLat],
+            ],
+        ],
+    };
+}
 
 /**
  * Developer comparison at `/debug/adjacency` (Topic 2 prototype) — for a
@@ -97,11 +122,17 @@ export function DebugAdjacencyPage() {
     const [adminLevel, setAdminLevel] = useState("auto");
     const [sortKey, setSortKey] = useState<SortKey>("area");
     const [minAreaKm2, setMinAreaKm2] = useState(0);
+    const [minStops, setMinStops] = useState(2);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [primaryName, setPrimaryName] = useState<string | null>(null);
     const [admin, setAdmin] = useState<AdminCandidate[] | null>(null);
     const [reach, setReach] = useState<TransitReachResult | null>(null);
+    const [primaryPoly, setPrimaryPoly] = useState<
+        GeoJSON.Polygon | GeoJSON.MultiPolygon | null
+    >(null);
+    const dark = useStore(resolvedTheme) === "dark";
+    const mapRef = useRef<MapRef | null>(null);
 
     const toggleKind = (k: RailRouteKind) =>
         setKinds((prev) =>
@@ -114,6 +145,7 @@ export function DebugAdjacencyPage() {
         setAdmin(null);
         setReach(null);
         setPrimaryName(null);
+        setPrimaryPoly(null);
         try {
             const results = (await geocode(query, "en")) as OpenStreetMap[];
             const primary = results?.[0];
@@ -122,6 +154,9 @@ export function DebugAdjacencyPage() {
                 return;
             }
             setPrimaryName(primary.properties.name ?? query);
+            void fetchRawBoundaryPolygon(primary.properties.osm_id)
+                .then((p) => setPrimaryPoly(p))
+                .catch(() => setPrimaryPoly(null));
             const [adminRes, reachRes] = await Promise.all([
                 findExtensionCandidates(primary, ALL_MODES, {
                     radiusKm,
@@ -160,15 +195,100 @@ export function DebugAdjacencyPage() {
     };
 
     const adminIds = new Set((admin ?? []).map((a) => a.relationId));
-    const reachCandidates = (reach?.candidates ?? [])
-        .filter((c) => c.areaKm2 >= minAreaKm2)
-        .slice()
-        .sort((a, b) => {
-            if (sortKey === "area") return b.areaKm2 - a.areaKm2;
-            if (sortKey === "stops") return b.stopCount - a.stopCount;
-            return a.distanceKm - b.distanceKm;
-        });
+    const reachCandidates = useMemo(
+        () =>
+            (reach?.candidates ?? [])
+                .filter(
+                    (c) => c.areaKm2 >= minAreaKm2 && c.stopCount >= minStops,
+                )
+                .slice()
+                .sort((a, b) => {
+                    if (sortKey === "area") return b.areaKm2 - a.areaKm2;
+                    if (sortKey === "stops") return b.stopCount - a.stopCount;
+                    return a.distanceKm - b.distanceKm;
+                }),
+        [reach, minAreaKm2, minStops, sortKey],
+    );
     const reachIds = new Set(reachCandidates.map((c) => c.relationId));
+
+    // Map data — candidate polygons (real boundary, bbox fallback) coloured
+    // by in-both vs rail-only, rail stops, and the primary boundary.
+    const reachFC = useMemo<GeoJSON.FeatureCollection>(
+        () => ({
+            type: "FeatureCollection",
+            features: reachCandidates.map((c) => ({
+                type: "Feature",
+                properties: {
+                    inBoth: adminIds.has(c.relationId),
+                    name: c.name,
+                },
+                geometry: c.polygon ?? bboxPolygonFromExtent(c.extent),
+            })),
+        }),
+        // adminIds is derived from `admin`; recompute when either changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [reachCandidates, admin],
+    );
+    const stopsFC = useMemo<GeoJSON.FeatureCollection>(
+        () => ({
+            type: "FeatureCollection",
+            features: (reach?.stops ?? []).map((s) => ({
+                type: "Feature",
+                properties: { kind: s.kind },
+                geometry: { type: "Point", coordinates: [s.lon, s.lat] },
+            })),
+        }),
+        [reach],
+    );
+    const primaryFC = useMemo<GeoJSON.FeatureCollection>(
+        () => ({
+            type: "FeatureCollection",
+            features: primaryPoly
+                ? [{ type: "Feature", properties: {}, geometry: primaryPoly }]
+                : [],
+        }),
+        [primaryPoly],
+    );
+
+    // Fit the map to the candidate set + primary whenever results change.
+    useEffect(() => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const exts = reachCandidates.map((c) => c.extent);
+        if (primaryPoly) {
+            const c = reach;
+            if (c)
+                exts.push([
+                    c.stops.reduce((m, s) => Math.max(m, s.lat), -90),
+                    c.stops.reduce((m, s) => Math.min(m, s.lon), 180),
+                    c.stops.reduce((m, s) => Math.min(m, s.lat), 90),
+                    c.stops.reduce((m, s) => Math.max(m, s.lon), -180),
+                ]);
+        }
+        if (exts.length === 0) return;
+        let n = -90,
+            s = 90,
+            w = 180,
+            e = -180;
+        for (const [mx, mnLng, mn, mxLng] of exts) {
+            n = Math.max(n, mx);
+            s = Math.min(s, mn);
+            w = Math.min(w, mnLng);
+            e = Math.max(e, mxLng);
+        }
+        if (n <= s || e <= w) return;
+        try {
+            map.fitBounds(
+                [
+                    [w, s],
+                    [e, n],
+                ],
+                { padding: 30, duration: 500, maxZoom: 12 },
+            );
+        } catch {
+            /* ignore */
+        }
+    }, [reachCandidates, primaryPoly, reach]);
 
     return (
         <div className="min-h-screen bg-background text-foreground p-4 md:p-8">
@@ -310,6 +430,19 @@ export function DebugAdjacencyPage() {
                             </div>
                         </div>
                         <label className="flex flex-col gap-1 text-xs">
+                            Min stops: {minStops}
+                            <input
+                                type="range"
+                                min={0}
+                                max={20}
+                                step={1}
+                                value={minStops}
+                                onChange={(e) =>
+                                    setMinStops(Number(e.target.value))
+                                }
+                            />
+                        </label>
+                        <label className="flex flex-col gap-1 text-xs">
                             Min area: {minAreaKm2} km²
                             <input
                                 type="range"
@@ -340,6 +473,112 @@ export function DebugAdjacencyPage() {
                                 — {reach.stops.length} rail stops found
                             </span>
                         )}
+                    </div>
+                )}
+
+                {reach && (
+                    <div className="h-[420px] w-full overflow-hidden rounded-lg border border-border">
+                        <MapGL
+                            ref={mapRef}
+                            initialViewState={{
+                                longitude: reach.stops.length
+                                    ? reach.stops[0].lon
+                                    : 0,
+                                latitude: reach.stops.length
+                                    ? reach.stops[0].lat
+                                    : 20,
+                                zoom: 8,
+                            }}
+                            style={{ width: "100%", height: "100%" }}
+                            mapStyle={protomapsMapLibreStyle(
+                                dark ? "dark" : "light",
+                            )}
+                            attributionControl={false}
+                            dragRotate={false}
+                        >
+                            <Source
+                                id="tr-reach"
+                                type="geojson"
+                                data={reachFC}
+                            >
+                                <Layer
+                                    id="tr-reach-fill"
+                                    type="fill"
+                                    paint={{
+                                        "fill-color": [
+                                            "case",
+                                            ["get", "inBoth"],
+                                            "#22c55e",
+                                            "#3b82f6",
+                                        ],
+                                        "fill-opacity": 0.25,
+                                    }}
+                                />
+                                <Layer
+                                    id="tr-reach-line"
+                                    type="line"
+                                    paint={{
+                                        "line-color": [
+                                            "case",
+                                            ["get", "inBoth"],
+                                            "#16a34a",
+                                            "#2563eb",
+                                        ],
+                                        "line-width": 1.5,
+                                    }}
+                                />
+                            </Source>
+                            <Source
+                                id="tr-primary"
+                                type="geojson"
+                                data={primaryFC}
+                            >
+                                <Layer
+                                    id="tr-primary-line"
+                                    type="line"
+                                    paint={{
+                                        "line-color": PLAY_AREA_COLOR,
+                                        "line-width": 2.5,
+                                    }}
+                                />
+                            </Source>
+                            <Source
+                                id="tr-stops"
+                                type="geojson"
+                                data={stopsFC}
+                            >
+                                <Layer
+                                    id="tr-stops-dots"
+                                    type="circle"
+                                    paint={{
+                                        "circle-radius": 2.5,
+                                        "circle-color": "#f59e0b",
+                                        "circle-stroke-width": 0.5,
+                                        "circle-stroke-color": "#78350f",
+                                    }}
+                                />
+                            </Source>
+                        </MapGL>
+                    </div>
+                )}
+                {reach && (
+                    <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                        <span>
+                            <span className="inline-block w-3 h-3 rounded-sm bg-[#22c55e]/40 border border-[#16a34a] align-middle" />{" "}
+                            in both
+                        </span>
+                        <span>
+                            <span className="inline-block w-3 h-3 rounded-sm bg-[#3b82f6]/40 border border-[#2563eb] align-middle" />{" "}
+                            rail-only (transit-reach adds)
+                        </span>
+                        <span>
+                            <span className="inline-block w-3 h-3 rounded-full bg-[#f59e0b] align-middle" />{" "}
+                            rail stop
+                        </span>
+                        <span>
+                            <span className="inline-block w-3 h-[2px] bg-primary align-middle" />{" "}
+                            primary boundary
+                        </span>
                     </div>
                 )}
 
