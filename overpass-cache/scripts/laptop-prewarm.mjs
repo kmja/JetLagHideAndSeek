@@ -1213,8 +1213,18 @@ async function verifyStars(cities) {
 async function fetchStarredRelationIds(kind) {
     const path =
         kind === "adjacent" ? "/api/adjacent-ready-cities" : "/api/warm-cities";
+    // v717: BUST the CDN cache. /api/warm-cities is served with
+    // `Cache-Control: public, max-age=3600`, so within an hour of stamping a
+    // city, a plain GET returns a STALE warm set that predates the stamp — so
+    // --skip-starred wouldn't skip a just-starred city (LA/DC re-walked every
+    // run). A unique `?t=` makes it a fresh origin hit + no-store on our side.
+    const url = `${WORKER}${path}?t=${Date.now()}`;
     try {
-        const resp = await fetchRetry(`${WORKER}${path}`, {}, "starred-cities");
+        const resp = await fetchRetry(
+            url,
+            { cache: "no-store", headers: { "Cache-Control": "no-cache" } },
+            "starred-cities",
+        );
         if (!resp.ok) return new Set();
         const data = await resp.json();
         const ids = Array.isArray(data.ids) ? data.ids : [];
