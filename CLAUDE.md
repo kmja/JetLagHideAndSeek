@@ -400,7 +400,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v703`. Use `git log` for the per-version detail;
+build stamp. Current: `v705`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared
@@ -524,6 +524,20 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   all** — the earlier "swap the trash for a disabled lock in online
   games" treatment is gone; discarding an un-sent draft is the configure
   dialog's Cancel.
+- **Adjacency comparison** at `/debug/adjacency` (v705, Topic-2 prototype)
+  — for a searched city, runs BOTH the shipped ADMIN-adjacency selector
+  (`findExtensionCandidates`, `playAreaExtensions.ts`: topological + admin-
+  band neighbours filtered by a `hasMatchingTransit` bbox flag) AND a
+  prototype TRANSIT-REACH selector (`findTransitReachCandidates`,
+  `src/maps/api/transitReach.ts`) that inverts the question: fetch the
+  primary's rail network (subway + light-rail + `route=train service~
+  commuter|suburban`), take every stop those routes serve, and return the
+  municipalities the stops land in (point-in-polygon against each
+  candidate's real boundary) — literally "everywhere the subway / commuter
+  train runs". Shows the two candidate sets side by side (in-both / rail-
+  only / admin-only) so the idea can be eyeballed on Stockholm + presets
+  before it's wired into the wizard. **NOT the default yet** — read-only
+  inspector, writes no global state; the wizard still uses admin-adjacency.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
   overlay at once via a `preview` prop on each overlay (shadows its
   atoms, writes nothing global), plus a light/dark toggle. The debug
