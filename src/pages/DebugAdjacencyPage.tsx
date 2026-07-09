@@ -267,20 +267,22 @@ export function DebugAdjacencyPage() {
         [primaryPoly],
     );
 
-    // Fit the map to the candidate set + primary whenever results change.
+    // Fit the map ONCE per Compare run — frame the full (unfiltered)
+    // candidate set + stops so the camera holds still while the client-side
+    // filters (min-density / min-stops / min-area / sort) only paint and
+    // unpaint candidates. Depends only on a fresh fetch result, NOT on the
+    // filtered `reachCandidates`, so dragging a slider never rezooms.
     useEffect(() => {
         const map = mapRef.current?.getMap();
-        if (!map) return;
-        const exts = reachCandidates.map((c) => c.extent);
-        if (primaryPoly) {
-            const c = reach;
-            if (c)
-                exts.push([
-                    c.stops.reduce((m, s) => Math.max(m, s.lat), -90),
-                    c.stops.reduce((m, s) => Math.min(m, s.lon), 180),
-                    c.stops.reduce((m, s) => Math.min(m, s.lat), 90),
-                    c.stops.reduce((m, s) => Math.max(m, s.lon), -180),
-                ]);
+        if (!map || !reach) return;
+        const exts = reach.candidates.map((c) => c.extent);
+        if (primaryPoly && reach.stops.length > 0) {
+            exts.push([
+                reach.stops.reduce((m, s) => Math.max(m, s.lat), -90),
+                reach.stops.reduce((m, s) => Math.min(m, s.lon), 180),
+                reach.stops.reduce((m, s) => Math.min(m, s.lat), 90),
+                reach.stops.reduce((m, s) => Math.max(m, s.lon), -180),
+            ]);
         }
         if (exts.length === 0) return;
         let n = -90,
@@ -305,7 +307,7 @@ export function DebugAdjacencyPage() {
         } catch {
             /* ignore */
         }
-    }, [reachCandidates, primaryPoly, reach]);
+    }, [reach, primaryPoly]);
 
     return (
         <div className="min-h-screen bg-background text-foreground p-4 md:p-8">
