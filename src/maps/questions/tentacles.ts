@@ -1,6 +1,11 @@
 import * as turf from "@turf/turf";
 
-import { hiderMode } from "@/lib/context";
+import {
+    additionalMapGeoLocations,
+    hiderMode,
+    mapGeoLocation,
+} from "@/lib/context";
+import { METRO_BY_RELATION_BASE } from "@/maps/api/constants";
 import { referenceExtent } from "@/maps/api/playAreaPrefetch";
 import { findTentacleLocations, getOverpassData } from "@/maps/api";
 import { arcBuffer, safeUnion } from "@/maps/geo-utils";
@@ -65,6 +70,60 @@ function metroRoutesQuery(bboxTuple: string): string {
     return `\n[out:json][timeout:180][bbox:${bboxTuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
 }
 
+const metroWarmRequested = new Set<number>();
+function requestWarmMetro(relationId: number): void {
+    if (metroWarmRequested.has(relationId)) return;
+    metroWarmRequested.add(relationId);
+    fetch(`${METRO_BY_RELATION_BASE}/${relationId}?warm=1`, {
+        method: "GET",
+    }).catch(() => {
+        metroWarmRequested.delete(relationId);
+    });
+}
+
+/**
+ * Fetch the play-area metro routes, endpoint-first (v700). When the play area
+ * is a single OSM relation (the common case), read the relation-id-keyed
+ * `/api/metro/<id>` — the worker derives the bbox from the boundary it has in
+ * R2, so a prewarmed metro entry is read under the SAME key the laptop stored
+ * (no client-side land-clip drift). Falls back to the live bbox query on a
+ * non-relation play area, an endpoint miss (firing a background warm), or a
+ * network error. Returns `null` when there's no usable extent.
+ */
+async function fetchMetroRoutesData(): Promise<any> {
+    const primary = mapGeoLocation.get();
+    const props = primary?.properties as
+        | { osm_id?: number; osm_type?: string }
+        | undefined;
+    const extrasAdded = additionalMapGeoLocations
+        .get()
+        .some((e) => e.added);
+    if (
+        !extrasAdded &&
+        props?.osm_type === "R" &&
+        typeof props.osm_id === "number" &&
+        props.osm_id > 0
+    ) {
+        const relId = props.osm_id;
+        try {
+            const resp = await fetch(`${METRO_BY_RELATION_BASE}/${relId}`);
+            if (resp.ok) {
+                const json = (await resp.json()) as { elements?: unknown[] };
+                const els = json?.elements;
+                if (Array.isArray(els) && els.length > 0) return json;
+                // Empty = miss/no-boundary. Warm in the background and fall
+                // through to the live bbox query so the user still gets data.
+                requestWarmMetro(relId);
+            }
+        } catch {
+            /* network issue → fall through */
+        }
+    }
+    const tuple = playAreaBboxTuple();
+    if (!tuple) return null;
+    return await getOverpassData(metroRoutesQuery(tuple), "Loading metro lines...");
+}
+
 /**
  * Fetch metro-line tentacle candidates as a FeatureCollection of
  * representative points (one per route), filtered to those whose
@@ -76,15 +135,13 @@ async function findMetroTentacleCandidates(
     radius: number,
     unit: Units,
 ): Promise<GeoJSON.FeatureCollection<GeoJSON.Point>> {
-    const tuple = playAreaBboxTuple();
-    if (!tuple) return turf.featureCollection([]);
-    const query = metroRoutesQuery(tuple);
     let data: any;
     try {
-        data = await getOverpassData(query, "Loading metro lines...");
+        data = await fetchMetroRoutesData();
     } catch {
         return turf.featureCollection([]);
     }
+    if (!data) return turf.featureCollection([]);
     const seeker = turf.point([centerLng, centerLat]);
     const seen = new Set<string>();
     const candidates: GeoJSON.Feature<GeoJSON.Point>[] = [];

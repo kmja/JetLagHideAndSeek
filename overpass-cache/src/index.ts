@@ -1200,6 +1200,33 @@ async function handleRequest(
                 mode,
             );
         }
+        if (url.pathname.startsWith("/api/metro/")) {
+            // /api/metro/<relationId>[?warm=1] (v700)
+            const relStr = url.pathname
+                .slice("/api/metro/".length)
+                .split("/")
+                .filter(Boolean)[0];
+            const relId = parseInt(relStr ?? "", 10);
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationMetro(env, relId).catch((e) =>
+                        console.warn(`warm metro r${relId} threw:`, e),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId },
+                    202,
+                    cors,
+                );
+            }
+            return handleMetroByRelation(request, env, cors, relId);
+        }
         if (url.pathname.startsWith("/api/elevation/")) {
             return handleElevationTile(request, env, ctx, cors);
         }
@@ -3113,6 +3140,122 @@ async function warmRelationTransit(
 }
 
 /**
+ * GET /api/metro/<relationId> (v700) — the relation-id-keyed read for the
+ * tentacle "Metro line" question, mirroring `handleTransitByRelation`. The
+ * client (`tentacles.ts`) previously built the metro bbox query itself from
+ * the LAND-CLIPPED play-area extent, so it drifted from the laptop's
+ * raw-boundary-derived key on coastal cities (NYC/LA/SF/Sydney) and the
+ * prewarmed metro entry went unused. This derives the bbox SERVER-SIDE from
+ * the boundary in R2 and rebuilds the identical query the laptop stored
+ * under. Read-only: a miss returns `{ elements: [] }` so the client falls
+ * back to its live bbox query (warming stays the laptop's / ?warm=1's job).
+ */
+async function handleMetroByRelation(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", { status: 405, headers: cors });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = metroRoutesQuery(ext);
+    const cacheKey = await r2KeyForQuery(query);
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("metro-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/** Background warm of one relation's metro-routes entry, keyed canonically
+ *  so a later GET /api/metro/<id> hits it. Mirrors warmRelationTransit. */
+async function warmRelationMetro(
+    env: Env,
+    relationId: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary r${relationId}`))) return;
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-metro",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+    const mQuery = metroRoutesQuery(ext);
+    const mKey = await r2KeyForQuery(mQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${mKey}`);
+        if (head) {
+            const cachedAt = parseInt(head.customMetadata?.cachedAt ?? "0", 10);
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-metro r${relationId}`))) return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(mQuery),
+    );
+    if (!up) return;
+    await streamStoreNoTee(env, `overpass/${mKey}`, up, {
+        kind: "metro-routes",
+        warmedBy: "on-add-metro",
+        sourceRelationId: String(relationId),
+    });
+}
+
+/**
  * Compute the [south, west, north, east] tuple for a city's bbox
  * with a given pad. Same arithmetic as `buildBboxFilter`, just
  * returning the numeric corners instead of an Overpass filter
@@ -3552,6 +3695,20 @@ function transitRouteQuery(
 ): string {
     const tuple = transitBboxTuple(extent);
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="${routeType}"];\nout skel geom;\n`;
+}
+
+/** Byte-identical to `metroRoutesQuery` in src/maps/questions/tentacles.ts
+ *  AND laptop-prewarm.mjs. The tentacle "Metro line" question reads named
+ *  subway ROUTE relations (distinct from the transit overlay's `out skel`
+ *  subway shards — this keeps `["name"]` + `out tags geom`). Served by
+ *  `/api/metro/<id>` so the client no longer builds a land-clip-drifting
+ *  bbox on its own (the pre-v386 transit bug, which this endpoint fixes for
+ *  metro too, v700). Newline framing is load-bearing to the R2 key. */
+function metroRoutesQuery(
+    extent: [number, number, number, number],
+): string {
+    const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
 }
 
 /** Cron-side shard query. Same template as `transitRouteQuery`, with

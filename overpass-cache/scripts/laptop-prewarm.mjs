@@ -1597,40 +1597,22 @@ async function processCity(city) {
         }
     }
 
-    // v334: per-city Photon warm-up. One forward search for the
-    // city's name + one reverse geocode at its centroid. Both hit
-    // OUR worker's /api/photon/{forward,reverse} proxy (NOT
-    // photon.komoot.io directly), so the response lands in R2 and
-    // every subsequent identical request is an instant cache hit.
-    // Cheap — Photon responses are kilobytes — and unblocks the
-    // single most-clicked play-area picker flows. Pacing is the same
-    // DELAY_MS as everything else so this can't trip Photon's own
-    // rate limit either.
+    // v334: per-city Photon warm-up — one forward search for the city's
+    // name, hitting OUR worker's /api/photon/forward proxy (NOT
+    // photon.komoot.io directly) so the response lands in R2 and the exact
+    // "search for <city>" play-area query is an instant cache hit. Cheap
+    // (kilobytes) and unblocks the most-clicked play-area picker flow.
+    // v700: the reverse warm at the bbox centroid was REMOVED — the client
+    // only ever reverse-geocodes the player's actual GPS / a tapped point at
+    // full precision, never the exact 4-dp city centroid, and the worker
+    // does no coordinate bucketing, so that key was never hit (audit: dead
+    // warm). The forward warm stays. HEAD-first short-circuit inside
+    // warmPhoton so a warm city doesn't pay the GET + DELAY_MS pacing sleep.
     if (DO_PHOTON) {
-        const lat = effectiveExtent
-            ? (effectiveExtent[0] + effectiveExtent[2]) / 2
-            : null;
-        const lng = effectiveExtent
-            ? (effectiveExtent[1] + effectiveExtent[3]) / 2
-            : null;
-        // v364: do a HEAD first and short-circuit on a cache hit. Without
-        // this, every fully-warmed city still paid GET round trip + the
-        // DELAY_MS pacing sleep (≈ 4 s/city wasted on the photon pass).
-        // The HEAD itself is cheap and goes through the same edge/R2 path,
-        // so a HIT here returns in ~1 ms; only an upstream-bound GET pays
-        // the politeness sleep.
         await warmPhoton(
             `${WORKER}/api/photon/forward?lang=en&q=${encodeURIComponent(city.name)}`,
             `photon-forward "${city.name}"`,
         );
-        if (lat !== null && lng !== null) {
-            const lat4 = lat.toFixed(4);
-            const lng4 = lng.toFixed(4);
-            await warmPhoton(
-                `${WORKER}/api/photon/reverse?lat=${lat4}&lon=${lng4}&lang=en`,
-                `photon-reverse ${lat4},${lng4}`,
-            );
-        }
     }
 
     // v336: per-city tile pack. Heavy + needs the external pmtiles
