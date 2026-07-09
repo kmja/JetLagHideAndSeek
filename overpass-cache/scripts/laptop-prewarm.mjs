@@ -196,6 +196,14 @@ const DO_ADJACENT = !args["skip-adjacent"];
 // leads with HAND_CURATED majors, so "first N" is a reasonable most-
 // played proxy (there's no population field to rank by).
 const DO_ONE_RING = !args["skip-one-ring"];
+// v696: warm each city COMPLETELY before moving to the next — primary, then
+// its adjacent areas (as full play areas), then verify + stamp its star —
+// instead of warming ALL primaries first and doing the one-ring pass at the
+// end. So NYC + adjacents are fully cached and STARRED before LA starts,
+// which is what you want with --priority-regions (player cities light up
+// whole, in order). The tail-end one-ring + batch-verify passes are skipped
+// (they're now inline per city). Pairs naturally with --priority-regions.
+const CITY_COMPLETE = !!args["city-complete"];
 const ONE_RING_TOP = args["one-ring-top"]
     ? parseInt(args["one-ring-top"], 10)
     : 100;
@@ -2400,6 +2408,62 @@ async function processOneRing(cities) {
     return processed;
 }
 
+/**
+ * v696: warm ONE city end-to-end — its primary, then each adjacent area as a
+ * full play area, then verify + stamp its star — so the city is completely
+ * ready (and starred) before the caller moves on. `globalSeen` dedupes
+ * neighbours across cities (a shared suburb isn't re-warmed). Used by the
+ * --city-complete path; mirrors what the main-loop + one-ring + verify passes
+ * do in aggregate, just per-city instead of in three separate phases.
+ */
+async function processCityComplete(city, globalSeen) {
+    await processCity(city);
+
+    if (DO_ONE_RING) {
+        let neighbors = [];
+        try {
+            neighbors = await findNeighbors(city);
+        } catch (e) {
+            console.warn(
+                `  ! adjacents discover ${city.name} failed:`,
+                e?.message ?? e,
+            );
+        }
+        for (const n of neighbors) {
+            if (globalSeen.has(n.relationId)) continue;
+            globalSeen.add(n.relationId);
+            try {
+                await processCity(n);
+            } catch (e) {
+                console.warn(
+                    `  ! adjacent ${n.name} (r${n.relationId}) failed:`,
+                    e?.message ?? e,
+                );
+            }
+        }
+    }
+
+    // Stamp the star NOW — primary + adjacents are cached, so the city
+    // lights up in the app the instant it's done, in warm order.
+    if (DO_VERIFY) {
+        try {
+            const v = await verifyCity(city.relationId);
+            if (v?.fullyCurated) {
+                console.log(`  ★ ${city.name} — fully cached & starred`);
+            } else {
+                console.log(
+                    `  ☆ ${city.name} — primary warm, star pending` +
+                        (v && typeof v.neighboursTotal === "number"
+                            ? ` (${v.neighboursTotal} neighbours)`
+                            : ""),
+                );
+            }
+        } catch {
+            /* verify is best-effort */
+        }
+    }
+}
+
 async function main() {
     console.log(`=== laptop-prewarm against ${WORKER} ===`);
 
@@ -2504,27 +2568,45 @@ async function main() {
             }
         }
     }
-    for (let i = 0; i < todo.length; i++) {
-        try {
-            await processCity(todo[i]);
-        } catch (e) {
-            console.warn(`! ${todo[i].name} failed:`, e?.message ?? e);
-        }
-        if ((i + 1) % 10 === 0) {
-            console.log(`--- progress: ${i + 1}/${todo.length} ---`);
-        }
-    }
-
-    // v360 / v442: one-ring neighbour warming (default on). Runs after
-    // the main loop so the top cities' boundaries are already cached for
-    // the centroid/admin_level lookups in findNeighbors, then processes
-    // each neighbour as a full play area.
+    // v696: --city-complete warms each city end-to-end (primary + adjacents
+    // + star stamp) before the next, so a city is fully READY and STARRED in
+    // warm order (NYC whole, then LA whole, …). The separate tail-end
+    // one-ring + batch-verify passes are skipped — they're inline now.
+    const cityCompleteSeen = new Set(todo.map((c) => c.relationId));
     let oneRingProcessed = [];
-    if (DO_ONE_RING && !ONLY_CITY) {
-        try {
-            oneRingProcessed = (await processOneRing(cities)) ?? [];
-        } catch (e) {
-            console.warn(`! one-ring pass failed:`, e?.message ?? e);
+    if (CITY_COMPLETE && !ONLY_CITY) {
+        for (let i = 0; i < todo.length; i++) {
+            try {
+                await processCityComplete(todo[i], cityCompleteSeen);
+            } catch (e) {
+                console.warn(`! ${todo[i].name} failed:`, e?.message ?? e);
+            }
+            if ((i + 1) % 10 === 0) {
+                console.log(`--- progress: ${i + 1}/${todo.length} ---`);
+            }
+        }
+    } else {
+        for (let i = 0; i < todo.length; i++) {
+            try {
+                await processCity(todo[i]);
+            } catch (e) {
+                console.warn(`! ${todo[i].name} failed:`, e?.message ?? e);
+            }
+            if ((i + 1) % 10 === 0) {
+                console.log(`--- progress: ${i + 1}/${todo.length} ---`);
+            }
+        }
+
+        // v360 / v442: one-ring neighbour warming (default on). Runs after
+        // the main loop so the top cities' boundaries are already cached for
+        // the centroid/admin_level lookups in findNeighbors, then processes
+        // each neighbour as a full play area.
+        if (DO_ONE_RING && !ONLY_CITY) {
+            try {
+                oneRingProcessed = (await processOneRing(cities)) ?? [];
+            } catch (e) {
+                console.warn(`! one-ring pass failed:`, e?.message ?? e);
+            }
         }
     }
 
@@ -2544,7 +2626,7 @@ async function main() {
     // each city. Runs after one-ring so a city's adjacents are warm before
     // it's checked. Verify covers the processed cities AND the one-ring
     // neighbours (which became fully-cached play areas of their own).
-    if (DO_VERIFY && !ONLY_CITY) {
+    if (DO_VERIFY && !ONLY_CITY && !CITY_COMPLETE) {
         try {
             const verifyList = [...todo];
             if (DO_ONE_RING) {
