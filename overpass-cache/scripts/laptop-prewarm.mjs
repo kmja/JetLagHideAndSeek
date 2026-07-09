@@ -2477,13 +2477,22 @@ async function processCityComplete(city, globalSeen) {
             const v = await verifyCity(city.relationId);
             if (v?.fullyCurated) {
                 console.log(`  ★ ${city.name} — fully cached & starred`);
+            } else if (v) {
+                // v697: say WHY it's pending — primary short, or which
+                // adjacent(s) didn't fully cache (usually an Overpass 504
+                // that exhausted its retries; a re-run picks it up).
+                const missing = Array.isArray(v.uncuratedNeighbours)
+                    ? v.uncuratedNeighbours
+                    : [];
+                const reason = !v.primaryCached
+                    ? "primary not fully cached"
+                    : `${v.neighboursCurated}/${v.neighboursTotal} adjacents cached` +
+                      (missing.length
+                          ? `; missing r${missing.join(", r")}`
+                          : "");
+                console.log(`  ☆ ${city.name} — star pending: ${reason}`);
             } else {
-                console.log(
-                    `  ☆ ${city.name} — primary warm, star pending` +
-                        (v && typeof v.neighboursTotal === "number"
-                            ? ` (${v.neighboursTotal} neighbours)`
-                            : ""),
-                );
+                console.log(`  ☆ ${city.name} — star pending (verify failed)`);
             }
         } catch {
             /* verify is best-effort */

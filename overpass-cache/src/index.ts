@@ -4927,17 +4927,28 @@ async function verifyAndStampCity(
     adjacentsCurated: boolean;
     fullyCurated: boolean;
     neighboursTotal: number;
+    neighboursCurated: number;
+    uncuratedNeighbours: number[];
     stamped: boolean;
 }> {
     const { ids, adjacencyKnown } = await deriveAdjacentNeighbourIds(env, city);
-    const adjacentsCurated =
+    // v697: capture PER-neighbour curation so the caller can report exactly
+    // which adjacent(s) are holding a star back (the strict gate needs ALL).
+    const perNeighbour =
         ids.length > 0
-            ? (
-                  await Promise.all(
-                      ids.map((id) => relationFullyCurated(env, id)),
-                  )
-              ).every(Boolean)
-            : adjacencyKnown;
+            ? await Promise.all(
+                  ids.map(async (id) => ({
+                      id,
+                      ok: await relationFullyCurated(env, id),
+                  })),
+              )
+            : [];
+    const uncuratedNeighbours = perNeighbour
+        .filter((p) => !p.ok)
+        .map((p) => p.id);
+    const neighboursCurated = perNeighbour.length - uncuratedNeighbours.length;
+    const adjacentsCurated =
+        ids.length > 0 ? uncuratedNeighbours.length === 0 : adjacencyKnown;
     const primaryCached = await relationFullyCurated(env, city.relationId);
     const fullyCurated = primaryCached && adjacentsCurated;
 
@@ -4987,6 +4998,8 @@ async function verifyAndStampCity(
         adjacentsCurated,
         fullyCurated,
         neighboursTotal: ids.length,
+        neighboursCurated,
+        uncuratedNeighbours,
         stamped: changed,
     };
 }
