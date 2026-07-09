@@ -18,7 +18,7 @@
  * Stockholm + a few test cities before it becomes the default selector.
  */
 
-import { booleanPointInPolygon } from "@turf/turf";
+import { area, booleanPointInPolygon, intersect } from "@turf/turf";
 
 import { RELATION_EXTENT_BASE } from "./constants";
 import { getOverpassData } from "./overpass";
@@ -344,21 +344,48 @@ export async function findTransitReachCandidates(
     ]);
 
     // The primary's own boundary — used to DROP candidates that sit inside it.
-    // Transit-reach is about extending the play area OUTWARD; London's boroughs
-    // (Camden, Westminster …) are `admin_level 8` full of Tube stops but they
-    // are already INSIDE Greater London, so offering them as adjacents is
-    // wrong. `centre inside the primary` = already in the play area → skip.
+    // Transit-reach extends the play area OUTWARD; London's boroughs (Camden,
+    // Westminster …) are `admin_level 8` full of Tube stops but already INSIDE
+    // Greater London, so offering them as adjacents is wrong. We test REAL
+    // polygon overlap, NOT the bbox centre: a German Kreisfreie Stadt (Munich)
+    // is carved out of the middle of its surrounding Landkreis, so that
+    // district is a DONUT whose bbox centre sits in the hole = inside the
+    // primary — a centroid test wrongly culled the whole surrounding ring
+    // ("holes all around Munich"). `candidate ≥90% inside the primary` is the
+    // correct containment predicate: ~1.0 for a fully-inside borough, ~0 for a
+    // donut that merely wraps the city.
     const primaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
         () => null,
     );
-    const insidePrimary = (cand: AdminStub): boolean => {
-        if (!primaryPolygon) return false;
+    const primaryFeature = primaryPolygon
+        ? ({
+              type: "Feature",
+              properties: {},
+              geometry: primaryPolygon,
+          } as GeoJSON.Feature)
+        : null;
+    const mostlyInsidePrimary = (
+        candPoly: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+    ): boolean => {
+        if (!primaryFeature) return false;
         try {
-            return booleanPointInPolygon([cand.lng, cand.lat], {
+            const cand = {
                 type: "Feature",
                 properties: {},
-                geometry: primaryPolygon,
-            } as never);
+                geometry: candPoly,
+            } as GeoJSON.Feature;
+            const inter = intersect(
+                // turf's FeatureCollection-of-two-polygons signature (as used
+                // elsewhere in the repo, e.g. measuring.ts).
+                {
+                    type: "FeatureCollection",
+                    features: [primaryFeature, cand],
+                } as never,
+            );
+            if (!inter) return false;
+            const candArea = area(cand as never);
+            if (candArea <= 0) return false;
+            return area(inter as never) / candArea > 0.9;
         } catch {
             return false;
         }
@@ -373,8 +400,6 @@ export async function findTransitReachCandidates(
     const runNext = async (): Promise<void> => {
         while (idx < adminCandidates.length) {
             const cand = adminCandidates[idx++];
-            // Skip candidates already inside the primary play area.
-            if (insidePrimary(cand)) continue;
             // Cheap bbox pre-filter: stops that could possibly be inside.
             const [maxLat, minLng, minLat, maxLng] = cand.extent;
             const bboxStops = stops.filter(
@@ -394,6 +419,11 @@ export async function findTransitReachCandidates(
             } catch {
                 poly = null;
             }
+            // Drop candidates already inside the primary play area (a real
+            // polygon-overlap test — robust to donut districts like Munich's
+            // Landkreis). Needs the candidate polygon; a null poly (fetch
+            // miss) is kept rather than risk wrongly culling.
+            if (poly && mostlyInsidePrimary(poly)) continue;
             let inside = bboxStops;
             if (poly) {
                 const feature = {
