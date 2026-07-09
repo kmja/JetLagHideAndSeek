@@ -48,6 +48,7 @@ import {
 } from "./session";
 import { playArea } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
+import { resetCurseState } from "@/lib/roundReset";
 
 /* ────────────────── Tunables ────────────────── */
 
@@ -133,6 +134,11 @@ export interface StartDemoOptions {
  */
 export function startDemoGame(opts: StartDemoOptions) {
     stopDemoGame();
+    // v701: a fresh demo game must start curse-free. The curse atoms are
+    // persistent (localStorage), and the demo boot path never went through
+    // `resetSharedRoundState`, so curses from a PREVIOUS game reappeared the
+    // instant `CurseInbox` mounted ("two curses firing right away").
+    resetCurseState();
     const transport = getTransport();
     const name = (opts.userName ?? displayName.get() ?? "").trim() || "You";
 
@@ -238,6 +244,9 @@ export function stopDemoGame() {
     sessionToken.set(null);
     selfParticipantId.set(null);
     participantsAtom.set([]);
+    // Leaving the demo clears its curses too, so a subsequent real game
+    // doesn't inherit them from the persistent atoms.
+    resetCurseState();
 }
 
 /** True if the demo broker is currently driving the transport. */

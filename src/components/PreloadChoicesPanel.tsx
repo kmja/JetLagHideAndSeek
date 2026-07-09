@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import {
+    hidingPeriodEndsAt,
     preloadBucketBytes,
     preloadBucketInFlight,
     preloadBucketTimestamps,
@@ -310,6 +311,11 @@ function BucketStatus({
     inFlight: boolean;
     enabled: boolean;
 }) {
+    // v701: is the hiding period already underway? The idle-enabled copy
+    // below said "will run at hiding period start" unconditionally, which
+    // was stale once hiding had begun (the preload window has passed —
+    // e.g. the run failed / was rate-limited / left no timestamp).
+    const gameStarted = useStore(hidingPeriodEndsAt) !== null;
     if (inFlight) {
         // v324: the map bucket gets a detailed progress bar — it can
         // be thousands of byte-range requests against the PMTiles
@@ -339,7 +345,9 @@ function BucketStatus({
             />
             <span className="text-xs text-muted-foreground">
                 {enabled
-                    ? "Not downloaded yet — will run at hiding period start"
+                    ? gameStarted
+                        ? "Not downloaded — will load on demand"
+                        : "Not downloaded yet — will run at hiding period start"
                     : "Disabled — won't be downloaded"}
             </span>
         </div>

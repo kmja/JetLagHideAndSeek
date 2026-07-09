@@ -64,6 +64,23 @@ import { receivedCurses } from "@/lib/seekerInbound";
  * Callers layer their path-specific extras around this (leaderboard
  * append, roster application, clock staging, host push).
  */
+/**
+ * Clear every curse-derived atom. Curses are per-round AND per-game — the
+ * seeker's received-curse inbox plus the enforcement state derived from it
+ * (Spotty Memory roll, Urban Explorer on-transit flag, Drained-Brain
+ * blocking). Split out of `resetSharedRoundState` (v701) so game-BOOT paths
+ * can clear curses too, not just round transitions: these atoms are all
+ * `persistentAtom`s (localStorage), so without a boot-time clear a curse from
+ * a PREVIOUS game reappears the instant `CurseInbox` mounts in the next one
+ * (the "two curses firing right away" demo bug).
+ */
+export function resetCurseState(): void {
+    receivedCurses.set([]);
+    spottyMemoryCategory.set(null);
+    seekerOnTransit.set(false);
+    activeBlockingCurse.set(null);
+}
+
 export function resetSharedRoundState(): void {
     // Seeker-side question stack.
     questions.set([]);
@@ -74,10 +91,7 @@ export function resetSharedRoundState(): void {
     // Curses are per-round — clear any the seeker was still under, plus
     // the enforcement state derived from them (Spotty Memory roll, Urban
     // Explorer on-transit flag).
-    receivedCurses.set([]);
-    spottyMemoryCategory.set(null);
-    seekerOnTransit.set(false);
-    activeBlockingCurse.set(null);
+    resetCurseState();
 
     // Hider-side: inbox, hand, deck, discard, hand limit, pending draw,
     // hiding zone/spot, found-at, forfeit flag, chalice charges.
