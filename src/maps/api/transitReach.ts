@@ -59,6 +59,12 @@ export interface TransitReachCandidate {
     kinds: RailRouteKind[];
     /** Estimated bbox area, km² — the "few large over many small" signal. */
     areaKm2: number;
+    /** Stops per km² over the candidate's REAL polygon area — the
+     *  transit-density signal. A single line grazing a big rural county
+     *  (Seoul's Gapyeong: 8 stops / 900 km²) scores near 0; an integrated
+     *  suburb (Seongnam: 350 / 129) scores high. Low density = a bad hiding
+     *  region (one line into no man's land), so it's a drop signal. */
+    stopsPerKm2: number;
     /** OSM admin_level of this candidate (coarser = larger unit). */
     adminLevel: string | null;
     /** [maxLat, minLng, minLat, maxLng] — Photon order, for framing. */
@@ -416,6 +422,10 @@ export async function findTransitReachCandidates(
          *  is 15-40×. Default 10. Applied BEFORE the containment dedup so a
          *  province doesn't swallow the municipalities inside it. */
         maxAreaRatio?: number;
+        /** Drop candidates below this stops-per-km² density — a single line
+         *  grazing a big rural county makes a bad hiding region. Default 0
+         *  (off). */
+        minStopsPerKm2?: number;
     } = {},
 ): Promise<TransitReachResult> {
     const radiusKm = options.radiusKm ?? 40;
@@ -565,6 +575,23 @@ export async function findTransitReachCandidates(
             // cap isn't inflated by offshore islands. Fall back to the
             // Overpass bbox when there's no polygon.
             const cleanExt = poly ? polygonExtent(poly) : cand.extent;
+            // Density uses the REAL polygon area (turf.area), not the bbox —
+            // a bbox over-measures an elongated/coastal shape and would
+            // under-report its density.
+            let realAreaKm2 = poly ? extentAreaKm2(cleanExt) : cand.areaKm2;
+            if (poly) {
+                try {
+                    const a =
+                        area({
+                            type: "Feature",
+                            properties: {},
+                            geometry: poly,
+                        } as never) / 1_000_000;
+                    if (a > 0) realAreaKm2 = a;
+                } catch {
+                    /* keep bbox estimate */
+                }
+            }
             candidates.push({
                 relationId: cand.id,
                 name: cand.name,
@@ -572,6 +599,8 @@ export async function findTransitReachCandidates(
                 distanceKm: haversineKm(lat, lng, cand.lat, cand.lng),
                 kinds: [...kindSet],
                 areaKm2: poly ? extentAreaKm2(cleanExt) : cand.areaKm2,
+                stopsPerKm2:
+                    realAreaKm2 > 0 ? inside.length / realAreaKm2 : 0,
                 adminLevel: cand.adminLevel,
                 extent: cleanExt,
                 polygon: poly,
@@ -592,11 +621,10 @@ export async function findTransitReachCandidates(
     // Toledo, reached by Cercanías) that are vastly larger than the city, so
     // the containment dedup then keeps the municipalities inside them instead
     // of collapsing to the province. Skipped when we couldn't size the primary.
-    let sized = candidates;
+    const minStopsPerKm2 = options.minStopsPerKm2 ?? 0;
+    let sized = candidates.filter((c) => c.stopsPerKm2 >= minStopsPerKm2);
     if (primaryAreaKm2 && primaryAreaKm2 > 0) {
-        sized = candidates.filter(
-            (c) => c.areaKm2 <= maxAreaRatio * primaryAreaKm2,
-        );
+        sized = sized.filter((c) => c.areaKm2 <= maxAreaRatio * primaryAreaKm2);
     }
     let finalCandidates = dedupeNested(sized);
     if (options.contiguousOnly !== false && primaryFeature) {

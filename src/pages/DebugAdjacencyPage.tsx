@@ -134,6 +134,7 @@ export function DebugAdjacencyPage() {
     const [minStops, setMinStops] = useState(2);
     const [contiguousOnly, setContiguousOnly] = useState(true);
     const [maxAreaRatio, setMaxAreaRatio] = useState(10);
+    const [minDensity, setMinDensity] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [primaryName, setPrimaryName] = useState<string | null>(null);
@@ -212,7 +213,10 @@ export function DebugAdjacencyPage() {
         () =>
             (reach?.candidates ?? [])
                 .filter(
-                    (c) => c.areaKm2 >= minAreaKm2 && c.stopCount >= minStops,
+                    (c) =>
+                        c.areaKm2 >= minAreaKm2 &&
+                        c.stopCount >= minStops &&
+                        c.stopsPerKm2 >= minDensity,
                 )
                 .slice()
                 .sort((a, b) => {
@@ -220,7 +224,7 @@ export function DebugAdjacencyPage() {
                     if (sortKey === "stops") return b.stopCount - a.stopCount;
                     return a.distanceKm - b.distanceKm;
                 }),
-        [reach, minAreaKm2, minStops, sortKey],
+        [reach, minAreaKm2, minStops, minDensity, sortKey],
     );
     const reachIds = new Set(reachCandidates.map((c) => c.relationId));
 
@@ -481,6 +485,19 @@ export function DebugAdjacencyPage() {
                                 }
                             />
                         </label>
+                        <label className="flex flex-col gap-1 text-xs">
+                            Min density: {minDensity.toFixed(2)} /km²
+                            <input
+                                type="range"
+                                min={0}
+                                max={1}
+                                step={0.02}
+                                value={minDensity}
+                                onChange={(e) =>
+                                    setMinDensity(Number(e.target.value))
+                                }
+                            />
+                        </label>
                         <button
                             type="button"
                             onClick={() => setContiguousOnly((v) => !v)}
@@ -696,7 +713,8 @@ export function DebugAdjacencyPage() {
                                         </span>
                                         <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                                             {Math.round(c.areaKm2)} km² ·{" "}
-                                            {c.stopCount} stops
+                                            {c.stopCount} stops ·{" "}
+                                            {c.stopsPerKm2.toFixed(2)}/km²
                                         </span>
                                     </li>
                                 ))}
