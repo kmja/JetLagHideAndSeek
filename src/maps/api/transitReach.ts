@@ -18,7 +18,12 @@
  * Stockholm + a few test cities before it becomes the default selector.
  */
 
-import { area, booleanPointInPolygon, intersect } from "@turf/turf";
+import {
+    area,
+    booleanIntersects,
+    booleanPointInPolygon,
+    intersect,
+} from "@turf/turf";
 
 import { RELATION_EXTENT_BASE } from "./constants";
 import { getOverpassData } from "./overpass";
@@ -317,6 +322,9 @@ export async function findTransitReachCandidates(
         /** Override the candidate admin_level ("6" = county, "7", "8" =
          *  municipality). Coarser = fewer, larger adjacents. */
         adminLevel?: string;
+        /** Keep only the reached areas connected to the primary (drops
+         *  isolated far districts a through-line pulls in). Default true. */
+        contiguousOnly?: boolean;
     } = {},
 ): Promise<TransitReachResult> {
     const radiusKm = options.radiusKm ?? 40;
@@ -471,13 +479,91 @@ export async function findTransitReachCandidates(
         (a, b) => b.stopCount - a.stopCount || a.distanceKm - b.distanceKm,
     );
 
+    let finalCandidates = dedupeNested(candidates);
+    if (options.contiguousOnly !== false && primaryFeature) {
+        finalCandidates = filterContiguous(finalCandidates, primaryFeature);
+    }
+
     return {
         primaryOsmId,
         primaryName,
         stops,
-        candidates: dedupeNested(candidates),
+        candidates: finalCandidates,
         unreached,
     };
+}
+
+/** Two Photon extents [maxLat, minLng, minLat, maxLng] are "near" (share a
+ *  border or sit within `gapDeg`) — the cheap adjacency proxy for contiguity.
+ *  Adjacent admin areas share a boundary so their bboxes overlap; a far
+ *  isolated district's bbox is separated by the un-reached areas between. */
+function bboxesNear(
+    a: [number, number, number, number],
+    b: [number, number, number, number],
+    gapDeg = 0.03,
+): boolean {
+    const [aN, aW, aS, aE] = a;
+    const [bN, bW, bS, bE] = b;
+    const lngOk = !(bW > aE + gapDeg || aW > bE + gapDeg);
+    const latOk = !(bS > aN + gapDeg || aS > bN + gapDeg);
+    return lngOk && latOk;
+}
+
+/**
+ * Keep only the reached areas that form a CONNECTED blob touching the primary
+ * — drops the isolated far districts a through-running regional line pulls in
+ * (Hamburg's Lüneburg/Stade problem). SEEDS off polygon-touch with the primary
+ * (exclave-safe — Hamburg's Neuwerk island doesn't inflate a primary bbox),
+ * then grows the component through candidate-to-candidate bbox adjacency. If
+ * nothing touches the primary (missing polys), keeps everything rather than
+ * nuking the set.
+ */
+function filterContiguous(
+    cands: TransitReachCandidate[],
+    primaryFeature: GeoJSON.Feature,
+): TransitReachCandidate[] {
+    if (cands.length === 0) return cands;
+    const n = cands.length;
+    const seed = cands.map((c) => {
+        if (!c.polygon) return false;
+        try {
+            return booleanIntersects(primaryFeature, {
+                type: "Feature",
+                properties: {},
+                geometry: c.polygon,
+            } as never);
+        } catch {
+            return false;
+        }
+    });
+    const adj: number[][] = Array.from({ length: n }, () => []);
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            if (bboxesNear(cands[i].extent, cands[j].extent)) {
+                adj[i].push(j);
+                adj[j].push(i);
+            }
+        }
+    }
+    const seen = new Set<number>();
+    const queue: number[] = [];
+    for (let i = 0; i < n; i++) {
+        if (seed[i]) {
+            seen.add(i);
+            queue.push(i);
+        }
+    }
+    if (seen.size === 0) return cands; // no touch info — don't nuke the set
+    while (queue.length) {
+        const u = queue.shift()!;
+        for (const v of adj[u]) {
+            if (!seen.has(v)) {
+                seen.add(v);
+                queue.push(v);
+            }
+        }
+    }
+    return cands.filter((_, i) => seen.has(i));
 }
 
 /** Bounding-box intersection-over-union of two Photon extents

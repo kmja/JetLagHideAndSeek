@@ -123,6 +123,7 @@ export function DebugAdjacencyPage() {
     const [sortKey, setSortKey] = useState<SortKey>("area");
     const [minAreaKm2, setMinAreaKm2] = useState(0);
     const [minStops, setMinStops] = useState(2);
+    const [contiguousOnly, setContiguousOnly] = useState(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [primaryName, setPrimaryName] = useState<string | null>(null);
@@ -180,6 +181,7 @@ export function DebugAdjacencyPage() {
                     radiusKm,
                     kinds,
                     adminLevel: adminLevel === "auto" ? undefined : adminLevel,
+                    contiguousOnly,
                 }).catch((e) => {
                     console.warn("transit reach failed", e);
                     return null;
@@ -455,6 +457,19 @@ export function DebugAdjacencyPage() {
                                 }
                             />
                         </label>
+                        <button
+                            type="button"
+                            onClick={() => setContiguousOnly((v) => !v)}
+                            className={cn(
+                                "rounded-md border px-2 py-1 text-xs self-end",
+                                contiguousOnly
+                                    ? "bg-primary/15 border-primary text-foreground"
+                                    : "border-border text-muted-foreground",
+                            )}
+                            title="Keep only reached areas connected to the primary (re-run to apply)"
+                        >
+                            contiguous only
+                        </button>
                     </div>
                 </div>
 
