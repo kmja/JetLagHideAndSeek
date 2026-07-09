@@ -1120,18 +1120,38 @@ async function verifyCity(relationId) {
     }
 }
 
-/** Run the verify pass over a list of cities: stamp the star for every one
- *  that's fully cached (primary + adjacents). No Overpass, so it's fast. */
+/** v700: verify + log ONE city's star immediately after warming it. The
+ *  default star is `primaryCached` (primary boundary+refs+stations in R2), so
+ *  this reports that — not `fullyCurated` (primary + adjacents), which only
+ *  the --adjacents phase can satisfy. No Overpass (read-only R2 HEADs), so
+ *  it's cheap to call per city. Returns true when the primary is warm. */
+async function verifyPrimaryStar(city) {
+    const v = await verifyCity(city.relationId);
+    if (!v) {
+        console.log(`  ? ${city.name} — verify failed (star unchanged)`);
+        return false;
+    }
+    if (v.primaryCached) {
+        const mark = v.stamped ? "★ (stamped)" : "★ (already)";
+        console.log(`  ${mark} ${city.name} — primary warm`);
+        return true;
+    }
+    console.log(`  ✗ ${city.name} — primary NOT fully cached, no star`);
+    return false;
+}
+
+/** Run the verify pass over a list of cities: stamp the PRIMARY star (v700)
+ *  for every one whose primary is fully cached. No Overpass, so it's fast. */
 async function verifyStars(cities) {
     console.log(`=== verifying stars for ${cities.length} cities ===`);
     let starred = 0;
     for (let i = 0; i < cities.length; i++) {
         const c = cities[i];
         const v = await verifyCity(c.relationId);
-        if (v?.fullyCurated) {
+        if (v?.primaryCached) {
             starred++;
             if (v.stamped) {
-                console.log(`  ★ ${c.name} — fully cached (stamped)`);
+                console.log(`  ★ ${c.name} — primary warm (stamped)`);
             }
         }
         if ((i + 1) % 50 === 0) {
@@ -1141,7 +1161,7 @@ async function verifyStars(cities) {
         }
         await sleep(80); // gentle on the worker; these are R2-only ops
     }
-    console.log(`=== verify done — ${starred}/${cities.length} fully cached ===`);
+    console.log(`=== verify done — ${starred}/${cities.length} primary-warm ===`);
 }
 
 /**
@@ -2629,15 +2649,30 @@ async function main() {
             }
         }
     } else {
+        // v700: DEFAULT primaries-only pass. Verify + stamp the PRIMARY star
+        // right after warming EACH city (not a batch at the end), so a star
+        // appears the instant a city is fully cached — the operator watching
+        // the log sees ★ per city instead of nothing until the whole run
+        // finishes. The verify is read-only R2 HEADs (no Overpass), so it's
+        // cheap per city.
+        let starred = 0;
         for (let i = 0; i < todo.length; i++) {
             try {
                 await processCity(todo[i]);
+                if (DO_VERIFY && (await verifyPrimaryStar(todo[i]))) starred++;
             } catch (e) {
                 console.warn(`! ${todo[i].name} failed:`, e?.message ?? e);
             }
             if ((i + 1) % 10 === 0) {
-                console.log(`--- progress: ${i + 1}/${todo.length} ---`);
+                console.log(
+                    `--- progress: ${i + 1}/${todo.length} (${starred} starred) ---`,
+                );
             }
+        }
+        if (DO_VERIFY) {
+            console.log(
+                `=== primaries done — ${starred}/${todo.length} starred ===`,
+            );
         }
     }
 
@@ -2652,17 +2687,9 @@ async function main() {
         }
     }
 
-    // v699.1: in the DEFAULT (primaries-only) pass, verify + stamp the star
-    // now (primaryCuratedAt) so the app lights up immediately. The
-    // --adjacents pass already verifies inline per city (processCityComplete),
-    // so it skips this batch pass.
-    if (DO_VERIFY && !ONLY_CITY && !DO_ADJACENTS) {
-        try {
-            await verifyStars([...todo]);
-        } catch (e) {
-            console.warn(`! verify pass failed:`, e?.message ?? e);
-        }
-    }
+    // v700: the DEFAULT (primaries-only) pass now verifies + stamps the star
+    // per city inline (see the loop above), so no end-of-run batch verify is
+    // needed. The --adjacents pass verifies inline too (processCityComplete).
 
     console.log("=== done ===");
 }
