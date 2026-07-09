@@ -1136,7 +1136,25 @@ async function verifyPrimaryStar(city) {
         console.log(`  ${mark} ${city.name} — primary warm`);
         return true;
     }
-    console.log(`  ✗ ${city.name} — primary NOT fully cached, no star`);
+    // v700: print WHICH sub-check failed (boundary / extent / refs / stations)
+    // so a "no star" is diagnosable at a glance instead of a mystery. The
+    // common megacity case is extentSource:"none" — the boundary is cached but
+    // too large to re-parse in the worker isolate.
+    const d = v.primaryDetail;
+    let why = "unknown";
+    if (d) {
+        const miss = [];
+        if (!d.boundaryCached) miss.push("boundary");
+        else if (!d.extentDerived) miss.push(`extent(${d.extentSource})`);
+        else {
+            if (!d.refsCached) miss.push("refs");
+            if (!d.stationsCached) miss.push("stations");
+        }
+        why = miss.length
+            ? `missing ${miss.join("+")} [extent:${d.extentSource}]`
+            : "unknown";
+    }
+    console.log(`  ✗ ${city.name} — no star (${why})`);
     return false;
 }
 

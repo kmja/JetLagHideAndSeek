@@ -4825,26 +4825,69 @@ async function prewarmAdjacentSearchForCity(
  * Read-only — never fetches upstream. Used to decide whether a city's
  * adjacent areas are all curated before stamping `adjacentsCuratedAt`.
  */
-async function relationFullyCurated(
+/** Per-sub-check breakdown of a primary's curation (v700 diagnostic). Each
+ *  flag is the exact gate `relationFullyCurated` applies, so a caller (the
+ *  laptop verify log, `/admin/verify-city`) can see WHICH part is missing
+ *  instead of just "not cached". `extentSource` records whether the extent
+ *  came from the boundary geometry (the warming path) or the stored
+ *  `city.extent` fallback — a boundary-parse failure on a megacity is the
+ *  main reason a fully-warmed city fails the gate. */
+interface PrimaryCurationDetail {
+    boundaryCached: boolean;
+    extentDerived: boolean;
+    extentSource: "boundary" | "stored" | "none";
+    refsCached: boolean;
+    stationsCached: boolean;
+    fullyCached: boolean;
+}
+
+async function diagnosePrimaryCuration(
     env: Env,
     relationId: number,
-): Promise<boolean> {
-    let boundaryObj: R2ObjectBody | null = null;
-    try {
-        const boundaryKey = await r2KeyForQuery(singleRelationQuery(relationId));
-        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
-    } catch {
-        return false;
-    }
-    if (!boundaryObj) return false;
+    storedExtent?: [number, number, number, number] | null,
+): Promise<PrimaryCurationDetail> {
+    const detail: PrimaryCurationDetail = {
+        boundaryCached: false,
+        extentDerived: false,
+        extentSource: "none",
+        refsCached: false,
+        stationsCached: false,
+        fullyCached: false,
+    };
     let ext: [number, number, number, number] | null = null;
     try {
-        const text = await readR2Text(boundaryObj);
-        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+        const boundaryKey = await r2KeyForQuery(singleRelationQuery(relationId));
+        const boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        if (boundaryObj) {
+            detail.boundaryCached = true;
+            try {
+                const text = await readR2Text(boundaryObj);
+                if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+                if (ext) detail.extentSource = "boundary";
+            } catch {
+                /* boundary too large / unparseable in the isolate — fall
+                   back to the stored extent below, same as warming does */
+            }
+        }
     } catch {
-        return false;
+        return detail;
     }
-    if (!ext) return false;
+    // Fallback to the stored city.extent when the boundary won't derive one
+    // (megacity boundaries can exhaust the isolate). The refs/stations were
+    // warmed off the boundary-derived extent, so this only agrees when the
+    // stored extent rounds to the same 3-dp bbox — but it's the right thing
+    // to try before declaring the city uncured.
+    if (
+        !ext &&
+        storedExtent &&
+        storedExtent.length === 4 &&
+        storedExtent.every((n) => Number.isFinite(n))
+    ) {
+        ext = storedExtent;
+        detail.extentSource = "stored";
+    }
+    if (!ext) return detail;
+    detail.extentDerived = true;
     try {
         const refsKey = await r2KeyForQuery(buildReferenceBboxQuery(ext));
         const stationsKey = await r2KeyForQuery(buildAreaStationsBboxQuery(ext));
@@ -4852,10 +4895,22 @@ async function relationFullyCurated(
             env.CACHE.head(`overpass/${refsKey}`),
             env.CACHE.head(`overpass/${stationsKey}`),
         ]);
-        return Boolean(refsHead) && Boolean(stHead);
+        detail.refsCached = Boolean(refsHead);
+        detail.stationsCached = Boolean(stHead);
     } catch {
-        return false;
+        return detail;
     }
+    detail.fullyCached = detail.refsCached && detail.stationsCached;
+    return detail;
+}
+
+async function relationFullyCurated(
+    env: Env,
+    relationId: number,
+    storedExtent?: [number, number, number, number] | null,
+): Promise<boolean> {
+    const d = await diagnosePrimaryCuration(env, relationId, storedExtent);
+    return d.fullyCached;
 }
 
 /**
@@ -4989,6 +5044,7 @@ async function verifyAndStampCity(
     ttlMs: number,
 ): Promise<{
     primaryCached: boolean;
+    primaryDetail: PrimaryCurationDetail;
     adjacentsCurated: boolean;
     fullyCurated: boolean;
     neighboursTotal: number;
@@ -5014,7 +5070,15 @@ async function verifyAndStampCity(
     const neighboursCurated = perNeighbour.length - uncuratedNeighbours.length;
     const adjacentsCurated =
         ids.length > 0 ? uncuratedNeighbours.length === 0 : adjacencyKnown;
-    const primaryCached = await relationFullyCurated(env, city.relationId);
+    // v700: pass the stored extent so a megacity whose boundary won't
+    // re-parse in the isolate still verifies off `city.extent`, and capture
+    // the per-sub-check breakdown for the diagnostic.
+    const primaryDetail = await diagnosePrimaryCuration(
+        env,
+        city.relationId,
+        city.extent,
+    );
+    const primaryCached = primaryDetail.fullyCached;
     const fullyCurated = primaryCached && adjacentsCurated;
 
     const patch: Partial<CityEntry> = {};
@@ -5060,6 +5124,7 @@ async function verifyAndStampCity(
     if (changed) await upsertDiscoveredCity(env, { ...city, ...patch });
     return {
         primaryCached,
+        primaryDetail,
         adjacentsCurated,
         fullyCurated,
         neighboursTotal: ids.length,
@@ -7879,6 +7944,7 @@ async function handleAdminAdjacentCurationStatus(
             const primaryCached = await relationFullyCurated(
                 env,
                 city.relationId,
+                city.extent,
             );
             const { ids, adjacencyKnown } = await deriveAdjacentNeighbourIds(
                 env,
