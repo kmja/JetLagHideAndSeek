@@ -423,7 +423,27 @@ export async function findTransitReachCandidates(
     const primaryName = primary.properties.name ?? "Primary";
     const primaryOsmId = primary.properties.osm_id;
 
-    const { lat, lng } = await resolvePrimaryCentroid(primary);
+    // Fetch + clean the primary boundary FIRST. Tokyo Metropolis (東京都) owns
+    // the Izu + Ogasawara Islands ~1000 km south in the Pacific, so its raw
+    // bbox centre lands in the OCEAN — the `around:centre` stop/candidate
+    // queries then search empty sea (0 stops, island subprefectures as
+    // "adjacents"). Drop the far exclaves, then derive the centre from the
+    // MAINLAND so the queries hit the real city. (Also used to DROP candidates
+    // inside the primary + seed contiguity + size the area cap.)
+    const rawPrimaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
+        () => null,
+    );
+    const primaryPolygon = rawPrimaryPolygon
+        ? dropFarExclaves(rawPrimaryPolygon)
+        : null;
+
+    const { lat, lng } = primaryPolygon
+        ? (() => {
+              const [maxLat, minLng, minLat, maxLng] =
+                  polygonExtent(primaryPolygon);
+              return { lat: (maxLat + minLat) / 2, lng: (minLng + maxLng) / 2 };
+          })()
+        : await resolvePrimaryCentroid(primary);
 
     const [stops, adminCandidates] = await Promise.all([
         fetchRailStops(lat, lng, radiusKm, kinds).catch((e) => {
@@ -441,26 +461,6 @@ export async function findTransitReachCandidates(
             return [] as AdminStub[];
         }),
     ]);
-
-    // The primary's own boundary — used to DROP candidates that sit inside it.
-    // Transit-reach extends the play area OUTWARD; London's boroughs (Camden,
-    // Westminster …) are `admin_level 8` full of Tube stops but already INSIDE
-    // Greater London, so offering them as adjacents is wrong. We test REAL
-    // polygon overlap, NOT the bbox centre: a German Kreisfreie Stadt (Munich)
-    // is carved out of the middle of its surrounding Landkreis, so that
-    // district is a DONUT whose bbox centre sits in the hole = inside the
-    // primary — a centroid test wrongly culled the whole surrounding ring
-    // ("holes all around Munich"). `candidate ≥90% inside the primary` is the
-    // correct containment predicate: ~1.0 for a fully-inside borough, ~0 for a
-    // donut that merely wraps the city.
-    const rawPrimaryPolygon = await fetchRawBoundaryPolygon(primaryOsmId).catch(
-        () => null,
-    );
-    // Drop far exclaves (Hamburg's Neuwerk) so the primary bbox — used by the
-    // relative area cap + the inside-cull + contiguity seeding — is sane.
-    const primaryPolygon = rawPrimaryPolygon
-        ? dropFarExclaves(rawPrimaryPolygon)
-        : null;
     const primaryFeature = primaryPolygon
         ? ({
               type: "Feature",
