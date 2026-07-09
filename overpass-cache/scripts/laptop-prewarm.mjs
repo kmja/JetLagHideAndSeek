@@ -1008,8 +1008,13 @@ async function warmPhoton(url, label) {
 async function fetchRetry(url, init, label, attempts = 4) {
     let lastErr;
     for (let i = 1; i <= attempts; i++) {
+        // Per-attempt timeout — Node's fetch has NO default timeout, so a
+        // hung worker/CDN connection (socket open, no bytes) would stall the
+        // WHOLE overnight run forever on one call. Abort at 90 s and retry.
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 90_000);
         try {
-            return await fetch(url, init);
+            return await fetch(url, { ...init, signal: ctrl.signal });
         } catch (e) {
             lastErr = e;
             const backoff = Math.min(2000 * 2 ** (i - 1), 16000);
@@ -1017,6 +1022,8 @@ async function fetchRetry(url, init, label, attempts = 4) {
                 `  ⚠ ${label} network error (${e?.cause?.code ?? e?.message ?? e}); retry ${i}/${attempts} in ${backoff} ms`,
             );
             if (i < attempts) await sleep(backoff);
+        } finally {
+            clearTimeout(timer);
         }
     }
     throw lastErr;
@@ -2829,6 +2836,14 @@ async function main() {
             }
         }
     }
+    // Nothing left to warm (everything already starred / filtered out). Exit
+    // with a DISTINCT code so an outer restart loop knows to STOP looping
+    // rather than spin. Only meaningful with --skip-starred / --cold-only.
+    if (todo.length === 0) {
+        console.log("=== nothing to do — all target cities already done ===");
+        process.exit(3);
+    }
+
     // v699.1: TWO-PHASE.
     //   --adjacents → processCityComplete per city (primary skip-if-fresh +
     //     adjacent areas via the worker's real neighbour set + stamp
@@ -2915,6 +2930,18 @@ function parseArgs(argv) {
     }
     return out;
 }
+
+// Keep an overnight run ALIVE through stray async faults. Without these,
+// one unhandled promise rejection (or a throw in a callback the per-city
+// try/catch can't see) makes Node exit — the "it stops before it's done"
+// symptom. Log loudly and keep going; the run is per-city-idempotent and a
+// restart with --skip-starred resumes anyway.
+process.on("unhandledRejection", (e) => {
+    console.warn("unhandledRejection (continuing):", e?.message ?? e);
+});
+process.on("uncaughtException", (e) => {
+    console.warn("uncaughtException (continuing):", e?.message ?? e);
+});
 
 main().catch((e) => {
     console.error("fatal:", e);

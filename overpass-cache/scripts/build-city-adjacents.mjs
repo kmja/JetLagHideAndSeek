@@ -126,13 +126,17 @@ const OVERPASS_ENDPOINTS = [
 ];
 let endpointIdx = 0;
 
-async function overpass(query, tries = 4) {
+async function overpass(query, tries = 7) {
     let lastErr;
     for (let attempt = 0; attempt < tries; attempt++) {
         const url = OVERPASS_ENDPOINTS[endpointIdx % OVERPASS_ENDPOINTS.length];
+        // Per-attempt timeout so a hung connection can't stall a batch run.
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 180_000);
         try {
             const res = await fetch(url, {
                 method: "POST",
+                signal: ctrl.signal,
                 headers: {
                     "User-Agent": UA,
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -140,7 +144,25 @@ async function overpass(query, tries = 4) {
                 body: "data=" + encodeURIComponent(query),
             });
             const text = await res.text();
-            if (!res.ok) throw new Error(`Overpass ${res.status}`);
+            if (!res.ok) {
+                // 429 (rate limit) / 5xx (overloaded mirror, incl. the
+                // worker's own 502 "all mirrors unavailable") are TRANSIENT —
+                // Overpass is just busy. Back off patiently (these recover in
+                // seconds-to-minutes) rather than rotate fast and burn the
+                // rate limit further. Honour Retry-After when present.
+                const ra = parseInt(res.headers.get("Retry-After") ?? "", 10);
+                const busy = res.status === 429 || res.status >= 500;
+                lastErr = new Error(`Overpass ${res.status}`);
+                endpointIdx++; // try a different mirror next
+                const backoff = Number.isFinite(ra)
+                    ? ra * 1000
+                    : busy
+                      ? Math.min(60_000, 5000 * 2 ** attempt)
+                      : 2000;
+                clearTimeout(timer);
+                if (attempt < tries - 1) await sleep(backoff);
+                continue;
+            }
             // Soft-failure ("remark: runtime error … timed out") — retry on a
             // different mirror rather than treat the empty/truncated body as
             // real (same sniff as the client's overpassAbort.ts).
@@ -151,7 +173,9 @@ async function overpass(query, tries = 4) {
         } catch (e) {
             lastErr = e;
             endpointIdx++; // rotate mirror
-            await sleep(1500 * (attempt + 1));
+            if (attempt < tries - 1) await sleep(Math.min(30_000, 2000 * 2 ** attempt));
+        } finally {
+            clearTimeout(timer);
         }
     }
     throw lastErr ?? new Error("Overpass failed");
