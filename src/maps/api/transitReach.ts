@@ -422,7 +422,7 @@ export async function findTransitReachCandidates(
         primaryOsmId,
         primaryName,
         stops,
-        candidates: dedupeCoterminous(candidates),
+        candidates: dedupeNested(candidates),
         unreached,
     };
 }
@@ -453,40 +453,85 @@ function bboxIoU(
     return union > 0 ? inter / union : 0;
 }
 
+const CANDIDATE_SUFFIX_RE =
+    /\b(county|kommun|comune|gemeinde|municipality|parish|borough)\b/i;
+
+/** Is candidate `c`'s centre inside candidate `k`? Uses `k`'s real polygon
+ *  when we have it (fetched for the point-in-polygon stop test), else `k`'s
+ *  bbox. The "prefer the bigger container" test (Bronxville inside Westchester
+ *  County). */
+function centreInside(
+    c: TransitReachCandidate,
+    k: TransitReachCandidate,
+): boolean {
+    const [maxLat, minLng, minLat, maxLng] = c.extent;
+    const pt: [number, number] = [(minLng + maxLng) / 2, (minLat + maxLat) / 2];
+    if (k.polygon) {
+        try {
+            return booleanPointInPolygon(pt, {
+                type: "Feature",
+                properties: {},
+                geometry: k.polygon,
+            } as never);
+        } catch {
+            /* fall through to bbox */
+        }
+    }
+    const [kMaxLat, kMinLng, kMinLat, kMaxLng] = k.extent;
+    return (
+        pt[0] >= kMinLng &&
+        pt[0] <= kMaxLng &&
+        pt[1] >= kMinLat &&
+        pt[1] <= kMaxLat
+    );
+}
+
 /**
- * Collapse COTERMINOUS duplicates — two OSM relations covering the same
- * ground at different admin_levels (NYC's borough "Queens" L7 vs county
- * "Queens County" L6; city-and-county pairs like San Francisco; a `place=`
- * relation shadowing its admin twin). They'd otherwise list the same area
- * twice. Greedy over the stop-sorted list: keep a candidate unless its bbox
- * nearly coincides (IoU ≥ 0.75) with one already kept. Prefer the kept one
- * (more stops); on a tie the earlier-sorted (larger area / nearer) wins, and
- * we drop the "County"/"Kommun"-suffixed twin in favour of the plainer
- * borough/city name when the survivor would otherwise be the suffixed one.
+ * Collapse NESTED + COTERMINOUS candidates so the set is "few large, no
+ * overlaps":
+ *
+ *   - CONTAINMENT — one candidate sits INSIDE a bigger one (Bronxville village
+ *     L8 inside Westchester County L6). The auto levels-6–8 sweep returns both;
+ *     offering both is wrong (the small one is already inside the big one). Keep
+ *     only the container. Detected by "smaller candidate's centre falls inside a
+ *     kept larger candidate's polygon" (+ a real size gap so it's not just a
+ *     shared border).
+ *   - COTERMINOUS — two relations covering the SAME ground at different
+ *     admin_levels (NYC borough "Queens" L7 vs "Queens County" L6; city-and-
+ *     county pairs; a `place=` relation shadowing its admin twin). Same area,
+ *     so containment's size gap doesn't fire — caught by bbox IoU ≥ 0.75, and
+ *     we keep the plainer name ("Queens" over "Queens County").
+ *
+ * Processed LARGEST-area first so a container is always kept before the parts
+ * it swallows. Result re-sorted to the stop-count default afterwards.
  */
-function dedupeCoterminous(
+function dedupeNested(
     candidates: TransitReachCandidate[],
 ): TransitReachCandidate[] {
+    const bySizeDesc = [...candidates].sort((a, b) => b.areaKm2 - a.areaKm2);
+    const suffixed = (n: string) => CANDIDATE_SUFFIX_RE.test(n);
     const kept: TransitReachCandidate[] = [];
-    const suffixed = (n: string) =>
-        /\b(county|kommun|comune|gemeinde|municipality|parish|borough)\b/i.test(
-            n,
+    for (const c of bySizeDesc) {
+        // Containment: dropped if a kept (larger) candidate swallows it. The
+        // 1.25× size gate keeps this from firing on coterminous twins (equal
+        // area) — those go to the IoU branch below.
+        const container = kept.find(
+            (k) => k.areaKm2 > c.areaKm2 * 1.25 && centreInside(c, k),
         );
-    for (const c of candidates) {
+        if (container) continue;
+        // Coterminous: near-identical bbox → same place twice. Prefer plainer.
         const dupeIdx = kept.findIndex(
             (k) => bboxIoU(k.extent, c.extent) >= 0.75,
         );
-        if (dupeIdx === -1) {
-            kept.push(c);
+        if (dupeIdx !== -1) {
+            const incumbent = kept[dupeIdx];
+            if (suffixed(incumbent.name) && !suffixed(c.name)) {
+                kept[dupeIdx] = { ...c, stopCount: incumbent.stopCount };
+            }
             continue;
         }
-        // Coterminous with an already-kept candidate. Prefer the plainer
-        // name (e.g. "Queens" over "Queens County") when the incumbent is
-        // the suffixed twin and this one isn't; otherwise keep the incumbent.
-        const incumbent = kept[dupeIdx];
-        if (suffixed(incumbent.name) && !suffixed(c.name)) {
-            kept[dupeIdx] = { ...c, stopCount: incumbent.stopCount };
-        }
+        kept.push(c);
     }
+    kept.sort((a, b) => b.stopCount - a.stopCount || a.distanceKm - b.distanceKm);
     return kept;
 }

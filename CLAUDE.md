@@ -548,7 +548,7 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   boundary polygons — green = in both selectors, blue = rail-only additions —
   over the rail stops (amber dots) + the primary boundary (red), so a set can
   be judged geographically without knowing the city. Coterminous duplicates
-  (NYC's Queens borough L7 vs Queens County L6) are collapsed by bbox-IoU.
+  (NYC's Queens borough L7 vs Queens County L6) are collapsed by bbox-IoU, and NESTED candidates (Bronxville village inside Westchester County) drop the contained one, keeping only the container.
   **NOT the default yet** — read-only inspector, writes no global state; the
   wizard still uses admin-adjacency.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
