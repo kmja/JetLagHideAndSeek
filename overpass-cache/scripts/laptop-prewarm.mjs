@@ -1315,6 +1315,26 @@ async function ensureCityExtent(city) {
 
 /* ----------------------------- Main ------------------------------ */
 
+/**
+ * v713: a city play area is never bigger than a big metro (~1.5° across).
+ * A mis-resolved seed — "Ontario" pointing at the whole PROVINCE relation
+ * (r68841, ~15° × ~21°) rather than a city — otherwise fires province-scale
+ * refs/stations/water queries that soft-timeout (abort remarks) + 504, wasting
+ * the run. Gate on span: >3° lat or >4.5° lng = a state/province/country, not a
+ * city → skip. extent order: [maxLat, minLng, minLat, maxLng]. */
+const MAX_EXTENT_SPAN_LAT_DEG = 3;
+const MAX_EXTENT_SPAN_LNG_DEG = 4.5;
+function isOversizedExtent(ext) {
+    if (!Array.isArray(ext) || ext.length !== 4) return false;
+    const [maxLat, minLng, minLat, maxLng] = ext;
+    if (![maxLat, minLng, minLat, maxLng].every((n) => Number.isFinite(n)))
+        return false;
+    return (
+        maxLat - minLat > MAX_EXTENT_SPAN_LAT_DEG ||
+        maxLng - minLng > MAX_EXTENT_SPAN_LNG_DEG
+    );
+}
+
 async function processCity(city) {
     console.log(`[${city.name}] r${city.relationId}`);
 
@@ -1327,6 +1347,19 @@ async function processCity(city) {
     // Mutates `city.extent` on success; no-op if already present or on
     // failure (the boundary-derived fallback below still covers refs).
     await ensureCityExtent(city);
+
+    // v713: bail on a state/province/country-scale extent (a mis-resolved
+    // seed like "Ontario" → the whole province). Its refs/stations/water
+    // queries would soft-timeout and waste the run; it's not a valid play
+    // area regardless. (extentless cities fall through and are re-checked
+    // against the boundary-derived extent below.)
+    if (city.extent && isOversizedExtent(city.extent)) {
+        const [mxLat, mnLng, mnLat, mxLng] = city.extent;
+        console.log(
+            `  ✗ ${city.name} — extent ${(mxLat - mnLat).toFixed(1)}° × ${(mxLng - mnLng).toFixed(1)}° is state/province-scale, not a city — SKIPPING`,
+        );
+        return;
+    }
 
     // Most bundled HAND_CURATED / BULK_CITIES entries ship without an
     // extent — only cities the worker's cron has already backfilled
@@ -1457,6 +1490,16 @@ async function processCity(city) {
     // effectiveExtent as a last-resort fallback if boundary derivation
     // failed entirely.
     const refExtent = boundaryExtent ?? effectiveExtent;
+    // v713: second oversize gate for extentless cities whose boundary geom
+    // turned out province-scale (the city.extent gate above only catches
+    // pre-backfilled ones). Bail before the heavy refs/stations/water warms.
+    if (refExtent && isOversizedExtent(refExtent)) {
+        const [mxLat, mnLng, mnLat, mxLng] = refExtent;
+        console.log(
+            `  ✗ ${city.name} — boundary extent ${(mxLat - mnLat).toFixed(1)}° × ${(mxLng - mnLng).toFixed(1)}° is state/province-scale, not a city — SKIPPING`,
+        );
+        return;
+    }
     if (!refExtent && DO_REFS) {
         console.log(`  ⤼ no extent available — skipping refs`);
     }

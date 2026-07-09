@@ -266,6 +266,16 @@ async function appResolveRelationId(name, wikidataRelId) {
         if (pr.osm_type !== "R") return false;
         const key = (pr.osm_key ?? "").toLowerCase();
         if (key !== "place" && key !== "boundary") return false;
+        // v713: reject province/state/country-scale relations. A city play
+        // area is never bigger than a big metro (~1.5° across); >3° lat or
+        // >4.5° lng means a state/province. Without this, "Ontario" (city,
+        // CA, pop 175k) reconciled to the whole PROVINCE of Ontario relation
+        // (r68841, ~15°×21°), which then province-scale-timed-out the prewarm.
+        const e = pr.extent; // app order [maxLat, minLng, minLat, maxLng]
+        if (Array.isArray(e) && e.length >= 4) {
+            const [maxLat, minLng, minLat, maxLng] = e;
+            if (maxLat - minLat > 3 || maxLng - minLng > 4.5) return false;
+        }
         if (seen.has(pr.osm_id)) return false;
         seen.add(pr.osm_id);
         return true;
