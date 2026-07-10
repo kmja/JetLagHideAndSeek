@@ -242,10 +242,14 @@ const DO_TILE_PACKS = !args["skip-tile-packs"];
 // per-city loop skips pack extraction cleanly instead of throwing.
 let tilePacksEnabled = DO_TILE_PACKS;
 const PMTILES_BIN = args["pmtiles-bin"] || "pmtiles";
-// Master archive to extract city packs FROM. Defaults to the current
-// self-hosted basemap; override with --master-pmtiles when the
-// basemap filename changes (it carries a build date).
-const MASTER_PMTILES_URL =
+// Master archive to extract city packs FROM. When --master-pmtiles isn't
+// passed, main() auto-resolves the CURRENT basemap from the worker's
+// `/api/basemap-url` (newest `basemap-z15-*.pmtiles` in R2) so the date-
+// stamped filename doesn't have to be tracked by hand; this hard-coded
+// value is only the fallback if that lookup fails. Explicit --master-pmtiles
+// always wins.
+const MASTER_PMTILES_EXPLICIT = !!args["master-pmtiles"];
+let MASTER_PMTILES_URL =
     args["master-pmtiles"] ||
     `${WORKER}/tiles/basemap-z15-20260614.pmtiles`;
 // Pack sizing. We extract z0..maxzoom where maxzoom is the deepest
@@ -2602,6 +2606,21 @@ async function processCityComplete(city, globalSeen) {
             globalSeen.add(n.relationId);
             try {
                 await processCity(n);
+                // v727: an adjacent can ALSO be a valid PRIMARY play area —
+                // someone searches "the Bronx" directly. processCity just
+                // warmed its boundary+refs+stations+pack (v726) AND stored its
+                // extent/name (ensureCityExtent), so verify + stamp its OWN
+                // primary star too. Then it lights up starred when searched,
+                // not only as an NYC add-on. (Best-effort; the primary's own
+                // stamp below is unaffected.)
+                if (DO_VERIFY) {
+                    const nv = await verifyCity(n.relationId);
+                    if (nv?.primaryCached) {
+                        console.log(
+                            `    ★ ${n.name} (r${n.relationId}) — adjacent also starred as a primary`,
+                        );
+                    }
+                }
             } catch (e) {
                 console.warn(
                     `  ! adjacent ${n.name} (r${n.relationId}) failed:`,
@@ -2739,6 +2758,31 @@ async function main() {
     if (DO_TILE_PACKS) {
         tilePacksEnabled = checkPmtilesBinary();
         if (tilePacksEnabled) {
+            // Auto-resolve the current basemap (unless --master-pmtiles was
+            // given) so a rebuilt basemap doesn't silently extract packs from
+            // a stale archive.
+            if (!MASTER_PMTILES_EXPLICIT) {
+                try {
+                    const r = await fetchRetry(
+                        `${WORKER}/api/basemap-url`,
+                        {},
+                        "basemap-url",
+                    );
+                    const j = await r.json().catch(() => null);
+                    if (j?.url) {
+                        MASTER_PMTILES_URL = j.url;
+                        console.log(`  · resolved current basemap: ${j.key}`);
+                    } else {
+                        console.warn(
+                            `  ⚠ /api/basemap-url returned no basemap; using fallback ${MASTER_PMTILES_URL}`,
+                        );
+                    }
+                } catch (e) {
+                    console.warn(
+                        `  ⚠ basemap auto-resolve failed (${e?.message ?? e}); using fallback ${MASTER_PMTILES_URL}`,
+                    );
+                }
+            }
             console.log(
                 `tile packs ENABLED (extracting from ${MASTER_PMTILES_URL})`,
             );

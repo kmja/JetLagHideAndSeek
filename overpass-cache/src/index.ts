@@ -1154,6 +1154,9 @@ async function handleRequest(
         if (url.pathname === "/api/reference-filters") {
             return handleReferenceFilters(cors);
         }
+        if (url.pathname === "/api/basemap-url") {
+            return handleBasemapUrl(url, env, cors);
+        }
         if (url.pathname === "/api/register-area") {
             return handleRegisterArea(request, env, cors);
         }
@@ -6230,6 +6233,54 @@ function tilePackKey(osmId: string | number): string {
  * a pack keyed to a different osm_id than the play area resolves to).
  * Read-only; paginated R2 list.
  */
+/**
+ * `GET /api/basemap-url` (v727) — the CURRENT master basemap URL, so the
+ * laptop tile-pack builder doesn't have to hard-code the date-stamped
+ * filename (`basemap-z15-YYYYMMDD.pmtiles`) and pass `--master-pmtiles` by
+ * hand every time the basemap is rebuilt. Lists `env.TILES` for
+ * `basemap-z15-*.pmtiles` and returns the lexically-greatest key (the newest
+ * build — the date suffix sorts correctly), as an absolute URL on this
+ * worker. Public + CDN-cached (the basemap changes rarely). Returns
+ * `{ url: null }` when no basemap object is present. Pairs with bumping the
+ * client's `DEFAULT_PMTILES_URL` when a new basemap is uploaded — do both
+ * together so packs extract from the same basemap the app renders. */
+async function handleBasemapUrl(
+    url: URL,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    const headers = {
+        ...cors,
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=3600",
+    };
+    try {
+        let newest: string | null = null;
+        let cursor: string | undefined = undefined;
+        do {
+            const page: R2Objects = await env.TILES.list({
+                prefix: "basemap-z15-",
+                cursor,
+                limit: 1000,
+            });
+            for (const obj of page.objects) {
+                if (!obj.key.endsWith(".pmtiles")) continue;
+                if (newest === null || obj.key > newest) newest = obj.key;
+            }
+            cursor = page.truncated ? page.cursor : undefined;
+        } while (cursor);
+        const basemapUrl = newest ? `${url.origin}/tiles/${newest}` : null;
+        return new Response(JSON.stringify({ url: basemapUrl, key: newest }), {
+            headers,
+        });
+    } catch (e) {
+        return new Response(
+            JSON.stringify({ url: null, error: String(e) }),
+            { status: 500, headers },
+        );
+    }
+}
+
 async function handleAdminListTilePacks(
     request: Request,
     env: Env,
