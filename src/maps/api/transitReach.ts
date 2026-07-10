@@ -263,9 +263,17 @@ async function fetchAdminCandidates(
         adminLevelOverride != null
             ? Number.isFinite(lvlNum)
             : Number.isFinite(lvlNum) && lvlNum >= 7;
+    // Coarse megacity (auto, numeric level <=6 like NYC=5): query LEVEL 6
+    // (county) ONLY for a clean "few-large" set. The 6/7/8 band also pulled
+    // level-7/8 towns, and a county that fell below the density filter (removed
+    // before dedup) orphaned its towns (NYC → dozens of villages instead of a
+    // handful of counties). Unknown (non-numeric) level → the band catch-all.
+    // Kept byte-in-sync with build-city-adjacents.mjs fetchAdminCandidates.
     const query = useExact
         ? buildAdjacentAdminQuery(String(lvlNum), lat, lng, radiusKm)
-        : buildLocalAdminBandQuery(lat, lng, radiusKm);
+        : Number.isFinite(lvlNum)
+          ? buildAdjacentAdminQuery("6", lat, lng, radiusKm)
+          : buildLocalAdminBandQuery(lat, lng, radiusKm);
     const data = await getOverpassData(
         query,
         undefined,

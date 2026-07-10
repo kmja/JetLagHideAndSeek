@@ -461,9 +461,18 @@ async function fetchAdminCandidates(
         explicitLevel != null
             ? Number.isFinite(lvlNum)
             : Number.isFinite(lvlNum) && lvlNum >= 7;
+    // Coarse megacity (auto, numeric level <=6 like NYC=5): query LEVEL 6
+    // (county) ONLY — a clean "few-large" set. The 6/7/8 BAND was wrong here:
+    // it also pulled level-7/8 towns, and when a containing county fell below
+    // the density filter (removed BEFORE dedup) its towns had no container to
+    // collapse into and survived as dozens of orphans (NYC → 34 incl.
+    // Ho-Ho-Kus/Dumont/etc. vs the debug tool's clean 5 counties). Only an
+    // unknown (non-numeric) level falls to the band as a robust catch-all.
     const query = useExact
         ? buildAdjacentAdminQuery(String(lvlNum), lat, lng, radiusKm)
-        : buildLocalAdminBandQuery(lat, lng, radiusKm);
+        : Number.isFinite(lvlNum)
+          ? buildAdjacentAdminQuery("6", lat, lng, radiusKm)
+          : buildLocalAdminBandQuery(lat, lng, radiusKm);
     let json;
     try {
         json = await overpass(query);
