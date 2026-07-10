@@ -610,9 +610,11 @@ let AREA_STATION_FILTERS = [
     "[railway=halt]",
     "[railway=tram_stop]",
     "[railway=halt][light_rail=yes]",
+    "[public_transport=platform][tram=yes]",
     "[highway=bus_stop]",
     "[public_transport=platform][bus=yes]",
     "[amenity=ferry_terminal]",
+    "[public_transport=platform][ferry=yes]",
     "[public_transport=platform][platform=ferry]",
 ];
 let PAD_KM_STATIONS = 2;

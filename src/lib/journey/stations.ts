@@ -534,10 +534,15 @@ interface OverpassElement {
  *  override the generic railway=station/halt classification. */
 function inferMode(tags: Record<string, string>): TransitMode | null {
     if (tags.subway === "yes" || tags.station === "subway") return "subway";
-    if (tags.railway === "tram_stop" || tags.light_rail === "yes")
+    if (tags.railway === "tram_stop" || tags.light_rail === "yes" || tags.tram === "yes")
         return "tram";
-    if (tags.railway === "station" || tags.railway === "halt") return "train";
-    if (tags.amenity === "ferry_terminal" || tags.platform === "ferry")
+    if (tags.railway === "station" || tags.railway === "halt" || tags.train === "yes")
+        return "train";
+    if (
+        tags.amenity === "ferry_terminal" ||
+        tags.platform === "ferry" ||
+        tags.ferry === "yes"
+    )
         return "ferry";
     if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
     return null;

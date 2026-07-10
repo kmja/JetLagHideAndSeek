@@ -851,8 +851,16 @@ export const HIDING_ZONE_FILTERS_BY_MODE: Record<TransitMode, string[]> = {
     // Underground / metro stops. `subway=yes` flag is how OSM tags
     // metro stations sharing a node with mainline rail.
     subway: ["[railway=station][subway=yes]", "[station=subway]"],
-    // Light-rail / streetcar / tram stops.
-    tram: ["[railway=tram_stop]", "[railway=halt][light_rail=yes]"],
+    // Light-rail / streetcar / tram stops. `railway=tram_stop` is the classic
+    // tag; the PTv2 platform selector catches networks that map tram stops
+    // ONLY as `public_transport=platform` + `tram=yes` (same gap as bus). Safe
+    // to include — a tram stop is typically a single platform, so unlike heavy
+    // rail it won't explode a multi-platform station into per-platform zones.
+    tram: [
+        "[railway=tram_stop]",
+        "[railway=halt][light_rail=yes]",
+        "[public_transport=platform][tram=yes]",
+    ],
     // Bus stops — the big one (Stockholm-scale games can omit this to
     // keep the station count tractable). `highway=bus_stop` is the classic
     // tag, but a lot of the world (Nairobi's matatu network, and PTv2
@@ -860,8 +868,14 @@ export const HIDING_ZONE_FILTERS_BY_MODE: Record<TransitMode, string[]> = {
     // + `bus=yes` with no `highway=bus_stop`, so without the second selector
     // those cities show zero bus hiding zones even with a dense bus overlay.
     bus: ["[highway=bus_stop]", "[public_transport=platform][bus=yes]"],
-    // Ferry terminals + ferry-platform PT nodes.
-    ferry: ["[amenity=ferry_terminal]", "[public_transport=platform][platform=ferry]"],
+    // Ferry terminals + ferry-platform PT nodes. `ferry=yes` is the
+    // documented PTv2 flag; `platform=ferry` is a non-standard variant kept
+    // for the rare city that used it (harmless if it matches nothing).
+    ferry: [
+        "[amenity=ferry_terminal]",
+        "[public_transport=platform][ferry=yes]",
+        "[public_transport=platform][platform=ferry]",
+    ],
 };
 
 /**
