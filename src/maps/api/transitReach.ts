@@ -247,11 +247,24 @@ async function fetchAdminCandidates(
     radiusKm: number,
     adminLevelOverride?: string,
 ): Promise<AdminStub[]> {
-    const primaryLevel = adminLevelOverride ?? primary.properties.type;
-    const isNumericLevel =
-        typeof primaryLevel === "string" && /^\d+$/.test(primaryLevel);
-    const query = isNumericLevel
-        ? buildAdjacentAdminQuery(primaryLevel, lat, lng, radiusKm)
+    // Choose the candidate admin level. An explicit `adminLevelOverride` is
+    // honored at any level. For AUTO (no override) we query the primary's own
+    // level ONLY if it's a fine municipality level (>=7); a coarse megacity
+    // level (NYC = admin_level 5) has no usable same-level peers — only whole
+    // states — so fall back to the 6/7/8 municipality BAND, which yields the
+    // reachable cities/counties. Without this, NYC/London/Tokyo returned 0 at
+    // `auto`. Kept byte-in-sync with build-city-adjacents.mjs fetchAdminCandidates.
+    const chosen = adminLevelOverride ?? primary.properties.type;
+    const lvlNum =
+        typeof chosen === "string" && /^\d+$/.test(chosen)
+            ? parseInt(chosen, 10)
+            : NaN;
+    const useExact =
+        adminLevelOverride != null
+            ? Number.isFinite(lvlNum)
+            : Number.isFinite(lvlNum) && lvlNum >= 7;
+    const query = useExact
+        ? buildAdjacentAdminQuery(String(lvlNum), lat, lng, radiusKm)
         : buildLocalAdminBandQuery(lat, lng, radiusKm);
     const data = await getOverpassData(
         query,

@@ -438,11 +438,31 @@ async function fetchRailStops(lat, lng, radiusKm, kinds) {
     return stops;
 }
 
-async function fetchAdminCandidates(primaryLevel, lat, lng, radiusKm) {
-    const isNumeric =
-        typeof primaryLevel === "string" && /^\d+$/.test(primaryLevel);
-    const query = isNumeric
-        ? buildAdjacentAdminQuery(primaryLevel, lat, lng, radiusKm)
+async function fetchAdminCandidates(
+    explicitLevel,
+    detectedLevel,
+    lat,
+    lng,
+    radiusKm,
+) {
+    // Choose the candidate admin level. An EXPLICIT --level is honored at any
+    // level. For AUTO, query the primary's own level ONLY if it's a fine
+    // municipality level (>=7) — a coarse megacity level (NYC = admin_level 5)
+    // has no usable same-level peers (only whole states), so fall back to the
+    // 6/7/8 municipality BAND, which yields the reachable cities/counties.
+    // Mirrors transitReach.ts fetchAdminCandidates (the debug tool). This is
+    // what makes NYC/London/Tokyo resolve at --level auto instead of 0.
+    const chosen = explicitLevel ?? detectedLevel;
+    const lvlNum =
+        typeof chosen === "string" && /^\d+$/.test(chosen)
+            ? parseInt(chosen, 10)
+            : NaN;
+    const useExact =
+        explicitLevel != null
+            ? Number.isFinite(lvlNum)
+            : Number.isFinite(lvlNum) && lvlNum >= 7;
+    const query = useExact
+        ? buildAdjacentAdminQuery(String(lvlNum), lat, lng, radiusKm)
         : buildLocalAdminBandQuery(lat, lng, radiusKm);
     let json;
     try {
@@ -708,16 +728,18 @@ async function findAdjacents(city) {
     if (VERBOSE)
         console.log(`    centroid=${lat.toFixed(4)},${lng.toFixed(4)}`);
 
-    const primaryLevel =
-        LEVEL === "auto" ? await fetchAdminLevel(primaryOsmId) : LEVEL;
+    // Always detect the real admin_level (for the auto decision + the log);
+    // an explicit --level overrides which level the candidate query uses.
+    const detectedLevel = await fetchAdminLevel(primaryOsmId);
+    const explicitLevel = LEVEL === "auto" ? null : LEVEL;
 
     const [stops, adminCandidates] = await Promise.all([
         fetchRailStops(lat, lng, RADIUS_KM, KINDS),
-        fetchAdminCandidates(primaryLevel, lat, lng, RADIUS_KM),
+        fetchAdminCandidates(explicitLevel, detectedLevel, lat, lng, RADIUS_KM),
     ]);
     if (VERBOSE)
         console.log(
-            `    stops=${stops.length} candidates=${adminCandidates.length} level=${primaryLevel}`,
+            `    stops=${stops.length} candidates=${adminCandidates.length} level=${explicitLevel ?? `auto(${detectedLevel})`}`,
         );
     if (stops.length === 0) {
         return { ids: [], names: [], note: "0 stops (check centroid/kinds)" };
