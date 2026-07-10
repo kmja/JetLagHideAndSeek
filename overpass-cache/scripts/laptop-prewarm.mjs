@@ -105,6 +105,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 // Force IPv4-first DNS resolution. Node 17+ defaults to "verbatim"
@@ -241,7 +242,11 @@ const DO_TILE_PACKS = !args["skip-tile-packs"];
 // Flipped off at startup if the pmtiles binary check fails, so the
 // per-city loop skips pack extraction cleanly instead of throwing.
 let tilePacksEnabled = DO_TILE_PACKS;
-const PMTILES_BIN = args["pmtiles-bin"] || "pmtiles";
+// Resolved lazily by checkPmtilesBinary() — starts as the explicit
+// --pmtiles-bin or the bare name, then gets rewritten to whichever candidate
+// actually ran (so processTilePack shells out to the right path).
+let PMTILES_BIN = args["pmtiles-bin"] || "pmtiles";
+const PMTILES_BIN_EXPLICIT = !!args["pmtiles-bin"];
 // Master archive to extract city packs FROM. When --master-pmtiles isn't
 // passed, main() auto-resolves the CURRENT basemap from the worker's
 // `/api/basemap-url` (newest `basemap-z15-*.pmtiles` in R2) so the date-
@@ -2056,28 +2061,106 @@ function chooseTilePackMaxZoom(bbox) {
     return null;
 }
 
+/** Find a LOCAL copy of the master basemap `key` (e.g.
+ *  "basemap-z15-20260614.pmtiles") in the usual storage spots, so pack
+ *  extraction reads the local 100+ GB file instead of HTTP-ranging the remote
+ *  one per city. Returns the absolute path, or null if none exists. */
+function findLocalBasemap(key) {
+    if (!key) return null;
+    const home = os.homedir();
+    const candidates = [
+        path.join(home, "jlhs-pmtiles", key),
+        path.join(home, "Downloads", key),
+        path.join(process.cwd(), key),
+        key, // in case an absolute/relative path was somehow the key
+    ];
+    for (const c of candidates) {
+        try {
+            if (fs.existsSync(c) && fs.statSync(c).size > 0) return c;
+        } catch {
+            /* ignore */
+        }
+    }
+    return null;
+}
+
 /** Verify the pmtiles CLI is callable. Returns true/false; logs install
  *  guidance on failure. Called once at startup when tile packs are enabled
  *  (the default; disable with --skip-tile-packs). */
 function checkPmtilesBinary() {
-    try {
-        execFileSync(PMTILES_BIN, ["version"], { stdio: "pipe" });
-        return true;
-    } catch {
-        try {
-            // Older builds use --version instead of the `version` verb.
-            execFileSync(PMTILES_BIN, ["--version"], { stdio: "pipe" });
+    const isWin = process.platform === "win32";
+    // Does one candidate run? Try the `version` verb, then legacy `--version`.
+    const runs = (bin) => {
+        for (const verArg of ["version", "--version"]) {
+            try {
+                execFileSync(bin, [verArg], { stdio: "pipe" });
+                return true;
+            } catch {
+                /* try next */
+            }
+        }
+        return false;
+    };
+
+    // Build the candidate list. An explicit --pmtiles-bin is tried as given
+    // (plus a `.exe` sibling on Windows). Otherwise probe the bare name on
+    // PATH AND common local drop spots (cwd, the script's dir, the repo root),
+    // so a `pmtiles.exe` sitting next to the project is found without a flag —
+    // the usual "I downloaded it here before" case.
+    const withExe = (p) => (isWin && !/\.exe$/i.test(p) ? [p, `${p}.exe`] : [p]);
+    let candidates;
+    if (PMTILES_BIN_EXPLICIT) {
+        candidates = withExe(PMTILES_BIN);
+    } else {
+        const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+        const home = os.homedir();
+        const dirs = [
+            process.cwd(),
+            scriptDir,
+            path.resolve(scriptDir, ".."), // overpass-cache/
+            path.resolve(scriptDir, "..", ".."), // repo root
+            // Common manual-install spots (go-pmtiles ships a bare binary in a
+            // release folder; users typically leave it in Downloads or a
+            // dedicated folder). Cheap fs.existsSync checks, so listing a few
+            // is free and saves the --pmtiles-bin flag.
+            path.join(home, "Downloads", "go-pmtiles"),
+            path.join(home, "jlhs-pmtiles"),
+            path.join(home, "jlhs-pmtiles", "pmtiles.exe-x"),
+            path.join(home, "Downloads"),
+        ];
+        const names = ["pmtiles", "go-pmtiles"];
+        candidates = [
+            ...names.flatMap((n) => withExe(n)), // bare → PATH lookup
+            ...dirs.flatMap((d) =>
+                names.flatMap((n) => withExe(path.join(d, n))),
+            ),
+        ];
+    }
+    // Dedup while preserving order.
+    candidates = [...new Set(candidates)];
+
+    for (const c of candidates) {
+        // A path candidate must exist on disk before we exec it (a bare name
+        // is resolved by the OS, so skip the existence check there).
+        const looksLikePath = c.includes(path.sep) || /[\\/]/.test(c);
+        if (looksLikePath && !fs.existsSync(c)) continue;
+        if (runs(c)) {
+            PMTILES_BIN = c; // remember what actually worked
+            if (c !== "pmtiles" && c !== "pmtiles.exe") {
+                console.log(`  · using pmtiles binary: ${c}`);
+            }
             return true;
-        } catch {
-            console.error(
-                `[tile-packs] '${PMTILES_BIN}' not runnable. Install the pmtiles CLI:\n` +
-                    "  https://github.com/protomaps/go-pmtiles/releases\n" +
-                    "  (download the binary for your OS, put it on PATH, or pass --pmtiles-bin <path>)\n" +
-                    "Continuing with tile packs DISABLED for this run.",
-            );
-            return false;
         }
     }
+
+    console.error(
+        `[tile-packs] pmtiles CLI not found. Tried: ${candidates.join(", ")}\n` +
+            "  Install it: https://github.com/protomaps/go-pmtiles/releases\n" +
+            "  (download the binary for your OS, then EITHER put pmtiles(.exe) on\n" +
+            "   PATH / in the repo folder, OR pass --pmtiles-bin <full\\path\\to\\pmtiles.exe>)\n" +
+            "Continuing with tile packs DISABLED for this run.",
+    );
+    return false;
 }
 
 async function processTilePack(city, effectiveExtent) {
@@ -2772,6 +2855,18 @@ async function main() {
                     if (j?.url) {
                         MASTER_PMTILES_URL = j.url;
                         console.log(`  · resolved current basemap: ${j.key}`);
+                        // FAST PATH: if a LOCAL copy of that exact basemap
+                        // exists, extract from it instead of HTTP-ranging the
+                        // (huge) remote master per city. `pmtiles extract`
+                        // takes a local path as source. Looks for the same
+                        // filename in the usual master-storage spots.
+                        const local = findLocalBasemap(j.key);
+                        if (local) {
+                            MASTER_PMTILES_URL = local;
+                            console.log(
+                                `  · using LOCAL basemap copy (much faster): ${local}`,
+                            );
+                        }
                     } else {
                         console.warn(
                             `  ⚠ /api/basemap-url returned no basemap; using fallback ${MASTER_PMTILES_URL}`,
