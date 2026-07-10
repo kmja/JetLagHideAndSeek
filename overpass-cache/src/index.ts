@@ -992,6 +992,9 @@ async function handleRequest(
         if (url.pathname === "/admin/inspect-refs") {
             return handleAdminInspectRefs(request, env, cors);
         }
+        if (url.pathname === "/admin/inspect-encoding") {
+            return handleAdminInspectEncoding(request, env, cors);
+        }
         if (url.pathname === "/admin/rediscover") {
             return handleAdminRediscover(request, env, cors);
         }
@@ -6728,6 +6731,104 @@ function elementMatchesFilter(
  * missing `consulate_general`) apart from a truncated warm (many families
  * suspiciously low + an abort remark). Read-only; never fetches upstream.
  */
+/**
+ * `GET /admin/inspect-encoding?id=<rel>&kind=<refs|stations|water|metro|transit-bus|transit-train|transit-tram>&secret=…`
+ * (v736) — DIAGNOSTIC: read the RAW stored R2 bytes for a relation's entry
+ * (inside the worker, so no CF/serve transform) and report the exact gzip-layer
+ * structure. Definitively answers "is the stored body single gzip, double gzip,
+ * or raw?" — which decides whether the fix is a serve header (egress) or a
+ * data re-store (de-double). Returns a small JSON so CF can't mangle it.
+ */
+async function handleAdminInspectEncoding(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+): Promise<Response> {
+    if (!checkAdminAuth(request, env)) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+    }
+    const url = new URL(request.url);
+    const relationId = Number(url.searchParams.get("id"));
+    const kind = (url.searchParams.get("kind") ?? "refs").toLowerCase();
+    if (!Number.isFinite(relationId) || relationId <= 0) {
+        return jsonResponse({ error: "id (relation) required" }, 400, cors);
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) return jsonResponse({ error: "no-boundary (can't derive key)" }, 200, cors);
+    let query: string;
+    if (kind === "refs") query = buildReferenceBboxQuery(ext);
+    else if (kind === "stations") query = buildAreaStationsBboxQuery(ext);
+    else if (kind === "water") query = buildWaterBboxQuery(ext);
+    else if (kind === "metro") query = metroRoutesQuery(ext);
+    else if (kind.startsWith("transit-"))
+        query = transitRouteQuery(ext, kind.slice("transit-".length));
+    else return jsonResponse({ error: `unknown kind '${kind}'` }, 400, cors);
+
+    const cacheKey = await r2KeyForQuery(query);
+    const obj = await env.CACHE.get(`overpass/${cacheKey}`);
+    if (!obj) return jsonResponse({ kind, cache: "miss", cacheKey }, 200, cors);
+
+    const stored = new Uint8Array(await obj.arrayBuffer());
+    const hex2 = (u: Uint8Array) =>
+        Array.from(u.slice(0, 2))
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("");
+    const gunzip = async (buf: Uint8Array): Promise<Uint8Array> => {
+        const ds = new Response(buf as unknown as BodyInit).body!.pipeThrough(
+            new DecompressionStream("gzip"),
+        );
+        return new Uint8Array(await new Response(ds).arrayBuffer());
+    };
+    // Peel gzip layers off the STORED bytes.
+    const layers: Array<{ layer: number; len: number; first2: string; gzip: boolean; note?: string }> = [];
+    let cur: Uint8Array = stored;
+    for (let i = 0; i < 4; i++) {
+        const isGz = cur.length >= 2 && cur[0] === 0x1f && cur[1] === 0x8b;
+        const first = cur.length ? String.fromCharCode(cur[0]) : "";
+        layers.push({
+            layer: i,
+            len: cur.length,
+            first2: hex2(cur),
+            gzip: isGz,
+            note: !isGz ? (first === "{" || first === "[" ? "looks-like-json" : "not-gzip-not-json") : undefined,
+        });
+        if (!isGz) break;
+        try {
+            cur = (await gunzip(cur)) as unknown as Uint8Array;
+        } catch (e) {
+            layers.push({ layer: i + 1, len: 0, first2: "", gzip: false, note: `gunzip-failed: ${e}` });
+            break;
+        }
+    }
+    // Interpret: how many gzip layers before we reach JSON.
+    const gzipLayers = layers.filter((l) => l.gzip).length;
+    const reachedJson = layers.some((l) => l.note === "looks-like-json");
+    const verdict =
+        gzipLayers === 0 && reachedJson
+            ? "stored-plain-json"
+            : gzipLayers === 1 && reachedJson
+              ? "stored-single-gzip (correct)"
+              : gzipLayers >= 2 && reachedJson
+                ? "stored-DOUBLE-gzip (data needs de-double, no Overpass)"
+                : "unclear";
+    return jsonResponse(
+        {
+            kind,
+            relationId,
+            encodingMetadata: obj.customMetadata?.encoding ?? null,
+            storedBytes: stored.length,
+            gzipLayers,
+            verdict,
+            layers,
+        },
+        200,
+        cors,
+    );
+}
+
 async function handleAdminInspectRefs(
     request: Request,
     env: Env,
