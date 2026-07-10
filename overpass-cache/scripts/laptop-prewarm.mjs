@@ -114,11 +114,12 @@
 import { execFileSync } from "node:child_process";
 import dns from "node:dns";
 import fs from "node:fs";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 // Force IPv4-first DNS resolution. Node 17+ defaults to "verbatim"
 // order, which on dual-stack hosts often hands undici the AAAA (IPv6)
@@ -1232,29 +1233,92 @@ async function verifyCity(relationId) {
  *                metadata disagree, so `resp.text()` throws (bad gunzip) or
  *                the result isn't JSON. THIS is what --force must re-warm.
  *   "error"    — HTTP/network error (worker down / not found). */
+/** Fetch RAW bytes (no auto-decompress) + headers, via node's https so we see
+ *  exactly what's on the wire — undici's fetch auto-decompresses, hiding the
+ *  poisoning. Resolves { status, enc, body } or rejects. */
+function fetchRawBytes(url) {
+    return new Promise((resolve, reject) => {
+        const req = https.get(
+            url,
+            // Send `Accept-Encoding: gzip` — the SAME wire view the browser
+            // gets (node's https does NOT auto-decompress, so we see the exact
+            // bytes + Content-Encoding the app receives). `identity` would let
+            // Cloudflare decompress for us and hide the poisoning.
+            { headers: { "Accept-Encoding": "gzip" } },
+            (res) => {
+                const chunks = [];
+                res.on("data", (d) => chunks.push(d));
+                res.on("end", () =>
+                    resolve({
+                        status: res.statusCode ?? 0,
+                        enc: String(
+                            res.headers["content-encoding"] ?? "",
+                        ).toLowerCase(),
+                        body: Buffer.concat(chunks),
+                    }),
+                );
+                res.on("error", reject);
+            },
+        );
+        req.on("error", reject);
+        req.setTimeout(30_000, () => req.destroy(new Error("timeout")));
+    });
+}
+
+/** AUTHORITATIVE classification of a relation-id endpoint response. Models
+ *  exactly what the browser/app does with the (Content-Encoding, raw-bytes)
+ *  pair, so a "poisoned" verdict == the app genuinely can't decode it. Returns
+ *  { v, d }: v ∈ ok|miss|empty|poisoned|error, d = human detail (the poisoning
+ *  VARIANT for poisoned; the source encoding otherwise). */
 async function checkEndpointParse(url) {
-    let resp;
+    let r;
     try {
-        resp = await fetch(url, { cache: "no-store" });
-    } catch {
-        return "error";
+        r = await fetchRawBytes(url);
+    } catch (e) {
+        return { v: "error", d: e?.message ?? "fetch failed" };
     }
-    if (!resp.ok) return "error";
+    if (r.status !== 200) return { v: "error", d: `HTTP ${r.status}` };
+    const b = r.body;
+    const isGz = b.length >= 2 && b[0] === 0x1f && b[1] === 0x8b;
+    const clientDecompresses = r.enc.includes("gzip");
+
+    // The app decompresses IFF Content-Encoding says gzip. Match that exactly:
+    //   enc=gzip + bytes gzip     → app gunzips → check the result is JSON.
+    //   enc=gzip + bytes NOT gzip → app gunzips raw JSON → FAILS → poisoned.
+    //   enc≠gzip + bytes gzip     → app reads raw gzip as text → FAILS → poisoned.
+    //   enc≠gzip + bytes not gzip → app reads text directly.
+    if (clientDecompresses && !isGz) {
+        return { v: "poisoned", d: "raw-body-tagged-gzip" };
+    }
+    if (!clientDecompresses && isGz) {
+        return { v: "poisoned", d: "gzip-body-tagged-identity" };
+    }
     let text;
-    try {
-        text = await resp.text(); // undici gunzips per Content-Encoding here
-    } catch {
-        return "poisoned"; // decompression blew up → bytes ≠ encoding metadata
+    if (isGz) {
+        let dec;
+        try {
+            dec = gunzipSync(b);
+        } catch {
+            return { v: "poisoned", d: "corrupt-gzip" };
+        }
+        if (dec.length >= 2 && dec[0] === 0x1f && dec[1] === 0x8b) {
+            return { v: "poisoned", d: "double-gzip" };
+        }
+        text = dec.toString("utf8");
+    } else {
+        text = b.toString("utf8");
     }
     let j;
     try {
         j = JSON.parse(text);
     } catch {
-        return "poisoned"; // decoded body isn't JSON (raw gzip served bare)
+        return { v: "poisoned", d: "not-json" };
     }
-    if (j && (j.cache === "miss" || j.cache === "no-boundary")) return "miss";
+    if (j && (j.cache === "miss" || j.cache === "no-boundary")) {
+        return { v: "miss", d: j.cache };
+    }
     const els = Array.isArray(j?.elements) ? j.elements.length : null;
-    return els === 0 ? "empty" : "ok";
+    return els === 0 ? { v: "empty", d: "0 elements" } : { v: "ok", d: "" };
 }
 
 /** Surgically re-warm ONLY a city's poisoned phases. Enables the phase GROUP
@@ -1354,26 +1418,30 @@ async function auditEncoding(cities) {
         `=== audit-encoding${REPAIR ? " + repair" : ""}: probing ${cities.length} cities${REPAIR ? " (fixing poisoned parts inline)" : " (read-only, no Overpass)"} ===`,
     );
     const poisoned = [];
+    const variantTally = {};
     let okC = 0,
         missC = 0,
         poisonEndpoints = 0;
     for (let i = 0; i < cities.length; i++) {
         const c = cities[i];
         const bad = [];
+        const badDetail = [];
         for (const mk of ENDPOINTS) {
             const { label, url } = mk(c.relationId);
-            const status = await checkEndpointParse(url);
-            if (status === "poisoned") {
+            const { v, d } = await checkEndpointParse(url);
+            if (v === "poisoned") {
                 bad.push(label);
+                badDetail.push(`${label}(${d})`);
+                variantTally[d] = (variantTally[d] ?? 0) + 1;
                 poisonEndpoints++;
-            } else if (status === "ok" || status === "empty") okC++;
-            else if (status === "miss") missC++;
+            } else if (v === "ok" || v === "empty") okC++;
+            else if (v === "miss") missC++;
         }
         if (bad.length) {
             c._poisonTypes = bad;
             poisoned.push(c);
             console.log(
-                `  ✗ ${c.name} (r${c.relationId}) POISONED: ${bad.join(", ")}`,
+                `  ✗ ${c.name} (r${c.relationId}) POISONED: ${badDetail.join(", ")}`,
             );
             if (REPAIR) {
                 // Re-warm the poisoned parts NOW, inline, so one unattended run
@@ -1386,7 +1454,7 @@ async function auditEncoding(cities) {
                         const { label, url } = mk(c.relationId);
                         if (
                             bad.includes(label) &&
-                            (await checkEndpointParse(url)) === "poisoned"
+                            (await checkEndpointParse(url)).v === "poisoned"
                         )
                             still.push(label);
                     }
@@ -1412,6 +1480,16 @@ async function auditEncoding(cities) {
         `=== audit done: ${poisoned.length}/${cities.length} cities have a poisoned entry ` +
             `(${poisonEndpoints} bad endpoints; ${okC} ok, ${missC} miss) ===`,
     );
+    // Variant breakdown — the GROUND TRUTH of the poisoning mechanism. If these
+    // are real (raw-body-tagged-gzip / gzip-body-tagged-identity / double-gzip),
+    // the diagnosis holds; anything unexpected (e.g. not-json / corrupt-gzip in
+    // bulk) means dig deeper before a mass re-warm.
+    const variants = Object.entries(variantTally).sort((a, b) => b[1] - a[1]);
+    if (variants.length) {
+        console.log(
+            `    poisoning variants: ${variants.map(([k, n]) => `${k}=${n}`).join(", ")}`,
+        );
+    }
     if (!poisoned.length) {
         console.log("No poisoned entries found — nothing to re-warm.");
         // Distinct exit so a restart wrapper (prewarm-all-night.ps1) STOPS
