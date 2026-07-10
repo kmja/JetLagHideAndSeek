@@ -1237,9 +1237,16 @@ async function verifyCity(relationId) {
  *  exactly what's on the wire — undici's fetch auto-decompresses, hiding the
  *  poisoning. Resolves { status, enc, body } or rejects. */
 function fetchRawBytes(url) {
+    // Cache-buster: Cloudflare's HTTP cache (max-age=86400) can hold the OLD
+    // egress-double-compressed responses, so a plain re-fetch after the
+    // v735 no-transform fix would still LOOK double. A unique query param
+    // busts CF's URL-keyed cache → fresh worker invocation → true current
+    // state. The worker keys its R2 lookup on the PATH relation id, so ?t
+    // doesn't change what's read.
+    const bust = (url.includes("?") ? "&" : "?") + "t=" + Date.now();
     return new Promise((resolve, reject) => {
         const req = https.get(
-            url,
+            url + bust,
             // Send `Accept-Encoding: gzip` — the SAME wire view the browser
             // gets (node's https does NOT auto-decompress, so we see the exact
             // bytes + Content-Encoding the app receives). `identity` would let
