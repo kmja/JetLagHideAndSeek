@@ -1300,7 +1300,7 @@ async function handleRequest(
         const edgeCache = caches.default;
         const edgeHit = await edgeCache.match(cacheApiKey);
         if (edgeHit) {
-            return appendCacheStatus(edgeHit, cors, "EDGE_HIT");
+            return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT");
         }
 
         // Step 2 — R2. Read metadata first so we can decide fresh
@@ -2499,7 +2499,8 @@ async function handleReferencesByRelation(
     );
     const edgeCache = caches.default;
     const edgeHit = await edgeCache.match(cacheApiKey);
-    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
 
     let r2Hit: R2ObjectBody | null = null;
     try {
@@ -2683,7 +2684,8 @@ async function handleAreaStationsByRelation(
     );
     const edgeCache = caches.default;
     const edgeHit = await edgeCache.match(cacheApiKey);
-    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
 
     let r2Hit: R2ObjectBody | null = null;
     try {
@@ -2853,7 +2855,8 @@ async function handleWaterByRelation(
     );
     const edgeCache = caches.default;
     const edgeHit = await edgeCache.match(cacheApiKey);
-    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
 
     let r2Hit: R2ObjectBody | null = null;
     try {
@@ -3038,7 +3041,8 @@ async function handleTransitByRelation(
     );
     const edgeCache = caches.default;
     const edgeHit = await edgeCache.match(cacheApiKey);
-    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
 
     let r2Hit: R2ObjectBody | null = null;
     try {
@@ -3209,7 +3213,8 @@ async function handleMetroByRelation(
     );
     const edgeCache = caches.default;
     const edgeHit = await edgeCache.match(cacheApiKey);
-    if (edgeHit) return appendCacheStatus(edgeHit, cors, "EDGE_HIT_RELATION");
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
     let r2Hit: R2ObjectBody | null = null;
     try {
         r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
@@ -9275,17 +9280,15 @@ function isAbortedOverpassText(text: string): boolean {
     }
 }
 
-/** Decompress + read a (small) R2 hit's body as text, honouring its
- *  encoding metadata. Consumes the object's one-shot body stream — the
- *  caller must serve from the returned text, not `hit.body`. */
+/** Decompress + read a (small) R2 hit's body as text, peeling every gzip
+ *  layer (single/double/none — see peelGzipLayers). Consumes the object's
+ *  one-shot body stream — the caller must serve from the returned text,
+ *  not `hit.body`. */
 async function readR2BodyText(hit: R2ObjectBody): Promise<string> {
-    const encoding = hit.customMetadata?.encoding;
-    if (encoding && encoding !== "identity") {
-        return await new Response(
-            hit.body.pipeThrough(new DecompressionStream("gzip")),
-        ).text();
-    }
-    return await new Response(hit.body).text();
+    const { bytes } = await peelGzipLayers(
+        new Uint8Array(await hit.arrayBuffer()),
+    );
+    return new TextDecoder().decode(bytes);
 }
 
 interface R2WriteMetadata {
@@ -9491,14 +9494,52 @@ async function gunzipOnce(bytes: Uint8Array): Promise<Uint8Array> {
  * gzip magic is gone serves ALL three correctly with no re-warm — the
  * "extract once" self-heal. Bounded to 4 layers as a runaway guard.
  */
-async function readR2BodyAsPlainBytes(r2Hit: R2ObjectBody): Promise<Uint8Array> {
-    let bytes: Uint8Array = new Uint8Array(await r2Hit.arrayBuffer());
-    let guard = 0;
-    while (looksGzipped(bytes) && guard < 4) {
+async function peelGzipLayers(
+    bytes: Uint8Array,
+): Promise<{ bytes: Uint8Array; layers: number }> {
+    let layers = 0;
+    while (looksGzipped(bytes) && layers < 4) {
         bytes = await gunzipOnce(bytes);
-        guard++;
+        layers++;
     }
+    return { bytes, layers };
+}
+
+async function readR2BodyAsPlainBytes(r2Hit: R2ObjectBody): Promise<Uint8Array> {
+    const { bytes } = await peelGzipLayers(
+        new Uint8Array(await r2Hit.arrayBuffer()),
+    );
     return bytes;
+}
+
+/**
+ * Serve an edge-cache (`caches.default`) hit as PLAIN JSON, peeling any
+ * gzip layers first. v738: the edge cache is checked BEFORE the R2 path in
+ * every relation handler, and `appendCacheStatus` re-served whatever the
+ * cached Response carried — including a stale `Content-Encoding: gzip` body,
+ * which Cloudflare then re-compressed on egress → the double-gzip SyntaxError,
+ * bypassing buildR2Response's fix entirely. Reading the body + peeling gzip +
+ * serving plain self-heals a poisoned edge entry. The `X-Serve` header reports
+ * the branch + layer count so the actual serve path is visible in devtools.
+ */
+async function serveEdgeHitNormalized(
+    edgeHit: Response,
+    cors: HeadersInit,
+    status: string,
+): Promise<Response> {
+    const { bytes, layers } = await peelGzipLayers(
+        new Uint8Array(await edgeHit.arrayBuffer()),
+    );
+    return new Response(bytes as unknown as BodyInit, {
+        status: 200,
+        headers: {
+            ...corsHeadersAsObject(cors),
+            "Content-Type": "application/json",
+            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+            "X-Cache": status,
+            "X-Serve": `edge-plain; layers=${layers}`,
+        },
+    });
 }
 
 /**
@@ -9538,11 +9579,15 @@ async function buildR2Response(
     const encoding = r2Hit.customMetadata?.encoding;
     // Legacy plain entry (no/identity encoding) → stream straight through.
     if (!encoding || encoding === "identity") {
+        headers["X-Serve"] = `r2-plain; enc=${encoding ?? "none"}`;
         return new Response(r2Hit.body, { status: 200, headers });
     }
     // Gzip-tagged entry → peel every gzip layer, serve PLAIN.
-    const plain = await readR2BodyAsPlainBytes(r2Hit);
-    return new Response(plain as unknown as BodyInit, { status: 200, headers });
+    const { bytes, layers } = await peelGzipLayers(
+        new Uint8Array(await r2Hit.arrayBuffer()),
+    );
+    headers["X-Serve"] = `r2-peel; enc=${encoding}; layers=${layers}`;
+    return new Response(bytes as unknown as BodyInit, { status: 200, headers });
 }
 
 function appendCacheStatus(
