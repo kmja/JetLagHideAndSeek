@@ -1367,7 +1367,7 @@ async function handleRequest(
                           headers: {
                               ...corsHeadersAsObject(cors),
                               "Content-Type": "application/json",
-                              "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                              "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
                               "X-Cache": xStatus,
                               "X-Cache-Age-Ms": String(age),
                           },
@@ -1444,7 +1444,7 @@ async function handleRequest(
                     headers: {
                         ...corsHeadersAsObject(cors),
                         "Content-Type": "application/json",
-                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
                         "X-Cache": "SLICED",
                         "X-Cache-Shard": sliced.shardIso,
                     },
@@ -1481,7 +1481,7 @@ async function handleRequest(
                     headers: {
                         ...corsHeadersAsObject(cors),
                         "Content-Type": "application/json",
-                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
                         "X-Cache": "SLICED",
                         "X-Cache-Shard": `${sliced.shardIso}/transit`,
                     },
@@ -3067,7 +3067,7 @@ async function handleTransitByRelation(
                     headers: {
                         ...corsHeadersAsObject(cors),
                         "Content-Type": "application/json",
-                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
                         "X-Cache": "SLICED_RELATION",
                         "X-Cache-Shard": `${sliced.shardIso}/transit`,
                     },
@@ -7554,7 +7554,7 @@ async function handlePhoton(
                 headers: {
                     ...corsHeadersAsObject(cors),
                     "Content-Type": "application/json",
-                    "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                    "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
                     "X-Cache": "R2_HIT",
                 },
             });
@@ -7608,7 +7608,7 @@ async function handlePhoton(
         headers: {
             ...corsHeadersAsObject(cors),
             "Content-Type": "application/json",
-            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
             "X-Cache": "MISS",
         },
     });
@@ -9304,7 +9304,7 @@ async function streamCompressIntoR2(
             ...corsHeadersAsObject(cors),
             "Content-Type": "application/json",
             "Content-Encoding": STORAGE_ENCODING,
-            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
             "X-Cache": status,
         },
     });
@@ -9361,6 +9361,17 @@ async function compressAndStoreAtKey(
  * metadata. Legacy entries (no encoding) serve plain; new
  * gzip-compressed entries serve with `Content-Encoding: gzip` so the
  * browser decompresses transparently.
+ *
+ * v735: the `no-transform` in Cache-Control is LOAD-BEARING. We serve an
+ * already-gzipped body with `Content-Encoding: gzip`; without `no-transform`,
+ * Cloudflare RE-COMPRESSES large responses on egress (it only compresses above
+ * a size threshold, which is why only the big out-geom transit/metro/water
+ * bodies were hit), producing `gzip(gzip(json))` on the wire under a single
+ * `Content-Encoding: gzip`. The client un-gzips once and is left with still-
+ * gzipped bytes → `resp.json()` fails → it silently fell back to live Overpass.
+ * The STORED R2 bytes were always fine (single gzip); this was purely an egress
+ * double-compression, so `no-transform` fixes it with NO re-warm. Every other
+ * gzip R2 serve point carries the same directive for the same reason.
  */
 function buildR2Response(
     r2Hit: R2ObjectBody,
@@ -9372,7 +9383,7 @@ function buildR2Response(
     const headers: Record<string, string> = {
         ...corsHeadersAsObject(cors),
         "Content-Type": "application/json",
-        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
         "X-Cache": status,
         "X-Cache-Age-Ms": String(ageMs),
     };
