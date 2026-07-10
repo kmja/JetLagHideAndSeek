@@ -88,9 +88,13 @@ const ONLY = arg("only", false)
 const SKIP_EXISTING = !!arg("skip-existing", false);
 const RADIUS_KM = parseFloat(arg("radius", "40")) || 40;
 const LEVEL = String(arg("level", "auto"));
-const KINDS = String(
-    arg("kinds", "subway,light_rail,commuter,tram,ferry,bus"),
-)
+// Default modes MATCH the validated /debug/adjacency default: the three RAIL
+// modes only (subway + light_rail + commuter). Bus was the bug — a metro's bus
+// network is thousands of routes, so a combined query including bus times out
+// live (0 stops), and bus over-reaches anyway (it goes everywhere, not a
+// meaningful "reachable region" signal). Add modes explicitly with
+// `--kinds subway,light_rail,commuter,tram` if ever wanted.
+const KINDS = String(arg("kinds", "subway,light_rail,commuter"))
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -354,7 +358,13 @@ out;
 function buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds) {
     const r = Math.round(radiusKm * 1000);
     const around = `(around:${r},${lat},${lng})`;
-    const routeSelectors = kinds
+    // Emit selectors in transitReach.ts's FIXED order (not the kinds-array
+    // order) so the query string is byte-identical to the debug tool's — same
+    // worker cache key, so an already-warmed city serves instantly instead of
+    // re-fetching live.
+    const ORDER = ["subway", "light_rail", "tram", "ferry", "bus", "commuter"];
+    const kindSet = new Set(kinds);
+    const routeSelectors = ORDER.filter((k) => kindSet.has(k))
         .map((k) => routeSelectorFor(k, around))
         .filter(Boolean);
     return `
