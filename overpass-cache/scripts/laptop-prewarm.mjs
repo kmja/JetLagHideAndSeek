@@ -18,8 +18,13 @@
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
  *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
- *     [--tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
+ *     [--skip-tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
  *     [--delay-ms 2000]
+ *
+ *   Tile packs are ON BY DEFAULT (v726) — built for every city processed,
+ *   primaries AND (with --adjacents) their neighbours, since the v725 star
+ *   gate requires a pack. Needs the go-pmtiles binary; if absent the run
+ *   warns + continues data-only (no stars). `--skip-tile-packs` opts out.
  *
  * What it does:
  *   0. Discovery (once, first) — drains the bundled candidate
@@ -224,10 +229,15 @@ const ONE_RING_TOP = args["one-ring-top"]
 const ONE_RING_MAX_PER_CITY = args["one-ring-max-per-city"]
     ? parseInt(args["one-ring-max-per-city"], 10)
     : 12;
-// Tile packs are OPT-IN (--tile-packs): they require the external
-// `pmtiles` Go binary (github.com/protomaps/go-pmtiles), which most
-// hosts won't have. The other phases need only Node.
-const DO_TILE_PACKS = !!args["tile-packs"];
+// Tile packs are ON BY DEFAULT (v726) — they're now part of the normal
+// prewarm for BOTH primaries and adjacents, because the star gate (v725)
+// requires a pack. They need the external `pmtiles` Go binary
+// (github.com/protomaps/go-pmtiles); if it's absent the startup check
+// disables them for the run (with a warning) so the data phases still run.
+// Opt out with `--skip-tile-packs` (e.g. a data-only refresh, or a host
+// without the binary). `--tile-packs` is still accepted as a no-op alias so
+// old commands keep working.
+const DO_TILE_PACKS = !args["skip-tile-packs"];
 // Flipped off at startup if the pmtiles binary check fails, so the
 // per-city loop skips pack extraction cleanly instead of throwing.
 let tilePacksEnabled = DO_TILE_PACKS;
@@ -1715,10 +1725,13 @@ async function processCity(city) {
         );
     }
 
-    // v336: per-city tile pack. Heavy + needs the external pmtiles
-    // binary, so it's opt-in (--tile-packs) and runs last per city.
-    // Uses the resolved effectiveExtent (derived from boundary geometry
-    // when the city list didn't carry one), same as refs/transit.
+    // v336: per-city tile pack. Heavy + needs the external pmtiles binary.
+    // ON BY DEFAULT (v726) — built for every city processCity handles, so a
+    // primary (default pass) AND each neighbour (--adjacents pass, which runs
+    // processCity per neighbour) both get a pack. Disabled for the run when
+    // the binary is missing or --skip-tile-packs. Uses the resolved
+    // effectiveExtent (derived from boundary geometry when the city list
+    // didn't carry one), same as refs/transit.
     if (tilePacksEnabled) {
         await processTilePack(city, effectiveExtent);
     }
@@ -2040,7 +2053,8 @@ function chooseTilePackMaxZoom(bbox) {
 }
 
 /** Verify the pmtiles CLI is callable. Returns true/false; logs install
- *  guidance on failure. Called once at startup when --tile-packs is on. */
+ *  guidance on failure. Called once at startup when tile packs are enabled
+ *  (the default; disable with --skip-tile-packs). */
 function checkPmtilesBinary() {
     try {
         execFileSync(PMTILES_BIN, ["version"], { stdio: "pipe" });
@@ -2728,7 +2742,21 @@ async function main() {
             console.log(
                 `tile packs ENABLED (extracting from ${MASTER_PMTILES_URL})`,
             );
+        } else {
+            // v725: the star requires a pack, so a run that can't build one
+            // will warm the data but earn NO stars. Make that loud.
+            console.warn(
+                "! tile packs DISABLED (pmtiles binary missing) — data will " +
+                    "warm but cities will NOT earn a star (v725 gate). Install " +
+                    "go-pmtiles, or pass --skip-tile-packs + set " +
+                    'WARM_STAR_REQUIRE_PACK="false" on the worker for data-only stars.',
+            );
         }
+    } else {
+        console.log(
+            "tile packs skipped (--skip-tile-packs) — cities will not earn a " +
+                "star unless WARM_STAR_REQUIRE_PACK=\"false\" on the worker.",
+        );
     }
 
     if (DO_DISCOVER && !ONLY_CITY && !VERIFY_ONLY) {
