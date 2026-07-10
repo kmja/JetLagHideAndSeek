@@ -19,7 +19,19 @@
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
  *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
  *     [--skip-tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
- *     [--delay-ms 2000]
+ *     [--audit-encoding [--repair]] [--force] [--delay-ms 2000]
+ *
+ *   --audit-encoding — READ-ONLY: probe each city's relation-id GET endpoints
+ *     (refs/stations/water/metro/transit bus·train·tram) and report which hold
+ *     an entry POISONED by the pre-v730 large-body encoding desync (present in
+ *     R2 but undecodable). Add --repair to re-warm each poisoned city's
+ *     poisoned PARTS inline (surgical — only the poisoned phases re-fetch), so
+ *     one unattended run audits + fixes the whole list. Run it WITHOUT
+ *     --skip-starred (the warmed cities are the poisoned ones). Exit code 3
+ *     when a --repair pass finds everything clean (so a restart wrapper stops).
+ *   --force — re-store every touched entry even if check-fresh says present
+ *     (blunt repair of ALL phases; --audit-encoding --repair is the surgical
+ *     alternative).
  *
  *   Tile packs are ON BY DEFAULT (v726) — built for every city processed,
  *   primaries AND (with --adjacents) their neighbours, since the v725 star
@@ -196,23 +208,31 @@ const VERIFY_ONLY = !!args["verify-only"];
 // (they exist in R2 but can't be decoded). No Overpass, no writes. Prints a
 // copy-pasteable --only-city list of the affected cities to re-warm --force.
 const AUDIT_ENCODING = !!args["audit-encoding"];
+// v733: --repair — with --audit-encoding, re-warm each poisoned city's
+// poisoned PARTS inline, right after detecting them, so one unattended run
+// audits + fixes the whole list. Surgical: only the poisoned phases re-fetch.
+const REPAIR = !!args["repair"];
+// Per-phase force set used only during a repair: `isFresh` returns false
+// (force re-store) ONLY for labels in here, so the boundary (needed to derive
+// the correct key) is used from cache while just the poisoned phases re-fetch.
+let REPAIR_FORCE_LABELS = new Set();
 const DELAY_MS = args["delay-ms"] ? parseInt(args["delay-ms"], 10) : 2000;
-const DO_BOUNDARIES = !args["skip-boundaries"];
-const DO_REFS = !args["skip-references"];
-const DO_HSR = !args["skip-hsr"];
+let DO_BOUNDARIES = !args["skip-boundaries"];
+let DO_REFS = !args["skip-references"];
+let DO_HSR = !args["skip-hsr"];
 const DO_DISCOVER = !args["skip-discover"];
-const DO_TRANSIT = !args["skip-transit"];
+let DO_TRANSIT = !args["skip-transit"];
 // v687: warm the named-water GEOMETRY for the measuring body-of-water
 // elimination (served by /api/water/<id>). Keyed off the same
 // boundary-geometry extent as refs; on by default whenever refs run.
 // --skip-water to drop (the client falls back to its live poly query).
-const DO_WATER = !args["skip-water"];
-const DO_PHOTON = !args["skip-photon"];
+let DO_WATER = !args["skip-water"];
+let DO_PHOTON = !args["skip-photon"];
 // v440: warm the wizard's "extend play area" adjacent-search queries
 // per city (topological adjacency, admin-level, adjacent band, transit
 // stations, megacity sub-units). Mirrors the worker cron's
 // prewarmAdjacentSearchForCity. On by default; --skip-adjacent to drop.
-const DO_ADJACENT = !args["skip-adjacent"];
+let DO_ADJACENT = !args["skip-adjacent"];
 // v699.1: the legacy always-on one-ring pass is retired — adjacents are now
 // the opt-in `--adjacents` phase (see DO_ADJACENTS above), using the worker's
 // authoritative neighbour set. `processOneRing`/`findNeighbors` remain below
@@ -247,7 +267,7 @@ const ONE_RING_MAX_PER_CITY = args["one-ring-max-per-city"]
 // Opt out with `--skip-tile-packs` (e.g. a data-only refresh, or a host
 // without the binary). `--tile-packs` is still accepted as a no-op alias so
 // old commands keep working.
-const DO_TILE_PACKS = !args["skip-tile-packs"];
+let DO_TILE_PACKS = !args["skip-tile-packs"];
 // Flipped off at startup if the pmtiles binary check fails, so the
 // per-city loop skips pack extraction cleanly instead of throwing.
 let tilePacksEnabled = DO_TILE_PACKS;
@@ -971,6 +991,10 @@ async function isFresh(query, label) {
     // present. Use with --only-city / a big-city list to re-warm the
     // affected ones without re-doing the whole fleet.
     if (FORCE_RESTORE) return false;
+    // v733: repair mode forces ONLY the poisoned phases (by isFresh label), so
+    // the boundary is reused from cache (its extent must match the warmed key)
+    // while refs/stations/water/transit/metro re-fetch.
+    if (REPAIR_FORCE_LABELS.has(label)) return false;
     let resp;
     try {
         resp = await fetch(`${WORKER}/admin/check-fresh`, {
@@ -1233,6 +1257,70 @@ async function checkEndpointParse(url) {
     return els === 0 ? "empty" : "ok";
 }
 
+/** Surgically re-warm ONLY a city's poisoned phases. Enables the phase GROUP
+ *  (so the poisoned block runs) and force-restores just the specific poisoned
+ *  labels (via REPAIR_FORCE_LABELS) — the boundary is reused from cache so the
+ *  re-warmed refs/transit land under the SAME key the read endpoints derive.
+ *  Everything else (pack, adjacency, hsr, photon, elevation) is disabled.
+ *  Saves + restores the mutated globals so a normal run afterward is unaffected. */
+async function repairCity(city, poisonTypes) {
+    const t = new Set(poisonTypes);
+    const needRef = ["refs", "stations", "water"].some((x) => t.has(x));
+    const needTransit = ["metro", "transit/bus", "transit/train", "transit/tram"].some(
+        (x) => t.has(x),
+    );
+    // Poisoned audit type → the isFresh label of the phase that produces it.
+    const LABEL_FOR = {
+        refs: "refs",
+        stations: "stations",
+        water: "water",
+        metro: "metro-routes",
+        "transit/bus": "transit bus",
+        "transit/train": "transit train",
+        "transit/tram": "transit tram",
+    };
+    const force = new Set(
+        [...t].map((x) => LABEL_FOR[x]).filter(Boolean),
+    );
+
+    const save = {
+        DO_BOUNDARIES,
+        DO_REFS,
+        DO_WATER,
+        DO_TRANSIT,
+        DO_HSR,
+        DO_PHOTON,
+        DO_ADJACENT,
+        DO_TILE_PACKS,
+        tp: tilePacksEnabled,
+    };
+    DO_BOUNDARIES = true; // needed to derive the boundary-geometry extent
+    DO_REFS = needRef; // gates refs + stations + water blocks
+    DO_WATER = needRef;
+    DO_TRANSIT = needTransit; // gates transit modes + metro
+    DO_HSR = false;
+    DO_PHOTON = false;
+    DO_ADJACENT = false;
+    DO_TILE_PACKS = false;
+    tilePacksEnabled = false;
+    REPAIR_FORCE_LABELS = force;
+    console.log(`    → repairing ${[...force].join(", ")}…`);
+    try {
+        await processCity(city);
+    } finally {
+        DO_BOUNDARIES = save.DO_BOUNDARIES;
+        DO_REFS = save.DO_REFS;
+        DO_WATER = save.DO_WATER;
+        DO_TRANSIT = save.DO_TRANSIT;
+        DO_HSR = save.DO_HSR;
+        DO_PHOTON = save.DO_PHOTON;
+        DO_ADJACENT = save.DO_ADJACENT;
+        DO_TILE_PACKS = save.DO_TILE_PACKS;
+        tilePacksEnabled = save.tp;
+        REPAIR_FORCE_LABELS = new Set();
+    }
+}
+
 /** READ-ONLY audit: for each city, probe the relation-id GET endpoints and
  *  report which carry a POISONED (undecodable) entry. Prints a
  *  copy-pasteable --only-city list at the end so the operator re-warms ONLY
@@ -1246,13 +1334,24 @@ async function auditEncoding(cities) {
         }),
         (id) => ({ label: "water", url: `${WORKER}/api/water/${id}` }),
         (id) => ({ label: "metro", url: `${WORKER}/api/metro/${id}` }),
+        // The per-city transit modes (bus/train/tram) — all `out geom`, so
+        // all can be poisoned. subway/ferry are shard-served (plain JSON,
+        // never poisoned), so they're not probed here.
         (id) => ({
             label: "transit/bus",
             url: `${WORKER}/api/transit/${id}/bus`,
         }),
+        (id) => ({
+            label: "transit/train",
+            url: `${WORKER}/api/transit/${id}/train`,
+        }),
+        (id) => ({
+            label: "transit/tram",
+            url: `${WORKER}/api/transit/${id}/tram`,
+        }),
     ];
     console.log(
-        `=== audit-encoding: probing ${cities.length} cities (read-only, no Overpass) ===`,
+        `=== audit-encoding${REPAIR ? " + repair" : ""}: probing ${cities.length} cities${REPAIR ? " (fixing poisoned parts inline)" : " (read-only, no Overpass)"} ===`,
     );
     const poisoned = [];
     let okC = 0,
@@ -1276,6 +1375,33 @@ async function auditEncoding(cities) {
             console.log(
                 `  ✗ ${c.name} (r${c.relationId}) POISONED: ${bad.join(", ")}`,
             );
+            if (REPAIR) {
+                // Re-warm the poisoned parts NOW, inline, so one unattended run
+                // audits + fixes the whole list.
+                try {
+                    await repairCity(c, bad);
+                    // Re-probe to confirm the fix landed.
+                    const still = [];
+                    for (const mk of ENDPOINTS) {
+                        const { label, url } = mk(c.relationId);
+                        if (
+                            bad.includes(label) &&
+                            (await checkEndpointParse(url)) === "poisoned"
+                        )
+                            still.push(label);
+                    }
+                    if (still.length)
+                        console.log(
+                            `    ⚠ still poisoned after repair: ${still.join(", ")} (re-run may be needed)`,
+                        );
+                    else console.log(`    ✓ repaired ${bad.join(", ")}`);
+                } catch (e) {
+                    console.warn(
+                        `    ! repair failed: ${e?.message ?? e}`,
+                    );
+                }
+                await sleep(DELAY_MS);
+            }
         }
         if ((i + 1) % 25 === 0)
             console.log(
@@ -1288,6 +1414,15 @@ async function auditEncoding(cities) {
     );
     if (!poisoned.length) {
         console.log("No poisoned entries found — nothing to re-warm.");
+        // Distinct exit so a restart wrapper (prewarm-all-night.ps1) STOPS
+        // once a full pass finds everything clean.
+        if (REPAIR) process.exit(3);
+        return;
+    }
+    if (REPAIR) {
+        console.log(
+            `=== repair done: attempted ${poisoned.length} poisoned cities (see per-city ✓/⚠ above). Re-run to confirm all clean. ===`,
+        );
         return;
     }
     // Group cities by which PHASE-GROUP needs re-warming, so we can skip the

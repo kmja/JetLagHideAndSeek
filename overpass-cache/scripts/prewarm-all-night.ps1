@@ -23,7 +23,14 @@ param(
     [Parameter(Mandatory = $true)][string]$Worker,
     [Parameter(Mandatory = $true)][string]$Secret,
     [string]$Email = "karl-mj-andersson@gmail.com",
-    [string]$Extra = "--priority-regions",
+    # ALL laptop-prewarm flags go here (mode included), so you can run any mode
+    # under the keep-awake + restart-until-exit-3 loop. Examples:
+    #   normal warm   : -Extra "--skip-starred --priority-regions"   (default)
+    #   audit + repair: -Extra "--audit-encoding --repair --priority-regions"
+    #                   (fixes the encoding-poisoned entries across the list;
+    #                    do NOT include --skip-starred here — that would skip
+    #                    the warmed cities, which are exactly the poisoned ones)
+    [string]$Extra = "--skip-starred --priority-regions",
     [int]$RestartDelay = 30
 )
 
@@ -44,11 +51,11 @@ try {
     while ($true) {
         "=== run start $(Get-Date -Format o) ===" | Tee-Object -FilePath $log -Append
         node scripts/laptop-prewarm.mjs `
-            --worker $Worker --secret $Secret --email $Email --skip-starred `
+            --worker $Worker --secret $Secret --email $Email `
             @extraArgs 2>&1 | Tee-Object -FilePath $log -Append
         $code = $LASTEXITCODE
         if ($code -eq 3) {
-            "=== all target cities starred — stopping ($(Get-Date -Format o)) ===" |
+            "=== nothing left to do (exit 3) — stopping ($(Get-Date -Format o)) ===" |
                 Tee-Object -FilePath $log -Append
             break
         }
