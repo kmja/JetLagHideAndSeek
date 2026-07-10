@@ -1363,14 +1363,14 @@ async function handleRequest(
             const age = Date.now() - cachedAt;
             // Serve the hit — from the sniff's decoded text when the
             // body stream was consumed, else streamed straight through.
-            const serveR2 = (xStatus: string): Response =>
+            const serveR2 = (xStatus: string): Response | Promise<Response> =>
                 r2HitText !== null
                     ? new Response(r2HitText, {
                           status: 200,
                           headers: {
                               ...corsHeadersAsObject(cors),
                               "Content-Type": "application/json",
-                              "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
+                              "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
                               "X-Cache": xStatus,
                               "X-Cache-Age-Ms": String(age),
                           },
@@ -9463,30 +9463,71 @@ async function compressAndStoreAtKey(
     return { compressedBytes: compressedBuf.byteLength, rawBytes };
 }
 
+/** True when a byte buffer starts with the gzip magic number (0x1f 0x8b). */
+function looksGzipped(bytes: Uint8Array): boolean {
+    return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
+/** Gunzip a single gzip layer. */
+async function gunzipOnce(bytes: Uint8Array): Promise<Uint8Array> {
+    const out = await new Response(
+        new Response(bytes as unknown as BodyInit).body!.pipeThrough(
+            new DecompressionStream("gzip"),
+        ),
+    ).arrayBuffer();
+    return new Uint8Array(out);
+}
+
+/**
+ * Read an R2-hit's body and normalise it to PLAIN JSON bytes, peeling
+ * however many gzip layers actually exist (single, double, or none).
+ *
+ * We CANNOT trust the `encoding` metadata alone: entries have been stored
+ * in three states across the codebase's history — clean single gzip
+ * (correct), DOUBLE gzip (a pre-v730 store poisoned by Cloudflare's inbound
+ * re-compression), and RAW JSON mis-tagged `encoding:"gzip"` (an early store
+ * bug). Serving any of the last two with a single decompress-or-passthrough
+ * leaves the client garbage. Sniffing the actual bytes + looping until the
+ * gzip magic is gone serves ALL three correctly with no re-warm — the
+ * "extract once" self-heal. Bounded to 4 layers as a runaway guard.
+ */
+async function readR2BodyAsPlainBytes(r2Hit: R2ObjectBody): Promise<Uint8Array> {
+    let bytes: Uint8Array = new Uint8Array(await r2Hit.arrayBuffer());
+    let guard = 0;
+    while (looksGzipped(bytes) && guard < 4) {
+        bytes = await gunzipOnce(bytes);
+        guard++;
+    }
+    return bytes;
+}
+
 /**
  * Build a Response from an R2-hit object.
  *
  * v738: DECOMPRESS gzip entries in the worker and serve PLAIN JSON — we do NOT
  * set `Content-Encoding` and do NOT hand Cloudflare an already-gzipped body.
- * History: the R2 entries are stored as single gzip (confirmed correct via
- * /admin/inspect-encoding). Serving them with `Content-Encoding: gzip` made
+ * History: serving an already-gzipped body with `Content-Encoding: gzip` made
  * Cloudflare RE-COMPRESS on egress — producing `gzip(gzip(json))` on the wire
  * under one `Content-Encoding: gzip`, so the client's single decompress left
  * still-gzipped bytes → `resp.json()` failed → silent live-Overpass fallback.
- * `no-transform` did NOT stop it (CF ignores it here), and only the large
- * out-geom bodies tripped it (CF's compression size threshold). By serving
- * PLAIN JSON, there is at most ONE compression — Cloudflare's own, applied to
- * plain content — so the client always gets valid JSON. The stored R2 bytes
- * are unchanged (still single gzip); this only changes how we serve them, so
- * NO re-warm is needed. Extra worker CPU to gunzip on read is the only cost.
+ * `no-transform` did NOT stop it (CF ignores it here). By serving PLAIN JSON,
+ * there is at most ONE compression — Cloudflare's own, applied to plain
+ * content — so the client always gets valid JSON.
+ *
+ * v738 follow-up: peel ALL gzip layers via `readR2BodyAsPlainBytes` rather than
+ * decompress exactly once. Some entries were already DOUBLE-gzipped in R2 (a
+ * pre-v730 store poisoned by CF re-compressing the inbound upload), and a
+ * single decompress left them still gzipped → the same SyntaxError. Peeling to
+ * plain fixes every stored state (single / double / raw-tagged) with NO
+ * re-warm. Buffering the body is acceptable here (R2-hit warm path, reference-
+ * sized bodies) — the OOM concern was only the multi-MB LIVE streaming fetch.
  */
-function buildR2Response(
+async function buildR2Response(
     r2Hit: R2ObjectBody,
     cors: HeadersInit,
     status: string,
     ageMs: number,
-): Response {
-    const encoding = r2Hit.customMetadata?.encoding;
+): Promise<Response> {
     const headers: Record<string, string> = {
         ...corsHeadersAsObject(cors),
         "Content-Type": "application/json",
@@ -9494,13 +9535,14 @@ function buildR2Response(
         "X-Cache": status,
         "X-Cache-Age-Ms": String(ageMs),
     };
-    // Gzip-stored entry → decompress and serve PLAIN (no Content-Encoding).
-    if (encoding && encoding !== "identity") {
-        const plain = r2Hit.body.pipeThrough(new DecompressionStream("gzip"));
-        return new Response(plain, { status: 200, headers });
+    const encoding = r2Hit.customMetadata?.encoding;
+    // Legacy plain entry (no/identity encoding) → stream straight through.
+    if (!encoding || encoding === "identity") {
+        return new Response(r2Hit.body, { status: 200, headers });
     }
-    // Legacy plain entry → serve as-is.
-    return new Response(r2Hit.body, { status: 200, headers });
+    // Gzip-tagged entry → peel every gzip layer, serve PLAIN.
+    const plain = await readR2BodyAsPlainBytes(r2Hit);
+    return new Response(plain as unknown as BodyInit, { status: 200, headers });
 }
 
 function appendCacheStatus(
