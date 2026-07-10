@@ -411,19 +411,9 @@ out tags bb;
 `;
 }
 
-async function fetchRailStops(lat, lng, radiusKm, kinds) {
-    // ONE combined query — the exact process the validated /debug/adjacency
-    // tool uses. (The old per-mode split diverged from it and returned 0.)
-    const query = buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds);
-    let json;
-    try {
-        json = await overpass(query);
-    } catch (e) {
-        console.log(
-            `    (stops query failed: ${e instanceof Error ? e.message : e})`,
-        );
-        return [];
-    }
+const STOPS_MAX_TRIES = 4;
+
+function parseStops(json) {
     const stops = [];
     for (const el of json.elements ?? []) {
         if (el.type !== "node") continue;
@@ -436,6 +426,45 @@ async function fetchRailStops(lat, lng, radiusKm, kinds) {
         });
     }
     return stops;
+}
+
+async function fetchRailStops(lat, lng, radiusKm, kinds) {
+    // ONE combined query — the exact process the validated /debug/adjacency
+    // tool uses. (The old per-mode split diverged from it and returned 0.)
+    const query = buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds);
+    // RETRY on empty. For a huge metro (NYC = 12k+ stops) the combined 6-mode
+    // query — heavy because of bus — sometimes comes back HTTP 200 with 0 nodes
+    // (an upstream soft-failure that isn't a thrown error). A major city always
+    // has stops, so a 0 is almost always transient: re-issue the SAME query a
+    // few times before giving up, rather than let the city bail with 0 stops.
+    for (let attempt = 1; attempt <= STOPS_MAX_TRIES; attempt++) {
+        // Attempt 1 uses the canonical query (may hit a warm worker cache).
+        // Retries append trailing whitespace — Overpass ignores it, but it
+        // changes the worker's query-hash key, so a retry can't re-serve a
+        // just-cached empty/soft-failure from a previous attempt; it forces a
+        // fresh live fetch.
+        const q = attempt === 1 ? query : query + " ".repeat(attempt - 1);
+        let json;
+        try {
+            json = await overpass(q);
+        } catch (e) {
+            console.log(
+                `    (stops query threw ${attempt}/${STOPS_MAX_TRIES}: ${e instanceof Error ? e.message : e})`,
+            );
+            if (attempt < STOPS_MAX_TRIES) {
+                await sleep(4000 * attempt);
+                continue;
+            }
+            return [];
+        }
+        const stops = parseStops(json);
+        if (stops.length > 0 || attempt === STOPS_MAX_TRIES) return stops;
+        console.log(
+            `    (0 stops on attempt ${attempt}/${STOPS_MAX_TRIES} — likely a transient heavy-query timeout, retrying)`,
+        );
+        await sleep(4000 * attempt);
+    }
+    return [];
 }
 
 async function fetchAdminCandidates(
