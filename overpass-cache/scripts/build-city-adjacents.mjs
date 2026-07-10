@@ -866,12 +866,16 @@ async function main() {
             const { ids, names, note } = await findAdjacents(city);
             const entry = byRel.get(city.relationId);
             entry.adjacentRelationIds = ids;
+            // Print the FULL adjacent list (not a truncated preview) so the
+            // whole set is eyeball-checkable right in the terminal — the
+            // truncated-at-8 form hid half of a big metro's neighbours.
+            const list = names.length ? names.join(", ") : "(none)";
             if (note) {
-                console.log(`  ⚠ ${label}: ${ids.length} adjacents — ${note}`);
-            } else {
                 console.log(
-                    `  ✓ ${label}: ${ids.length} adjacents [${names.slice(0, 8).join(", ")}${names.length > 8 ? ", …" : ""}]`,
+                    `  ⚠ ${label}: ${ids.length} adjacents — ${note} [${list}]`,
                 );
+            } else {
+                console.log(`  ✓ ${label}: ${ids.length} adjacents [${list}]`);
             }
             // Incremental save every 5 cities so a long run survives a crash.
             if (++saved % 5 === 0) writeFileSync(OUT, JSON.stringify(all, null, 2) + "\n");
