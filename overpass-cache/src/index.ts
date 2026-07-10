@@ -3050,6 +3050,35 @@ async function handleTransitByRelation(
         // of TTL — mirror the references endpoint's read policy.
         return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
     }
+    // v730: subway + ferry are NOT stored per-city under the exact key —
+    // they live only as country-wide geographic SHARDS
+    // (`transit-routes/v1/<iso>/<mode>/all`), served by the slicing path.
+    // Without this fallback the exact-key lookup above ALWAYS missed for
+    // subway/ferry, so the client fell to the live `/api/interpreter` query
+    // (which slices) AND fired `?warm=1` → a LIVE Overpass fetch on a warm
+    // city. Slice the shard here, exactly like interpreter Step 2.6, so the
+    // relation endpoint serves subway/ferry straight from R2.
+    if (env.TRANSIT_PREWARM_ENABLED !== "false") {
+        try {
+            const sliced = await trySliceFromTransitShard(query, env);
+            if (sliced) {
+                const resp = new Response(JSON.stringify(sliced.body), {
+                    status: 200,
+                    headers: {
+                        ...corsHeadersAsObject(cors),
+                        "Content-Type": "application/json",
+                        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+                        "X-Cache": "SLICED_RELATION",
+                        "X-Cache-Shard": `${sliced.shardIso}/transit`,
+                    },
+                });
+                ctx.waitUntil(edgeCache.put(cacheApiKey, resp.clone()));
+                return resp;
+            }
+        } catch (e) {
+            console.warn("transit-by-relation shard slice threw:", e);
+        }
+    }
     return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
 }
 
@@ -8502,10 +8531,24 @@ async function handleAdminStorePrewarmed(
             // request.body is a fixed-length ReadableStream (the runner
             // sends a string body, so Content-Length is set); R2 streams
             // it to storage without the Worker buffering the whole thing.
-            // Preserve the laptop's Content-Encoding (gzip) so reads
-            // serve it back with the same header — the browser
-            // decompresses transparently and the worker never has to.
-            const reqEncoding = request.headers.get("Content-Encoding") ?? "";
+            // v730: read the body encoding from the CUSTOM `X-Body-Encoding`
+            // header, NOT the standard `Content-Encoding`. Cloudflare's
+            // handling of a large gzipped REQUEST body is inconsistent — for
+            // the biggest cities (London refs) it decompressed the inbound
+            // body while leaving `Content-Encoding: gzip` on the request, so
+            // we stored RAW JSON tagged `encoding:"gzip"` and `buildR2Response`
+            // served it with `Content-Encoding: gzip` → the client's
+            // `resp.json()` (and the browser) got an unparseable body and
+            // silently fell back to a live Overpass query. The laptop now
+            // sends the gzip bytes under `X-Body-Encoding` and NO
+            // `Content-Encoding`, so CF passes the body through verbatim and
+            // this metadata matches the actual bytes. Falls back to
+            // `Content-Encoding` for older uploads (which stay subject to the
+            // large-body quirk until re-warmed by the updated laptop).
+            const reqEncoding =
+                request.headers.get("X-Body-Encoding") ??
+                request.headers.get("Content-Encoding") ??
+                "";
             const obj = await env.CACHE.put(
                 `overpass/${cacheKey}`,
                 request.body,

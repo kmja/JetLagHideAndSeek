@@ -141,6 +141,9 @@ const ONLY_CITY = args["only-city"] ? String(args["only-city"]) : null;
 // its time re-`check-fresh`ing the popular front of the list (which the
 // cron keeps warm). Ignored with --only-city.
 const COLD_ONLY = !!args["cold-only"];
+// v730: re-store every touched entry even if check-fresh says it's present
+// (repairs the pre-v730 large-body encoding-desync poisoning).
+const FORCE_RESTORE = !!args["force"];
 // v701: `--skip-starred` drops cities that already carry the relevant STAR
 // so a restart doesn't re-walk (HEAD every query + verify) the cities it
 // already finished. In the DEFAULT primaries pass it skips cities in
@@ -847,7 +850,16 @@ async function uploadToWorker({
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Content-Encoding": "gzip",
+                // v730: gzip the body but declare it with a CUSTOM header,
+                // NOT `Content-Encoding`. Cloudflare decompresses a large
+                // inbound body when it sees `Content-Encoding: gzip`, which
+                // desynced the stored bytes from the encoding metadata and
+                // made the worker serve an unparseable body for the biggest
+                // cities (London refs). With no standard Content-Encoding, CF
+                // passes the gzip bytes through verbatim; the worker reads
+                // `X-Body-Encoding` for the metadata, so bytes + metadata
+                // always agree.
+                "X-Body-Encoding": "gzip",
                 Authorization: `Bearer ${SECRET}`,
             },
             body: gz,
@@ -946,6 +958,13 @@ async function fetchCached(query) {
  *  or where R2 unexpectedly returns nothing is visible at a glance —
  *  otherwise the script would just silently re-fetch everything. */
 async function isFresh(query, label) {
+    // v730: --force re-stores every entry the run touches, ignoring the
+    // check-fresh skip. Needed to repair entries that EXIST but are stored
+    // WRONG (the pre-v730 large-body Content-Encoding desync poisoned the
+    // biggest cities' refs) — a normal run skips them because they're
+    // present. Use with --only-city / a big-city list to re-warm the
+    // affected ones without re-doing the whole fleet.
+    if (FORCE_RESTORE) return false;
     let resp;
     try {
         resp = await fetch(`${WORKER}/admin/check-fresh`, {
