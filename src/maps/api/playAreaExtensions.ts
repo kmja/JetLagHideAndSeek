@@ -45,7 +45,7 @@ import type { Feature } from "geojson";
 
 import type { TransitMode } from "@/lib/gameSetup";
 
-import { RELATION_EXTENT_BASE } from "./constants";
+import { CITY_ADJACENTS_BASE, RELATION_EXTENT_BASE } from "./constants";
 import { getOverpassData } from "./overpass";
 import { fetchRawBoundaryPolygon } from "./polygonsOsmFr";
 import type { OpenStreetMap } from "./types";
@@ -94,6 +94,23 @@ export async function findExtensionCandidates(
     }
 
     const primaryOsmId = primary.properties.osm_id;
+
+    // v740 — Topic 2: a curated city may carry a BAKED transit-reach adjacency
+    // set (precomputed offline, served by /api/city-adjacents/<id>). When it
+    // does, render EXACTLY that — the same municipalities the cron/laptop
+    // warmed (offered==warmed), with zero runtime Overpass — and skip the live
+    // admin-adjacency passes below entirely. A city without a baked set returns
+    // `baked:false` and we fall through to the existing live derivation, so
+    // this is safe before every city is baked.
+    const baked = await fetchBakedAdjacentCandidates(
+        primaryOsmId,
+        primaryLat,
+        primaryLng,
+    ).catch(() => null);
+    if (baked && baked.length > 0) {
+        baked.sort((a, b) => a.distanceKm - b.distanceKm);
+        return baked.slice(0, limit);
+    }
 
     // Cache-key alignment (v640 — relation-ID pattern, mirroring the v359
     // /api/refs fix). The worker cron builds the `around:` adjacency
@@ -392,6 +409,122 @@ export async function findExtensionCandidates(
 
     result.sort((a, b) => a.distanceKm - b.distanceKm);
     return result.slice(0, limit);
+}
+
+/**
+ * v740 — Topic 2. Fetch a curated city's BAKED transit-reach adjacent set from
+ * the worker (`/api/city-adjacents/<relationId>`) and map it to renderable
+ * candidates. Returns null when the city has no baked set (`baked:false`) or on
+ * any error, so the caller falls back to live admin-adjacency. Each candidate's
+ * name + extent come from the worker (resolved from prewarmed boundaries), so
+ * this path touches NO Overpass. `hasMatchingTransit` is true by construction —
+ * the baked set IS "the municipalities the transit network reaches".
+ */
+async function fetchBakedAdjacentCandidates(
+    primaryOsmId: number,
+    primaryLat: number,
+    primaryLng: number,
+): Promise<AdjacentAreaCandidate[] | null> {
+    let data: {
+        baked?: boolean;
+        candidates?: Array<{
+            osmId?: number;
+            name?: string;
+            extent?: number[];
+            areaKm2?: number;
+        }>;
+    };
+    try {
+        const resp = await fetch(`${CITY_ADJACENTS_BASE}/${primaryOsmId}`);
+        if (!resp.ok) return null;
+        data = await resp.json();
+    } catch {
+        return null;
+    }
+    if (data?.baked !== true || !Array.isArray(data.candidates)) return null;
+
+    const out: AdjacentAreaCandidate[] = [];
+    for (const c of data.candidates) {
+        const ext = c?.extent;
+        if (
+            typeof c?.osmId !== "number" ||
+            !Array.isArray(ext) ||
+            ext.length < 4 ||
+            !ext.every((v) => Number.isFinite(v))
+        ) {
+            continue;
+        }
+        // extent is Photon order [maxLat, minLng, minLat, maxLng].
+        const [maxLat, minLng, minLat, maxLng] = ext as [
+            number,
+            number,
+            number,
+            number,
+        ];
+        const midLat = (minLat + maxLat) / 2;
+        const midLng = (minLng + maxLng) / 2;
+        out.push({
+            feature: synthesiseFeatureFromExtent(
+                c.osmId,
+                c.name || `Relation ${c.osmId}`,
+                [maxLat, minLng, minLat, maxLng],
+            ),
+            distanceKm: haversineKm(primaryLat, primaryLng, midLat, midLng),
+            hasMatchingTransit: true,
+            estimatedAreaKm2:
+                typeof c.areaKm2 === "number" && Number.isFinite(c.areaKm2)
+                    ? c.areaKm2
+                    : bboxAreaKm2FromExtent([maxLat, minLng, minLat, maxLng]),
+        });
+    }
+    return out;
+}
+
+/** Build a Photon-shaped `OpenStreetMap` feature for a baked adjacent from its
+ *  relation id, name, and extent (Photon order [maxLat, minLng, minLat,
+ *  maxLng]) — the extent-only sibling of `synthesiseOpenStreetMap`, which needs
+ *  an Overpass stub with `bounds`. */
+function synthesiseFeatureFromExtent(
+    osmId: number,
+    name: string,
+    extent: [number, number, number, number],
+): OpenStreetMap {
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const midLat = (minLat + maxLat) / 2;
+    const midLng = (minLng + maxLng) / 2;
+    return {
+        type: "Feature",
+        geometry: {
+            type: "Point",
+            coordinates: [midLat, midLng] as unknown as [number, number],
+        },
+        properties: {
+            osm_type: "R",
+            osm_id: osmId,
+            name,
+            type: "administrative",
+            osm_key: "boundary",
+            osm_value: "administrative",
+            country: "",
+            state: "",
+            countrycode: "",
+            extent: [maxLat, minLng, minLat, maxLng],
+        },
+    } as OpenStreetMap;
+}
+
+/** Area of an extent bbox in km² (Photon order [maxLat, minLng, minLat,
+ *  maxLng]) — the extent-keyed sibling of `bboxAreaKm2`, same 0.55 factor.
+ *  Only used when the worker didn't include a precomputed `areaKm2`. */
+function bboxAreaKm2FromExtent(
+    extent: [number, number, number, number],
+): number {
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const midLat = (minLat + maxLat) / 2;
+    const latKm = Math.abs(maxLat - minLat) * 111;
+    const lngKm =
+        Math.abs(maxLng - minLng) * 111 * Math.cos((midLat * Math.PI) / 180);
+    return latKm * lngKm * 0.55;
 }
 
 /** Sub-units pass for the consolidated-city case: every admin boundary

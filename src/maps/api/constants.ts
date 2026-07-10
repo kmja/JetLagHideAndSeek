@@ -115,6 +115,15 @@ export const REFS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/refs`;
  *  REFS_BY_RELATION_BASE. See handleRelationExtent in
  *  overpass-cache/src/index.ts. */
 export const RELATION_EXTENT_BASE = `${JLHS_WORKER_BASE}/api/relation-extent`;
+/** Base URL for a curated city's BAKED transit-reach adjacent municipalities
+ *  (v740, Topic 2). The client fetches `${CITY_ADJACENTS_BASE}/<relationId>`
+ *  and, when the response is `{baked:true, candidates:[…]}`, renders exactly
+ *  that set in the "extend play area" picker — the same municipalities the
+ *  cron/laptop warmed (offered==warmed), with zero runtime Overpass. A
+ *  `{baked:false}` response means the city has no precomputed set, and the
+ *  client falls back to its live admin-adjacency derivation. See
+ *  handleCityAdjacents in overpass-cache/src/index.ts. */
+export const CITY_ADJACENTS_BASE = `${JLHS_WORKER_BASE}/api/city-adjacents`;
 /** Public endpoint listing the relation ids of prewarmed/"warm" cities —
  *  curated/discovered cities with a backfilled extent (v641). The play-area
  *  search stars matching results so users can spot fast-loading regions. */

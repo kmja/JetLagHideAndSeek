@@ -410,7 +410,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v738`. Use `git log` for the per-version detail;
+build stamp. Current: `v740`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared
@@ -587,10 +587,30 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   admin level, min 2 stops, area cap 10×, min density 0.2/km², contiguous-only),
   all `--flag`-overridable; `--only`/`--limit`/`--skip-existing` for targeted or
   resumable runs; incremental save every 5 cities. Must run on a machine that
-  can reach Overpass (CI/sandbox egress blocks it). **Consumers not yet
-  rewired** — `PlayAreaExtensions.tsx` (wizard) + `deriveAdjacentNeighbourIds`
-  (star gate) still use live admin-adjacency; wiring them to read the baked set
-  is the next step once the generated data is reviewed.
+  can reach Overpass (CI/sandbox egress blocks it).
+- **Baked adjacency consumers wired (v740, Topic 2).** Both consumers now
+  PREFER the baked `adjacentRelationIds`, falling back to live admin-adjacency
+  when a city has none (so it's safe to ship before every city is generated):
+  - **Worker (star gate + warming):** `deriveAdjacentNeighbourIds`
+    (`index.ts`) — the SINGLE producer every worker path funnels through (star
+    gate `verifyAndStampCity`, cron Phase-4 neighbour warming, laptop
+    `--adjacents` via `/admin/city-neighbours`, the status readout) — returns
+    `city.adjacentRelationIds` verbatim (deduped, self-excluded,
+    `adjacencyKnown:true`) when present. So the warmed set and the gated set
+    are the baked set by construction, with zero runtime Overpass to derive
+    them.
+  - **Client (wizard):** `findExtensionCandidates` (`playAreaExtensions.ts`)
+    first hits **`GET /api/city-adjacents/<relationId>`** (`handleCityAdjacents`,
+    worker) — which resolves the baked ids into rendered candidates (name +
+    extent from each neighbour's PREWARMED boundary in R2, area precomputed) —
+    and, on a `{baked:true}` response, renders EXACTLY that set (offered==warmed,
+    `hasMatchingTransit:true` by construction) and skips the live Overpass
+    passes. A `{baked:false}` city falls through to the existing live
+    derivation. A neighbour whose boundary isn't cached yet is silently omitted
+    (appears once warm). **The generated data is not committed to
+    `world-cities.json` yet** — until it is, every city is `baked:false` and
+    both consumers behave exactly as before; running `build-city-adjacents.mjs`
+    + committing its output is what activates the baked path per city.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
   overlay at once via a `preview` prop on each overlay (shadows its
   atoms, writes nothing global), plus a light/dark toggle. The debug

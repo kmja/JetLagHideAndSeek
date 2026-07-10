@@ -1043,6 +1043,27 @@ async function handleRequest(
         if (url.pathname === "/api/journey/departures") {
             return handleDepartures(request, env, ctx, cors);
         }
+        if (url.pathname.startsWith("/api/city-adjacents/")) {
+            // /api/city-adjacents/<relationId> (v740, Topic 2) — the BAKED
+            // transit-reach adjacent municipalities for a curated city,
+            // resolved to rendered candidates (name + extent from the
+            // prewarmed neighbour boundaries) so the wizard shows EXACTLY the
+            // set the cron/laptop warmed — no offered-vs-warmed mismatch, no
+            // runtime Overpass. Cities without a baked set return
+            // `{baked:false, candidates:[]}` and the client falls back to its
+            // live admin-adjacency path.
+            const relId = parseInt(
+                url.pathname.slice("/api/city-adjacents/".length),
+                10,
+            );
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            return handleCityAdjacents(env, cors, relId);
+        }
         if (url.pathname.startsWith("/api/refs/")) {
             const relId = parseInt(
                 url.pathname.slice("/api/refs/".length),
@@ -5200,6 +5221,32 @@ async function deriveAdjacentNeighbourIds(
     env: Env,
     city: CityEntry,
 ): Promise<{ ids: number[]; adjacencyKnown: boolean }> {
+    // v740 — Topic 2: prefer the BAKED transit-reach adjacency set when the
+    // city carries one (precomputed offline by
+    // `overpass-cache/scripts/build-city-adjacents.mjs`, stored on the
+    // `CityEntry.adjacentRelationIds` field). It's the authoritative "which
+    // municipalities the transit network reaches" answer, so it supersedes the
+    // live admin-adjacency derivation below — and, crucially, it needs NO cached
+    // topo/admin Overpass queries, so a freshly-seeded city resolves its
+    // neighbours with zero runtime Overpass. Because this is the SINGLE producer
+    // every consumer funnels through (star gate, cron Phase-4 warming, laptop
+    // `--adjacents` via /admin/city-neighbours, the status readout), the
+    // warmed set and the gated set stay identical by construction. Absent (not
+    // yet generated) → fall through to the live admin-adjacency derivation, so
+    // this is safe to ship before every city is baked. `adjacencyKnown:true`
+    // because a baked set is a definitive answer (an empty baked list would be
+    // a genuine "no neighbours", but the generator omits the field entirely for
+    // those, so an empty array here still falls through to live).
+    if (city.adjacentRelationIds && city.adjacentRelationIds.length > 0) {
+        const ids = [
+            ...new Set(
+                city.adjacentRelationIds.filter(
+                    (id) => Number.isFinite(id) && id !== city.relationId,
+                ),
+            ),
+        ];
+        return { ids, adjacencyKnown: true };
+    }
     if (!city.extent) return { ids: [], adjacencyKnown: false };
     const [maxLat, minLng, minLat, maxLng] = city.extent;
     const lat = (maxLat + minLat) / 2;
@@ -6694,6 +6741,119 @@ async function handleAdminCityNeighbours(
     }));
     return jsonResponse(
         { relationId, adjacencyKnown, count: neighbours.length, neighbours },
+        200,
+        cors,
+    );
+}
+
+/** Area of an extent bbox in km², matching the client's `bboxAreaKm2` (the
+ *  same 0.55 fill factor as geocode.ts). Extent is Photon order
+ *  [maxLat, minLng, minLat, maxLng]. */
+function bboxAreaKm2FromExtent(
+    extent: [number, number, number, number],
+): number {
+    const [maxLat, minLng, minLat, maxLng] = extent;
+    const midLat = (minLat + maxLat) / 2;
+    const latKm = Math.abs(maxLat - minLat) * 111;
+    const lngKm =
+        Math.abs(maxLng - minLng) * 111 * Math.cos((midLat * Math.PI) / 180);
+    return latKm * lngKm * 0.55;
+}
+
+/** Resolve one baked adjacent relation id into a rendered candidate
+ *  (name + extent + area) from its PREWARMED boundary in R2. Returns null
+ *  when the boundary isn't cached yet or is unparseable — the client just
+ *  omits that neighbour (and it'll appear once its boundary is warm). Reads
+ *  the boundary once for both the bbox walk and the relation's name tag. */
+async function resolveBakedAdjacentCandidate(
+    env: Env,
+    id: number,
+): Promise<{
+    osmId: number;
+    name: string;
+    extent: [number, number, number, number];
+    areaKm2: number;
+} | null> {
+    try {
+        const key = await r2KeyForQuery(singleRelationQuery(id));
+        const obj = await env.CACHE.get(`overpass/${key}`);
+        if (!obj) return null;
+        const parsed = JSON.parse(await readR2Text(obj)) as {
+            elements?: Array<{
+                type?: string;
+                id?: number;
+                tags?: Record<string, string>;
+            }>;
+        };
+        const extent = extentFromBoundaryJson(parsed);
+        if (!extent) return null;
+        const rel =
+            (parsed.elements ?? []).find(
+                (e) => e.type === "relation" && e.id === id,
+            ) ?? (parsed.elements ?? [])[0];
+        const name =
+            rel?.tags?.name ||
+            rel?.tags?.["name:en"] ||
+            rel?.tags?.official_name ||
+            `Relation ${id}`;
+        return { osmId: id, name, extent, areaKm2: bboxAreaKm2FromExtent(extent) };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * `GET /api/city-adjacents/<relationId>` (v740, Topic 2) — PUBLIC read of a
+ * curated city's BAKED transit-reach adjacent municipalities
+ * (`CityEntry.adjacentRelationIds`, precomputed offline by
+ * `build-city-adjacents.mjs`), resolved to rendered candidates so the wizard's
+ * "extend play area" picker shows EXACTLY the set the cron/laptop warmed —
+ * offered==warmed, with zero runtime Overpass. Each neighbour's name + extent
+ * come from its own prewarmed boundary in R2 (via
+ * `resolveBakedAdjacentCandidate`); a neighbour whose boundary isn't cached yet
+ * is silently omitted. A city with NO baked set returns `{baked:false,
+ * candidates:[]}`, and the client falls back to its live admin-adjacency path.
+ * Read-only; never touches Overpass.
+ */
+async function handleCityAdjacents(
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    let city: CityEntry | undefined;
+    try {
+        city = (await getPopularCities(env)).find(
+            (c) => c.relationId === relationId,
+        );
+    } catch {
+        /* fall through to not-baked */
+    }
+    const bakedIds = city?.adjacentRelationIds ?? [];
+    if (bakedIds.length === 0) {
+        return jsonResponse(
+            { relationId, baked: false, count: 0, candidates: [] },
+            200,
+            cors,
+        );
+    }
+    const ids = [
+        ...new Set(
+            bakedIds.filter((id) => Number.isFinite(id) && id !== relationId),
+        ),
+    ];
+    const resolved = (
+        await Promise.all(ids.map((id) => resolveBakedAdjacentCandidate(env, id)))
+    ).filter(
+        (c): c is NonNullable<typeof c> => c !== null,
+    );
+    return jsonResponse(
+        {
+            relationId,
+            baked: true,
+            count: resolved.length,
+            requested: ids.length,
+            candidates: resolved,
+        },
         200,
         cors,
     );
