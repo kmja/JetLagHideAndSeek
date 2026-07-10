@@ -89,6 +89,14 @@ export interface Env {
      *      earn it (one flaky neighbour blocks the whole city). */
     WARM_STAR_LENIENT?: string;
     WARM_STAR_STRICT?: string;
+    /** Fold the city TILE PACK into the primary star gate (v725). When not
+     *  "false" (the DEFAULT — ON), a city's `primaryCuratedAt` star also
+     *  requires its `tile-packs/v1/<id>.pmtiles` to be present in R2, so a
+     *  star guarantees the map preload gets a one-shot pack (not the slow
+     *  per-tile range walk). Set "false" to revert to data-only stars (for a
+     *  prewarm environment without the go-pmtiles binary, where packs can't
+     *  be built). */
+    WARM_STAR_REQUIRE_PACK?: string;
     /** Feature flag for the legacy speculative name-discovery cron pass
      *  (v680). OFF by default: the prewarm list is now the world-cities.json
      *  seed (biggest cities) plus organic player-driven growth

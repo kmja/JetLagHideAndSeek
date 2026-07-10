@@ -5032,6 +5032,11 @@ interface PrimaryCurationDetail {
     extentSource: "boundary" | "stored" | "none";
     refsCached: boolean;
     stationsCached: boolean;
+    /** v725: whether the city TILE PACK exists in R2. When
+     *  WARM_STAR_REQUIRE_PACK is on (the default), this is REQUIRED for
+     *  `fullyCached` (the star) — so a starred city's map preload always
+     *  gets a one-shot pack instead of the slow per-tile range walk. */
+    packCached: boolean;
     fullyCached: boolean;
 }
 
@@ -5039,6 +5044,11 @@ async function diagnosePrimaryCuration(
     env: Env,
     relationId: number,
     storedExtent?: [number, number, number, number] | null,
+    // v725: require the city TILE PACK for `fullyCached`. Passed `true` ONLY
+    // for the PRIMARY star gate (gated by WARM_STAR_REQUIRE_PACK) — NOT for
+    // adjacent neighbours, which never get their own packs, so the generic
+    // `relationFullyCurated` (used for both) must leave this off by default.
+    requirePack = false,
 ): Promise<PrimaryCurationDetail> {
     const detail: PrimaryCurationDetail = {
         boundaryCached: false,
@@ -5046,8 +5056,23 @@ async function diagnosePrimaryCuration(
         extentSource: "none",
         refsCached: false,
         stationsCached: false,
+        packCached: false,
         fullyCached: false,
     };
+    // Pack presence is independent of the boundary-extent derivation (it's
+    // keyed on the relation id directly), so probe it up front — a missing
+    // pack alone must be able to fail the star even for a data-complete city.
+    if (requirePack) {
+        try {
+            detail.packCached = Boolean(
+                await env.TILES.head(tilePackKey(relationId)),
+            );
+        } catch {
+            detail.packCached = false;
+        }
+    } else {
+        detail.packCached = true; // not required → treat as satisfied
+    }
     let ext: [number, number, number, number] | null = null;
     try {
         const boundaryKey = await r2KeyForQuery(singleRelationQuery(relationId));
@@ -5094,7 +5119,13 @@ async function diagnosePrimaryCuration(
     } catch {
         return detail;
     }
-    detail.fullyCached = detail.refsCached && detail.stationsCached;
+    // v725: the star (fullyCached) now also requires the tile pack when
+    // WARM_STAR_REQUIRE_PACK is on — so a starred city's map preload always
+    // gets the one-shot pack, never the per-tile range walk. `packCached` was
+    // set to `true` up front when the flag is off, so this stays data-only
+    // there.
+    detail.fullyCached =
+        detail.refsCached && detail.stationsCached && detail.packCached;
     return detail;
 }
 
@@ -5271,6 +5302,8 @@ async function verifyAndStampCity(
         env,
         city.relationId,
         city.extent,
+        // v725: fold the tile pack into the PRIMARY star gate (default ON).
+        env.WARM_STAR_REQUIRE_PACK !== "false",
     );
     const primaryCached = primaryDetail.fullyCached;
     const fullyCurated = primaryCached && adjacentsCurated;
@@ -8094,6 +8127,7 @@ async function handleAdminAdjacentCurationStatus(
             relationId: number;
             hasExtent: boolean;
             primaryCached: boolean;
+            packCached?: boolean;
             adjacencyKnown: boolean;
             neighboursTotal: number;
             neighboursCurated: number;
@@ -8135,11 +8169,18 @@ async function handleAdminAdjacentCurationStatus(
                 });
                 continue;
             }
-            const primaryCached = await relationFullyCurated(
+            // v725: the primary row is PACK-AWARE — it uses the SAME
+            // pack-inclusive verdict the star stamp does (gated by
+            // WARM_STAR_REQUIRE_PACK), so a data-complete but pack-less city
+            // reads `primaryCached: false` here, matching why it won't star.
+            const primaryDetail = await diagnosePrimaryCuration(
                 env,
                 city.relationId,
                 city.extent,
+                env.WARM_STAR_REQUIRE_PACK !== "false",
             );
+            const primaryCached = primaryDetail.fullyCached;
+            const packCached = primaryDetail.packCached;
             const { ids, adjacencyKnown } = await deriveAdjacentNeighbourIds(
                 env,
                 city,
@@ -8168,6 +8209,7 @@ async function handleAdminAdjacentCurationStatus(
                 relationId: city.relationId,
                 hasExtent: true,
                 primaryCached,
+                packCached,
                 adjacencyKnown,
                 neighboursTotal: ids.length,
                 neighboursCurated,

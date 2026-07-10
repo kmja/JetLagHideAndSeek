@@ -1179,6 +1179,8 @@ async function verifyPrimaryStar(city) {
             if (!d.refsCached) miss.push("refs");
             if (!d.stationsCached) miss.push("stations");
         }
+        // v725: the star now also needs the tile pack (run with --tile-packs).
+        if (d.packCached === false) miss.push("pack");
         why = miss.length
             ? `missing ${miss.join("+")} [extent:${d.extentSource}]`
             : "unknown";
