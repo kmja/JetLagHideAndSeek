@@ -190,6 +190,12 @@ const PRIORITY_REGIONS = (() => {
 // right after a completed warm run to light up the stars).
 const DO_VERIFY = !args["skip-verify"];
 const VERIFY_ONLY = !!args["verify-only"];
+// v730: --audit-encoding — READ-ONLY check of each city's relation-id GET
+// endpoints (refs/stations/water/metro/transit-bus). It parses each response
+// to find entries poisoned by the pre-v730 large-body Content-Encoding desync
+// (they exist in R2 but can't be decoded). No Overpass, no writes. Prints a
+// copy-pasteable --only-city list of the affected cities to re-warm --force.
+const AUDIT_ENCODING = !!args["audit-encoding"];
 const DELAY_MS = args["delay-ms"] ? parseInt(args["delay-ms"], 10) : 2000;
 const DO_BOUNDARIES = !args["skip-boundaries"];
 const DO_REFS = !args["skip-references"];
@@ -1192,6 +1198,106 @@ async function verifyCity(relationId) {
  *  this reports that — not `fullyCurated` (primary + adjacents), which only
  *  the --adjacents phase can satisfy. No Overpass (read-only R2 HEADs), so
  *  it's cheap to call per city. Returns true when the primary is warm. */
+/** Fetch a relation-id GET endpoint and classify it:
+ *   "ok"       — decoded + parsed as JSON with real data.
+ *   "miss"     — endpoint returned a cache:"miss"/"no-boundary" marker
+ *                (never warmed under this key — NOT poisoned).
+ *   "empty"    — parsed but genuinely empty (a real transit-less mode etc.).
+ *   "poisoned" — a body is present but can't be decoded/parsed. This is the
+ *                pre-v730 encoding desync: bytes and the Content-Encoding
+ *                metadata disagree, so `resp.text()` throws (bad gunzip) or
+ *                the result isn't JSON. THIS is what --force must re-warm.
+ *   "error"    — HTTP/network error (worker down / not found). */
+async function checkEndpointParse(url) {
+    let resp;
+    try {
+        resp = await fetch(url, { cache: "no-store" });
+    } catch {
+        return "error";
+    }
+    if (!resp.ok) return "error";
+    let text;
+    try {
+        text = await resp.text(); // undici gunzips per Content-Encoding here
+    } catch {
+        return "poisoned"; // decompression blew up → bytes ≠ encoding metadata
+    }
+    let j;
+    try {
+        j = JSON.parse(text);
+    } catch {
+        return "poisoned"; // decoded body isn't JSON (raw gzip served bare)
+    }
+    if (j && (j.cache === "miss" || j.cache === "no-boundary")) return "miss";
+    const els = Array.isArray(j?.elements) ? j.elements.length : null;
+    return els === 0 ? "empty" : "ok";
+}
+
+/** READ-ONLY audit: for each city, probe the relation-id GET endpoints and
+ *  report which carry a POISONED (undecodable) entry. Prints a
+ *  copy-pasteable --only-city list at the end so the operator re-warms ONLY
+ *  the affected cities (`--force`) instead of the whole fleet. */
+async function auditEncoding(cities) {
+    const ENDPOINTS = [
+        (id) => ({ label: "refs", url: `${WORKER}/api/refs/${id}` }),
+        (id) => ({
+            label: "stations",
+            url: `${WORKER}/api/area-stations/${id}`,
+        }),
+        (id) => ({ label: "water", url: `${WORKER}/api/water/${id}` }),
+        (id) => ({ label: "metro", url: `${WORKER}/api/metro/${id}` }),
+        (id) => ({
+            label: "transit/bus",
+            url: `${WORKER}/api/transit/${id}/bus`,
+        }),
+    ];
+    console.log(
+        `=== audit-encoding: probing ${cities.length} cities (read-only, no Overpass) ===`,
+    );
+    const poisoned = [];
+    let okC = 0,
+        missC = 0,
+        poisonEndpoints = 0;
+    for (let i = 0; i < cities.length; i++) {
+        const c = cities[i];
+        const bad = [];
+        for (const mk of ENDPOINTS) {
+            const { label, url } = mk(c.relationId);
+            const status = await checkEndpointParse(url);
+            if (status === "poisoned") {
+                bad.push(label);
+                poisonEndpoints++;
+            } else if (status === "ok" || status === "empty") okC++;
+            else if (status === "miss") missC++;
+        }
+        if (bad.length) {
+            poisoned.push(c);
+            console.log(
+                `  ✗ ${c.name} (r${c.relationId}) POISONED: ${bad.join(", ")}`,
+            );
+        }
+        if ((i + 1) % 25 === 0)
+            console.log(
+                `  --- ${i + 1}/${cities.length} probed (${poisoned.length} poisoned so far) ---`,
+            );
+    }
+    console.log(
+        `=== audit done: ${poisoned.length}/${cities.length} cities have a poisoned entry ` +
+            `(${poisonEndpoints} bad endpoints; ${okC} ok, ${missC} miss) ===`,
+    );
+    if (poisoned.length) {
+        const ids = poisoned.map((c) => c.relationId).join(",");
+        console.log(`\nRe-warm ONLY the affected cities:`);
+        console.log(
+            `  node scripts/laptop-prewarm.mjs --worker <url> --secret <secret> \\`,
+        );
+        console.log(`      --only-city "${ids}" --force --email <you>\n`);
+        console.log(`(--only-city accepts this comma list of relation ids.)`);
+    } else {
+        console.log("No poisoned entries found — nothing to re-warm.");
+    }
+}
+
 async function verifyPrimaryStar(city) {
     const v = await verifyCity(city.relationId);
     if (!v) {
@@ -2956,23 +3062,42 @@ async function main() {
 
     let todo = cities.slice(0, MAX_CITIES);
     if (ONLY_CITY) {
-        const isId = /^\d+$/.test(ONLY_CITY);
-        const needle = ONLY_CITY.toLowerCase();
-        let matches = cities.filter((c) =>
-            isId
-                ? String(c.relationId) === ONLY_CITY
-                : (c.name ?? "").toLowerCase().includes(needle),
-        );
-        // Numeric id not in the bundled list: synthesise it. processCity
-        // derives the extent from the boundary query, so this is enough
-        // to build a tile pack for any OSM relation.
-        if (matches.length === 0 && isId) {
-            matches = [{ relationId: Number(ONLY_CITY), name: `r${ONLY_CITY}` }];
+        // v730: --only-city accepts a COMMA-SEPARATED list of names/ids (so
+        // the --audit-encoding output pastes straight in). Each token is an
+        // exact relation id or a name substring; matches are unioned + deduped.
+        const tokens = String(ONLY_CITY)
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean);
+        const seen = new Set();
+        const matches = [];
+        for (const tok of tokens) {
+            const isId = /^\d+$/.test(tok);
+            const needle = tok.toLowerCase();
+            let hits = cities.filter((c) =>
+                isId
+                    ? String(c.relationId) === tok
+                    : (c.name ?? "").toLowerCase().includes(needle),
+            );
+            // Numeric id not in the bundled list: synthesise it. processCity
+            // derives the extent from the boundary query, so this is enough
+            // to build/re-warm any OSM relation.
+            if (hits.length === 0 && isId) {
+                hits = [{ relationId: Number(tok), name: `r${tok}` }];
+            }
+            if (hits.length === 0) {
+                console.warn(`  ! --only-city token "${tok}" matched nothing`);
+            }
+            for (const h of hits) {
+                if (seen.has(h.relationId)) continue;
+                seen.add(h.relationId);
+                matches.push(h);
+            }
         }
         if (matches.length === 0) {
             console.error(
-                `--only-city "${ONLY_CITY}" matched no city (by name). ` +
-                    `Pass the OSM relation id instead to build it directly.`,
+                `--only-city "${ONLY_CITY}" matched no city. Pass OSM relation ` +
+                    `id(s) instead of names to build them directly.`,
             );
             process.exit(1);
         }
@@ -3027,6 +3152,13 @@ async function main() {
             }
         }
     }
+    // v730: --audit-encoding — READ-ONLY probe of the scoped cities' endpoints
+    // for poisoned entries. Runs instead of any warming, then exits.
+    if (AUDIT_ENCODING) {
+        await auditEncoding(todo);
+        return;
+    }
+
     // Nothing left to warm (everything already starred / filtered out). Exit
     // with a DISTINCT code so an outer restart loop knows to STOP looping
     // rather than spin. Only meaningful with --skip-starred / --cold-only.
