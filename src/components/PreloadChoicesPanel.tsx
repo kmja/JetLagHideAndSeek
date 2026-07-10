@@ -502,7 +502,13 @@ function TransitBucketProgress() {
         active.length === 0
             ? "Finishing…"
             : `${named.join(", ")}${extra > 0 ? ` + ${extra} more` : ""}…`;
-    const pct = total === 0 ? 0 : Math.min(100, (done.length / total) * 100);
+    // The three async producers (modes loop, arrivals add, arrivals finally)
+    // race on this atom, so `done` can briefly exceed `total` (the "6/5" bug).
+    // Clamp so the fraction + bar are always coherent: the denominator is at
+    // least the number completed, and the numerator never exceeds it.
+    const shownTotal = Math.max(total, done.length);
+    const shownDone = Math.min(done.length, shownTotal);
+    const pct = shownTotal === 0 ? 0 : Math.min(100, (shownDone / shownTotal) * 100);
 
     return (
         <div className="px-3 py-2 border-t border-border/50 bg-secondary/10 rounded-b-md space-y-1.5">
@@ -512,7 +518,7 @@ function TransitBucketProgress() {
                     {summary}
                 </span>
                 <span className="text-[10px] font-mono tabular-nums text-muted-foreground shrink-0">
-                    {done.length} / {total}
+                    {shownDone} / {shownTotal}
                 </span>
             </div>
             <div className="h-1 w-full bg-background/60 rounded-full overflow-hidden">
