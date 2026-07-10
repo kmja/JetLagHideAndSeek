@@ -586,20 +586,51 @@ function truePolyAreaKm2(poly) {
 
 function largestComponentCentre(geom) {
     const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.coordinates;
-    let best = polys[0] ?? [];
-    let bestArea = -Infinity;
-    for (const poly of polys) {
-        const a = truePolyAreaKm2(poly);
-        if (a > bestArea) {
-            bestArea = a;
-            best = poly;
-        }
-    }
-    const [maxLat, minLng, minLat, maxLng] = polygonExtent({
-        type: "Polygon",
-        coordinates: best,
+    const comps = polys.map((poly) => {
+        const [maxLat, minLng, minLat, maxLng] = polygonExtent({
+            type: "Polygon",
+            coordinates: poly,
+        });
+        return {
+            area: truePolyAreaKm2(poly),
+            lat: (maxLat + minLat) / 2,
+            lng: (minLng + maxLng) / 2,
+        };
     });
-    return { lat: (maxLat + minLat) / 2, lng: (minLng + maxLng) / 2 };
+    if (comps.length <= 1) {
+        const c = comps[0];
+        return c ? { lat: c.lat, lng: c.lng } : { lat: 0, lng: 0 };
+    }
+    // Greedy proximity CLUSTERING (largest-area first). A city split across many
+    // polygons — a fragmented mainland, e.g. Tokyo whose mainland isn't one
+    // clean polygon — collects into ONE cluster; a distant island group the
+    // admin owns (Tokyo's Izu/Ogasawara islands ~1000 km south) forms a
+    // SEPARATE cluster. We then pick the cluster with the largest TOTAL true
+    // area (the mainland always out-weighs the islands) and return its
+    // area-weighted centre. This fixes "pick the largest SINGLE component"
+    // grabbing a tiny island when the mainland is fragmented into pieces each
+    // smaller than that island. 150 km groups even a wide mainland while
+    // keeping ocean islands separate; the area weighting keeps a near island
+    // that does join from dragging the centre off the mainland.
+    const CLUSTER_KM = 150;
+    const clusters = [];
+    for (const c of [...comps].sort((a, b) => b.area - a.area)) {
+        let cl = clusters.find(
+            (k) => haversineKm(k.lat, k.lng, c.lat, c.lng) <= CLUSTER_KM,
+        );
+        if (!cl) {
+            cl = { area: 0, wLat: 0, wLng: 0, lat: c.lat, lng: c.lng };
+            clusters.push(cl);
+        }
+        const w = Math.max(c.area, 1e-6);
+        cl.area += w;
+        cl.wLat += c.lat * w;
+        cl.wLng += c.lng * w;
+        cl.lat = cl.wLat / cl.area;
+        cl.lng = cl.wLng / cl.area;
+    }
+    const best = clusters.reduce((a, b) => (b.area > a.area ? b : a));
+    return { lat: best.lat, lng: best.lng };
 }
 
 function bboxesNear(a, b, gapDeg = 0.03) {
