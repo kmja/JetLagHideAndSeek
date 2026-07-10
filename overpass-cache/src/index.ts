@@ -9384,18 +9384,25 @@ async function streamCompressIntoR2(
         });
     }
 
-    const compressed = bodyStream.pipeThrough(
-        new CompressionStream(STORAGE_ENCODING),
-    );
-    const [toR2, toClient] = compressed.tee();
+    // Tee the PLAIN body: one branch compresses into R2, the other serves
+    // the client as-is. v738: we do NOT hand Cloudflare an already-gzipped
+    // body (it re-compresses on egress → gzip(gzip(json)) → the client's
+    // single decompress fails → silent live-Overpass fallback). Serving plain
+    // lets CF apply at most its own single egress gzip, which the client
+    // decodes transparently. Same fix as buildR2Response for the R2-hit path.
+    const [toCompress, toClient] = bodyStream.tee();
     ctx.waitUntil(
-        env.CACHE.put(`overpass/${cacheKey}`, toR2, {
-            customMetadata: {
-                cachedAt: String(Date.now()),
-                encoding: STORAGE_ENCODING,
-                ...metadata,
+        env.CACHE.put(
+            `overpass/${cacheKey}`,
+            toCompress.pipeThrough(new CompressionStream(STORAGE_ENCODING)),
+            {
+                customMetadata: {
+                    cachedAt: String(Date.now()),
+                    encoding: STORAGE_ENCODING,
+                    ...metadata,
+                },
             },
-        }).catch((e) => {
+        ).catch((e) => {
             console.warn("R2 streaming put failed:", e);
         }),
     );
@@ -9404,8 +9411,7 @@ async function streamCompressIntoR2(
         headers: {
             ...corsHeadersAsObject(cors),
             "Content-Type": "application/json",
-            "Content-Encoding": STORAGE_ENCODING,
-            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
+            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
             "X-Cache": status,
         },
     });
@@ -9458,21 +9464,21 @@ async function compressAndStoreAtKey(
 }
 
 /**
- * Build a Response from an R2-hit object, honouring its `encoding`
- * metadata. Legacy entries (no encoding) serve plain; new
- * gzip-compressed entries serve with `Content-Encoding: gzip` so the
- * browser decompresses transparently.
+ * Build a Response from an R2-hit object.
  *
- * v735: the `no-transform` in Cache-Control is LOAD-BEARING. We serve an
- * already-gzipped body with `Content-Encoding: gzip`; without `no-transform`,
- * Cloudflare RE-COMPRESSES large responses on egress (it only compresses above
- * a size threshold, which is why only the big out-geom transit/metro/water
- * bodies were hit), producing `gzip(gzip(json))` on the wire under a single
- * `Content-Encoding: gzip`. The client un-gzips once and is left with still-
- * gzipped bytes → `resp.json()` fails → it silently fell back to live Overpass.
- * The STORED R2 bytes were always fine (single gzip); this was purely an egress
- * double-compression, so `no-transform` fixes it with NO re-warm. Every other
- * gzip R2 serve point carries the same directive for the same reason.
+ * v738: DECOMPRESS gzip entries in the worker and serve PLAIN JSON — we do NOT
+ * set `Content-Encoding` and do NOT hand Cloudflare an already-gzipped body.
+ * History: the R2 entries are stored as single gzip (confirmed correct via
+ * /admin/inspect-encoding). Serving them with `Content-Encoding: gzip` made
+ * Cloudflare RE-COMPRESS on egress — producing `gzip(gzip(json))` on the wire
+ * under one `Content-Encoding: gzip`, so the client's single decompress left
+ * still-gzipped bytes → `resp.json()` failed → silent live-Overpass fallback.
+ * `no-transform` did NOT stop it (CF ignores it here), and only the large
+ * out-geom bodies tripped it (CF's compression size threshold). By serving
+ * PLAIN JSON, there is at most ONE compression — Cloudflare's own, applied to
+ * plain content — so the client always gets valid JSON. The stored R2 bytes
+ * are unchanged (still single gzip); this only changes how we serve them, so
+ * NO re-warm is needed. Extra worker CPU to gunzip on read is the only cost.
  */
 function buildR2Response(
     r2Hit: R2ObjectBody,
@@ -9484,13 +9490,16 @@ function buildR2Response(
     const headers: Record<string, string> = {
         ...corsHeadersAsObject(cors),
         "Content-Type": "application/json",
-        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}, no-transform`,
+        "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
         "X-Cache": status,
         "X-Cache-Age-Ms": String(ageMs),
     };
+    // Gzip-stored entry → decompress and serve PLAIN (no Content-Encoding).
     if (encoding && encoding !== "identity") {
-        headers["Content-Encoding"] = encoding;
+        const plain = r2Hit.body.pipeThrough(new DecompressionStream("gzip"));
+        return new Response(plain, { status: 200, headers });
     }
+    // Legacy plain entry → serve as-is.
     return new Response(r2Hit.body, { status: 200, headers });
 }
 
