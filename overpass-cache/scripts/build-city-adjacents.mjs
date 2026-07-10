@@ -88,13 +88,15 @@ const ONLY = arg("only", false)
 const SKIP_EXISTING = !!arg("skip-existing", false);
 const RADIUS_KM = parseFloat(arg("radius", "40")) || 40;
 const LEVEL = String(arg("level", "auto"));
-// Default modes MATCH the validated /debug/adjacency default: the three RAIL
-// modes only (subway + light_rail + commuter). Bus was the bug — a metro's bus
-// network is thousands of routes, so a combined query including bus times out
-// live (0 stops), and bus over-reaches anyway (it goes everywhere, not a
-// meaningful "reachable region" signal). Add modes explicitly with
-// `--kinds subway,light_rail,commuter,tram` if ever wanted.
-const KINDS = String(arg("kinds", "subway,light_rail,commuter"))
+// All six transit modes — bus/tram/ferry included, because they're allowed
+// hiding-zone modes in the game and some regions rely heavily on them (a
+// bus-only suburb is still transit-reachable). The debug tool offers all six
+// too. The combined query IS heavy with bus, but the browser tool runs it
+// successfully (Sydney: 21k stops), so the worker can serve it. Override with
+// `--kinds subway,light_rail,commuter` for a rail-only run.
+const KINDS = String(
+    arg("kinds", "subway,light_rail,commuter,tram,ferry,bus"),
+)
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);

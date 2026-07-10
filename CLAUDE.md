@@ -583,9 +583,7 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   `build-world-cities.mjs` porting `rankPlayAreaResults`) — Overpass over
   rotating mirrors (soft-timeout `remark` sniff), boundaries via
   `relation;out geom;` + `osmtogeojson`, turf for the geometry. Defaults mirror
-  the validated debug-tool settings (radius 40 km, the THREE RAIL modes
-  subway+light_rail+commuter — NOT bus/tram/ferry: bus's thousands of metro
-  routes time the combined stops query out and over-reach anyway — primary's own
+  the validated debug-tool settings (radius 40 km, all six modes, primary's own
   admin level, min 2 stops, area cap 10×, min density 0.2/km², contiguous-only),
   all `--flag`-overridable; `--only`/`--limit`/`--skip-existing` for targeted or
   resumable runs; incremental save every 5 cities. Must run on a machine that
