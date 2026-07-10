@@ -411,60 +411,55 @@ out tags bb;
 `;
 }
 
-const STOPS_MAX_TRIES = 4;
-
-function parseStops(json) {
-    const stops = [];
-    for (const el of json.elements ?? []) {
-        if (el.type !== "node") continue;
-        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
-        stops.push({
-            lat: el.lat,
-            lon: el.lon,
-            kind: inferStopKind(el.tags),
-            name: el.tags?.name,
-        });
-    }
-    return stops;
-}
+const STOPS_MODE_TRIES = 3;
 
 async function fetchRailStops(lat, lng, radiusKm, kinds) {
-    // ONE combined query — the exact process the validated /debug/adjacency
-    // tool uses. (The old per-mode split diverged from it and returned 0.)
-    const query = buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds);
-    // RETRY on empty. For a huge metro (NYC = 12k+ stops) the combined 6-mode
-    // query — heavy because of bus — sometimes comes back HTTP 200 with 0 nodes
-    // (an upstream soft-failure that isn't a thrown error). A major city always
-    // has stops, so a 0 is almost always transient: re-issue the SAME query a
-    // few times before giving up, rather than let the city bail with 0 stops.
-    for (let attempt = 1; attempt <= STOPS_MAX_TRIES; attempt++) {
-        // Attempt 1 uses the canonical query (may hit a warm worker cache).
-        // Retries append trailing whitespace — Overpass ignores it, but it
-        // changes the worker's query-hash key, so a retry can't re-serve a
-        // just-cached empty/soft-failure from a previous attempt; it forces a
-        // fresh live fetch.
-        const q = attempt === 1 ? query : query + " ".repeat(attempt - 1);
-        let json;
-        try {
-            json = await overpass(q);
-        } catch (e) {
-            console.log(
-                `    (stops query threw ${attempt}/${STOPS_MAX_TRIES}: ${e instanceof Error ? e.message : e})`,
-            );
-            if (attempt < STOPS_MAX_TRIES) {
-                await sleep(4000 * attempt);
-                continue;
+    // PER-MODE queries — one Overpass call per mode, NOT a single combined
+    // union. A huge metro's BUS network alone (thousands of routes over 40 km)
+    // times out, and in a COMBINED query that zeroes out subway/rail too — LA,
+    // Chicago, Berlin, Paris all came back 0 stops that way. Per-mode isolates
+    // the failure: the one heavy mode is skipped after retries, every other
+    // mode still contributes its stops (LA still gets its rail network). Each
+    // mode retries on empty/error with a whitespace cache-buster so a retry
+    // forces a fresh live fetch instead of re-serving a just-cached soft-fail.
+    const stops = [];
+    const failed = [];
+    for (const kind of kinds) {
+        const base = buildStopsQueryForKind(lat, lng, radiusKm, kind);
+        let elements = null;
+        for (let attempt = 1; attempt <= STOPS_MODE_TRIES; attempt++) {
+            const q = attempt === 1 ? base : base + " ".repeat(attempt - 1);
+            try {
+                const json = await overpass(q);
+                const els = json.elements ?? [];
+                // Accept a non-empty result, or an empty one on the final try
+                // (a mode with genuinely 0 stops — e.g. no ferries — is not a
+                // failure, it just contributes nothing).
+                if (els.length > 0 || attempt === STOPS_MODE_TRIES) {
+                    elements = els;
+                    break;
+                }
+            } catch {
+                if (attempt === STOPS_MODE_TRIES) break; // elements stays null
             }
-            return [];
+            await sleep(3000 * attempt);
         }
-        const stops = parseStops(json);
-        if (stops.length > 0 || attempt === STOPS_MAX_TRIES) return stops;
-        console.log(
-            `    (0 stops on attempt ${attempt}/${STOPS_MAX_TRIES} — likely a transient heavy-query timeout, retrying)`,
-        );
-        await sleep(4000 * attempt);
+        if (elements === null) {
+            failed.push(kind); // threw on every attempt (e.g. bus timed out)
+            continue;
+        }
+        for (const el of elements) {
+            if (el.type !== "node") continue;
+            if (typeof el.lat !== "number" || typeof el.lon !== "number")
+                continue;
+            stops.push({ lat: el.lat, lon: el.lon, kind, name: el.tags?.name });
+        }
     }
-    return [];
+    if (failed.length)
+        console.log(
+            `    (stops: ${failed.join("+")} mode(s) failed after retries, skipped)`,
+        );
+    return stops;
 }
 
 async function fetchAdminCandidates(
