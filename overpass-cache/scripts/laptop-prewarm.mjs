@@ -1271,6 +1271,7 @@ async function auditEncoding(cities) {
             else if (status === "miss") missC++;
         }
         if (bad.length) {
+            c._poisonTypes = bad;
             poisoned.push(c);
             console.log(
                 `  ✗ ${c.name} (r${c.relationId}) POISONED: ${bad.join(", ")}`,
@@ -1285,17 +1286,63 @@ async function auditEncoding(cities) {
         `=== audit done: ${poisoned.length}/${cities.length} cities have a poisoned entry ` +
             `(${poisonEndpoints} bad endpoints; ${okC} ok, ${missC} miss) ===`,
     );
-    if (poisoned.length) {
-        const ids = poisoned.map((c) => c.relationId).join(",");
-        console.log(`\nRe-warm ONLY the affected cities:`);
-        console.log(
-            `  node scripts/laptop-prewarm.mjs --worker <url> --secret <secret> \\`,
-        );
-        console.log(`      --only-city "${ids}" --force --email <you>\n`);
-        console.log(`(--only-city accepts this comma list of relation ids.)`);
-    } else {
+    if (!poisoned.length) {
         console.log("No poisoned entries found — nothing to re-warm.");
+        return;
     }
+    // Group cities by which PHASE-GROUP needs re-warming, so we can skip the
+    // heavy phases that AREN'T poisoned. The laptop's phases are coupled:
+    //   refs / stations / water  → the DO_REFS group (skip with --skip-references
+    //     [+ --skip-water for water]); this is the heavy one (combined refs +
+    //     the whole-metro bus-stop scan).
+    //   metro / transit-bus      → the DO_TRANSIT group (skip with --skip-transit).
+    // So a city poisoned ONLY in transit/metro re-warms with the refs group
+    // SKIPPED, and vice versa — no re-fetching the parts that are fine.
+    const REF_TYPES = new Set(["refs", "stations", "water"]);
+    const TRANSIT_TYPES = new Set(["metro", "transit/bus"]);
+    const refOnly = [];
+    const transitOnly = [];
+    const both = [];
+    for (const c of poisoned) {
+        const t = new Set(c._poisonTypes ?? []);
+        const needRef = [...t].some((x) => REF_TYPES.has(x));
+        const needTransit = [...t].some((x) => TRANSIT_TYPES.has(x));
+        if (needRef && needTransit) both.push(c);
+        else if (needRef) refOnly.push(c);
+        else transitOnly.push(c);
+    }
+    const ids = (arr) => arr.map((c) => c.relationId).join(",");
+    const base = `node scripts/laptop-prewarm.mjs --worker <url> --secret <secret> --email <you>`;
+    console.log(
+        `\nRe-warm ONLY the poisoned parts (run whichever groups are non-empty):\n`,
+    );
+    if (transitOnly.length) {
+        console.log(
+            `# ${transitOnly.length} city(ies) poisoned only in transit/metro — re-warm transit group, SKIP refs+stations+water:`,
+        );
+        console.log(
+            `  ${base} --only-city "${ids(transitOnly)}" --force --skip-references --skip-water\n`,
+        );
+    }
+    if (refOnly.length) {
+        console.log(
+            `# ${refOnly.length} city(ies) poisoned only in refs/stations/water — re-warm refs group, SKIP transit+metro:`,
+        );
+        console.log(
+            `  ${base} --only-city "${ids(refOnly)}" --force --skip-transit\n`,
+        );
+    }
+    if (both.length) {
+        console.log(
+            `# ${both.length} city(ies) poisoned in BOTH groups — full re-warm:`,
+        );
+        console.log(`  ${base} --only-city "${ids(both)}" --force\n`);
+    }
+    console.log(
+        `(--only-city accepts the comma id list. Boundary is re-fetched too ` +
+            `but that's one cheap query; the point is skipping the heavy group ` +
+            `that's already fine.)`,
+    );
 }
 
 async function verifyPrimaryStar(city) {
