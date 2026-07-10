@@ -344,6 +344,45 @@ out;
 `;
 }
 
+/** The ONE combined stops query — byte-identical to
+ *  `buildRailNetworkStopsQuery` in src/maps/api/transitReach.ts (the validated
+ *  /debug/adjacency path). ALL requested modes go in a single union, so this
+ *  produces the exact same query string the browser tool sends — same worker
+ *  cache entries, same live-fetch behaviour. The earlier per-mode split
+ *  (`buildStopsQueryForKind` × 6, kept only for `--probe`) DIVERGED from the
+ *  debug tool: novel query strings that cache-missed and came back empty. */
+function buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds) {
+    const r = Math.round(radiusKm * 1000);
+    const around = `(around:${r},${lat},${lng})`;
+    const routeSelectors = kinds
+        .map((k) => routeSelectorFor(k, around))
+        .filter(Boolean);
+    return `
+[out:json][timeout:90];
+(
+${routeSelectors.join("\n")}
+)->.routes;
+node(r.routes);
+out;
+`;
+}
+
+/** Tag a returned stop node by its OWN tags — identical to
+ *  `inferStopKind` in transitReach.ts. With one combined query we can't tell
+ *  which mode's selector matched a node, so we read the node's tags (the debug
+ *  tool does the same); defaults to "commuter". */
+function inferStopKind(tags) {
+    if (!tags) return "commuter";
+    if (tags.station === "subway" || tags.subway === "yes") return "subway";
+    if (tags.light_rail === "yes" || tags.station === "light_rail")
+        return "light_rail";
+    if (tags.railway === "tram_stop" || tags.tram === "yes") return "tram";
+    if (tags.amenity === "ferry_terminal" || tags.ferry === "yes")
+        return "ferry";
+    if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
+    return "commuter";
+}
+
 function buildAdjacentAdminQuery(adminLevel, lat, lng, radiusKm) {
     return `
 [out:json][timeout:60];
@@ -361,25 +400,29 @@ out tags bb;
 }
 
 async function fetchRailStops(lat, lng, radiusKm, kinds) {
-    const stops = [];
-    const failed = [];
-    for (const kind of kinds) {
-        let json;
-        try {
-            json = await overpass(buildStopsQueryForKind(lat, lng, radiusKm, kind));
-        } catch {
-            failed.push(kind); // e.g. Tokyo's bus net times out — keep the rest
-            continue;
-        }
-        for (const el of json.elements ?? []) {
-            if (el.type !== "node") continue;
-            if (typeof el.lat !== "number" || typeof el.lon !== "number")
-                continue;
-            stops.push({ lat: el.lat, lon: el.lon, kind });
-        }
+    // ONE combined query — the exact process the validated /debug/adjacency
+    // tool uses. (The old per-mode split diverged from it and returned 0.)
+    const query = buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds);
+    let json;
+    try {
+        json = await overpass(query);
+    } catch (e) {
+        console.log(
+            `    (stops query failed: ${e instanceof Error ? e.message : e})`,
+        );
+        return [];
     }
-    if (failed.length)
-        console.log(`    (stops: ${failed.join("+")} mode(s) timed out, skipped)`);
+    const stops = [];
+    for (const el of json.elements ?? []) {
+        if (el.type !== "node") continue;
+        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
+        stops.push({
+            lat: el.lat,
+            lon: el.lon,
+            kind: inferStopKind(el.tags),
+            name: el.tags?.name,
+        });
+    }
     return stops;
 }
 
