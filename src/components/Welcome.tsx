@@ -126,18 +126,19 @@ export function Welcome() {
         }
         welcomeSeen.set(true);
         setupCompleted.set(true);
-        if (
-            (role === "hider" || role === "coHider") &&
-            typeof window !== "undefined"
-        ) {
-            // Hard navigation so the hider bundle replaces the welcome
-            // shell — keeps the welcome chunk out of the hider's tab.
-            window.location.assign("/h");
-        } else {
-            // Seekers stay on the SPA — soft-navigate to / so the
-            // route guard mounts SeekerPage now that both gates pass.
-            navigate("/", { replace: true });
-        }
+        // SOFT-navigate for BOTH roles (v755). The hider used to HARD-navigate
+        // (`window.location.assign("/h")`) as a bundle-size micro-opt, but a
+        // full page reload tore down the live multiplayer WebSocket mid-flight
+        // — including the host's just-sent `hostPushSetup` (transit modes /
+        // game size) — then reconnected and let `applySnapshot` overwrite the
+        // local wizard atoms with the server's now-STALE/default setup. That's
+        // the "settings don't carry over + the whole UI reloads" bug. Staying
+        // on the SPA keeps the connection (and the wizard values) intact; the
+        // route guard mounts HiderPage/SeekerPage by role (HiderPage is
+        // lazy-loaded, so the welcome chunk isn't meaningfully co-bundled).
+        navigate(role === "hider" || role === "coHider" ? "/h" : "/", {
+            replace: true,
+        });
     };
 
     // Abort the join from the lobby preview — disconnect, clear
