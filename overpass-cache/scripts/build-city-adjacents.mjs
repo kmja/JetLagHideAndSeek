@@ -411,54 +411,68 @@ out tags bb;
 `;
 }
 
-const STOPS_MODE_TRIES = 3;
+const STOPS_TRIES = 3;
+
+/** Run a stops query with retry-on-empty/error and a whitespace cache-buster on
+ *  retries (Overpass ignores it; it changes the worker's query-hash key so a
+ *  retry can't re-serve a just-cached soft-failure). Returns the element array
+ *  (possibly []), or null if it threw on every attempt. */
+async function fetchStopsElements(baseQuery) {
+    for (let attempt = 1; attempt <= STOPS_TRIES; attempt++) {
+        const q = attempt === 1 ? baseQuery : baseQuery + " ".repeat(attempt - 1);
+        try {
+            const json = await overpass(q);
+            const els = json.elements ?? [];
+            if (els.length > 0 || attempt === STOPS_TRIES) return els;
+        } catch {
+            if (attempt === STOPS_TRIES) return null;
+        }
+        await sleep(3000 * attempt);
+    }
+    return null;
+}
+
+function collectStops(elements, tagAs, out) {
+    for (const el of elements) {
+        if (el.type !== "node") continue;
+        if (typeof el.lat !== "number" || typeof el.lon !== "number") continue;
+        out.push({
+            lat: el.lat,
+            lon: el.lon,
+            kind: tagAs === "infer" ? inferStopKind(el.tags) : tagAs,
+            name: el.tags?.name,
+        });
+    }
+}
 
 async function fetchRailStops(lat, lng, radiusKm, kinds) {
-    // PER-MODE queries — one Overpass call per mode, NOT a single combined
-    // union. A huge metro's BUS network alone (thousands of routes over 40 km)
-    // times out, and in a COMBINED query that zeroes out subway/rail too — LA,
-    // Chicago, Berlin, Paris all came back 0 stops that way. Per-mode isolates
-    // the failure: the one heavy mode is skipped after retries, every other
-    // mode still contributes its stops (LA still gets its rail network). Each
-    // mode retries on empty/error with a whitespace cache-buster so a retry
-    // forces a fresh live fetch instead of re-serving a just-cached soft-fail.
+    // Split BUS (the heavy outlier) from the rail modes — TWO queries per city,
+    // not one and not six. The rail modes (subway/light_rail/commuter/tram/
+    // ferry) go in ONE combined query, exactly like the debug tool: light
+    // enough to complete even for LA/Chicago. BUS gets its OWN query because a
+    // metro's bus network is thousands of routes and routinely times out; if it
+    // fails it's skipped and the city keeps its full rail network. This avoids
+    // BOTH failure modes we hit: (a) a single 6-mode query (incl. bus) zeroing
+    // everything out for LA/Chicago/Berlin/Paris, and (b) six per-mode queries
+    // hammering the IP into an Overpass rate-limit (all six metros returned 0
+    // AND the light admin-level query started failing too).
+    const railKinds = kinds.filter((k) => k !== "bus");
     const stops = [];
-    const failed = [];
-    for (const kind of kinds) {
-        const base = buildStopsQueryForKind(lat, lng, radiusKm, kind);
-        let elements = null;
-        for (let attempt = 1; attempt <= STOPS_MODE_TRIES; attempt++) {
-            const q = attempt === 1 ? base : base + " ".repeat(attempt - 1);
-            try {
-                const json = await overpass(q);
-                const els = json.elements ?? [];
-                // Accept a non-empty result, or an empty one on the final try
-                // (a mode with genuinely 0 stops — e.g. no ferries — is not a
-                // failure, it just contributes nothing).
-                if (els.length > 0 || attempt === STOPS_MODE_TRIES) {
-                    elements = els;
-                    break;
-                }
-            } catch {
-                if (attempt === STOPS_MODE_TRIES) break; // elements stays null
-            }
-            await sleep(3000 * attempt);
-        }
-        if (elements === null) {
-            failed.push(kind); // threw on every attempt (e.g. bus timed out)
-            continue;
-        }
-        for (const el of elements) {
-            if (el.type !== "node") continue;
-            if (typeof el.lat !== "number" || typeof el.lon !== "number")
-                continue;
-            stops.push({ lat: el.lat, lon: el.lon, kind, name: el.tags?.name });
-        }
-    }
-    if (failed.length)
-        console.log(
-            `    (stops: ${failed.join("+")} mode(s) failed after retries, skipped)`,
+    if (railKinds.length > 0) {
+        const els = await fetchStopsElements(
+            buildRailNetworkStopsQuery(lat, lng, radiusKm, railKinds),
         );
+        if (els === null) console.log("    (rail stops query failed after retries)");
+        else collectStops(els, "infer", stops);
+    }
+    if (kinds.includes("bus")) {
+        const els = await fetchStopsElements(
+            buildStopsQueryForKind(lat, lng, radiusKm, "bus"),
+        );
+        if (els === null)
+            console.log("    (bus stops query too heavy — skipped, rail kept)");
+        else collectStops(els, "bus", stops);
+    }
     return stops;
 }
 
