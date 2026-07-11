@@ -11,7 +11,6 @@ import {
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { UnitSelect } from "@/components/UnitSelect";
 import {
     hiderMode,
     isLoading,
@@ -110,6 +109,9 @@ export const RadiusQuestionComponent = ({
             createdAt={data.createdAt}
             className={className}
             forceExpanded={forceExpanded}
+            // In the configure dialog the header size is redundant with the
+            // size carousel right below, so show just "Radar" (v747).
+            titleOverride={forceExpanded ? "Radar" : undefined}
             collapsed={data.collapsed}
             setCollapsed={(collapsed) => {
                 data.collapsed = collapsed; // Doesn't trigger a re-render so no need for questionModified
@@ -252,7 +254,7 @@ export const RadiusQuestionComponent = ({
                                     pickPreset(selectable[next]);
                                 };
                                 const navBtn = cn(
-                                    "h-14 w-12 shrink-0 flex items-center justify-center rounded-md",
+                                    "h-20 w-16 shrink-0 flex items-center justify-center rounded-md",
                                     "bg-secondary text-foreground hover:bg-accent transition-colors",
                                     "disabled:opacity-30 disabled:cursor-not-allowed",
                                 );
@@ -267,21 +269,21 @@ export const RadiusQuestionComponent = ({
                                             disabled={!canCycle}
                                             className={navBtn}
                                         >
-                                            <ChevronLeft className="w-6 h-6" />
+                                            <ChevronLeft className="w-8 h-8" />
                                         </button>
                                         <div
                                             className={cn(
-                                                "flex-1 h-14 flex flex-col items-center justify-center rounded-md",
+                                                "flex-1 h-20 flex flex-col items-center justify-center rounded-md px-4 py-3",
                                                 "ring-2 ring-primary bg-primary/15",
                                             )}
                                         >
-                                            <span className="text-2xl font-poppins font-bold text-primary tabular-nums leading-none">
+                                            <span className="text-3xl font-poppins font-bold text-primary tabular-nums leading-none">
                                                 {data.useCustom
                                                     ? "Custom"
                                                     : currentPreset?.label ??
                                                       "Custom"}
                                             </span>
-                                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                                            <span className="text-[11px] uppercase tracking-wider text-muted-foreground mt-2">
                                                 Radar size
                                             </span>
                                         </div>
@@ -292,7 +294,7 @@ export const RadiusQuestionComponent = ({
                                             disabled={!canCycle}
                                             className={navBtn}
                                         >
-                                            <ChevronRight className="w-6 h-6" />
+                                            <ChevronRight className="w-8 h-8" />
                                         </button>
                                     </div>
                                 );
@@ -314,7 +316,7 @@ export const RadiusQuestionComponent = ({
                                         !data.useCustom)
                                 }
                                 className={cn(
-                                    "self-center py-1.5 px-3 rounded-md text-xs font-poppins font-semibold",
+                                    "self-center py-2.5 px-6 rounded-md text-sm font-poppins font-semibold",
                                     "bg-secondary text-foreground hover:bg-accent",
                                     "transition-colors whitespace-nowrap leading-none",
                                     "disabled:opacity-30 disabled:cursor-not-allowed",
@@ -325,24 +327,24 @@ export const RadiusQuestionComponent = ({
                                 {data.useCustom ? "Using custom size" : "Custom size"}
                             </button>
 
-                            {/* Custom slider — only when Custom is active */}
+                            {/* Custom slider — only when Custom is active. v747:
+                                dropped the unit selector (the slider range is a
+                                sensible km window); the number is centered above
+                                the slider with a bigger handle + more-visible
+                                track. */}
                             {data.useCustom && (
-                                <div className="flex flex-col gap-2 pt-1">
-                                    <div className="flex items-baseline justify-between">
-                                        <span className="text-3xl font-poppins font-semibold tabular-nums">
+                                <div className="flex flex-col gap-3 pt-1">
+                                    <div className="text-center leading-none">
+                                        <span className="text-4xl font-poppins font-bold text-primary tabular-nums">
                                             {data.radius}
                                         </span>
-                                        <UnitSelect
-                                            unit={data.unit}
-                                            disabled={
-                                                !data.drag || $isLoading
-                                            }
-                                            onChange={(unit) =>
-                                                questionModified(
-                                                    (data.unit = unit),
-                                                )
-                                            }
-                                        />
+                                        <span className="text-xl font-poppins font-semibold text-muted-foreground ml-1">
+                                            {data.unit === "meters"
+                                                ? "m"
+                                                : data.unit === "miles"
+                                                  ? "mi"
+                                                  : "km"}
+                                        </span>
                                     </div>
                                     <input
                                         type="range"
@@ -363,17 +365,19 @@ export const RadiusQuestionComponent = ({
                                         }
                                         className={cn(
                                             "w-full appearance-none cursor-pointer",
-                                            "h-2 rounded-full bg-secondary",
+                                            "h-3 rounded-full bg-muted ring-1 ring-inset ring-border",
                                             "accent-primary",
                                             "[&::-webkit-slider-thumb]:appearance-none",
-                                            "[&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5",
+                                            "[&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-7",
                                             "[&::-webkit-slider-thumb]:rounded-full",
                                             "[&::-webkit-slider-thumb]:bg-primary",
                                             "[&::-webkit-slider-thumb]:shadow-md",
-                                            "[&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5",
+                                            "[&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white",
+                                            "[&::-webkit-slider-thumb]:-mt-2",
+                                            "[&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:w-7",
                                             "[&::-moz-range-thumb]:rounded-full",
                                             "[&::-moz-range-thumb]:bg-primary",
-                                            "[&::-moz-range-thumb]:border-0",
+                                            "[&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white",
                                             "disabled:opacity-50 disabled:cursor-not-allowed",
                                         )}
                                     />

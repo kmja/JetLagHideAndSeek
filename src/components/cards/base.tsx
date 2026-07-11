@@ -100,6 +100,7 @@ export const QuestionCard = ({
     forceExpanded,
     locked,
     setCollapsed,
+    titleOverride,
 }: {
     children: React.ReactNode;
     questionKey: number;
@@ -116,6 +117,10 @@ export const QuestionCard = ({
     locked?: boolean;
     setLocked?: (locked: boolean) => void;
     setCollapsed?: (collapsed: boolean) => void;
+    /** Replace the header's big label (from `summarizeQuestion`). The radar
+     *  configure dialog passes "Radar" so the header isn't redundant with the
+     *  size carousel right below it (v747). */
+    titleOverride?: string;
 }) => {
     const [isCollapsed, setIsCollapsed] = useState(
         forceExpanded ? false : (collapsed ?? true),
@@ -272,6 +277,7 @@ export const QuestionCard = ({
             : null;
     const cardSummary: QuestionSummary = {
         ...baseSummary,
+        ...(titleOverride ? { bigLabel: titleOverride } : {}),
         // The redirected original shows it was swapped out by Randomize
         // (it carries no answer of its own); the substitute keeps its
         // resolved answer.

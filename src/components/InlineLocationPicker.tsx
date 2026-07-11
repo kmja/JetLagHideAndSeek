@@ -22,7 +22,9 @@ import Map, {
     Source,
 } from "react-map-gl/maplibre";
 
+import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
+import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import {
     lastKnownPosition,
     mapGeoLocation,
@@ -124,6 +126,11 @@ export function InlineLocationPicker({
     const $maskData = useStore(questionFinishedMapData);
     const $playArea = useStore(mapGeoLocation);
     const $satellite = useStore(satelliteView);
+    // v747: carry the seeker/hider map's ACTIVE transit-line overlays into the
+    // configure/preview map too, so the preview matches the real map. The hook
+    // only fetches modes toggled ON (already cached by the main map), so it's a
+    // no-op when no transit overlay is active.
+    const transitFC = useTransitRouteOverlays();
     // v317: switched from raster tiles via `baseTileLayer` to the
     // Protomaps vector flavor + `resolvedTheme` so this picker
     // follows the same light/dark setting the rest of the maps do.
@@ -666,6 +673,9 @@ export function InlineLocationPicker({
                             />
                         </Source>
                     )}
+                    {/* Active transit-line overlays carried over from the main
+                        map (v747) — renders nothing unless a mode is toggled on. */}
+                    <TransitRouteLayers transitFC={transitFC} />
                     {/* Elimination mask. Same dark cover as the
                         Leaflet version (#0f172a, ~55% opacity). v370:
                         feeds the INVERTED (holed) polygon so we shade
