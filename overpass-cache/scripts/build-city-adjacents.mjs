@@ -37,6 +37,14 @@
  *                      relation ids), e.g. --only Helsinki,913067.
  *   --skip-existing    skip cities that already carry adjacentRelationIds
  *                      (resume a partial run without recomputing).
+ *   --priority-regions[=US,GB,…]  process cities by REGION tier first (then by
+ *                      population), using each city's `country` tag — so the
+ *                      audience's cities generate before the population-ordered
+ *                      Chinese megacities (low-priority + sparse OSM transit).
+ *                      Bare = the default English-speaking + W-Europe + Nordics.
+ *   --max-adjacents N  coarsen to L6 (county) when a fine-level (>=7) primary's
+ *                      auto result exceeds N adjacents — stops US metros (LA,
+ *                      Chicago) returning dozens of suburbs (default 20; 0=off).
  *   --level auto|N     candidate admin_level. auto = the primary's own level
  *                      (default). A coarser N (6 county / 7 / 8 city) yields
  *                      fewer, larger adjacents.
@@ -123,6 +131,32 @@ const COOLDOWN_MS = parseInt(arg("cooldown-ms", "30000"), 10);
 const MAX_COOLDOWNS = parseInt(arg("max-cooldowns", "4"), 10);
 const VERBOSE = !!arg("verbose", false);
 const PROBE = !!arg("probe", false);
+// Priority-region ordering — process the cities players actually use FIRST.
+// world-cities.json is population-ordered, which front-loads Chinese megacities
+// (low-priority for the audience AND sparsely mapped in OSM). This orders the
+// run by region TIER (list order), then population within each tier, using the
+// `country` tag baked on each city. Bare `--priority-regions` uses the default
+// list; `--priority-regions US,GB,…` customises it. Ported from
+// laptop-prewarm.mjs — keep the default list roughly in sync.
+const DEFAULT_PRIORITY_REGIONS = [
+    "US", "CA", "GB", "IE", "AU", "NZ", // English-speaking core audience
+    "DE", "FR", "ES", "IT", "NL", "BE", "AT", "CH", "PT", // Western Europe
+    "SE", "NO", "DK", "FI", "IS", // Nordics
+];
+const PRIORITY_REGIONS = (() => {
+    const v = arg("priority-regions", false);
+    if (!v) return null;
+    if (v === true) return DEFAULT_PRIORITY_REGIONS;
+    return String(v)
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => /^[A-Z]{2}$/.test(s));
+})();
+// A fine-level (>=7) primary in a big metro can return dozens of tiny
+// incorporated suburbs (LA at level 8 → 55 cities, Chicago → 137). When the
+// auto result exceeds this, re-query candidates at level 6 (county) for a clean
+// "few-large" set. Tunable via --max-adjacents; 0 disables the coarsening.
+const MAX_ADJACENTS = parseInt(arg("max-adjacents", "20"), 10);
 const OUT = resolve(PKG_ROOT, String(arg("out", "world-cities.json")));
 const EMAIL = String(arg("email", "worldcities@example.com"));
 const UA = `JetLagHideAndSeek-adjacents/1.0 (${EMAIL})`;
@@ -912,88 +946,137 @@ async function findAdjacents(city) {
         }
     };
 
-    const candidates = [];
-    let idx = 0;
-    const runNext = async () => {
-        while (idx < adminCandidates.length) {
-            const cand = adminCandidates[idx++];
-            if (cand.id === primaryOsmId) continue;
-            const [maxLat, minLng, minLat, maxLng] = cand.extent;
-            const bboxStops = stops.filter(
-                (s) =>
-                    s.lat >= minLat &&
-                    s.lat <= maxLat &&
-                    s.lon >= minLng &&
-                    s.lon <= maxLng,
-            );
-            if (bboxStops.length === 0) continue;
-            let poly = await fetchBoundary(cand.id);
-            if (poly) poly = dropFarExclaves(poly);
-            if (poly && mostlyInsidePrimary(poly)) continue;
-            let inside = bboxStops;
-            if (poly) {
-                const feature = { type: "Feature", properties: {}, geometry: poly };
-                inside = bboxStops.filter((s) => {
+    // Build the final candidate set from a given admin-candidate list. Extracted
+    // so we can run it TWICE — once at the auto/explicit level, and again at
+    // level 6 to coarsen an over-granular metro (see below). Each call gets its
+    // own `candidates`/`idx`, so it's safe to invoke repeatedly.
+    const buildFinal = async (adminCands) => {
+        const candidates = [];
+        let idx = 0;
+        const runNext = async () => {
+            while (idx < adminCands.length) {
+                const cand = adminCands[idx++];
+                if (cand.id === primaryOsmId) continue;
+                const [maxLat, minLng, minLat, maxLng] = cand.extent;
+                const bboxStops = stops.filter(
+                    (s) =>
+                        s.lat >= minLat &&
+                        s.lat <= maxLat &&
+                        s.lon >= minLng &&
+                        s.lon <= maxLng,
+                );
+                if (bboxStops.length === 0) continue;
+                let poly = await fetchBoundary(cand.id);
+                if (poly) poly = dropFarExclaves(poly);
+                if (poly && mostlyInsidePrimary(poly)) continue;
+                let inside = bboxStops;
+                if (poly) {
+                    const feature = {
+                        type: "Feature",
+                        properties: {},
+                        geometry: poly,
+                    };
+                    inside = bboxStops.filter((s) => {
+                        try {
+                            return booleanPointInPolygon([s.lon, s.lat], feature);
+                        } catch {
+                            return false;
+                        }
+                    });
+                }
+                if (inside.length === 0) continue;
+                const kindSet = new Set();
+                for (const s of inside) kindSet.add(s.kind);
+                const cleanExt = poly ? polygonExtent(poly) : cand.extent;
+                let realAreaKm2 = poly ? extentAreaKm2(cleanExt) : cand.areaKm2;
+                if (poly) {
                     try {
-                        return booleanPointInPolygon([s.lon, s.lat], feature);
+                        const a =
+                            area({
+                                type: "Feature",
+                                properties: {},
+                                geometry: poly,
+                            }) / 1e6;
+                        if (a > 0) realAreaKm2 = a;
                     } catch {
-                        return false;
+                        /* keep bbox estimate */
                     }
+                }
+                candidates.push({
+                    relationId: cand.id,
+                    name: cand.name,
+                    stopCount: inside.length,
+                    distanceKm: haversineKm(lat, lng, cand.lat, cand.lng),
+                    kinds: [...kindSet],
+                    areaKm2: poly ? extentAreaKm2(cleanExt) : cand.areaKm2,
+                    stopsPerKm2: realAreaKm2 > 0 ? inside.length / realAreaKm2 : 0,
+                    adminLevel: cand.adminLevel,
+                    extent: cleanExt,
+                    polygon: poly,
                 });
             }
-            if (inside.length === 0) continue;
-            const kindSet = new Set();
-            for (const s of inside) kindSet.add(s.kind);
-            const cleanExt = poly ? polygonExtent(poly) : cand.extent;
-            let realAreaKm2 = poly ? extentAreaKm2(cleanExt) : cand.areaKm2;
-            if (poly) {
-                try {
-                    const a =
-                        area({
-                            type: "Feature",
-                            properties: {},
-                            geometry: poly,
-                        }) / 1e6;
-                    if (a > 0) realAreaKm2 = a;
-                } catch {
-                    /* keep bbox estimate */
-                }
-            }
-            candidates.push({
-                relationId: cand.id,
-                name: cand.name,
-                stopCount: inside.length,
-                distanceKm: haversineKm(lat, lng, cand.lat, cand.lng),
-                kinds: [...kindSet],
-                areaKm2: poly ? extentAreaKm2(cleanExt) : cand.areaKm2,
-                stopsPerKm2: realAreaKm2 > 0 ? inside.length / realAreaKm2 : 0,
-                adminLevel: cand.adminLevel,
-                extent: cleanExt,
-                polygon: poly,
-            });
+        };
+        await Promise.all(
+            Array.from(
+                { length: Math.min(CONCURRENCY, adminCands.length) },
+                () => runNext(),
+            ),
+        );
+        candidates.sort(
+            (a, b) => b.stopCount - a.stopCount || a.distanceKm - b.distanceKm,
+        );
+        // Client-side filters (min-stops / density / area cap), then dedup +
+        // contiguity — exactly the debug-tool pipeline at the validated defaults.
+        let sized = candidates.filter(
+            (c) => c.stopCount >= MIN_STOPS && c.stopsPerKm2 >= MIN_DENSITY,
+        );
+        if (primaryAreaKm2 > 0) {
+            sized = sized.filter(
+                (c) => c.areaKm2 <= MAX_AREA_RATIO * primaryAreaKm2,
+            );
         }
+        let out = dedupeNested(sized);
+        if (CONTIGUOUS) out = filterContiguous(out, primaryFeature);
+        return out;
     };
-    await Promise.all(
-        Array.from({ length: Math.min(CONCURRENCY, adminCandidates.length) }, () =>
-            runNext(),
-        ),
-    );
 
-    candidates.sort(
-        (a, b) => b.stopCount - a.stopCount || a.distanceKm - b.distanceKm,
-    );
+    let finalCandidates = await buildFinal(adminCandidates);
 
-    // Client-side filters (min-stops / density / area cap), then dedup +
-    // contiguity — exactly the debug-tool pipeline at the validated defaults.
-    let sized = candidates.filter(
-        (c) => c.stopCount >= MIN_STOPS && c.stopsPerKm2 >= MIN_DENSITY,
-    );
-    if (primaryAreaKm2 > 0) {
-        sized = sized.filter((c) => c.areaKm2 <= MAX_AREA_RATIO * primaryAreaKm2);
-    }
-    let finalCandidates = dedupeNested(sized);
-    if (CONTIGUOUS) {
-        finalCandidates = filterContiguous(finalCandidates, primaryFeature);
+    // Coarsen an over-granular fine-level metro. A US city sits at admin_level 8,
+    // so `auto` returns every incorporated suburb (LA → 55, Chicago → 137). When
+    // a FINE-level (>=7) auto result blows past MAX_ADJACENTS, re-query at level
+    // 6 (county) for a clean "few-large" set. Helsinki (L8 → 11) stays untouched
+    // (under the cap), and an explicit --level is never overridden.
+    const detLvlNum = parseInt(detectedLevel, 10);
+    if (
+        MAX_ADJACENTS > 0 &&
+        explicitLevel === null &&
+        Number.isFinite(detLvlNum) &&
+        detLvlNum >= 7 &&
+        finalCandidates.length > MAX_ADJACENTS
+    ) {
+        if (VERBOSE)
+            console.log(
+                `    ${finalCandidates.length} adjacents at L${detectedLevel} > ${MAX_ADJACENTS} — coarsening to L6 (county)`,
+            );
+        try {
+            const coarseAdmin = await fetchAdminCandidates(
+                "6",
+                detectedLevel,
+                lat,
+                lng,
+                RADIUS_KM,
+            );
+            const coarse = await buildFinal(coarseAdmin);
+            // Adopt the coarser set only if it actually reduced the count without
+            // collapsing to nothing (a country where L6 is absent/huge → skip).
+            if (coarse.length >= 1 && coarse.length < finalCandidates.length) {
+                finalCandidates = coarse;
+            }
+        } catch (e) {
+            if (VERBOSE)
+                console.log(`    (coarsen failed: ${e instanceof Error ? e.message : e})`);
+        }
     }
 
     const ids = [...new Set(finalCandidates.map((c) => c.relationId))].sort(
@@ -1003,6 +1086,19 @@ async function findAdjacents(city) {
 }
 
 // ── driver ──────────────────────────────────────────────────────────────
+/** Order the city list by priority-region TIER (list index), then by population
+ *  within each tier. A city whose `country` isn't in the list (or is unknown)
+ *  sorts last, by population. Mirrors laptop-prewarm.mjs orderByPriorityRegions. */
+function orderByPriorityRegions(cities, regions) {
+    const rank = (c) => {
+        const i = regions.indexOf((c.country ?? "").toUpperCase());
+        return i === -1 ? regions.length : i;
+    };
+    return [...cities].sort(
+        (a, b) => rank(a) - rank(b) || (b.population ?? 0) - (a.population ?? 0),
+    );
+}
+
 function selectCities(all) {
     let list = all;
     if (ONLY) {
@@ -1018,6 +1114,10 @@ function selectCities(all) {
                 !Array.isArray(c.adjacentRelationIds) ||
                 c.adjacentRelationIds.length === 0,
         );
+    }
+    // Reorder BEFORE the --limit slice so the limit takes the priority cities.
+    if (PRIORITY_REGIONS && !ONLY) {
+        list = orderByPriorityRegions(list, PRIORITY_REGIONS);
     }
     if (Number.isFinite(LIMIT)) list = list.slice(0, LIMIT);
     return list;
