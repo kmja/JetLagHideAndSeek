@@ -35,7 +35,13 @@ import {
     isAbortedOverpassJson,
     sniffAbortedOverpassBytes,
 } from "./overpassAbort";
-import { familyForFilter, findCachedPlaces } from "./playAreaPrefetch";
+import {
+    cacheableFamilyForType,
+    familyForFilter,
+    findCachedPlaces,
+    pointInsideCacheCoverage,
+    prefetchCategory,
+} from "./playAreaPrefetch";
 import {
     extractBoundaryRelationId,
     fetchBoundaryAsOverpassShape,
@@ -522,13 +528,57 @@ export const findTentacleLocations = async (
     question: EncompassingTentacleQuestionSchema,
     text: string = "Determining tentacle locations...",
 ) => {
-    const query = `
-[out:json][timeout:25];
-nwr["${LOCATION_FIRST_TAG[question.locationType]}"="${question.locationType}"](around:${turf.convertLength(
+    const radiusMeters = turf.convertLength(
         question.radius,
         question.unit,
         "meters",
-    )}, ${question.lat}, ${question.lng});
+    );
+
+    // v749: PREFER the prewarmed reference-family cache. A tentacle POI type
+    // (museum/hospital/park/…) is the SAME `api:*` family matching/measuring
+    // prewarm across the whole play area, so the old per-tentacle
+    // `nwr[...](around:radius,lat,lng)` query — position-keyed → a UNIQUE
+    // query string → a guaranteed R2 MISS → a LIVE Overpass fetch → the
+    // rate-limit errors the user hit — is unnecessary whenever the tentacle
+    // centre sits inside the cache's coverage. Read the cached family (an R2
+    // hit for a warm city; NO position-keyed live query), filter it to the
+    // tentacle radius client-side, and only fall through to the live query on
+    // a cold miss / out-of-coverage centre.
+    const family = cacheableFamilyForType(question.locationType);
+    if (family && pointInsideCacheCoverage(question.lat, question.lng)) {
+        try {
+            const features = await prefetchCategory(family);
+            if (features.length > 0) {
+                const response = turf.points([]);
+                const seen = new Set<string>();
+                for (const f of features) {
+                    if (!f.name || seen.has(f.name)) continue;
+                    const distMeters =
+                        turf.distance(
+                            [question.lng, question.lat],
+                            [f.lng, f.lat],
+                        ) * 1000;
+                    if (distMeters > radiusMeters) continue;
+                    seen.add(f.name);
+                    response.features.push(
+                        turf.point([f.lng, f.lat], { name: f.name }),
+                    );
+                }
+                return response;
+            }
+        } catch (e) {
+            console.warn(
+                "tentacle cache path failed; falling back to live query:",
+                e,
+            );
+        }
+    }
+
+    // Fallback: live `around:` query (cold city / tentacle centre outside the
+    // cache coverage). This is the only path that still touches Overpass.
+    const query = `
+[out:json][timeout:25];
+nwr["${LOCATION_FIRST_TAG[question.locationType]}"="${question.locationType}"](around:${radiusMeters}, ${question.lat}, ${question.lng});
 out center;
     `;
     const data = await getOverpassData(query, text);
