@@ -46,6 +46,7 @@ import {
     tripRouteFC,
 } from "@/lib/journey/state";
 import { findZoneAtPoint } from "@/lib/journey/stations";
+import { holedMask } from "@/maps";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
 import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
@@ -278,6 +279,23 @@ export function HiderBackgroundMap() {
         $hidingRadius,
         $hidingRadiusUnits,
     ]);
+
+    // Dim the map OUTSIDE the play area (v752), matching the seeker map +
+    // wizard preview. `holedMask` returns the world with a hole where the
+    // play area is, painted as a dark fill below the boundary line + dots so
+    // the playable region stays bright and everything else recedes. (The
+    // hider has no question eliminations, so this is a pure play-area mask.)
+    const playAreaMask = useMemo(() => {
+        if (!$polyGeoJSON?.features?.length) return null;
+        try {
+            return holedMask(
+                $polyGeoJSON as never,
+            ) as GeoJSON.Feature | null;
+        } catch (e) {
+            console.warn("HiderBackgroundMap holedMask failed:", e);
+            return null;
+        }
+    }, [$polyGeoJSON]);
 
     // v394: one-shot fit-to-play-area when the polygon first arrives, so
     // the hider sees the city outline framed instead of needing to pan.
@@ -515,6 +533,29 @@ export function HiderBackgroundMap() {
                             id="satellite-layer"
                             type="raster"
                             paint={{ "raster-opacity": 1 }}
+                        />
+                    </Source>
+                )}
+
+                {/* Dim everything OUTSIDE the play area (v752) — the same
+                    treatment as the seeker map + wizard preview, so the
+                    playable region reads as bright and the surroundings
+                    recede. Below the boundary line + dots. */}
+                {playAreaMask && (
+                    <Source
+                        id="hider-playarea-mask"
+                        type="geojson"
+                        data={playAreaMask as GeoJSON.Feature}
+                    >
+                        <Layer
+                            id="hider-playarea-mask-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color": darkBasemap
+                                    ? "#000000"
+                                    : "#0f172a",
+                                "fill-opacity": 0.5,
+                            }}
                         />
                     </Source>
                 )}

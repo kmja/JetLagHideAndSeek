@@ -1,7 +1,8 @@
 import { useStore } from "@nanostores/react";
-import { booleanPointInPolygon } from "@turf/turf";
 import { useEffect } from "react";
 import { toast } from "react-toastify";
+
+import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 
 import {
     hidingRadius,
@@ -129,21 +130,21 @@ export function HiderReachOverlay() {
                 return;
             }
 
-            // Play-area cull — belt-and-braces: the poly:-filtered query
-            // already restricts to the play area, but the relation-based
-            // fallback path can spill, and the cull is cheap.
+            // Play-area cull. The `/api/area-stations` endpoint returns a
+            // 2 km-PADDED bbox superset (a RECTANGLE around the play area's
+            // extent — for NYC that rectangle swallows a big slab of NJ), so
+            // this cull to the actual boundary polygon is load-bearing, not
+            // belt-and-braces. v752 fix: `$poly` is a FeatureCollection, but
+            // the old `booleanPointInPolygon(pt, $poly)` requires a
+            // Polygon/MultiPolygon — it THREW on the FC and the catch kept
+            // EVERY station (no cull), which only became visible once the
+            // 180-near-the-hider cap was removed (dots spilled into NJ). Use
+            // `pointInPlayArea`, which handles a FeatureCollection.
             let inArea = stations;
             if ($poly) {
-                inArea = stations.filter((s) => {
-                    try {
-                        return booleanPointInPolygon(
-                            [s.lng, s.lat],
-                            $poly as never,
-                        );
-                    } catch {
-                        return true;
-                    }
-                });
+                inArea = stations.filter((s) =>
+                    pointInPlayArea($poly, s.lng, s.lat),
+                );
             }
 
             // Compute the unioned extent fill OFF the main thread (the
