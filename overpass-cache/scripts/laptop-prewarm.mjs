@@ -3447,7 +3447,12 @@ async function main() {
     // admin_level-around discovery diverged from the star gate for megacities;
     // --adjacents uses the worker's authoritative set instead.
     const cityCompleteSeen = new Set();
-    if (DO_ADJACENTS && !ONLY_CITY) {
+    // --adjacents runs processCityComplete (primary + adjacent areas + stamp)
+    // for EVERY target — including a single --only-city target, so
+    // `--only-city <id> --adjacents` fully caches one city end-to-end (the
+    // natural reading, and what you want to demo a specific city). Without
+    // --adjacents it's primaries-only for the same target set.
+    if (DO_ADJACENTS) {
         for (let i = 0; i < todo.length; i++) {
             try {
                 await processCityComplete(todo[i], cityCompleteSeen);
