@@ -147,10 +147,53 @@ const OVERPASS_ENDPOINTS = [
 ];
 let endpointIdx = 0;
 
+// ── Overpass slot gate (per-IP) ───────────────────────────────────────────
+// Poll Overpass's /api/status — it reports THIS machine's per-IP slot budget
+// (e.g. "Rate limit: 2 / 2 slots available now") — and wait until a slot is
+// free before firing a DIRECT public-mirror query. The generator hits the
+// WORKER first (server-side cache + its own rate handling), but when the
+// worker's upstream is throttled it returns an empty 200; we then fall to the
+// public mirrors straight from this IP, and those must be paced or they throttle
+// too. This is the same gate laptop-prewarm.mjs uses — the generator delegated
+// rate-limiting to the worker and never had its own, which is why heavy bulk
+// runs stalled. Never blocks longer than maxWaitMs; a failed status check just
+// proceeds (don't stall on a status hiccup).
+const STATUS_URL = "https://overpass-api.de/api/status";
+let lastSlotLog = 0;
+async function waitForOverpassSlot(maxWaitMs = 180_000) {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+        let text;
+        try {
+            const res = await fetch(STATUS_URL, { headers: { "User-Agent": UA } });
+            text = await res.text();
+        } catch {
+            return; // status unreachable → proceed rather than stall
+        }
+        const avail = text.match(/(\d+)\s+slots?\s+available now/i);
+        if (avail && parseInt(avail[1], 10) > 0) return; // a slot is free
+        if (/Rate limit:\s*0\b/i.test(text)) return; // 0 = unlimited on this instance
+        const waits = [...text.matchAll(/in (\d+) seconds/gi)].map((m) =>
+            parseInt(m[1], 10),
+        );
+        const waitS = waits.length ? Math.min(...waits) : 4;
+        if (Date.now() - lastSlotLog > 15_000) {
+            console.log(`    ⏸ waiting ~${waitS + 1}s for a free Overpass slot…`);
+            lastSlotLog = Date.now();
+        }
+        await sleep((waitS + 1) * 1000);
+    }
+}
+
 async function overpass(query, tries = 7) {
     let lastErr;
     for (let attempt = 0; attempt < tries; attempt++) {
         const url = OVERPASS_ENDPOINTS[endpointIdx % OVERPASS_ENDPOINTS.length];
+        const isWorker = url.startsWith(WORKER_BASE);
+        // Pace DIRECT mirror queries to this IP's slot budget (the worker
+        // manages its own upstream, so no gate for it). Never fire into a
+        // throttle.
+        if (!isWorker) await waitForOverpassSlot();
         // Per-attempt timeout so a hung connection can't stall a batch run.
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 180_000);
@@ -190,7 +233,23 @@ async function overpass(query, tries = 7) {
             if (/"remark":\s*"[^"]*(?:timed out|out of memory)/i.test(text)) {
                 throw new Error("Overpass soft-timeout (remark)");
             }
-            return JSON.parse(text);
+            const json = JSON.parse(text);
+            // The WORKER returning an empty result is SUSPECT — its upstream
+            // (Cloudflare IPs, hammered by its own cron) can be rate-limited
+            // even when THIS phone's Overpass slots are wide open. Rather than
+            // trust that 0, rotate to a direct mirror (slot-gated above) which
+            // uses the phone's healthy per-IP budget. A direct mirror's empty
+            // IS authoritative and returns as-is.
+            if (
+                isWorker &&
+                (json.elements ?? []).length === 0 &&
+                attempt < tries - 1
+            ) {
+                endpointIdx++; // move past the worker to a direct mirror
+                clearTimeout(timer);
+                continue;
+            }
+            return json;
         } catch (e) {
             lastErr = e;
             endpointIdx++; // rotate mirror
