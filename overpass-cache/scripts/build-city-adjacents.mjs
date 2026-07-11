@@ -27,7 +27,8 @@
  *        [--skip-existing] [--radius 40] [--level auto|6|7|8]
  *        [--kinds subway,light_rail,commuter,tram,ferry,bus]
  *        [--min-stops 2] [--max-area-ratio 10] [--min-density 0.2]
- *        [--no-contiguous] [--concurrency 4] [--delay-ms 600]
+ *        [--no-contiguous] [--concurrency 4] [--delay-ms 1500]
+ *        [--cooldown-ms 30000] [--max-cooldowns 4]
  *        [--out world-cities.json] [--email you@example.com]
  *
  *   --limit N          process the first N cities in the file (population
@@ -48,7 +49,13 @@
  *   --no-contiguous    keep isolated reached districts (default: contiguous
  *                      blob touching the primary only).
  *   --concurrency N    parallel candidate-boundary fetches (default 4).
- *   --delay-ms N       pause between cities to be polite to Overpass (600).
+ *   --delay-ms N       pause (ms) between cities to be polite to Overpass, so
+ *                      a heavy city doesn't rate-limit the next (default 1500).
+ *   --cooldown-ms N    base wait (ms) after a "0 stops" result before retrying
+ *                      the city — a real city returning 0 is almost always the
+ *                      upstream throttled by a prior heavy city (default 30000).
+ *   --max-cooldowns N  how many ESCALATING cooldown retries (N×base: 30/60/90…s)
+ *                      before accepting a 0 (default 4).
  *   --out FILE         output file (default world-cities.json, in place).
  *
  * Writes each processed entry's `adjacentRelationIds` (sorted, deduped). The
