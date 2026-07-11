@@ -45,6 +45,7 @@ import {
     type TransitMode,
     welcomeSeen,
 } from "@/lib/gameSetup";
+import { appNavigate } from "@/lib/appNavigate";
 import {
     playerRole,
     roundFoundAt,
@@ -283,11 +284,19 @@ export function GameLobbyDialog() {
         playerRole.set(role);
         if (role !== "coHider") setOnlineRole(role);
         if (typeof window === "undefined") return;
+        // v756: SOFT-navigate (SPA) instead of window.location.assign — a full
+        // reload here tore down the live WS + let the reconnect snapshot
+        // clobber the wizard's transit/size settings (the "lobby reloads when
+        // I pick hider" bug). The presence echo's reconcileLocalRoleFromPresence
+        // also soft-navigates now, so this is just the immediate, responsive
+        // move; falls back to a hard nav only if the router bridge is absent.
         const onHiderPage = window.location.pathname.startsWith("/h");
         if (role === "hider" || role === "coHider") {
-            if (!onHiderPage) window.location.assign("/h");
+            if (!onHiderPage && !appNavigate("/h", { replace: true }))
+                window.location.assign("/h");
         } else if (onHiderPage) {
-            window.location.assign("/");
+            if (!appNavigate("/", { replace: true }))
+                window.location.assign("/");
         }
     };
 

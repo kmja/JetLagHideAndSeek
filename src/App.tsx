@@ -1,11 +1,14 @@
 import { useStore } from "@nanostores/react";
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import {
     createBrowserRouter,
     Navigate,
     RouterProvider,
+    useNavigate,
 } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
+
+import { registerAppNavigate } from "@/lib/appNavigate";
 
 import { BetaGate } from "@/components/BetaGate";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
@@ -111,8 +114,22 @@ function GameRouteGate({
 // chunk 404s after a redeploy and offers a recover-and-reload
 // path; without it, a stale SW that 404s the page chunk leaves
 // the user staring at a blank screen with no escape.
+/** Registers React Router's `navigate` with the appNavigate bridge so plain
+ *  modules (multiplayer/store.ts) can SOFT-navigate on a role change instead
+ *  of a full `window.location` reload. Mounted in every route via
+ *  RouteWrapper, so a navigate is always registered while the app is up. */
+function NavigationBridge() {
+    const navigate = useNavigate();
+    useEffect(() => {
+        registerAppNavigate((to, opts) => navigate(to, opts));
+        return () => registerAppNavigate(null);
+    }, [navigate]);
+    return null;
+}
+
 const RouteWrapper = ({ element }: { element: React.ReactNode }) => (
     <MapErrorBoundary>
+        <NavigationBridge />
         <Suspense
             fallback={
                 <div className="fixed inset-0 flex items-center justify-center bg-background">

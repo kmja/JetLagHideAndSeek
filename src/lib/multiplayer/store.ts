@@ -25,6 +25,7 @@ import type { CursePayload } from "@protocol/index";
 
 import { getStoredPushSubscription, notify } from "@/lib/notifications";
 
+import { appNavigate } from "@/lib/appNavigate";
 import { CATEGORIES } from "@/lib/categories";
 import {
     addQuestion as localAddQuestion,
@@ -668,11 +669,17 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
         const onSeeker =
             path === "/" || (!onHider && !path.startsWith("/h"));
         // Hider and co-hider both live on the hider surface (/h); the
-        // co-hider just renders the read-only companion view there.
+        // co-hider just renders the read-only companion view there. v756:
+        // SOFT-navigate via the appNavigate bridge (fall back to a hard nav
+        // only if the router bridge isn't mounted). A `window.location`
+        // reload here tore down the live WS + re-applied the server snapshot
+        // over local state — the "lobby reloads when I pick hider" bug.
         if ((me.role === "hider" || me.role === "coHider") && !onHider) {
-            window.location.assign("/h");
+            if (!appNavigate("/h", { replace: true }))
+                window.location.assign("/h");
         } else if (me.role === "seeker" && !onSeeker) {
-            window.location.assign("/");
+            if (!appNavigate("/", { replace: true }))
+                window.location.assign("/");
         }
     }
 }

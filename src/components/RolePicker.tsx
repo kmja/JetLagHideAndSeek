@@ -10,6 +10,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { appNavigate } from "@/lib/appNavigate";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import {
@@ -129,11 +130,17 @@ export function RolePicker() {
         // on top of the hider role client-side.
         if (selected !== "coHider") setOnlineRole(selected);
         if (typeof window === "undefined") return;
+        // v756: SOFT-navigate (SPA) — a window.location reload tore down the
+        // live WS and let the reconnect snapshot clobber the wizard's
+        // transit/size settings (the "lobby reloads when I pick hider" bug).
+        // Falls back to a hard nav only if the router bridge isn't mounted.
         const onHiderPage = window.location.pathname.startsWith("/h");
         if (selected === "hider" || selected === "coHider") {
-            if (!onHiderPage) window.location.assign("/h");
+            if (!onHiderPage && !appNavigate("/h", { replace: true }))
+                window.location.assign("/h");
         } else if (onHiderPage) {
-            window.location.assign("/");
+            if (!appNavigate("/", { replace: true }))
+                window.location.assign("/");
         }
     };
 
