@@ -108,9 +108,12 @@ const CONCURRENCY = parseInt(arg("concurrency", "4"), 10) || 4;
 const DELAY_MS = parseInt(arg("delay-ms", "1500"), 10);
 // Cooldown after a "0 stops" result — almost always the worker's upstream
 // Overpass rate-limited after a PREVIOUS heavy city (London-sized queries
-// saturate it), which clears with time. We pause this long, then retry the
-// city once. Override with --cooldown-ms.
+// saturate it). We don't know how long the throttle lasts, so ESCALATE: wait
+// COOLDOWN_MS, retry; if still 0, wait 2×, then 3×, … up to MAX_COOLDOWNS
+// times. `--cooldown-ms` sets the base (default 30s), `--max-cooldowns` the
+// number of escalating retries (default 4 → 30+60+90+120 = 5 min worst case).
 const COOLDOWN_MS = parseInt(arg("cooldown-ms", "30000"), 10);
+const MAX_COOLDOWNS = parseInt(arg("max-cooldowns", "4"), 10);
 const VERBOSE = !!arg("verbose", false);
 const PROBE = !!arg("probe", false);
 const OUT = resolve(PKG_ROOT, String(arg("out", "world-cities.json")));
@@ -1018,13 +1021,21 @@ async function main() {
             // A "0 stops" result for a real city almost always means the
             // worker's upstream Overpass got rate-limited by a PREVIOUS heavy
             // city (a London-sized 36k-stop query saturates it), not that the
-            // city has no transit. The limit clears with time, so cool down and
-            // retry ONCE before baking a wrong 0.
-            if (result.note && result.note.includes("0 stops")) {
+            // city has no transit. The throttle clears with time, but we can't
+            // see how long — so ESCALATE the wait (30s, 60s, 90s, …) and retry
+            // until stops come back or MAX_COOLDOWNS is hit.
+            for (
+                let cd = 1;
+                cd <= MAX_COOLDOWNS &&
+                result.note &&
+                result.note.includes("0 stops");
+                cd++
+            ) {
+                const wait = COOLDOWN_MS * cd;
                 console.log(
-                    `    (0 stops — likely rate-limited by a prior heavy city; cooling down ${Math.round(COOLDOWN_MS / 1000)}s then retrying once)`,
+                    `    (0 stops — likely rate-limited by a prior heavy city; cooldown ${Math.round(wait / 1000)}s, retry ${cd}/${MAX_COOLDOWNS})`,
                 );
-                await sleep(COOLDOWN_MS);
+                await sleep(wait);
                 result = await findAdjacents(city);
             }
             const { ids, names, note } = result;
