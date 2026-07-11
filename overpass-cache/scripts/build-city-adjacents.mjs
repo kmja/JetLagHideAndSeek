@@ -1050,13 +1050,19 @@ async function findAdjacents(city) {
     // a FINE-level (>=7) auto result blows past MAX_ADJACENTS, re-query at level
     // 6 (county) for a clean "few-large" set. Helsinki (L8 → 11) stays untouched
     // (under the cap), and an explicit --level is never overridden.
+    // Coarsen when the auto result is over the cap AND the primary's level is
+    // FINE (>=7) OR UNKNOWN. The unknown case is essential: under rate-limiting
+    // the admin-level query intermittently fails → detectedLevel is null → the
+    // city falls back to the 6/7/8 band (dozens of cities); those must still
+    // coarsen (Long Beach → 66, Miami → 36 slipped through the old >=7-only
+    // gate). A coarse-numeric level (4/5/6) already uses county candidates and
+    // doesn't over-produce, so it's correctly left alone.
     const detLvlNum = parseInt(detectedLevel, 10);
     if (
         MAX_ADJACENTS > 0 &&
         explicitLevel === null &&
-        Number.isFinite(detLvlNum) &&
-        detLvlNum >= 7 &&
-        finalCandidates.length > MAX_ADJACENTS
+        finalCandidates.length > MAX_ADJACENTS &&
+        (!Number.isFinite(detLvlNum) || detLvlNum >= 7)
     ) {
         if (VERBOSE)
             console.log(
