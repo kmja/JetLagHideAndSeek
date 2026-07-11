@@ -953,7 +953,11 @@ async function findAdjacents(city) {
     // is a param because the density floor that suits small level-8 cities is
     // ~100× too strict for huge level-6 counties (a well-served county is still
     // very low stops/km²), so the coarse pass passes 0.
-    const buildFinal = async (adminCands, minDensity = MIN_DENSITY) => {
+    const buildFinal = async (
+        adminCands,
+        minDensity = MIN_DENSITY,
+        maxAreaRatio = MAX_AREA_RATIO,
+    ) => {
         const candidates = [];
         let idx = 0;
         const runNext = async () => {
@@ -1033,9 +1037,9 @@ async function findAdjacents(city) {
         let sized = candidates.filter(
             (c) => c.stopCount >= MIN_STOPS && c.stopsPerKm2 >= minDensity,
         );
-        if (primaryAreaKm2 > 0) {
+        if (primaryAreaKm2 > 0 && maxAreaRatio > 0) {
             sized = sized.filter(
-                (c) => c.areaKm2 <= MAX_AREA_RATIO * primaryAreaKm2,
+                (c) => c.areaKm2 <= maxAreaRatio * primaryAreaKm2,
             );
         }
         let out = dedupeNested(sized);
@@ -1076,10 +1080,14 @@ async function findAdjacents(city) {
                 lng,
                 RADIUS_KM,
             );
-            // Density floor OFF for counties — they're huge, so a reachable one
-            // is still very low stops/km² (min-stops + the area cap keep out the
-            // grazed desert counties). Without this LA/Chicago collapsed to 2.
-            const coarse = await buildFinal(coarseAdmin, 0);
+            // Density floor AND area cap OFF for counties. Density: they're huge,
+            // so a reachable one is still very low stops/km². Area cap: it's
+            // relative to the PRIMARY, so a SMALL primary (Long Beach ~130 km²)
+            // makes its own county (LA County ~1300+ km²) exceed 10× and drop —
+            // which emptied the coarse set and kept the L8 66/36 bloat. min-stops
+            // (>=2) + contiguity already exclude the grazed desert counties, so
+            // the ratio cap is pure downside once we've decided to go county-level.
+            const coarse = await buildFinal(coarseAdmin, 0, 0);
             // Adopt the coarser set only if it actually reduced the count without
             // collapsing to nothing (a country where L6 is absent/huge → skip).
             if (coarse.length >= 1 && coarse.length < finalCandidates.length) {
