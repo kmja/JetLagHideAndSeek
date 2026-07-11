@@ -179,6 +179,22 @@ function mergeUnique(...lists: CityEntry[][]): CityEntry[] {
             ) {
                 existing.primaryCuratedAt = entry.primaryCuratedAt;
             }
+            // v744 fix: fill the BAKED transit-reach adjacency set too. It lives
+            // ONLY in the static SEED (generated offline by
+            // build-city-adjacents.mjs); the growth doc — written first, so it
+            // wins — never carries it. Without this fill, any city already in
+            // the growth doc (e.g. one whose extent was stored by
+            // ensureCityExtent / register-area) shadows the seed's baked field,
+            // so deriveAdjacentNeighbourIds falls through to LIVE admin-adjacency
+            // even though the city was baked (the "NYC warmed the 14 NJ towns,
+            // not the 5 baked counties" bug). Three-state field: only fill when
+            // the winner's is ABSENT — never overwrite a present [] or [...].
+            if (
+                existing.adjacentRelationIds === undefined &&
+                entry.adjacentRelationIds !== undefined
+            ) {
+                existing.adjacentRelationIds = entry.adjacentRelationIds;
+            }
         }
     }
     return order.map((id) => index.get(id)!);
