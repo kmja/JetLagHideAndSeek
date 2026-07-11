@@ -31,24 +31,17 @@ interface UnionRequest {
     units: Units;
 }
 
-/** Cap on how many circles feed the union — a safety bound on the
- *  worker's wall-clock for a pathological mega-city. v750: raised 220 → 700
- *  so a big rail metro's extent fill spans the WHOLE play area (matching the
- *  seeker overlay + the now-1200 dot cap) instead of covering only a corner.
- *  The input is spatially-uniformly ordered (`spatialUniformOrder` in
- *  stations.ts), so this first-N slice is an even area-wide sample. turf.union
- *  batches the whole FeatureCollection in one call, so 700 circles stay
- *  tractable off the main thread. */
-const MAX_UNION_CIRCLES = 700;
-
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 ctx.onmessage = (e: MessageEvent<UnionRequest>) => {
     const { id, stations, radius, units } = e.data;
     let union: Feature | null = null;
     try {
+        // v751: NO cap — union EVERY circle, exactly like the seeker overlay
+        // (`zonePipeline` unions all its 512-step circles here off-thread too).
+        // The hider cap was a pre-worker freeze guard; now that this runs in a
+        // worker there's no reason to bound it below the seeker.
         const circles = stations
-            .slice(0, MAX_UNION_CIRCLES)
             .map((s) =>
                 // Smooth circles (64 steps) so the merged envelope matches
                 // the seeker overlay's look — the earlier 16-step + heavy

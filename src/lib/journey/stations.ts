@@ -38,14 +38,6 @@ import { haversineMeters } from "@/lib/geo";
 import { AREA_STATIONS_BY_RELATION_BASE } from "@/maps/api/constants";
 import { findPlacesInZone, overpassFailureCount } from "@/maps/api/overpass";
 
-/** Total stops cap — keeps a dense metro's station field renderable.
- *  v750: raised 180 → 1200 so a big rail metro (NYC subway + commuter rail
- *  ≈ 700 stops) shows its WHOLE field, not just the ~180 nearest the hider's
- *  GPS (the old distance-trim clustered the entire overlay around the hider
- *  and hid most of the play area — Manhattan/Brooklyn/Staten Island vanished
- *  in an NYC game). Dots are cheap to render; the heavier union-fill has its
- *  own separate cap in the worker. */
-export const MAX_AREA_STATIONS = 1200;
 
 export interface AreaStation {
     /** OSM element id. Stable identifier for downstream keys. */
@@ -56,17 +48,6 @@ export interface AreaStation {
     mode: TransitMode;
     distanceMeters: number;
 }
-
-/** Mode priority — higher = surfaces first when we trim to the cap.
- *  Subway/train stations matter vastly more to the hiding-zone survey
- *  than individual bus stops, so they're kept under pressure. */
-const MODE_PRIORITY: Record<TransitMode, number> = {
-    subway: 5,
-    train: 4,
-    ferry: 3,
-    tram: 2,
-    bus: 1,
-};
 
 export interface AreaStationOptions {
     /** Which transit modes the game allows; defaults to all. */
@@ -473,74 +454,14 @@ export async function fetchAreaStations(
             ),
         })),
     );
-    // v750: order the field SPATIALLY UNIFORMLY (round-robin across a grid,
-    // rail-first within each cell) rather than by distance from the hider's
-    // GPS. Any prefix of the result then spans the WHOLE play area evenly —
-    // so both the dots (sliced to MAX_AREA_STATIONS) and the union-fill
-    // worker (which takes its own first-N slice) cover the area instead of
-    // clustering around the hider. Replaces the old priority-then-nearest
-    // trim that made a big metro's overlay lopsided toward the hider.
-    const ordered = spatialUniformOrder(deduped);
-    return ordered.length <= MAX_AREA_STATIONS
-        ? ordered
-        : ordered.slice(0, MAX_AREA_STATIONS);
-}
-
-/**
- * Reorder stations so that ANY prefix is an even spatial sample of the whole
- * set. Grid-bucket by lat/lng, then round-robin across the buckets, taking
- * the highest mode-priority station from each cell per pass. Rail/subway thus
- * win under pressure AND the kept sample spans the area — used for both the
- * dot cap and the union-fill slice (v750).
- */
-function spatialUniformOrder(stations: AreaStation[]): AreaStation[] {
-    if (stations.length <= 2) return stations;
-    let minLat = Infinity,
-        maxLat = -Infinity,
-        minLng = Infinity,
-        maxLng = -Infinity;
-    for (const s of stations) {
-        if (s.lat < minLat) minLat = s.lat;
-        if (s.lat > maxLat) maxLat = s.lat;
-        if (s.lng < minLng) minLng = s.lng;
-        if (s.lng > maxLng) maxLng = s.lng;
-    }
-    const latSpan = maxLat - minLat;
-    const lngSpan = maxLng - minLng;
-    // ~48×48 grid — fine enough for a metro, coarse enough to be cheap.
-    const G = 48;
-    const buckets = new Map<number, AreaStation[]>();
-    for (const s of stations) {
-        const gx =
-            lngSpan > 0
-                ? Math.min(G - 1, Math.floor(((s.lng - minLng) / lngSpan) * G))
-                : 0;
-        const gy =
-            latSpan > 0
-                ? Math.min(G - 1, Math.floor(((s.lat - minLat) / latSpan) * G))
-                : 0;
-        const k = gy * G + gx;
-        const arr = buckets.get(k);
-        if (arr) arr.push(s);
-        else buckets.set(k, [s]);
-    }
-    for (const arr of buckets.values()) {
-        arr.sort((a, b) => MODE_PRIORITY[b.mode] - MODE_PRIORITY[a.mode]);
-    }
-    const keys = [...buckets.keys()];
-    const out: AreaStation[] = [];
-    for (let pass = 0; out.length < stations.length; pass++) {
-        let progressed = false;
-        for (const k of keys) {
-            const arr = buckets.get(k)!;
-            if (arr.length > pass) {
-                out.push(arr[pass]);
-                progressed = true;
-            }
-        }
-        if (!progressed) break;
-    }
-    return out;
+    // v751: NO cap. The seeker overlay (`zonePipeline`) unions EVERY station
+    // circle with no cap — and with higher-poly 512-step circles — off the
+    // main thread; the hider's union runs off-thread too (v652), so the two
+    // are structurally identical and the hider shows the SAME full field. The
+    // old 180-cap + distance-from-hider-GPS trim was a pre-worker freeze
+    // guard that survived as an arbitrary limit, clustering a big metro's
+    // overlay around the hider (the NYC "half the boroughs missing" bug).
+    return deduped;
 }
 
 /**
