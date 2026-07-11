@@ -5233,11 +5233,14 @@ async function deriveAdjacentNeighbourIds(
     // `--adjacents` via /admin/city-neighbours, the status readout), the
     // warmed set and the gated set stay identical by construction. Absent (not
     // yet generated) → fall through to the live admin-adjacency derivation, so
-    // this is safe to ship before every city is baked. `adjacencyKnown:true`
-    // because a baked set is a definitive answer (an empty baked list would be
-    // a genuine "no neighbours", but the generator omits the field entirely for
-    // those, so an empty array here still falls through to live).
-    if (city.adjacentRelationIds && city.adjacentRelationIds.length > 0) {
+    // this is safe to ship before every city is baked. The field is THREE-STATE
+    // (see build-city-adjacents.mjs): a PRESENT array — even an EMPTY one — is a
+    // definitive generated answer (`adjacencyKnown:true`); an empty baked list
+    // is a canonical "no transit-reach neighbours" and must NOT fall through to
+    // live (the generator leaves the field ABSENT, not [], on a transient
+    // failure, so an empty array here is always genuine). Only an ABSENT field
+    // (`undefined`) falls through to the live derivation below.
+    if (Array.isArray(city.adjacentRelationIds)) {
         const ids = [
             ...new Set(
                 city.adjacentRelationIds.filter(
@@ -6811,8 +6814,11 @@ async function resolveBakedAdjacentCandidate(
  * offered==warmed, with zero runtime Overpass. Each neighbour's name + extent
  * come from its own prewarmed boundary in R2 (via
  * `resolveBakedAdjacentCandidate`); a neighbour whose boundary isn't cached yet
- * is silently omitted. A city with NO baked set returns `{baked:false,
- * candidates:[]}`, and the client falls back to its live admin-adjacency path.
+ * is silently omitted. The `adjacentRelationIds` field is THREE-STATE: ABSENT →
+ * `{baked:false}` and the client falls back to live admin-adjacency; PRESENT but
+ * empty → `{baked:true, requested:0, candidates:[]}`, the canonical "no
+ * transit-reach neighbours" (the client shows zero and does NOT fall back);
+ * PRESENT non-empty → `{baked:true, requested:N, candidates:[resolved]}`.
  * Read-only; never touches Overpass.
  */
 async function handleCityAdjacents(
@@ -6828,17 +6834,26 @@ async function handleCityAdjacents(
     } catch {
         /* fall through to not-baked */
     }
-    const bakedIds = city?.adjacentRelationIds ?? [];
-    if (bakedIds.length === 0) {
+    // Three-state field (see build-city-adjacents.mjs + deriveAdjacentNeighbourIds):
+    // ABSENT → not generated → baked:false → the client falls back to live.
+    // PRESENT (array, even empty) → generated → baked:true. An empty baked set is
+    // the CANONICAL "no transit-reach neighbours" (requested:0, candidates:[]) —
+    // the client renders zero adjacents and does NOT fall back. A non-empty set
+    // whose boundaries aren't all warm yet resolves fewer candidates than
+    // requested; the client tells that warm-gap apart from a canonical empty via
+    // `requested` and only THEN falls back.
+    if (!Array.isArray(city?.adjacentRelationIds)) {
         return jsonResponse(
-            { relationId, baked: false, count: 0, candidates: [] },
+            { relationId, baked: false, count: 0, requested: 0, candidates: [] },
             200,
             cors,
         );
     }
     const ids = [
         ...new Set(
-            bakedIds.filter((id) => Number.isFinite(id) && id !== relationId),
+            city.adjacentRelationIds.filter(
+                (id) => Number.isFinite(id) && id !== relationId,
+            ),
         ),
     ];
     const resolved = (

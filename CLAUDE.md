@@ -410,7 +410,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v743`. Use `git log` for the per-version detail;
+build stamp. Current: `v744`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared
@@ -588,29 +588,48 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   all `--flag`-overridable; `--only`/`--limit`/`--skip-existing` for targeted or
   resumable runs; incremental save every 5 cities. Must run on a machine that
   can reach Overpass (CI/sandbox egress blocks it).
-- **Baked adjacency consumers wired (v740, Topic 2).** Both consumers now
-  PREFER the baked `adjacentRelationIds`, falling back to live admin-adjacency
-  when a city has none (so it's safe to ship before every city is generated):
+- **Baked adjacency consumers wired (v740, Topic 2; three-state contract v744).**
+  Both consumers PREFER the baked `adjacentRelationIds`. **The field is
+  THREE-STATE (v744 — a baked city NEVER falls back to live at wizard time):**
+  ABSENT → not generated → fall back to live admin-adjacency; PRESENT but empty
+  `[]` → generated + CANONICAL "no transit-reach neighbours" → show zero
+  adjacents, NO fallback; PRESENT non-empty → show exactly that set. The
+  generator (`build-city-adjacents.mjs`) writes the field ONLY on a successful
+  run (an empty `[]` is a genuine result); a transient "0 stops"/"no boundary"
+  fetch failure (usually upstream rate-limiting) leaves the field ABSENT, so a
+  flaky run can't poison a real transit city with a canonical empty.
+  `--skip-existing` therefore skips ANY present field (incl. `[]`) and retries
+  only absent ones.
   - **Worker (star gate + warming):** `deriveAdjacentNeighbourIds`
     (`index.ts`) — the SINGLE producer every worker path funnels through (star
     gate `verifyAndStampCity`, cron Phase-4 neighbour warming, laptop
     `--adjacents` via `/admin/city-neighbours`, the status readout) — returns
     `city.adjacentRelationIds` verbatim (deduped, self-excluded,
-    `adjacencyKnown:true`) when present. So the warmed set and the gated set
-    are the baked set by construction, with zero runtime Overpass to derive
-    them.
+    `adjacencyKnown:true`) whenever the field is a PRESENT array, INCLUDING an
+    empty one (a canonical no-neighbours city is vacuously adjacent-curated →
+    stamps `adjacentsCuratedAt`). Only an ABSENT field falls through to live.
+    So the warmed set and the gated set are the baked set by construction, with
+    zero runtime Overpass to derive them.
   - **Client (wizard):** `findExtensionCandidates` (`playAreaExtensions.ts`)
     first hits **`GET /api/city-adjacents/<relationId>`** (`handleCityAdjacents`,
     worker) — which resolves the baked ids into rendered candidates (name +
-    extent from each neighbour's PREWARMED boundary in R2, area precomputed) —
-    and, on a `{baked:true}` response, renders EXACTLY that set (offered==warmed,
-    `hasMatchingTransit:true` by construction) and skips the live Overpass
-    passes. A `{baked:false}` city falls through to the existing live
-    derivation. A neighbour whose boundary isn't cached yet is silently omitted
-    (appears once warm). **The generated data is not committed to
-    `world-cities.json` yet** — until it is, every city is `baked:false` and
-    both consumers behave exactly as before; running `build-city-adjacents.mjs`
-    + committing its output is what activates the baked path per city.
+    extent from each neighbour's PREWARMED boundary in R2, area precomputed) and
+    returns `{baked, requested, count, candidates}`. `fetchBakedAdjacentCandidates`
+    returns `[]` for a canonical-empty baked city (`requested:0`) and the caller
+    renders zero WITHOUT falling back; it returns `null` only when the city
+    isn't baked (`baked:false`) OR on a transient warm gap (`requested>0` but 0
+    boundaries resolved yet), both of which fall through to the live derivation.
+    A neighbour whose boundary isn't cached yet is silently omitted (appears
+    once warm). **The generated data is not committed to `world-cities.json`
+    yet** — until it is, every city is `baked:false` and both consumers behave
+    exactly as before; running `build-city-adjacents.mjs` + committing its
+    output is what activates the baked path per city. **Coarsening (v743):** a
+    fine-level (≥7) or unknown-level primary whose auto result exceeds
+    `--max-adjacents` (20) re-queries at admin_level 6 (county) with the density
+    floor AND area-ratio cap OFF (the cap is relative to the primary, so a small
+    primary like Long Beach would otherwise drop its own huge county) — Long
+    Beach → 3 counties, Miami → 2, LA → 3, Chicago → 5, instead of dozens of
+    suburbs.
 - **Debug overlay gallery** at `/debug/overlays` — every state of every
   overlay at once via a `preview` prop on each overlay (shadows its
   atoms, writes nothing global), plus a light/dark toggle. The debug

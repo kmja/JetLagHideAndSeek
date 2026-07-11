@@ -35,8 +35,12 @@
  *                      order). Omit = all.
  *   --only <list>      process ONLY these cities (comma list of names or
  *                      relation ids), e.g. --only Helsinki,913067.
- *   --skip-existing    skip cities that already carry adjacentRelationIds
- *                      (resume a partial run without recomputing).
+ *   --skip-existing    skip cities that already carry an adjacentRelationIds
+ *                      field — INCLUDING a canonical empty [] (a real "no
+ *                      transit-reach neighbours" result, not a to-do). Only
+ *                      cities with NO field (never generated / a prior run
+ *                      failed) are retried. Resume a partial run without
+ *                      recomputing finished cities.
  *   --priority-regions[=US,GB,…]  process cities by REGION tier first (then by
  *                      population), using each city's `country` tag — so the
  *                      audience's cities generate before the population-ordered
@@ -66,8 +70,18 @@
  *                      before accepting a 0 (default 4).
  *   --out FILE         output file (default world-cities.json, in place).
  *
- * Writes each processed entry's `adjacentRelationIds` (sorted, deduped). The
- * file is otherwise preserved (merge, not replace).
+ * Writes each SUCCESSFULLY-processed entry's `adjacentRelationIds` (sorted,
+ * deduped). Field semantics are three-state and load-bearing downstream:
+ *   - ABSENT              → not generated (or the run failed): the worker
+ *                           returns baked:false and the wizard falls back to
+ *                           live admin-adjacency.
+ *   - PRESENT, empty []   → generated, CANONICAL "no transit-reach neighbours":
+ *                           the worker returns baked:true and the wizard shows
+ *                           NO adjacents (it does NOT fall back to live).
+ *   - PRESENT, non-empty  → generated: the wizard shows exactly this set.
+ * A transient fetch failure (a "0 stops" note after cooldowns) leaves the field
+ * ABSENT — it is never baked as an empty, so a rate-limited run can't poison a
+ * real transit city. The file is otherwise preserved (merge, not replace).
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -1129,11 +1143,10 @@ function selectCities(all) {
         );
     }
     if (SKIP_EXISTING) {
-        list = list.filter(
-            (c) =>
-                !Array.isArray(c.adjacentRelationIds) ||
-                c.adjacentRelationIds.length === 0,
-        );
+        // A PRESENT array (even []) means "already generated" — a canonical
+        // empty is a real result, not a to-do. Retry ONLY cities with no field
+        // at all (never generated, or a prior run failed and left it absent).
+        list = list.filter((c) => !Array.isArray(c.adjacentRelationIds));
     }
     // Reorder BEFORE the --limit slice so the limit takes the priority cities.
     if (PRIORITY_REGIONS && !ONLY) {
@@ -1227,7 +1240,18 @@ async function main() {
             }
             const { ids, names, note } = result;
             const entry = byRel.get(city.relationId);
-            entry.adjacentRelationIds = ids;
+            // Bake ONLY a genuine result. A note ("0 stops", "no primary
+            // boundary") is a transient FETCH failure — almost always upstream
+            // rate-limiting, not a real "this city has no adjacents". Baking []
+            // for it would permanently stamp a real transit city as canonically
+            // adjacent-less, and — per the no-fallback contract (a baked city
+            // never falls back to live admin-adjacency at wizard time) — it'd
+            // never self-correct. So leave the field ABSENT on failure: the city
+            // stays "not generated", retries on the next run, and falls back to
+            // live meanwhile. A SUCCESSFUL run (note===null) is always baked,
+            // INCLUDING a genuine empty set (ids===[]) — an empty array is the
+            // canonical "no transit-reach neighbours" and is authoritative.
+            if (!note) entry.adjacentRelationIds = ids;
             // Print the FULL adjacent list (not a truncated preview) so the
             // whole set is eyeball-checkable right in the terminal — the
             // truncated-at-8 form hid half of a big metro's neighbours.

@@ -99,15 +99,18 @@ export async function findExtensionCandidates(
     // set (precomputed offline, served by /api/city-adjacents/<id>). When it
     // does, render EXACTLY that — the same municipalities the cron/laptop
     // warmed (offered==warmed), with zero runtime Overpass — and skip the live
-    // admin-adjacency passes below entirely. A city without a baked set returns
-    // `baked:false` and we fall through to the existing live derivation, so
-    // this is safe before every city is baked.
+    // admin-adjacency passes below entirely. `fetchBakedAdjacentCandidates`
+    // returns non-null for ANY baked city, INCLUDING a canonical empty set (a
+    // generated "no transit-reach neighbours" → `[]`): a baked city NEVER falls
+    // back to live at wizard time. It returns null only when the city isn't
+    // baked at all (or a transient warm gap), which falls through below — safe
+    // before every city is generated.
     const baked = await fetchBakedAdjacentCandidates(
         primaryOsmId,
         primaryLat,
         primaryLng,
     ).catch(() => null);
-    if (baked && baked.length > 0) {
+    if (baked !== null) {
         baked.sort((a, b) => a.distanceKm - b.distanceKm);
         return baked.slice(0, limit);
     }
@@ -414,11 +417,18 @@ export async function findExtensionCandidates(
 /**
  * v740 — Topic 2. Fetch a curated city's BAKED transit-reach adjacent set from
  * the worker (`/api/city-adjacents/<relationId>`) and map it to renderable
- * candidates. Returns null when the city has no baked set (`baked:false`) or on
- * any error, so the caller falls back to live admin-adjacency. Each candidate's
- * name + extent come from the worker (resolved from prewarmed boundaries), so
- * this path touches NO Overpass. `hasMatchingTransit` is true by construction —
- * the baked set IS "the municipalities the transit network reaches".
+ * candidates. The baked field is THREE-STATE, so this returns three things:
+ *   - `null`  → NOT baked (`baked:false`), so the caller falls back to live
+ *               admin-adjacency. Also returned on a WARM GAP (baked, but the
+ *               worker requested N>0 neighbours and resolved 0 boundaries) so
+ *               the user still gets candidates while the boundaries warm.
+ *   - `[]`    → baked and CANONICAL empty (`requested:0`): the city genuinely
+ *               has no transit-reach neighbours. The caller renders zero and
+ *               does NOT fall back.
+ *   - `[...]` → baked, resolved candidates.
+ * Each candidate's name + extent come from the worker (resolved from prewarmed
+ * boundaries), so this path touches NO Overpass. `hasMatchingTransit` is true by
+ * construction — the baked set IS "the municipalities the transit network reaches".
  */
 async function fetchBakedAdjacentCandidates(
     primaryOsmId: number,
@@ -427,6 +437,7 @@ async function fetchBakedAdjacentCandidates(
 ): Promise<AdjacentAreaCandidate[] | null> {
     let data: {
         baked?: boolean;
+        requested?: number;
         candidates?: Array<{
             osmId?: number;
             name?: string;
@@ -442,6 +453,14 @@ async function fetchBakedAdjacentCandidates(
         return null;
     }
     if (data?.baked !== true || !Array.isArray(data.candidates)) return null;
+    // Canonical empty: baked with zero requested neighbours → genuine "none".
+    // Return [] (no fallback). A non-empty request that resolved nothing is a
+    // transient warm gap → return null so the caller falls back to live.
+    const requested =
+        typeof data.requested === "number" ? data.requested : data.candidates.length;
+    if (data.candidates.length === 0) {
+        return requested === 0 ? [] : null;
+    }
 
     const out: AdjacentAreaCandidate[] = [];
     for (const c of data.candidates) {
