@@ -105,7 +105,12 @@ const MAX_AREA_RATIO = parseFloat(arg("max-area-ratio", "10")) || 10;
 const MIN_DENSITY = parseFloat(arg("min-density", "0.2"));
 const CONTIGUOUS = !arg("no-contiguous", false);
 const CONCURRENCY = parseInt(arg("concurrency", "4"), 10) || 4;
-const DELAY_MS = parseInt(arg("delay-ms", "600"), 10);
+const DELAY_MS = parseInt(arg("delay-ms", "1500"), 10);
+// Cooldown after a "0 stops" result — almost always the worker's upstream
+// Overpass rate-limited after a PREVIOUS heavy city (London-sized queries
+// saturate it), which clears with time. We pause this long, then retry the
+// city once. Override with --cooldown-ms.
+const COOLDOWN_MS = parseInt(arg("cooldown-ms", "30000"), 10);
 const VERBOSE = !!arg("verbose", false);
 const PROBE = !!arg("probe", false);
 const OUT = resolve(PKG_ROOT, String(arg("out", "world-cities.json")));
@@ -1018,7 +1023,20 @@ async function main() {
         done++;
         const label = `${done}/${targets.length} ${city.name} (r${city.relationId})`;
         try {
-            const { ids, names, note } = await findAdjacents(city);
+            let result = await findAdjacents(city);
+            // A "0 stops" result for a real city almost always means the
+            // worker's upstream Overpass got rate-limited by a PREVIOUS heavy
+            // city (a London-sized 36k-stop query saturates it), not that the
+            // city has no transit. The limit clears with time, so cool down and
+            // retry ONCE before baking a wrong 0.
+            if (result.note && result.note.includes("0 stops")) {
+                console.log(
+                    `    (0 stops — likely rate-limited by a prior heavy city; cooling down ${Math.round(COOLDOWN_MS / 1000)}s then retrying once)`,
+                );
+                await sleep(COOLDOWN_MS);
+                result = await findAdjacents(city);
+            }
+            const { ids, names, note } = result;
             const entry = byRel.get(city.relationId);
             entry.adjacentRelationIds = ids;
             // Print the FULL adjacent list (not a truncated preview) so the
