@@ -2326,9 +2326,12 @@ async function handleWarmCities(
     // loosest extent-only star (NOT a cache guarantee).
     const lenient = env.WARM_STAR_LENIENT === "true";
     const strict = env.WARM_STAR_STRICT === "true";
+    // `cities` carries {relationId, name} so the list is human-readable in a
+    // browser; `ids` is kept for the client consumers that read it verbatim.
+    let named: Array<{ relationId: number; name: string }> = [];
     try {
         const cities = await getPopularCities(env);
-        ids = cities
+        named = cities
             .filter((c) => {
                 if (typeof c.relationId !== "number") return false;
                 if (lenient)
@@ -2336,11 +2339,16 @@ async function handleWarmCities(
                 if (strict) return typeof c.fullyCuratedAt === "number";
                 return typeof c.primaryCuratedAt === "number";
             })
-            .map((c) => c.relationId);
+            .map((c) => ({
+                relationId: c.relationId,
+                name: c.name ?? `Relation ${c.relationId}`,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        ids = named.map((c) => c.relationId);
     } catch (e) {
         console.warn("warm-cities lookup failed:", e);
     }
-    return jsonResponse({ count: ids.length, ids }, 200, {
+    return jsonResponse({ count: ids.length, ids, cities: named }, 200, {
         ...corsHeadersAsObject(cors),
         "Cache-Control": "public, max-age=3600",
     });
@@ -2362,19 +2370,27 @@ async function handleAdjacentReadyCities(
     cors: HeadersInit,
 ): Promise<Response> {
     let ids: number[] = [];
+    // `cities` carries {relationId, name} for browser readability; `ids` is
+    // kept for the client consumer (adjacentReadyCities.ts) that reads it.
+    let named: Array<{ relationId: number; name: string }> = [];
     try {
         const cities = await getPopularCities(env);
-        ids = cities
+        named = cities
             .filter(
                 (c) =>
                     typeof c.relationId === "number" &&
                     typeof c.adjacentsCuratedAt === "number",
             )
-            .map((c) => c.relationId);
+            .map((c) => ({
+                relationId: c.relationId,
+                name: c.name ?? `Relation ${c.relationId}`,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+        ids = named.map((c) => c.relationId);
     } catch (e) {
         console.warn("adjacent-ready-cities lookup failed:", e);
     }
-    return jsonResponse({ count: ids.length, ids }, 200, {
+    return jsonResponse({ count: ids.length, ids, cities: named }, 200, {
         ...corsHeadersAsObject(cors),
         "Cache-Control": "public, max-age=3600",
     });
