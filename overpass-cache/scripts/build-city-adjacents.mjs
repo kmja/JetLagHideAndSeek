@@ -143,7 +143,11 @@ const OVERPASS_ENDPOINTS = [
     `${WORKER_BASE}/api/interpreter`,
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.osm.ch/api/interpreter",
+    // overpass.osm.ch is DELIBERATELY excluded: a --probe showed it returns a
+    // "successful" 200 with 0 elements and a nonsense timestamp ("115575") — a
+    // broken/stale instance whose false-empty response was being trusted as an
+    // authoritative "0 stops", baking wrong empties whenever the good endpoints
+    // were momentarily busy. Re-add only if it's confirmed healthy again.
 ];
 let endpointIdx = 0;
 
@@ -234,18 +238,15 @@ async function overpass(query, tries = 7) {
                 throw new Error("Overpass soft-timeout (remark)");
             }
             const json = JSON.parse(text);
-            // The WORKER returning an empty result is SUSPECT — its upstream
-            // (Cloudflare IPs, hammered by its own cron) can be rate-limited
-            // even when THIS phone's Overpass slots are wide open. Rather than
-            // trust that 0, rotate to a direct mirror (slot-gated above) which
-            // uses the phone's healthy per-IP budget. A direct mirror's empty
-            // IS authoritative and returns as-is.
-            if (
-                isWorker &&
-                (json.elements ?? []).length === 0 &&
-                attempt < tries - 1
-            ) {
-                endpointIdx++; // move past the worker to a direct mirror
+            // An empty result from ANY endpoint is SUSPECT — not just the
+            // worker (whose Cloudflare upstream can be throttled by its own
+            // cron), but any mirror that momentarily soft-fails OR is quietly
+            // broken (overpass.osm.ch was returning a fake 200/0). Rather than
+            // trust a lone 0, rotate to the next endpoint and retry. On the
+            // FINAL attempt we accept whatever we get, so a genuinely stopless
+            // area still resolves to 0 after exhausting the endpoints.
+            if ((json.elements ?? []).length === 0 && attempt < tries - 1) {
+                endpointIdx++; // rotate to a different endpoint and re-query
                 clearTimeout(timer);
                 continue;
             }
