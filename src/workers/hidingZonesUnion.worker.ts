@@ -32,10 +32,14 @@ interface UnionRequest {
 }
 
 /** Cap on how many circles feed the union — a safety bound on the
- *  worker's wall-clock for a pathological mega-city. Set high enough that
- *  a normal city unions ALL its stations (matching the seeker overlay,
- *  which never drops any); `fetchAreaStations` already caps at 180. */
-const MAX_UNION_CIRCLES = 220;
+ *  worker's wall-clock for a pathological mega-city. v750: raised 220 → 700
+ *  so a big rail metro's extent fill spans the WHOLE play area (matching the
+ *  seeker overlay + the now-1200 dot cap) instead of covering only a corner.
+ *  The input is spatially-uniformly ordered (`spatialUniformOrder` in
+ *  stations.ts), so this first-N slice is an even area-wide sample. turf.union
+ *  batches the whole FeatureCollection in one call, so 700 circles stay
+ *  tractable off the main thread. */
+const MAX_UNION_CIRCLES = 700;
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
