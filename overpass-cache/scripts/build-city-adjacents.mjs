@@ -949,8 +949,11 @@ async function findAdjacents(city) {
     // Build the final candidate set from a given admin-candidate list. Extracted
     // so we can run it TWICE — once at the auto/explicit level, and again at
     // level 6 to coarsen an over-granular metro (see below). Each call gets its
-    // own `candidates`/`idx`, so it's safe to invoke repeatedly.
-    const buildFinal = async (adminCands) => {
+    // own `candidates`/`idx`, so it's safe to invoke repeatedly. `minDensity`
+    // is a param because the density floor that suits small level-8 cities is
+    // ~100× too strict for huge level-6 counties (a well-served county is still
+    // very low stops/km²), so the coarse pass passes 0.
+    const buildFinal = async (adminCands, minDensity = MIN_DENSITY) => {
         const candidates = [];
         let idx = 0;
         const runNext = async () => {
@@ -1028,7 +1031,7 @@ async function findAdjacents(city) {
         // Client-side filters (min-stops / density / area cap), then dedup +
         // contiguity — exactly the debug-tool pipeline at the validated defaults.
         let sized = candidates.filter(
-            (c) => c.stopCount >= MIN_STOPS && c.stopsPerKm2 >= MIN_DENSITY,
+            (c) => c.stopCount >= MIN_STOPS && c.stopsPerKm2 >= minDensity,
         );
         if (primaryAreaKm2 > 0) {
             sized = sized.filter(
@@ -1067,7 +1070,10 @@ async function findAdjacents(city) {
                 lng,
                 RADIUS_KM,
             );
-            const coarse = await buildFinal(coarseAdmin);
+            // Density floor OFF for counties — they're huge, so a reachable one
+            // is still very low stops/km² (min-stops + the area cap keep out the
+            // grazed desert counties). Without this LA/Chicago collapsed to 2.
+            const coarse = await buildFinal(coarseAdmin, 0);
             // Adopt the coarser set only if it actually reduced the count without
             // collapsing to nothing (a country where L6 is absent/huge → skip).
             if (coarse.length >= 1 && coarse.length < finalCandidates.length) {
