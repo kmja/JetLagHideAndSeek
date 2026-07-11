@@ -429,15 +429,48 @@ export function InlineLocationPicker({
         }
     }, [$maskData]);
 
-    // Pre-compute the radius circle as a turf polygon when the
-    // radius prop is set; cheaper than re-running on every render.
+    // Smoothly grow/shrink the radius circle when the size changes (v747),
+    // so the overlay animates in step with the camera's animated fitBounds
+    // above instead of snapping. Tween the RENDERED radius over ~420 ms with
+    // an ease-out cubic; a fresh mount / null radius / pin drag snaps (the
+    // effect only runs on a real radius change). MapLibre GeoJSON sources
+    // don't tween geometry natively, so we drive it via requestAnimationFrame.
+    const [animatedRadius, setAnimatedRadius] = useState<number>(
+        radiusMeters && radiusMeters > 0 ? radiusMeters : 0,
+    );
+    const radiusAnimRef = useRef<number | undefined>(undefined);
+    useEffect(() => {
+        const target = radiusMeters && radiusMeters > 0 ? radiusMeters : 0;
+        const from = radiusAnimRef.current;
+        radiusAnimRef.current = target;
+        // Snap on first value, no change, or when clearing to 0 (radar off).
+        if (from === undefined || from === target || target === 0) {
+            setAnimatedRadius(target);
+            return;
+        }
+        const DURATION = 420;
+        const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+        let raf = 0;
+        let startTs: number | null = null;
+        const step = (ts: number) => {
+            if (startTs === null) startTs = ts;
+            const t = Math.min(1, (ts - startTs) / DURATION);
+            setAnimatedRadius(from + (target - from) * ease(t));
+            if (t < 1) raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(raf);
+    }, [radiusMeters]);
+
+    // Pre-compute the radius circle as a turf polygon from the ANIMATED
+    // radius; cheaper than re-running on every render.
     const radiusCircle = useMemo(() => {
-        if (radiusMeters == null || radiusMeters <= 0) return null;
-        return turfCircle([safeLng, safeLat], radiusMeters / 1000, {
+        if (animatedRadius == null || animatedRadius <= 0) return null;
+        return turfCircle([safeLng, safeLat], animatedRadius / 1000, {
             steps: 64,
             units: "kilometers",
         });
-    }, [safeLat, safeLng, radiusMeters]);
+    }, [safeLat, safeLng, animatedRadius]);
 
     // The dashed reference line from seeker to nearest-reference,
     // shaped as a GeoJSON LineString for the line layer.
@@ -542,6 +575,41 @@ export function InlineLocationPicker({
     useEffect(() => {
         cfgCtx?.onPickerReady(ready);
     }, [ready, cfgCtx]);
+
+    // v747: report WHICH load steps are still pending, so the dialog can show
+    // a labelled loading state ("Loading map…", "Getting your location…")
+    // instead of a blank skeleton. Keyed on a stable joined string so we only
+    // emit on a real change (avoids a per-render context write loop).
+    const loadingLabels = useMemo(() => {
+        const labels: string[] = [];
+        if (!pinReady) labels.push("Getting your location…");
+        if (referencePoint && !referenceReady)
+            labels.push("Finding your nearest reference…");
+        if (impactMode && !impactReady)
+            labels.push("Calculating question impact…");
+        if (
+            pinReady &&
+            referenceReady &&
+            impactReady &&
+            showVeil &&
+            !timedOut
+        )
+            labels.push("Loading map…");
+        return labels;
+    }, [
+        pinReady,
+        referencePoint,
+        referenceReady,
+        impactMode,
+        impactReady,
+        showVeil,
+        timedOut,
+    ]);
+    const loadingKey = loadingLabels.join("|");
+    useEffect(() => {
+        cfgCtx?.onLoadingStatus?.(loadingKey ? loadingKey.split("|") : []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loadingKey, cfgCtx]);
 
     // Memoise the MapLibre style so an inline `mapStyle={{...}}`
     // doesn't get rebuilt on every parent re-render. Without this,

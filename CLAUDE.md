@@ -207,7 +207,7 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
 - Map → opens the `MapOptionsDrawer` via `mapOptionsDrawerOpen` (roomy basemap/overlays/transit toggles); badge = active-overlay count. Replaces the floating bottom-left Map-options chip on mobile (the chip stays on desktop, which has no bottom nav).
 - Lobby → opens `GameLobbyDialog` via `lobbyManualOpen`; badge = online participant count. (Moved to the header in v623, back in the nav in v628, swapped rightmost with Map in v629.)
 
-**Settings lives in the app header** (`SeekerTopBar`): left cluster = debug launcher; right cluster = **Settings** (`Settings`, `moreSheetOpen` → `AppSettingsDrawer`) + Notifications. `GameLobbyDialog` is mounted in `SeekerPage`; `AppSettingsDrawer` + `MapOptionsDrawer` are mounted in `BottomNav`. The hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card.
+**App header layout (v747):** `[Settings · HIDE+SEEK wordmark · Notifications]` with the wordmark **centered** (equal-width 40px buttons on each side). Left = **Settings** (`Settings`, `moreSheetOpen` → `AppSettingsDrawer`); center = the `HideSeekWordmark`, now a **button that opens the developer debug panel** (`debugPanelOpen.set(true)`) — it replaced the standalone `DebugLaunchButton` (now orphaned/unused) so the header carries no debug-looking chrome (cleaner for demo screenshots; the wordmark is legitimate brand). Right = `NotificationsIconButton`. Same layout in `SeekerTopBar` + `HiderTopBar`. `GameLobbyDialog` is mounted in `SeekerPage`; `AppSettingsDrawer` + `MapOptionsDrawer` are mounted in `BottomNav`. The hiding-period countdown is **not** in the nav — it lives on the map's `HiderTimer` card. (The `DebugPhaseControls` floating chip still exists on the pre-game lobby + `/welcome`, gated by the `debugLauncherHidden` toggle; in-game the wordmark is the only debug entry point.)
 
 **Hider nav parity (v632):** `HiderBottomNav.tsx` mirrors the seeker layout — four slots **Questions** (`List`, inbox badge) | **Zone** (`Tent`, the hider's primary action → `HiderHomeContent` drawer) | **Map** (`Map` icon → `HiderMapOptionsDrawer`, active-overlay badge) | **Lobby** (`Users`, rightmost). **Settings moved to the `HiderTopBar`** right cluster (`moreSheetOpen`, same `AppSettingsDrawer`), matching `SeekerTopBar`'s `[debug] — wordmark — [Settings · Notifications]`. The hider's map options (`HiderMapDisplayControls.tsx`, now exporting the shared `HiderMapOptionsPanel` + `HiderMapOptionsDrawer` + `useHiderMapOptionsActiveCount`) are a trimmed set — Basemap, **Hiding zones** (v643; was "Reachable zones"), transit overlays (no Travel-times/Export, which would leak seeker deduction shape). The old floating top-right `Layers` popover on `HiderBackgroundMap` was **removed** — the hider nav shows on every viewport, so the nav "Map" slot is the single entry point (no desktop-chip split like the seeker). Both surfaces reuse the shared `mapOptionsDrawerOpen` atom (seeker + hider views never coexist).
 
@@ -257,13 +257,19 @@ Per rulebook p43 the endgame begins when the seekers are physically inside the h
 Steps 1–2 (the pickers) are **vaul Drawers** (bottom sheets, `shouldScaleBackground={false}`, from `ui/drawer`); step 3 (configure) is a centered **Dialog** (v405 — reverted from a drawer because the configure step often embeds a map/popovers that fight a drawer's drag-to-dismiss). Dialogs themselves were restyled `rounded-2xl` (all breakpoints) in v405 to match the drawers/toasts' soft corners.
 
 1. Pick category (CategoryTile grid) — **drawer 1**
-   - **Radar (radius)** → opens configure **dialog** (preset buttons + Other popover)
+   - **Radar (radius)** → opens configure **dialog** (size **carousel** + Custom; v747)
    - **Thermometer** → opens `ThermometerConfigureDialog` (target-distance picker + Start confirm; v339)
    - **Matching/Measuring/Tentacles** → opens subtype picker (drawer 2)
 2. Subtype picker (**drawer 2**) — header + scrollable flex-col body, dark sidebar background, "back to categories" button
 3. Configure **dialog** (pending question from `promoteLastQuestion`) — header / scroll body / footer (Cancel + Send), centered Dialog
 
 Thermometer is blocked if any other thermometer is already `status:"started"`.
+
+**Picker chrome unified to `QuestionOverlayCard` (v747):** the category picker (`CategoryTile`) AND the matching/measuring/tentacles subtype picker (`SubtypeTile`) now render the SHARED `QuestionOverlayCard` (the on-map overlay / collapsed-list card chrome) — solid `deepColor(category)` icon block on the left, big bold uppercase label in the deepened category colour, the prompt/subtype-description as the detail line — instead of the old `bg-secondary` + coloured top-border + white-label tiles. So the whole add-question flow reads as one system with the overlays and the questions list. Both are laid out as a `grid-cols-1 sm:grid-cols-2` list of horizontal cards (subtypes were a 2–3 col grid). Disabled = `opacity-50` + no `onClick` (the card's `role=button` drops); the repeat-cost `N×` badge rides the card's `right` slot.
+
+**Radar size carousel (v747):** `cards/radius.tsx` replaced the 5-up preset grid + "Other ▾" popover with a single **prev/next cycler** over all nine rulebook sizes (`ChevronLeft`/`ChevronRight` + one prominent size label), plus a compact **Custom** toggle beneath it. The cycler skips presets already used by another radar question (the one-preset-per-game rule) so it only lands on selectable sizes. Changing the size **animates the map preview** (v747): the camera already `fitBounds`-animated (`duration:400`); now the overlay circle in `InlineLocationPicker` also tweens — a `requestAnimationFrame` ease-out over ~420 ms drives an `animatedRadius` state that feeds the turf circle, so the ring grows/shrinks smoothly in step with the zoom instead of snapping (pin drags / first mount still snap).
+
+**Labelled dialog loading (v747):** the configure veil no longer shows blank grey bars. `InlineLocationPicker` reports the currently-pending steps ("Getting your location…", "Finding your nearest reference…", "Calculating question impact…", "Loading map…") up to `AddQuestionDialog` via the widened `ConfigureDialogContext` (`onLoadingStatus`), which renders them as `Loader2`-spinner rows over a map-placeholder that reads "Loading map…". Falls back to "Preparing question…" before the picker reports.
 
 **Configure-dialog cleanup (v611):** the matching/measuring configure cards no longer render the subtype **dropdown** (it's already chosen in the picker step + named in the header/reference box) nor measuring's "Reference didn't load? Set it on the map manually." fallback. The shared map picker (`LatLngPicker` → `InlineLocationPicker`) dropped the "LOCATION — near X" reverse-geocoded header. The closer/further (and same/different) **impact overlay** is now computed against the post-elimination **remaining** area (`questionImpact.ts` reads `questionFinishedMapData`, not the full play area) so it doesn't spill into already-ruled-out regions, and its pattern fills were lightened (≈0.4/0.55) with a crisp boundary line so the basemap stays readable. **Unified loading (`AddQuestionDialog`):** for picker-using types the whole configure body is held under ONE skeleton (content mounts underneath at `opacity-0` so the picker can load) until `pickerReady` flips via `ConfigureDialogContext`, then it reveals at once; a 6 s timeout backstop reveals anyway so a GPS-denied dialog (manual place-search lives under the veil) never deadlocks.
 
@@ -279,7 +285,7 @@ const PRIMARY_PRESETS = [
 ];
 ```
 
-Always render in `grid grid-cols-5` (not flex-wrap) so all 5 fit one row. Used sigs (e.g. already-asked radius questions) are disabled. Currently-selected sig stays enabled for re-selection.
+The `{label, radius, unit, sig}` shape (a single `RADIUS_PRESETS` array of all nine sizes) is unchanged. **Rendering (v747): radius uses a prev/next CAROUSEL** (`cards/radius.tsx`, see the AddQuestionDialog section) — the old `grid grid-cols-5` + "Other" popover is gone; the cycler skips already-used sigs (uniqueness) and the currently-selected size stays reachable. Thermometer still renders its target presets as a grid.
 
 ## Map-based location picker (InlineLocationPicker)
 
@@ -410,7 +416,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v746`. Use `git log` for the per-version detail;
+build stamp. Current: `v747`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared

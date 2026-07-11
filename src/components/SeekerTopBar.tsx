@@ -13,9 +13,9 @@
 
 import { Settings } from "lucide-react";
 
-import { DebugLaunchButton } from "@/components/DebugLaunchButton";
 import { HideSeekWordmark } from "@/components/JetLagLogo";
 import { NotificationsIconButton } from "@/components/NotificationsToggle";
+import { debugPanelOpen } from "@/lib/debugState";
 import { moreSheetOpen } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 
@@ -46,26 +46,30 @@ export function SeekerTopBar() {
                 "group-[.fullscreen]:hidden",
             )}
         >
-            {/* Left cluster — debug launcher. */}
-            <div className="flex items-center gap-2">
-                <DebugLaunchButton />
-            </div>
+            {/* Left — settings. */}
+            <button
+                type="button"
+                onClick={() => moreSheetOpen.set(true)}
+                className={headerBtn}
+                aria-label="Settings"
+                title="Settings — tutorial, rulebook, units, theme, preload"
+            >
+                <Settings className="w-4 h-4" />
+            </button>
 
-            <HideSeekWordmark className="text-white" />
+            {/* Center — wordmark; tap opens the developer debug panel
+                (replaced the standalone debug launcher, v747). */}
+            <button
+                type="button"
+                onClick={() => debugPanelOpen.set(true)}
+                className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                aria-label="Open developer debug panel"
+            >
+                <HideSeekWordmark className="text-white" />
+            </button>
 
-            {/* Right cluster — settings + notifications. */}
-            <div className="flex items-center gap-2">
-                <button
-                    type="button"
-                    onClick={() => moreSheetOpen.set(true)}
-                    className={headerBtn}
-                    aria-label="Settings"
-                    title="Settings — tutorial, rulebook, units, theme, preload"
-                >
-                    <Settings className="w-4 h-4" />
-                </button>
-                <NotificationsIconButton className="w-10 h-10 !bg-white/10 !border-white/30 !text-white hover:!bg-white/20" />
-            </div>
+            {/* Right — notifications. */}
+            <NotificationsIconButton className="w-10 h-10 !bg-white/10 !border-white/30 !text-white hover:!bg-white/20" />
         </header>
     );
 }

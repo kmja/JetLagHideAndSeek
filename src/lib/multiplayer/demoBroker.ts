@@ -29,7 +29,6 @@
 import { pickUniqueName } from "@protocol/index";
 import type {
     ClientMessage,
-    CursePayload,
     GameState,
     Participant,
     ServerMessage,
@@ -55,32 +54,10 @@ import { resetCurseState } from "@/lib/roundReset";
 const DEMO_GAME_CODE = "DEMO00";
 const HIDER_ANSWER_DELAY_MS = 1500;
 const SEEKER_LOC_INTERVAL_MS = 10_000;
-const CURSE_INTERVAL_MS = 90_000;
 
 // Bot names are picked at boot from the shared Jet Lag roster via
 // pickUniqueName(), so they never collide with each other or with the
 // human player's chosen name.
-
-const SAMPLE_CURSES: CursePayload[] = [
-    {
-        name: "Curse of the Polyglot",
-        description:
-            "For the next 10 minutes, every seeker must speak only in a language they don't fluently know.",
-        castingCost: "Discard 2 cards",
-    },
-    {
-        name: "Curse of the Tourist",
-        description:
-            "Each seeker must take a selfie at the nearest tourist landmark before they may continue.",
-        castingCost: "Discard 1 card",
-    },
-    {
-        name: "Curse of the Carb Master",
-        description:
-            "Seekers must consume a carb-heavy meal (>500 cal) before the next question.",
-        castingCost: "Discard 1 card",
-    },
-];
 
 /* ────────────────── Broker state ────────────────── */
 
@@ -440,20 +417,10 @@ function scheduleBotLoops() {
         s.timers.push(window.setInterval(tick, SEEKER_LOC_INTERVAL_MS));
     }
 
-    // Bot hider casts a curse on a slow loop. Only fires when the
-    // user is a seeker (otherwise the hider seat is held by the user,
-    // not the bot, and the curse path runs through the user's local
-    // CastCurseDialog instead).
-    if (me.role === "seeker") {
-        let curseIdx = 0;
-        const id = window.setInterval(() => {
-            if (!_state) return;
-            const curse = SAMPLE_CURSES[curseIdx % SAMPLE_CURSES.length];
-            curseIdx++;
-            inject({ t: "curseReceived", curse });
-        }, CURSE_INTERVAL_MS);
-        s.timers.push(id);
-    }
+    // (Removed v747) The bot hider no longer auto-casts curses on a loop —
+    // it spammed the seeker during demos. To exercise the curse UI, use the
+    // debug panel's "Cast test curse" action (DebugPhaseControls), which
+    // injects a curse into `receivedCurses` on demand.
 }
 
 function scheduleBotAnswer(key: number) {

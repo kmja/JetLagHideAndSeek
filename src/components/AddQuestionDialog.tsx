@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import React from "react";
 import { toast } from "react-toastify";
 
@@ -17,6 +17,7 @@ import {
     DrawerTitle,
     DrawerTrigger,
 } from "@/components/ui/drawer";
+import { QuestionOverlayCard } from "@/components/questionOverlayCard";
 import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
@@ -193,47 +194,37 @@ const SubtypeTile = ({
      *  badge so the seeker sees the cost before tapping. */
     repeatMultiplier?: number;
 }) => {
-    const catMeta = CATEGORIES[category];
-    const Icon = subtype.icon;
     const showRepeat =
         !disabled && repeatMultiplier !== undefined && repeatMultiplier > 1;
+    // v747: the subtype picker now uses the SAME QuestionOverlayCard chrome as
+    // on-map overlays + the questions list (solid category-colour icon block,
+    // big deep-colour label, detail line) so the whole add-question flow reads
+    // as one system. The repeat-cost multiplier rides the card's right slot.
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className={cn(
-                "relative flex flex-col items-center text-center gap-2 p-4 rounded-sm",
-                "bg-secondary border border-border border-t-[5px]",
-                "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                "hover:bg-accent hover:-translate-y-[1px] transition-all",
-                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            )}
-            style={{ borderTopColor: catMeta.color }}
-            title={
-                blockedReason ??
-                (showRepeat
-                    ? `Repeat: hider runs the draw-keep cycle ${repeatMultiplier}× (rulebook p65)`
-                    : subtype.description)
+        <QuestionOverlayCard
+            categoryId={category}
+            summary={{
+                bigLabel: subtype.label,
+                detail: blockedReason ?? subtype.description,
+                icon: subtype.icon,
+            }}
+            onClick={disabled ? undefined : onClick}
+            ariaLabel={`Choose ${subtype.label}`}
+            right={
+                showRepeat ? (
+                    <span
+                        className="inline-flex items-center justify-center px-1.5 h-5 rounded-sm bg-yellow-500/90 text-black text-[11px] font-poppins font-bold leading-none"
+                        title={`Repeat: hider runs the draw-keep cycle ${repeatMultiplier}× (rulebook p65)`}
+                    >
+                        {repeatMultiplier}×
+                    </span>
+                ) : undefined
             }
-        >
-            {showRepeat && (
-                <span className="absolute top-1 right-1 inline-flex items-center justify-center px-1.5 h-4 rounded-sm bg-yellow-500/90 text-black text-[10px] font-poppins font-bold leading-none">
-                    {repeatMultiplier}×
-                </span>
+            className={cn(
+                "hover:-translate-y-[1px]",
+                disabled && "opacity-50 cursor-not-allowed",
             )}
-            <span
-                className="inline-flex items-center justify-center w-10 h-10 rounded-sm shrink-0"
-                style={{ backgroundColor: catMeta.color }}
-                aria-hidden="true"
-            >
-                <Icon size={20} strokeWidth={2.4} className="text-white" />
-            </span>
-            <span className="font-inter-tight font-bold text-sm leading-tight uppercase tracking-wide">
-                {subtype.label}
-            </span>
-        </button>
+        />
     );
 };
 
@@ -253,40 +244,26 @@ const CategoryTile = ({
     blockedReason?: string;
 }) => {
     const meta = CATEGORIES[category];
-    const Icon = meta.icon;
+    // v747: the category picker uses the shared QuestionOverlayCard chrome
+    // (matches the on-map overlays + the questions list) — solid category-
+    // colour icon block, big deep-colour label, and the prompt as the detail
+    // line — so the add-question flow looks like the rest of the app.
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            title={blockedReason}
+        <QuestionOverlayCard
+            categoryId={category}
+            summary={{
+                bigLabel: meta.label,
+                detail: blockedReason ?? description,
+                icon: meta.icon,
+            }}
+            onClick={disabled ? undefined : onClick}
+            ariaLabel={`Add ${meta.label} question`}
             className={cn(
-                "relative flex flex-col gap-2 p-3 rounded-sm text-left",
-                "bg-secondary border border-border border-t-[6px]",
-                "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                "hover:bg-accent hover:-translate-y-[1px] transition-all",
-                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "hover:-translate-y-[1px]",
+                disabled && "opacity-50 cursor-not-allowed",
                 className,
             )}
-            style={{ borderTopColor: meta.color }}
-        >
-            <div className="flex items-center gap-2">
-                <span
-                    className="inline-flex items-center justify-center w-7 h-7 rounded-sm shrink-0"
-                    style={{ backgroundColor: meta.color }}
-                    aria-hidden="true"
-                >
-                    <Icon size={16} strokeWidth={2.5} className="text-white" />
-                </span>
-                <span className="font-inter-tight font-black uppercase text-xs tracking-[0.12em]">
-                    {meta.label}
-                </span>
-            </div>
-            <span className="text-xs text-muted-foreground font-normal leading-snug">
-                {blockedReason ?? description}
-            </span>
-        </button>
+        />
     );
 };
 
@@ -358,9 +335,14 @@ export const AddQuestionDialog = ({
     // GPS denied → the map never mounts and the manual place-search lives
     // under the skeleton), reveal anyway so the user isn't stuck.
     const [revealAnyway, setRevealAnyway] = React.useState(false);
+    // v747: the picker reports WHICH steps are still pending, so the loading
+    // veil shows labelled rows ("Loading map…", "Getting your location…")
+    // instead of blank grey bars.
+    const [loadingLabels, setLoadingLabels] = React.useState<string[]>([]);
     React.useEffect(() => {
         setPickerReady(false);
         setRevealAnyway(false);
+        setLoadingLabels([]);
         if (pendingKey === null) return;
         const t = window.setTimeout(() => setRevealAnyway(true), 6000);
         return () => window.clearTimeout(t);
@@ -371,7 +353,10 @@ export const AddQuestionDialog = ({
         pendingQuestion?.id === "radius" ||
         pendingQuestion?.id === "tentacles";
     const configureCtxValue = React.useMemo(
-        () => ({ onPickerReady: setPickerReady }),
+        () => ({
+            onPickerReady: setPickerReady,
+            onLoadingStatus: setLoadingLabels,
+        }),
         [],
     );
 
@@ -1109,7 +1094,7 @@ export const AddQuestionDialog = ({
                                         </DrawerDescription>
                                     </div>
                                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-                                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                             {subtypes?.map((subtype) => {
                                                 // Per-subtype repeat count:
                                                 // 0 = never asked; N > 0 =
@@ -1259,9 +1244,31 @@ export const AddQuestionDialog = ({
                                         className="absolute inset-0 z-[1] px-6 py-3 space-y-3"
                                         aria-hidden
                                     >
+                                        {/* v747: labelled loading state — the
+                                            picker reports which steps are still
+                                            pending, so the veil says what it's
+                                            waiting on instead of blank bars. */}
                                         <div className="h-[4.5rem] rounded-md bg-muted animate-pulse" />
-                                        <div className="h-12 rounded-md bg-muted animate-pulse" />
-                                        <div className="h-[40vh] rounded-md bg-muted animate-pulse" />
+                                        <div className="rounded-md border border-border bg-secondary/40 divide-y divide-border overflow-hidden">
+                                            {(loadingLabels.length
+                                                ? loadingLabels
+                                                : ["Preparing question…"]
+                                            ).map((label) => (
+                                                <div
+                                                    key={label}
+                                                    className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground"
+                                                >
+                                                    <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
+                                                    {label}
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="relative h-[40vh] rounded-md bg-muted animate-pulse">
+                                            <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                                                <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
+                                                Loading map…
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                             <div

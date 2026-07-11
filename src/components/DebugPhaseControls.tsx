@@ -26,12 +26,42 @@ import {
 import { startDemoGame, stopDemoGame } from "@/lib/multiplayer/demoBroker";
 import { demoMode } from "@/lib/multiplayer/session";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
+import { receivedCurses } from "@/lib/seekerInbound";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 import type { Question } from "@/maps/schema";
 
 import { DICE_FIZZLE } from "./CastCurseDialog";
+
+/** Rotating sample curses for the debug "Cast test curse" action (v747).
+ *  Covers the distinct CurseInbox paths: an untimed manual-clear curse, a
+ *  timed countdown curse ("for the next N minutes" is parsed by curseMeta),
+ *  and a dice-roll curse. Replaces the demo bot's removed auto-cast loop. */
+const DEBUG_TEST_CURSES: {
+    name: string;
+    description: string;
+    castingCost: string | null;
+}[] = [
+    {
+        name: "Curse of the Tourist",
+        description:
+            "Each seeker must take a selfie at the nearest tourist landmark before they may continue.",
+        castingCost: "Discard 1 card",
+    },
+    {
+        name: "Curse of the Polyglot",
+        description:
+            "For the next 10 minutes, every seeker must speak only in a language they don't fluently know.",
+        castingCost: "Discard 2 cards",
+    },
+    {
+        name: "Curse of the Gambler's Feet",
+        description:
+            "Before your next question, roll a die. You may only travel that many blocks.",
+        castingCost: "Discard 1 card",
+    },
+];
 
 /**
  * Temporary developer panel for jumping the latest question between any
@@ -729,6 +759,30 @@ export function DebugPhaseControls({
                         Spawns fake bot peers in-browser — no second device
                         needed. Bot hider auto-answers your questions; bot
                         seekers ping locations.
+                    </p>
+                    <DebugButton
+                        onClick={() => {
+                            const list = receivedCurses.get();
+                            const curse =
+                                DEBUG_TEST_CURSES[
+                                    list.length % DEBUG_TEST_CURSES.length
+                                ];
+                            receivedCurses.set([
+                                ...list,
+                                {
+                                    ...curse,
+                                    receivedAt: Date.now(),
+                                    acknowledged: false,
+                                },
+                            ]);
+                        }}
+                    >
+                        Cast test curse (seeker)
+                    </DebugButton>
+                    <p className="text-[10px] text-muted-foreground italic px-1">
+                        Adds an active curse to the seeker&apos;s inbox — cycles
+                        through untimed / timed / dice-roll curses so you can
+                        test the CurseInbox UI on demand.
                     </p>
                 </Section>
 

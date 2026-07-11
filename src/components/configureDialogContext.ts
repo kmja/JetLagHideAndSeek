@@ -15,6 +15,11 @@ import { createContext } from "react";
  */
 export interface ConfigureDialogContextValue {
     onPickerReady: (ready: boolean) => void;
+    /** v747: report the currently-pending load steps (e.g. "Loading map…",
+     *  "Finding your nearest reference…") so the dialog can show a LABELLED
+     *  loading state instead of a blank skeleton. Empty array = nothing
+     *  pending. Optional so non-picker callers can ignore it. */
+    onLoadingStatus?: (labels: string[]) => void;
 }
 
 export const ConfigureDialogContext =

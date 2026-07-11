@@ -1,15 +1,11 @@
 import { useStore } from "@nanostores/react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import React from "react";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
 import {
     MENU_ITEM_CLASSNAME,
     SidebarMenuItem,
@@ -50,10 +46,6 @@ const RADIUS_PRESETS: {
     { label: "80 km", radius: 80, unit: "kilometers", sig: "80km" },
     { label: "160 km", radius: 160, unit: "kilometers", sig: "160km" },
 ];
-
-/** First 5 presets are shown as big buttons; the rest go in the "Other" popover. */
-const PRIMARY_PRESETS = RADIUS_PRESETS.slice(0, 5);
-const OTHER_PRESETS = RADIUS_PRESETS.slice(5);
 
 /**
  * Pick a "nice" step for snapping the logarithmic slider's output:
@@ -221,16 +213,6 @@ export const RadiusQuestionComponent = ({
                         }
                     };
 
-                    const presetBtnClass = (sig: string) =>
-                        cn(
-                            "py-2 px-2 rounded-md text-sm font-poppins font-semibold",
-                            "bg-secondary text-foreground hover:bg-accent",
-                            "transition-colors whitespace-nowrap leading-none",
-                            "disabled:opacity-30 disabled:cursor-not-allowed",
-                            currentSig === sig &&
-                                "ring-2 ring-primary bg-primary/20 text-primary",
-                        );
-
                     return (
                         <div
                             className={cn(
@@ -238,124 +220,110 @@ export const RadiusQuestionComponent = ({
                                 "flex flex-col gap-3",
                             )}
                         >
-                            {/* Primary preset row — responsive 3-col on
-                                narrow phones, 5-col once we have a wider
-                                dialog body. The old `grid-cols-5` forced
-                                five ~60 px buttons on ~310 px-wide bodies
-                                and they ended up clipping into each
-                                other; switching to a flex-wrap with a
-                                65 px basis lets the row reflow to a 3+2
-                                layout when it has to. */}
-                            <div className="flex flex-wrap gap-1.5">
-                                {PRIMARY_PRESETS.map((preset) => (
-                                    <button
-                                        key={preset.sig}
-                                        type="button"
-                                        onClick={() => pickPreset(preset)}
-                                        // v276: dropped the $isLoading
-                                        // gate. Picking a radius preset is
-                                        // a pure local data mutation +
-                                        // map fit — no Overpass round-trip
-                                        // involved — so blocking the user
-                                        // while the global "something is
-                                        // fetching" flag is up is wrong.
-                                        disabled={
-                                            !data.drag ||
-                                            ($askOnce &&
-                                            usedSigs.has(preset.sig) &&
-                                            currentSig !== preset.sig)
-                                        }
-                                        className={cn(
-                                            presetBtnClass(preset.sig),
-                                            "flex-1 basis-[65px]",
-                                        )}
-                                    >
-                                        {preset.label}
-                                    </button>
-                                ))}
-                            </div>
-
-                            {/* Other + Custom row. `whitespace-nowrap`
-                                stops "Other ▾" from wrapping to two
-                                lines when the button is narrow — that
-                                wrap was what made these look much
-                                taller than the primary row. */}
-                            <div className="flex flex-wrap gap-1.5">
-                                <Popover>
-                                    <PopoverTrigger asChild>
+                            {/* Radar-size CAROUSEL (v747). The old 5-up
+                                preset grid + "Other" popover was replaced
+                                with a single prev/next cycler over all nine
+                                rulebook sizes — one prominent size at a time,
+                                so changing it reads as a deliberate step and
+                                the map preview can animate between sizes.
+                                Presets already used by another radar question
+                                are skipped (the one-preset-per-game rule), so
+                                the carousel only lands on selectable sizes. */}
+                            {(() => {
+                                const selectable = $askOnce
+                                    ? RADIUS_PRESETS.filter(
+                                          (p) => !usedSigs.has(p.sig),
+                                      )
+                                    : RADIUS_PRESETS;
+                                const idx = selectable.findIndex(
+                                    (p) => p.sig === currentSig,
+                                );
+                                const currentPreset = RADIUS_PRESETS.find(
+                                    (p) => p.sig === currentSig,
+                                );
+                                const cycle = (dir: 1 | -1) => {
+                                    if (selectable.length === 0) return;
+                                    // From Custom (idx === -1) step into the
+                                    // list at the near end; otherwise wrap.
+                                    const base = idx === -1 ? (dir === 1 ? -1 : 0) : idx;
+                                    const next =
+                                        (base + dir + selectable.length) %
+                                        selectable.length;
+                                    pickPreset(selectable[next]);
+                                };
+                                const navBtn = cn(
+                                    "h-14 w-12 shrink-0 flex items-center justify-center rounded-md",
+                                    "bg-secondary text-foreground hover:bg-accent transition-colors",
+                                    "disabled:opacity-30 disabled:cursor-not-allowed",
+                                );
+                                const canCycle =
+                                    data.drag && selectable.length > 0;
+                                return (
+                                    <div className="flex items-center gap-2">
                                         <button
                                             type="button"
-                                            disabled={!isQuestionEditable(data)}
+                                            aria-label="Smaller radar size"
+                                            onClick={() => cycle(-1)}
+                                            disabled={!canCycle}
+                                            className={navBtn}
+                                        >
+                                            <ChevronLeft className="w-6 h-6" />
+                                        </button>
+                                        <div
                                             className={cn(
-                                                "flex-1 basis-[120px] py-2 px-2 rounded-md text-sm font-poppins font-semibold",
-                                                "bg-secondary text-foreground hover:bg-accent",
-                                                "transition-colors whitespace-nowrap leading-none",
-                                                "disabled:opacity-30 disabled:cursor-not-allowed",
-                                                OTHER_PRESETS.some(
-                                                    (p) =>
-                                                        currentSig === p.sig,
-                                                ) &&
-                                                    "ring-2 ring-primary bg-primary/20 text-primary",
+                                                "flex-1 h-14 flex flex-col items-center justify-center rounded-md",
+                                                "ring-2 ring-primary bg-primary/15",
                                             )}
                                         >
-                                            Other ▾
-                                        </button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-40 p-1">
-                                        <div className="flex flex-col gap-1">
-                                            {OTHER_PRESETS.map((preset) => (
-                                                <button
-                                                    key={preset.sig}
-                                                    type="button"
-                                                    onClick={() =>
-                                                        pickPreset(preset)
-                                                    }
-                                                    disabled={
-                                                        usedSigs.has(
-                                                            preset.sig,
-                                                        ) &&
-                                                        currentSig !==
-                                                            preset.sig
-                                                    }
-                                                    className={cn(
-                                                        "text-left px-3 py-1.5 rounded-sm text-sm",
-                                                        "hover:bg-accent",
-                                                        "disabled:opacity-30 disabled:cursor-not-allowed",
-                                                        currentSig ===
-                                                            preset.sig &&
-                                                            "bg-primary/20 text-primary",
-                                                    )}
-                                                >
-                                                    {preset.label}
-                                                </button>
-                                            ))}
+                                            <span className="text-2xl font-poppins font-bold text-primary tabular-nums leading-none">
+                                                {data.useCustom
+                                                    ? "Custom"
+                                                    : currentPreset?.label ??
+                                                      "Custom"}
+                                            </span>
+                                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-1">
+                                                Radar size
+                                            </span>
                                         </div>
-                                    </PopoverContent>
-                                </Popover>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        data.useCustom = true;
-                                        questionModified();
-                                    }}
-                                    disabled={
-                                        !data.drag ||
-                                        ($askOnce &&
-                                            usedSigs.has("custom") &&
-                                            !data.useCustom)
-                                    }
-                                    className={cn(
-                                        "flex-1 basis-[120px] py-2 px-2 rounded-md text-sm font-poppins font-semibold",
-                                        "bg-secondary text-foreground hover:bg-accent",
-                                        "transition-colors whitespace-nowrap leading-none",
-                                        "disabled:opacity-30 disabled:cursor-not-allowed",
-                                        data.useCustom &&
-                                            "ring-2 ring-primary bg-primary/20 text-primary",
-                                    )}
-                                >
-                                    Custom
-                                </button>
-                            </div>
+                                        <button
+                                            type="button"
+                                            aria-label="Larger radar size"
+                                            onClick={() => cycle(1)}
+                                            disabled={!canCycle}
+                                            className={navBtn}
+                                        >
+                                            <ChevronRight className="w-6 h-6" />
+                                        </button>
+                                    </div>
+                                );
+                            })()}
+
+                            {/* Custom-size toggle — full manual control via
+                                the slider below. Kept as a compact secondary
+                                action beneath the carousel. */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    data.useCustom = !data.useCustom;
+                                    questionModified();
+                                }}
+                                disabled={
+                                    !data.drag ||
+                                    ($askOnce &&
+                                        usedSigs.has("custom") &&
+                                        !data.useCustom)
+                                }
+                                className={cn(
+                                    "self-center py-1.5 px-3 rounded-md text-xs font-poppins font-semibold",
+                                    "bg-secondary text-foreground hover:bg-accent",
+                                    "transition-colors whitespace-nowrap leading-none",
+                                    "disabled:opacity-30 disabled:cursor-not-allowed",
+                                    data.useCustom &&
+                                        "ring-2 ring-primary bg-primary/20 text-primary",
+                                )}
+                            >
+                                {data.useCustom ? "Using custom size" : "Custom size"}
+                            </button>
 
                             {/* Custom slider — only when Custom is active */}
                             {data.useCustom && (
