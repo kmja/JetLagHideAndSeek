@@ -42,6 +42,7 @@ import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
 import {
     hiderReachFC,
     selectedMapStation,
+    showHiderReach,
     stationCardInsetPx,
     tripRouteFC,
 } from "@/lib/journey/state";
@@ -482,17 +483,22 @@ export function HiderBackgroundMap() {
                         }
                         return;
                     }
-                    // Tier 2: no overlay feature under the tap. During
-                    // the hiding period, resolve the tap against the game's
-                    // OWN candidate-zone set (v665 — same shared play-area
-                    // fetch as the overlay; parity with the seeker map's
-                    // nearestZoneStation): the nearest station whose
-                    // hiding-radius circle CONTAINS the tap. Replaced the
-                    // old live `around:` Overpass query — a station of a
-                    // disallowed mode or outside the play area isn't a
-                    // legal zone, so it must not resolve. No-op outside the
-                    // hiding period (gameplay invariant — the hider doesn't
-                    // travel after committing).
+                    // Tier 2: no overlay feature under the tap. Resolve the
+                    // tap against the game's OWN candidate-zone set (v665 —
+                    // same shared play-area fetch as the overlay): the nearest
+                    // station whose hiding-radius circle CONTAINS the tap.
+                    // v753: GATED on the overlay being ON (`showHiderReach`),
+                    // parity with the seeker map's `nearestZoneStation` (gated
+                    // on `displayHidingZones`). With the overlay OFF there are
+                    // no zones drawn, so a tap must NOT silently open a hidden
+                    // zone's card — that was the "clickable when toggled off"
+                    // bug. No-op outside the hiding period too (the hider
+                    // doesn't travel after committing).
+                    if (
+                        !showHiderReach.get() ||
+                        !hiderReachFC.get()?.features?.length
+                    )
+                        return;
                     const endsAt = hidingPeriodEndsAt.get();
                     if (endsAt == null || endsAt <= Date.now()) return;
                     const { lat: tapLat, lng: tapLng } = e.lngLat;
