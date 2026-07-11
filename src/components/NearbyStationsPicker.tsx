@@ -2,7 +2,6 @@ import { useStore } from "@nanostores/react";
 import { convertLength } from "@turf/turf";
 import { Check, Loader2, LocateFixed } from "lucide-react";
 import { useEffect, useState } from "react";
-import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -216,12 +215,7 @@ export function NearbyStationsPicker({
                         <li key={s.id}>
                             <button
                                 type="button"
-                                onClick={() => {
-                                    onPick(s);
-                                    toast.success(`Picked ${s.name}`, {
-                                        autoClose: 1500,
-                                    });
-                                }}
+                                onClick={() => onPick(s)}
                                 className={cn(
                                     "w-full text-left flex items-center gap-2 px-2.5 py-2 rounded-sm",
                                     "bg-background/60 hover:bg-accent border border-border",
