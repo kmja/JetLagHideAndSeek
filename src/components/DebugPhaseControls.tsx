@@ -13,7 +13,7 @@ import {
 } from "@/lib/context";
 import { clearGpsSpoof, spoofedPosition } from "@/lib/debugGpsSpoof";
 import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
-import { debugPanelOpen } from "@/lib/debugState";
+import { debugLauncherHidden, debugPanelOpen } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
 import { type Card, shuffledDeck } from "@/lib/hiderDeck";
 import {
@@ -79,6 +79,7 @@ export function DebugPhaseControls({
     floating?: DebugFloating;
 } = {}) {
     const open = useStore(debugPanelOpen);
+    const $launcherHidden = useStore(debugLauncherHidden);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
@@ -567,6 +568,10 @@ export function DebugPhaseControls({
                 // v353: amber-tint the launcher while GPS is spoofed so a
                 // forgotten spoof can't masquerade as broken real GPS.
                 $spoof && "text-amber-400 border-amber-400/60 bg-amber-950/40",
+                // Invisible-but-clickable for demo screenshots (toggled inside
+                // the panel). opacity-0 hides the icon + border + bg; the hit
+                // area stays so the panel can still be reopened.
+                $launcherHidden && "opacity-0 hover:opacity-0",
             )}
         >
             <Bug className="w-3 h-3" />
@@ -627,6 +632,23 @@ export function DebugPhaseControls({
                         )}
                     </div>
                 </div>
+
+                {/* Demo screenshots: hide the launcher button(s) while keeping
+                    them clickable — this panel stays reachable to un-hide. */}
+                <label className="flex items-center gap-2 text-[11px] cursor-pointer select-none rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+                    <input
+                        type="checkbox"
+                        checked={$launcherHidden}
+                        onChange={(e) =>
+                            debugLauncherHidden.set(e.target.checked)
+                        }
+                        className="accent-amber-500"
+                    />
+                    <span>
+                        Hide launcher (invisible but clickable — for
+                        screenshots)
+                    </span>
+                </label>
 
                 <Section
                     title={`GPS spoof · ${$spoof ? "ON" : "off (real GPS)"}`}

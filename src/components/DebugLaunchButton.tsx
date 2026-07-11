@@ -2,7 +2,7 @@ import { useStore } from "@nanostores/react";
 import { Bug } from "lucide-react";
 
 import { spoofedPosition } from "@/lib/debugGpsSpoof";
-import { debugPanelOpen } from "@/lib/debugState";
+import { debugLauncherHidden, debugPanelOpen } from "@/lib/debugState";
 import { cn } from "@/lib/utils";
 
 /**
@@ -21,6 +21,10 @@ import { cn } from "@/lib/utils";
  */
 export function DebugLaunchButton({ className }: { className?: string }) {
     const $spoof = useStore(spoofedPosition);
+    // When hidden, keep the 40×40 hit target but render fully transparent —
+    // invisible in screenshots, still clickable to reopen the panel (where the
+    // toggle to un-hide lives). opacity-0 covers the icon + border + bg.
+    const $hidden = useStore(debugLauncherHidden);
     return (
         <button
             type="button"
@@ -33,6 +37,7 @@ export function DebugLaunchButton({ className }: { className?: string }) {
                 $spoof
                     ? "text-amber-300 border-amber-300/60 bg-amber-500/20 hover:bg-amber-500/30"
                     : "text-white/70 border-white/30 bg-white/10 hover:bg-white/20 hover:text-white",
+                $hidden && "opacity-0 hover:opacity-0",
                 className,
             )}
         >

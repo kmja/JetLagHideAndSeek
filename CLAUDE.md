@@ -410,7 +410,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v744`. Use `git log` for the per-version detail;
+build stamp. Current: `v745`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared
@@ -645,7 +645,13 @@ un-gated to all sizes, grace→auto-commit, hand-limit-6 enforcement
   floating chip: seeker in-game uses `"desktop"` (mobile has the header,
   desktop has no header), hider in-game uses `"never"` (HiderTopBar shows
   on every viewport), and the pre-game lobbies + `/welcome` keep
-  `"always"` (no header there).
+  `"always"` (no header there). **Invisible-launcher toggle (v745):** a
+  persisted `debugLauncherHidden` atom (`debugState.ts`, key
+  `jlhs:debugLauncherHidden`) renders BOTH launchers (`DebugLaunchButton`
+  + the floating chip) `opacity-0` — invisible in demo screenshots but the
+  hit target stays, so the panel is still reachable. Toggled by a checkbox
+  inside `DebugPhaseControls` ("Hide launcher"), so you un-hide from the
+  same panel you opened via the invisible button.
 
 Still enforced from the v414 audit (see `RULEBOOK_AUDIT.md`): Overflowing
 Chalice draw boost, Move powerup pause/freeze/re-anchor, thermometer
