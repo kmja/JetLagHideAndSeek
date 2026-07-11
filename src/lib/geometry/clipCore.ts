@@ -206,6 +206,29 @@ function subtractLakes(
  *  as a bug and bail (fall back to the raw polygon). */
 const MIN_KEEP = 0.4;
 
+/** Count coordinate vertices of a geometry that fall inside `bbox`
+ *  ([minLng, minLat, maxLng, maxLat]). Used to compare the LOCAL detail of
+ *  the boundary vs the land mask — a whole-feature count is useless because a
+ *  "relevant" land feature can be a continent-sized polygon. */
+function countVerticesInBbox(
+    geom: Polygon | MultiPolygon,
+    bbox: [number, number, number, number],
+): number {
+    let n = 0;
+    const [minLng, minLat, maxLng, maxLat] = bbox;
+    const walk = (c: unknown): void => {
+        if (Array.isArray(c) && typeof c[0] === "number") {
+            const [lng, lat] = c as number[];
+            if (lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat)
+                n++;
+            return;
+        }
+        if (Array.isArray(c)) for (const x of c) walk(x);
+    };
+    walk(geom.coordinates);
+    return n;
+}
+
 /**
  * Clip a play-area polygon to land only, given the already-parsed land
  * + lake masks. Pure and synchronous. Returns the clipped geometry, or
@@ -228,6 +251,25 @@ export function clipPolygonToLandWith(
             bboxesOverlap(playBbox, p.bbox),
         );
         if (relevant.length === 0) return null;
+
+        // Resolution guard (v746): the bundled land mask is Natural Earth
+        // 1:50m — extremely coarse (~41 vertices across ALL of NYC). Clipping a
+        // boundary that ALREADY follows the real coast in detail against this
+        // coarse mask only COARSENS it (straight-edge artifacts) and, worse,
+        // DROPS narrow real land the mask can't resolve (at 1:50m the Hudson /
+        // East River aren't rendered, so Manhattan reads as "water" and gets
+        // clipped away — the "NYC boundary is so wrong" bug). The clip exists to
+        // trim JURISDICTIONAL water from boundaries that DON'T follow the coast
+        // (few vertices out over the sea); a boundary with MORE local coastline
+        // detail than the mask already follows the coast, so keep it verbatim.
+        // Compared within the play bbox so a continent-sized land feature's
+        // global vertex count doesn't swamp the local comparison.
+        const polyVerts = countVerticesInBbox(polygon.geometry, playBbox);
+        const maskVerts = relevant.reduce(
+            (sum, p) => sum + countVerticesInBbox(p.feature.geometry, playBbox),
+            0,
+        );
+        if (polyVerts > maskVerts) return polygon;
 
         const pieces: Feature<Polygon | MultiPolygon>[] = [];
         for (const land of relevant) {

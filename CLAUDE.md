@@ -410,7 +410,7 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v745`. Use `git log` for the per-version detail;
+build stamp. Current: `v746`. Use `git log` for the per-version detail;
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared
