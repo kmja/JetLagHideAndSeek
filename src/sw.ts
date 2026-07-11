@@ -108,10 +108,20 @@ registerRoute(
             return new Response(buf, { status: cr ? 206 : 200, headers });
         }
 
-        // Miss → network (forwards the Range header). A throw here
-        // propagates to the catch handler, which returns a clean 503.
-        const resp = await fetch(request);
-        if (resp.status !== 206 && resp.status !== 200) return resp;
+        // Miss → network. v748: forward the Range header EXPLICITLY rather
+        // than re-fetching the original `request`. Firefox DROPS the Range
+        // header when a Service Worker re-issues the intercepted request via
+        // `fetch(request)`, so the worker returned the FULL file (a 200, e.g.
+        // the ~127 GB basemap) and `resp.arrayBuffer()` below tried to buffer
+        // gigabytes → threw → the catch handler 503'd EVERY pmtiles tile. curl
+        // and Chrome (which preserves the header) were fine, so it only bit
+        // Firefox and only the huge /tiles/ files. An explicit Range header
+        // survives the SW-forwarded fetch on every browser.
+        const resp = await fetch(request.url, { headers: { Range: range } });
+        // Only a genuine partial response (206) is safe to buffer + cache.
+        // Anything else — an unexpected full 200, an error — is passed straight
+        // through UNBUFFERED so we can never arrayBuffer() a multi-GB body.
+        if (resp.status !== 206) return resp;
 
         const buf = await resp.arrayBuffer();
         const cr = resp.headers.get("Content-Range");
