@@ -416,7 +416,11 @@ out tags bb;
 `;
 }
 
-const STOPS_TRIES = 3;
+// Keep the INNER retry light (1 retry). During a rate-limit these just hammer
+// a throttled upstream inside the too-short backoff window; the real recovery
+// is the caller's 30 s city-level cooldown-and-retry. The inner retry only
+// catches a genuinely transient single soft-fail.
+const STOPS_TRIES = 2;
 
 /** Run a stops query with retry-on-empty/error and a whitespace cache-buster on
  *  retries (Overpass ignores it; it changes the worker's query-hash key so a
@@ -451,33 +455,20 @@ function collectStops(elements, tagAs, out) {
 }
 
 async function fetchRailStops(lat, lng, radiusKm, kinds) {
-    // Split BUS (the heavy outlier) from the rail modes — TWO queries per city,
-    // not one and not six. The rail modes (subway/light_rail/commuter/tram/
-    // ferry) go in ONE combined query, exactly like the debug tool: light
-    // enough to complete even for LA/Chicago. BUS gets its OWN query because a
-    // metro's bus network is thousands of routes and routinely times out; if it
-    // fails it's skipped and the city keeps its full rail network. This avoids
-    // BOTH failure modes we hit: (a) a single 6-mode query (incl. bus) zeroing
-    // everything out for LA/Chicago/Berlin/Paris, and (b) six per-mode queries
-    // hammering the IP into an Overpass rate-limit (all six metros returned 0
-    // AND the light admin-level query started failing too).
-    const railKinds = kinds.filter((k) => k !== "bus");
+    // ONE combined query, ALL modes — exactly the debug tool's process. It
+    // completes even for a 36k-stop metro (London succeeded at 36,014 as the
+    // FIRST city). Bus stays IN the query: it's a major reachability
+    // contributor (London's 36k is mostly bus) and an allowed game mode, so
+    // splitting it out and skipping it on failure wrongly collapsed London to 2
+    // adjacents. The heavy-metro 0s were a RATE-LIMIT CASCADE (a prior heavy
+    // city saturating the worker's upstream), not this query being too heavy —
+    // that's handled by the caller's cooldown-and-retry, not by dropping bus.
+    const els = await fetchStopsElements(
+        buildRailNetworkStopsQuery(lat, lng, radiusKm, kinds),
+    );
+    if (els === null) return [];
     const stops = [];
-    if (railKinds.length > 0) {
-        const els = await fetchStopsElements(
-            buildRailNetworkStopsQuery(lat, lng, radiusKm, railKinds),
-        );
-        if (els === null) console.log("    (rail stops query failed after retries)");
-        else collectStops(els, "infer", stops);
-    }
-    if (kinds.includes("bus")) {
-        const els = await fetchStopsElements(
-            buildStopsQueryForKind(lat, lng, radiusKm, "bus"),
-        );
-        if (els === null)
-            console.log("    (bus stops query too heavy — skipped, rail kept)");
-        else collectStops(els, "bus", stops);
-    }
+    collectStops(els, "infer", stops);
     return stops;
 }
 
