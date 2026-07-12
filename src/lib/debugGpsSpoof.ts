@@ -18,6 +18,15 @@ import { atom } from "nanostores";
  */
 export const spoofedPosition = atom<{ lat: number; lng: number } | null>(null);
 
+/**
+ * When true, the next tap on the seeker/hider map sets the spoof to that
+ * exact point (constrained to the play area) instead of doing the map's
+ * normal click behaviour. Lets a developer place their spoofed location
+ * precisely rather than accepting a random point. Volatile; a tap (or
+ * cancel) clears it.
+ */
+export const spoofPickMode = atom<boolean>(false);
+
 /** Build a GeolocationPosition-shaped object our consumers can read. */
 function makePosition(lat: number, lng: number): GeolocationPosition {
     const coords: GeolocationCoordinates = {

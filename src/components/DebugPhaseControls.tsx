@@ -8,10 +8,16 @@ import { appConfirm } from "@/lib/confirm";
 import {
     addQuestion,
     mapContext,
+    mapGeoLocation,
+    polyGeoJSON,
     questionModified,
     questions,
 } from "@/lib/context";
-import { clearGpsSpoof, spoofedPosition } from "@/lib/debugGpsSpoof";
+import {
+    clearGpsSpoof,
+    spoofedPosition,
+    spoofPickMode,
+} from "@/lib/debugGpsSpoof";
 import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
 import { debugLauncherHidden, debugPanelOpen } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
@@ -116,6 +122,7 @@ export function DebugPhaseControls({
     const $role = useStore(playerRole);
     const $demo = useStore(demoMode);
     const $spoof = useStore(spoofedPosition);
+    const $pickMode = useStore(spoofPickMode);
 
     /* ─────── seeker actions ─────── */
 
@@ -701,6 +708,46 @@ export function DebugPhaseControls({
                     >
                         🎲 Random point in play area
                     </DebugButton>
+                    <DebugButton
+                        onClick={() => {
+                            if (
+                                !polyGeoJSON.get()?.features?.length &&
+                                !(
+                                    mapGeoLocation.get()?.properties as {
+                                        extent?: number[];
+                                    }
+                                )?.extent
+                            ) {
+                                toast.error(
+                                    "No play area set — pick one first.",
+                                    { autoClose: 2500 },
+                                );
+                                return;
+                            }
+                            spoofPickMode.set(true);
+                            debugPanelOpen.set(false);
+                            toast.info(
+                                "Tap anywhere inside the play area to set your spoofed location.",
+                                { autoClose: 3500 },
+                            );
+                        }}
+                        variant="primary"
+                    >
+                        📍 Set spoof by tapping the map
+                    </DebugButton>
+                    {$pickMode && (
+                        <DebugButton
+                            onClick={() => {
+                                spoofPickMode.set(false);
+                                toast.info("Spoof pick cancelled.", {
+                                    autoClose: 1400,
+                                });
+                            }}
+                            variant="danger"
+                        >
+                            Cancel tap-to-spoof
+                        </DebugButton>
+                    )}
                     {$spoof && (
                         <DebugButton
                             onClick={() => {

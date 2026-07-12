@@ -77,6 +77,8 @@ import { cn } from "@/lib/utils";
 import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
 import { clearCache } from "@/maps/api";
 import { CacheType } from "@/maps/api/types";
+import { spoofPickMode } from "@/lib/debugGpsSpoof";
+import { setSpoofAtPoint } from "@/lib/debugSpoofArea";
 
 import { MapTilesVeil } from "./MapTilesVeil";
 import {
@@ -1700,6 +1702,21 @@ export function Map({ className }: MapProps) {
                 }}
                 onClick={(e) => {
                     setContextMenu(null);
+                    // Debug: "set spoof by tapping the map" — consume this
+                    // tap to place the spoofed GPS at the exact point.
+                    if (spoofPickMode.get()) {
+                        if (setSpoofAtPoint(e.lngLat.lat, e.lngLat.lng)) {
+                            toast.success("Spoofed location set.", {
+                                autoClose: 1600,
+                            });
+                        } else {
+                            toast.error(
+                                "Tap inside the play area to set the spoof.",
+                                { autoClose: 2200 },
+                            );
+                        }
+                        return;
+                    }
                     // Map-first trip planning: a tap on a candidate
                     // hiding zone / station opens the station transit
                     // card (plan a trip to it from the role-appropriate

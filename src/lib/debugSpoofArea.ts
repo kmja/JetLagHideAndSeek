@@ -1,7 +1,37 @@
 import * as turf from "@turf/turf";
 
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
-import { spoofedPosition } from "@/lib/debugGpsSpoof";
+import { spoofedPosition, spoofPickMode } from "@/lib/debugGpsSpoof";
+
+/**
+ * Set the spoof to an EXACT tapped point, but only if it falls inside the
+ * play-area polygon (so a spoof is always somewhere the game is actually
+ * played). Returns true when the point was accepted + the spoof set; false
+ * when it's outside the play area (caller keeps pick-mode on and nudges the
+ * user to tap inside). With no polygon loaded yet, accepts any point.
+ */
+export function setSpoofAtPoint(lat: number, lng: number): boolean {
+    const poly = polyGeoJSON.get();
+    if (poly && poly.features.length > 0) {
+        const merged =
+            poly.features.length === 1
+                ? poly.features[0]
+                : (turf.combine(poly).features[0] as GeoJSON.Feature);
+        let inside = false;
+        try {
+            inside = turf.booleanPointInPolygon(
+                turf.point([lng, lat]),
+                merged as any,
+            );
+        } catch {
+            inside = true; // geometry error — don't block the spoof
+        }
+        if (!inside) return false;
+    }
+    spoofedPosition.set({ lat, lng });
+    spoofPickMode.set(false);
+    return true;
+}
 
 /**
  * Set the spoof to a random point INSIDE the current play area. Prefers

@@ -47,6 +47,10 @@ import {
     stationCardInsetPx,
     tripRouteFC,
 } from "@/lib/journey/state";
+import { toast } from "react-toastify";
+
+import { spoofPickMode } from "@/lib/debugGpsSpoof";
+import { setSpoofAtPoint } from "@/lib/debugSpoofArea";
 import { findZoneAtPoint } from "@/lib/journey/stations";
 import { holedMask } from "@/maps";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
@@ -505,6 +509,21 @@ export function HiderBackgroundMap() {
                 onMouseEnter={() => setStationHover(true)}
                 onMouseLeave={() => setStationHover(false)}
                 onClick={(e) => {
+                    // Debug: "set spoof by tapping the map" — consume this
+                    // tap to place the spoofed GPS at the exact point.
+                    if (spoofPickMode.get()) {
+                        if (setSpoofAtPoint(e.lngLat.lat, e.lngLat.lng)) {
+                            toast.success("Spoofed location set.", {
+                                autoClose: 1600,
+                            });
+                        } else {
+                            toast.error(
+                                "Tap inside the play area to set the spoof.",
+                                { autoClose: 2200 },
+                            );
+                        }
+                        return;
+                    }
                     // Tier 1: tap landed on a reach-overlay feature
                     // (dot or label). Resolve from feature geometry.
                     const map = e.target;
