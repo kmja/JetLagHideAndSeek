@@ -7,7 +7,15 @@ import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
 import { HiderShell } from "@/components/HiderShell";
+import {
+    fetchNearest,
+    resolveFamily,
+} from "@/components/NearestReferencePreview";
 import { PhotoCensorDialog } from "@/components/PhotoCensorDialog";
+import {
+    QuestionOverlayCard,
+    summarizeQuestion,
+} from "@/components/questionOverlayCard";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -189,7 +197,6 @@ function HiderAnswerDialog() {
 /** Inner component once we know we have a valid question. */
 function HiderQuestionAnswer({ question }: { question: Question }) {
     const categoryMeta = CATEGORIES[question.id as CategoryId];
-    const CategoryIcon = categoryMeta?.icon;
 
     // Hider's live position, lifted out of HiderMap so the answer logic
     // and reveal state can also reference it.
@@ -257,59 +264,33 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
 
     return (
         <div className="flex flex-col min-h-0 flex-1 px-5 pt-4 pb-5 gap-4 overflow-y-auto">
-            {/* Jet Lag show-style question banner: a frosted, category-
-                tinted panel with the bold uppercase prompt in the
-                category colour on the left, and a solid category-colour
-                chip (icon + compact value, e.g. "5 km" / "Museum" /
-                camera) on the right. Inspired by the show's "50 MILE
-                RADAR" / "STRAVA MAP OF ½ MILE WALK" answer cards. */}
-            <header
-                className="flex items-stretch rounded-xl overflow-hidden border shadow-sm"
-                style={{
-                    borderColor: categoryMeta
-                        ? hexToRgba(categoryMeta.color, 0.35)
-                        : undefined,
-                    backgroundColor: categoryMeta
-                        ? hexToRgba(categoryMeta.color, 0.12)
-                        : undefined,
-                }}
-            >
-                <div className="flex-1 min-w-0 px-4 py-3">
-                    <DialogDescription
-                        className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold mb-1"
-                        style={{
-                            color: categoryMeta
-                                ? hexToRgba(categoryMeta.color, 0.95)
-                                : undefined,
-                        }}
-                    >
-                        {categoryMeta?.label ?? question.id} · answer needed
-                    </DialogDescription>
-                    <DialogTitle
-                        className="font-display font-extrabold uppercase leading-[1.05] text-lg sm:text-xl"
-                        style={{
-                            color: categoryMeta?.color,
-                            letterSpacing: "-0.01em",
-                        }}
-                    >
-                        {questionPrompt(question)}
-                    </DialogTitle>
-                </div>
-                {CategoryIcon && (
-                    <div
-                        className="flex flex-col items-center justify-center gap-1 px-4 py-3 shrink-0 text-white text-center"
-                        style={{ backgroundColor: categoryMeta?.color }}
-                        aria-hidden="true"
-                    >
-                        <CategoryIcon size={24} strokeWidth={2.5} />
-                        {bannerChip(question) && (
-                            <span className="text-[11px] font-poppins font-bold uppercase tracking-wide leading-tight max-w-[5.5rem] break-words">
-                                {bannerChip(question)}
-                            </span>
-                        )}
-                    </div>
-                )}
-            </header>
+            {/* The question banner uses the SAME shared `QuestionOverlayCard`
+                chrome as every card in the seeker view (on-map overlays +
+                the questions list) — solid category-colour icon block on the
+                left, big bold uppercase label in the deepened category
+                colour, one detail line — so the hider's answer dialog reads
+                as one system with the rest of the app (v792). A
+                visually-hidden DialogTitle/DialogDescription satisfies the
+                Radix Dialog a11y contract since the card renders no
+                heading. */}
+            <DialogTitle className="sr-only">
+                {questionPrompt(question)}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+                {categoryMeta?.label ?? question.id} · answer needed
+            </DialogDescription>
+            <QuestionOverlayCard
+                categoryId={question.id}
+                summary={summarizeQuestion({
+                    id: question.id,
+                    data: question.data as Record<string, unknown>,
+                })}
+                eyebrow={
+                    <span className="text-[color:var(--cat-deep)]">
+                        Answer needed
+                    </span>
+                }
+            />
 
             {!isPhoto && (
                 <div className="relative">
@@ -805,56 +786,6 @@ function questionPrompt(question: Question): string {
     }
 }
 
-/** Short unit suffix for the banner chip ("miles" → "mi"). */
-function unitShort(unit: string): string {
-    switch (unit) {
-        case "miles":
-            return "mi";
-        case "meters":
-            return "m";
-        case "kilometers":
-        default:
-            return "km";
-    }
-}
-
-/**
- * Compact value for the banner's right-hand chip — the show's "50 mi",
- * "½ mile", etc. Distance for radius/thermometer, the subject for
- * matching/measuring/tentacles/photo, or null (icon-only chip) when
- * there's nothing punchy to show.
- */
-function bannerChip(question: Question): string | null {
-    const d = question.data as any;
-    switch (question.id) {
-        case "radius":
-            return `${d.radius} ${unitShort(d.unit)}`;
-        case "thermometer":
-            return d.targetSig ?? d.distance ?? null;
-        case "measuring":
-        case "matching":
-            return d.type ? niceSubtype(d.type) : null;
-        case "tentacles":
-            return d.locationType ? niceSubtype(d.locationType) : null;
-        case "photo":
-            return d.type ? niceSubtype(d.type) : null;
-        default:
-            return null;
-    }
-}
-
-/** hex (#rrggbb) → rgba() string, for tinted banner backgrounds. */
-function hexToRgba(hex: string, alpha: number): string {
-    const h = hex.replace("#", "");
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    if ([r, g, b].some((n) => Number.isNaN(n))) return hex;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-
-
 function unitLabel(unit: string): string {
     switch (unit) {
         case "miles":
@@ -1213,11 +1144,43 @@ function AutoGradedBinaryAnswer({
         if (!hiderPos) return;
         let cancelled = false;
         setGrading(true);
-        gradeViaEngine(question, hiderPos)
-            .then((data) => {
-                if (cancelled) return;
-                const v = data[field];
-                if (typeof v === "boolean") setComputed(v);
+        const d = question.data as Record<string, unknown>;
+
+        const compute = async (): Promise<boolean | null> => {
+            // v792: for MEASURING (closer/further) with a resolvable nearest
+            // reference (coastline / airport / POI / …), derive the verdict
+            // straight from the seeker's and hider's nearest-reference
+            // distances — the same numbers the map now draws, and far more
+            // reliable than the full-area elimination engine (which returned
+            // NO verdict for coastline, leaving nothing selected). Matching's
+            // station-property subtypes (same train line / name length) can't
+            // use a nearest-reference identity, so they stay on the engine.
+            if (
+                field === "hiderCloser" &&
+                typeof d.lat === "number" &&
+                typeof d.lng === "number"
+            ) {
+                const family = resolveFamily(d.type as string);
+                if (family) {
+                    const [s, h] = await Promise.all([
+                        fetchNearest(family, d.lat as number, d.lng as number).catch(
+                            () => null,
+                        ),
+                        fetchNearest(family, hiderPos.lat, hiderPos.lng).catch(
+                            () => null,
+                        ),
+                    ]);
+                    if (s && h) return h.distanceMeters < s.distanceMeters;
+                }
+            }
+            const data = await gradeViaEngine(question, hiderPos);
+            const v = data[field];
+            return typeof v === "boolean" ? v : null;
+        };
+
+        compute()
+            .then((v) => {
+                if (!cancelled && v !== null) setComputed(v);
             })
             .catch(() => {
                 /* leave computed null → hider picks manually */

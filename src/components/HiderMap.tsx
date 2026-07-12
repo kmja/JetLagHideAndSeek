@@ -10,6 +10,11 @@ import Map, {
     Source,
 } from "react-map-gl/maplibre";
 
+import {
+    fetchNearest,
+    type NearestRef,
+    resolveFamily,
+} from "@/components/NearestReferencePreview";
 import { buildMarkerHtml, CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     handleMapLibreError,
@@ -111,6 +116,76 @@ export function HiderMap({
         ? { ...overridePos, accuracy: 0 }
         : gpsPos;
 
+    // v792: simple seeker-vs-hider REFERENCE comparison for matching /
+    // measuring. The hider knows where the seekers are, so instead of the
+    // seeker's full-play-area elimination overlay the map just shows the
+    // seeker's nearest reference (e.g. coastline / airport) and the hider's
+    // own nearest reference, with a line + distance from each. Keyed on a
+    // rounded hider position (~11 m) so a stationary GPS jitter doesn't
+    // re-run the (sometimes Overpass-backed) nearest lookups.
+    const [refs, setRefs] = useState<{
+        seeker: NearestRef | null;
+        hider: NearestRef | null;
+    } | null>(null);
+    const hLat4 = hiderPos ? Number(hiderPos.lat.toFixed(4)) : null;
+    const hLng4 = hiderPos ? Number(hiderPos.lng.toFixed(4)) : null;
+    useEffect(() => {
+        const d = question.data as Record<string, unknown>;
+        if (
+            (question.id !== "matching" && question.id !== "measuring") ||
+            typeof d.lat !== "number" ||
+            typeof d.lng !== "number" ||
+            hLat4 === null ||
+            hLng4 === null
+        ) {
+            setRefs(null);
+            return;
+        }
+        const family = resolveFamily(d.type as string);
+        if (!family) {
+            // No single named reference for this subtype (zone / landmass /
+            // border / custom) — fall back to the plain seeker↔hider view.
+            setRefs(null);
+            return;
+        }
+        let cancelled = false;
+        Promise.all([
+            fetchNearest(family, d.lat as number, d.lng as number).catch(
+                () => null,
+            ),
+            fetchNearest(family, hLat4, hLng4).catch(() => null),
+        ]).then(([seeker, hider]) => {
+            if (!cancelled) setRefs({ seeker, hider });
+        });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [question, hLat4, hLng4]);
+
+    // The seeker→its-reference and hider→its-reference comparison lines.
+    const refLines = useMemo<GeoJSON.FeatureCollection<GeoJSON.LineString> | null>(() => {
+        if (!refs) return null;
+        const d = question.data as Record<string, unknown>;
+        const lines: GeoJSON.Position[][] = [];
+        if (refs.seeker && typeof d.lat === "number" && typeof d.lng === "number") {
+            lines.push([
+                [d.lng, d.lat],
+                [refs.seeker.lng, refs.seeker.lat],
+            ]);
+        }
+        if (refs.hider && hiderPos) {
+            lines.push([
+                [hiderPos.lng, hiderPos.lat],
+                [refs.hider.lng, refs.hider.lat],
+            ]);
+        }
+        return lines.length ? lineFc(lines) : null;
+    }, [refs, question, hiderPos]);
+    // When the reference comparison is shown, drop the plain seeker↔hider
+    // connector — the two reference lines ARE the comparison now.
+    const showRefComparison = refLines !== null;
+
     const initialCenter = useMemo(() => {
         const d = question.data as Record<string, unknown>;
         if (typeof d.lat === "number" && typeof d.lng === "number") {
@@ -152,6 +227,9 @@ export function HiderMap({
         const map = mapRef.current?.getMap();
         if (!map) return;
         const pts = collectFitPoints(question, hiderPos);
+        // Frame the reference points too so both comparison lines are visible.
+        if (refs?.seeker) pts.push([refs.seeker.lng, refs.seeker.lat]);
+        if (refs?.hider) pts.push([refs.hider.lng, refs.hider.lat]);
         if (pts.length === 0) return;
         if (pts.length === 1) {
             map.flyTo({ center: pts[0], zoom: 13, duration: 600 });
@@ -174,7 +252,10 @@ export function HiderMap({
             ],
             { padding: 40, maxZoom: 15, duration: 600 },
         );
-    }, [question, hiderPos]);
+    }, [question, hiderPos, refs]);
+
+    const catColor =
+        CATEGORIES[question.id as CategoryId]?.color ?? "#64748b";
 
     const seekerMarkerHtml = useMemo(
         () => buildMarkerHtml(question.id as CategoryId),
@@ -271,8 +352,26 @@ export function HiderMap({
                     </Source>
                 )}
 
-                {/* Dashed connection(s) from hider to seeker point(s) */}
-                {overlay.hiderConnections && (
+                {/* Reference comparison lines (matching/measuring): from the
+                    seeker to ITS nearest reference, and from the hider to ITS
+                    nearest reference (v792). */}
+                {refLines && (
+                    <Source id="hm-ref-lines" type="geojson" data={refLines}>
+                        <Layer
+                            id="hm-ref-lines-line"
+                            type="line"
+                            paint={{
+                                "line-color": catColor,
+                                "line-width": 3,
+                                "line-opacity": 0.9,
+                            }}
+                        />
+                    </Source>
+                )}
+
+                {/* Dashed connection(s) from hider to seeker point(s) — hidden
+                    when the reference comparison lines are shown instead. */}
+                {overlay.hiderConnections && !showRefComparison && (
                     <Source
                         id="hm-connections"
                         type="geojson"
@@ -306,6 +405,39 @@ export function HiderMap({
                         />
                     </Marker>
                 ))}
+
+                {/* Reference points (matching/measuring) — a small dot at the
+                    seeker's nearest reference and the hider's, each labelled
+                    with its distance so the hider can read both numbers and the
+                    verdict at a glance (v792). */}
+                {refs?.seeker && (
+                    <Marker
+                        longitude={refs.seeker.lng}
+                        latitude={refs.seeker.lat}
+                        anchor="bottom"
+                    >
+                        <RefPointMarker
+                            color={catColor}
+                            origin="Seeker"
+                            distanceMeters={refs.seeker.distanceMeters}
+                            dotEdge="bottom"
+                        />
+                    </Marker>
+                )}
+                {refs?.hider && (
+                    <Marker
+                        longitude={refs.hider.lng}
+                        latitude={refs.hider.lat}
+                        anchor="top"
+                    >
+                        <RefPointMarker
+                            color="#3b82f6"
+                            origin="You"
+                            distanceMeters={refs.hider.distanceMeters}
+                            dotEdge="top"
+                        />
+                    </Marker>
+                )}
 
                 {/* Thermometer mid-line directional arrow */}
                 {overlay.thermometerArrow && (
@@ -536,6 +668,53 @@ function radiusToMeters(value: number, unit: string): number {
         default:
             return value * 1000;
     }
+}
+
+/** A reference point (nearest coastline/airport/etc.) for the seeker or the
+ *  hider, drawn as a small dot with a distance pill (v792). */
+function RefPointMarker({
+    color,
+    origin,
+    distanceMeters,
+    dotEdge,
+}: {
+    color: string;
+    origin: string;
+    distanceMeters: number;
+    dotEdge: "top" | "bottom";
+}) {
+    const km = distanceMeters / 1000;
+    const dist =
+        km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(distanceMeters)} m`;
+    const dot = (
+        <span
+            className="w-3 h-3 rounded-full border-2 border-white shadow"
+            style={{ backgroundColor: color }}
+        />
+    );
+    const label = (
+        <span
+            className="rounded-full px-1.5 py-0.5 text-[10px] font-poppins font-bold text-white shadow whitespace-nowrap"
+            style={{ backgroundColor: color }}
+        >
+            {origin} · {dist}
+        </span>
+    );
+    return (
+        <div className="flex flex-col items-center gap-0.5">
+            {dotEdge === "top" ? (
+                <>
+                    {dot}
+                    {label}
+                </>
+            ) : (
+                <>
+                    {label}
+                    {dot}
+                </>
+            )}
+        </div>
+    );
 }
 
 const hiderPinSvg = `
