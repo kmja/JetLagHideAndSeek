@@ -30,7 +30,21 @@ declare const self: ServiceWorkerGlobalScope & {
     __WB_MANIFEST: (string | { url: string; revision: string | null })[];
 };
 
-self.addEventListener("install", () => self.skipWaiting());
+// PROMPT mode (v772): a freshly-installed SW must NOT call skipWaiting()
+// on install — that made every new deploy immediately take over and
+// force-reload the page, which killed an in-progress game (most visibly
+// the in-memory demo game, whose bot broker + volatile state can't
+// survive a reload). Instead the new SW WAITS; it activates only when the
+// page explicitly asks — vite-plugin-pwa's updateSW(true), fired by the
+// "Reload to update" button (PWAUpdatePrompt), posts this SKIP_WAITING
+// message — or when every tab has closed. So a deploy now surfaces a
+// dismissable "Update ready" prompt and the running game keeps going
+// until the user chooses to reload. `clientsClaim` still lets the SW
+// control open pages once it does activate.
+self.addEventListener("message", (event) => {
+    if ((event.data as { type?: string } | undefined)?.type === "SKIP_WAITING")
+        self.skipWaiting();
+});
 clientsClaim();
 
 precacheAndRoute(self.__WB_MANIFEST);

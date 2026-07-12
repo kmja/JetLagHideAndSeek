@@ -32,7 +32,13 @@ export default defineConfig({
         // caching, and devOptions are preserved verbatim from
         // the previous astro.config.mjs.
         VitePWA({
-            registerType: "autoUpdate",
+            // v772: "prompt", not "autoUpdate" — a new deploy must not
+            // force-reload a live session (it killed in-progress games,
+            // esp. the in-memory demo). The SW waits; PWAUpdatePrompt
+            // surfaces a dismissable "Update ready" and the user reloads
+            // when the game is over. Pairs with the message-based
+            // skipWaiting in src/sw.ts.
+            registerType: "prompt",
             // injectManifest lets us write our own SW (src/sw.ts) with
             // a `push` handler for Web Push notifications. The Workbox
             // precache manifest is injected at build time.
