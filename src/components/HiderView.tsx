@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Camera, Check, Dices, Loader2, MapPin } from "lucide-react";
+import { Ban, Camera, Dices, Loader2, MapPin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -1251,6 +1251,12 @@ function AutoGradedBinaryAnswer({
                         <Loader2 className="w-3 h-3 animate-spin" />
                         Computing your answer…
                     </span>
+                ) : computed === null && override === null ? (
+                    // Grading finished but produced no verdict (e.g. the
+                    // coastline geometry couldn't be fetched) — be honest and
+                    // ask the hider to pick, rather than claiming it was
+                    // auto-computed while nothing is selected (v790).
+                    "Couldn't auto-compute your answer — pick it below."
                 ) : (
                     "Auto-computed from your location — tap to change if it's wrong."
                 )}
@@ -1392,7 +1398,6 @@ function ShareBackRow({
                 className="w-full gap-2 py-7 text-base font-semibold"
                 size="lg"
             >
-                <Check className="w-5 h-5" />
                 Send answer
             </Button>
         </div>
