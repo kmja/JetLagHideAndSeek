@@ -461,21 +461,89 @@ export const determineMeasuringBoundary = async (
             if (lines.length > 0) {
                 out.push(highSpeedBase(lines));
             }
-            // v702: fold in the SEA. OSM tags the open sea and large bays as
-            // `natural=coastline` (a SEPARATE family), NOT `natural=water`, so
-            // a coastal metro's biggest body of water (Houston's Galveston Bay
-            // / ship channel / the Gulf) was invisible here — and an area
-            // sitting IN the bay measured its nearest water as a far inland
-            // lake and read "further from water". Rulebook p11 counts "any
-            // named body of water", and the bay/sea IS one, so add the bundled
-            // coastline as lines (clipped to the play-area frame, same helper
-            // the coastline + border subtypes use) so distance-to-sea buffers
-            // like distance-to-river. Inland cities clip to nothing → no-op.
+            // v702/v770: fold in the SEA as an AREA, not just its coast. OSM
+            // tags the open sea + large bays as `natural=coastline` (a SEPARATE
+            // family), not `natural=water`, so a coastal metro's biggest body
+            // of water is invisible to the `natural=water` query. v702 added the
+            // bundled coastline as thin LINES, but buffering a line only covers
+            // a band near the shore — so OPEN water beyond the seeker's distance
+            // was wrongly marked "further from water", which is impossible (it
+            // IS water, distance 0). Build the sea as a POLYGON instead: the
+            // play-area frame MINUS the land polygons `lineToPolygon` closes the
+            // 1:50m coastline into (the same land-as-truth contract
+            // `same-landmass` + the `coastline` subtype use). Its whole interior
+            // then counts as water. Guarded by a seeker-not-in-sea check: the
+            // seeker is on land, so a valid sea polygon never contains them —
+            // this rejects an inland frame (land fills it → empty/other sea) and
+            // any inverted winding (land mistaken for sea) before it could paint
+            // land as water. Falls back to the thin coastline band otherwise.
             try {
-                const coastLines = clipLinesToBbox(await fetchCoastline(), bBox);
-                if (coastLines.length > 0) out.push(highSpeedBase(coastLines));
+                const coastFC = await fetchCoastline();
+                let sea: Feature<Polygon | MultiPolygon> | null = null;
+                if (bBox) {
+                    const frame = turf.bboxPolygon(bBox as any);
+                    const landRaw = turf.lineToPolygon(coastFC as any) as any;
+                    const landFeatures: any[] =
+                        landRaw?.type === "FeatureCollection"
+                            ? landRaw.features
+                            : [landRaw];
+                    const landPolys = landFeatures.filter(
+                        (f) =>
+                            f?.geometry?.type === "Polygon" ||
+                            f?.geometry?.type === "MultiPolygon",
+                    );
+                    if (landPolys.length > 0) {
+                        const landCombined = turf.combine(
+                            turf.featureCollection(landPolys as any),
+                        ).features[0] as Feature<MultiPolygon>;
+                        const landClipped = turf.bboxClip(
+                            landCombined as any,
+                            bBox as any,
+                        ) as Feature<Polygon | MultiPolygon>;
+                        const hasLand =
+                            (landClipped?.geometry?.coordinates?.length ?? 0) >
+                            0;
+                        sea = hasLand
+                            ? (turf.difference(
+                                  turf.featureCollection([
+                                      frame as any,
+                                      landClipped as any,
+                                  ]),
+                              ) as Feature<Polygon | MultiPolygon> | null)
+                            : (frame as Feature<Polygon>); // frame fully offshore
+                    }
+                }
+                const seekerInSea =
+                    sea != null &&
+                    (() => {
+                        try {
+                            return turf.booleanPointInPolygon(
+                                turf.point([question.lng, question.lat]),
+                                sea as any,
+                            );
+                        } catch {
+                            return true; // treat an errored check as unsafe
+                        }
+                    })();
+                if (sea && !seekerInSea && turf.area(sea as any) > 0) {
+                    out.push(sea);
+                } else {
+                    const coastLines = clipLinesToBbox(coastFC, bBox);
+                    if (coastLines.length > 0)
+                        out.push(highSpeedBase(coastLines));
+                }
             } catch (e) {
-                console.warn("body-of-water coastline merge failed:", e);
+                console.warn("body-of-water sea merge failed:", e);
+                try {
+                    const coastLines = clipLinesToBbox(
+                        await fetchCoastline(),
+                        bBox,
+                    );
+                    if (coastLines.length > 0)
+                        out.push(highSpeedBase(coastLines));
+                } catch {
+                    /* give up on the sea contribution */
+                }
             }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;
