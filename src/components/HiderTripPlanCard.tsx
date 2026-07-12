@@ -5,7 +5,6 @@ import { JourneyCard } from "@/components/JourneyCard";
 import { lastKnownPosition } from "@/lib/context";
 import { allowedTransit } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
-import { useOwnedTripRoute } from "@/hooks/useOwnedTripRoute";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
 
 /**
@@ -110,9 +109,11 @@ export function HiderTripPlanCard() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [$zone?.stationLat, $zone?.stationLng, $allowed, nonce, hasGps]);
 
-    // Mirror the planned journey onto the map route overlay; clear it
-    // when the card unmounts (zone uncommitted / new round).
-    useOwnedTripRoute(journey);
+    // NOTE: the map route overlay is owned by the PERSISTENT `HiderZoneRoute`
+    // (mounted on HiderPage), NOT here — this card lives in the Zone drawer,
+    // which vaul unmounts on close, so owning the route here made it vanish
+    // the moment the drawer closed (v774). This card just renders the
+    // JourneyCard detail; the route stays on the map regardless.
 
     if (!$zone) return null;
 

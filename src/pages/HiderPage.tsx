@@ -14,6 +14,7 @@ import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
 import { LocationPauseBanner } from "@/components/LocationPauseBanner";
 import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
+import { HiderZoneRoute } from "@/components/HiderZoneRoute";
 import { SeekerProximityWatcher } from "@/components/SeekerProximityWatcher";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { useReleaseStuckBodyLock } from "@/hooks/useReleaseStuckBodyLock";
@@ -123,6 +124,11 @@ export function HiderPage() {
                 cross into a closer colour band, even with the Zone drawer
                 closed. Renders nothing. */}
             <SeekerProximityWatcher />
+            {/* Persistent owner of the committed-zone trip route overlay —
+                lives outside the Zone drawer so the route to the hider's
+                committed station stays painted on the map even when the
+                drawer is closed. Renders nothing. */}
+            <HiderZoneRoute />
             <StationTransitCard />
             <LocationPauseWatcher />
             <HidingZoneOptionsSync />

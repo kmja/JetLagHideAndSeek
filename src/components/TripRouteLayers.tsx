@@ -122,7 +122,10 @@ export function TripRouteLayers() {
                         layout={{
                             "text-field": ["get", "label"],
                             "text-size": 11,
-                            "text-font": ["Open Sans Regular"],
+                            // Must be a fontstack the Protomaps glyph proxy
+                            // actually serves — "Open Sans Regular" doesn't
+                            // resolve, so the step labels silently dropped.
+                            "text-font": ["Noto Sans Regular"],
                             "text-anchor": "left",
                             "text-offset": [0.8, 0],
                             "text-allow-overlap": false,
