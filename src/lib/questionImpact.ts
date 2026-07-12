@@ -147,9 +147,22 @@ function toSinglePolygon(
     return null;
 }
 
-/** Voronoi cell around the seeker's nearest candidate, clipped to the
- *  play area. Null when math fails (caller falls back to dots only). */
+/** Voronoi cell of the "same nearest candidate as me" region, clipped to
+ *  the play area. Null when math fails (caller falls back to dots only).
+ *
+ *  Selects the cell that CONTAINS the seeker's own point rather than the
+ *  cell indexed by the geodesic-nearest candidate: `nearest` is picked by
+ *  great-circle distance (`turf.distance`), but `turf.voronoi` partitions
+ *  in PLANAR lng/lat space. Near a cell border — or at higher latitudes
+ *  where a degree of longitude is much shorter than a degree of latitude —
+ *  those disagree, so the geodesic-nearest's planar cell can EXCLUDE the
+ *  seeker, painting the seeker's own position into the "not matching"
+ *  region (impossible — your nearest X is trivially your nearest X). Using
+ *  the containing cell makes the "same nearest" region always include the
+ *  seeker. Falls back to the geodesic-nearest cell if no cell contains the
+ *  seeker (degenerate Voronoi). */
 function voronoiCellAroundMe(
+    me: { lat: number; lng: number },
     nearest: { lat: number; lng: number },
     allPoints: Array<{ lat: number; lng: number }>,
     playArea: Feature<Polygon | MultiPolygon>,
@@ -174,10 +187,27 @@ function voronoiCellAroundMe(
         );
         const cells = turf.voronoi(fc, { bbox: padded });
         if (!cells?.features?.length) return null;
-        const idx = allPoints.findIndex(
-            (p) => p.lat === nearest.lat && p.lng === nearest.lng,
-        );
-        const cell = idx >= 0 ? cells.features[idx] : null;
+        const mePt = turf.point([me.lng, me.lat]);
+        let cell: (typeof cells.features)[number] | null = null;
+        for (const f of cells.features) {
+            if (!f?.geometry) continue;
+            try {
+                if (turf.booleanPointInPolygon(mePt, f as any)) {
+                    cell = f;
+                    break;
+                }
+            } catch {
+                /* skip malformed cell */
+            }
+        }
+        // Fallback: no cell contained the seeker (degenerate tiling) — use
+        // the geodesic-nearest candidate's cell so we still show something.
+        if (!cell?.geometry) {
+            const idx = allPoints.findIndex(
+                (p) => p.lat === nearest.lat && p.lng === nearest.lng,
+            );
+            cell = idx >= 0 ? (cells.features[idx] ?? null) : null;
+        }
         if (!cell?.geometry) return null;
         try {
             const clipped = turf.intersect(
@@ -399,7 +429,12 @@ export function useQuestionImpact(
         const out: QuestionImpact = { candidates, nearest, loading };
 
         if (mode === "matching" && nearest) {
-            const cell = voronoiCellAroundMe(nearest, candidates, playArea);
+            const cell = voronoiCellAroundMe(
+                { lat, lng },
+                nearest,
+                candidates,
+                playArea,
+            );
             if (cell) {
                 out.yes = cell;
                 try {
