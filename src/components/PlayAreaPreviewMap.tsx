@@ -995,14 +995,23 @@ function CommittedAreasOverlay() {
  * but the visual weight matches their "you probably don't want this"
  * status. Self-renders null when the picker is closed.
  *
- * Name labels are collision-aware: a pill only shows its name when its
- * on-screen centroid is at least `LABEL_MIN_GAP_PX` from every other
- * pill. When pills cluster (e.g. a dense metro at low zoom) the labels
- * overlap into mush, so we drop to icon-only there and only surface
- * text for pills that are spread far enough apart to stay legible.
- * Recomputed on every pan / zoom.
+ * Name labels are collision-aware (v784): rather than a crude
+ * centroid-distance radius (which ignored label width, so a wide label
+ * like "NASSAU COUNTY" still overlapped a pill more than the radius away),
+ * we project every pill to screen pixels and run a GREEDY box-reservation
+ * pass. Every pill's icon-only box is a hard obstacle; a pill earns its
+ * label only if the label's bounding box clears every other pill's icon
+ * and every already-accepted label. Recomputed on every pan / zoom.
  */
-const LABEL_MIN_GAP_PX = 110;
+// Pill/label box metrics in CSS px (from the marker styles below): the
+// icon-only pill ≈ 30px wide, the row ≈ 22px tall, a gap of ~4px, and each
+// label char ≈ 6.2px of a max-120px width. PAD is inter-box breathing room.
+const PILL_ICON_W_PX = 30;
+const PILL_H_PX = 22;
+const LABEL_GAP_PX = 4;
+const LABEL_MAX_W_PX = 120;
+const LABEL_CHAR_W_PX = 6.2;
+const LABEL_BOX_PAD_PX = 4;
 
 function AdjacentCandidatesOverlay({
     mapRef,
@@ -1122,26 +1131,54 @@ function AdjacentCandidatesOverlay({
             return;
         }
         const recompute = () => {
+            // Project every candidate centroid to screen px. The Marker is
+            // anchor="center", so the whole inline-flex pill (icon + optional
+            // label) is centred on this point → boxes are centred on (x,y).
             const pts = candidates.map((c) => {
                 const [maxLat, minLng, minLat, maxLng] = c.bbox;
                 const p = map.project([
                     (minLng + maxLng) / 2,
                     (minLat + maxLat) / 2,
                 ]);
-                return { id: c.osmId, x: p.x, y: p.y };
+                return { id: c.osmId, x: p.x, y: p.y, name: c.name };
             });
+            type Box = { x1: number; y1: number; x2: number; y2: number };
+            const boxCentred = (x: number, y: number, w: number): Box => ({
+                x1: x - w / 2 - LABEL_BOX_PAD_PX,
+                y1: y - PILL_H_PX / 2 - LABEL_BOX_PAD_PX,
+                x2: x + w / 2 + LABEL_BOX_PAD_PX,
+                y2: y + PILL_H_PX / 2 + LABEL_BOX_PAD_PX,
+            });
+            const overlaps = (a: Box, b: Box) =>
+                a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+            const labelWidth = (name: string) =>
+                Math.min(LABEL_MAX_W_PX, Math.max(1, name.length) * LABEL_CHAR_W_PX);
+
+            // Hard obstacles: every pill's icon-only box (all pills always
+            // render, labelled or not).
+            const iconBoxes = pts.map((p) => ({
+                id: p.id,
+                box: boxCentred(p.x, p.y, PILL_ICON_W_PX),
+            }));
+            // Greedy order: shortest labels first (cheapest to place), stable
+            // by id as a tiebreak so the result doesn't jitter frame to frame.
+            const order = [...pts].sort(
+                (a, b) => a.name.length - b.name.length || a.id - b.id,
+            );
+            const accepted: Box[] = [];
             const labeled = new Set<number>();
-            for (let i = 0; i < pts.length; i++) {
-                let nearest = Infinity;
-                for (let j = 0; j < pts.length; j++) {
-                    if (i === j) continue;
-                    const d = Math.hypot(
-                        pts[i].x - pts[j].x,
-                        pts[i].y - pts[j].y,
-                    );
-                    if (d < nearest) nearest = d;
+            for (const p of order) {
+                const w =
+                    PILL_ICON_W_PX + LABEL_GAP_PX + labelWidth(p.name);
+                const box = boxCentred(p.x, p.y, w);
+                const hitsIcon = iconBoxes.some(
+                    (ic) => ic.id !== p.id && overlaps(box, ic.box),
+                );
+                const hitsLabel = accepted.some((ab) => overlaps(box, ab));
+                if (!hitsIcon && !hitsLabel) {
+                    labeled.add(p.id);
+                    accepted.push(box);
                 }
-                if (nearest >= LABEL_MIN_GAP_PX) labeled.add(pts[i].id);
             }
             setLabeledIds(labeled);
         };

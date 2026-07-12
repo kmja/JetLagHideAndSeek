@@ -153,6 +153,16 @@ export function RolePicker() {
         "seeker" | "hider" | "coHider" | null
     >(null);
 
+    // v784: warm the lazy HiderPage chunk the moment the hider tile is
+    // highlighted, so confirming doesn't flash App.tsx's full-screen Suspense
+    // spinner (the "whole UI reloads" feel) before /h paints. No-op if already
+    // loaded; the dynamic import stays a separate chunk.
+    useEffect(() => {
+        if (selected === "hider" || selected === "coHider") {
+            void import("@/pages/HiderPage");
+        }
+    }, [selected]);
+
     const confirmJoin = () => {
         if (!selected) return;
         if (selected === "hider" && hiderTaken) return;

@@ -515,7 +515,15 @@ export function GameLobbyDialog() {
                         // stay as the familiar bottom drawer.
                         isMidGame
                             ? "bottom-0 mt-24 h-auto max-h-[90vh] rounded-t-[10px] border"
-                            : "inset-0 h-full pt-[env(safe-area-inset-top)]",
+                            : // v784: the pre-game full-screen lobby FADES in
+                              // instead of vaul's slide-up. Picking the hider
+                              // role navigates to /h, which mounts a fresh
+                              // lobby drawer — the slide-up read as a janky
+                              // "reload" vs. the seeker path (same route, the
+                              // picker just fades to reveal the already-open
+                              // lobby). `!transform-none` kills vaul's translate;
+                              // the fade matches the picker/overlay dismissal.
+                              "inset-0 h-full pt-[env(safe-area-inset-top)] !transform-none animate-in fade-in duration-200",
                         "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
                         "pb-[env(safe-area-inset-bottom)] sm:max-w-md sm:mx-auto",
                     )}

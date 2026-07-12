@@ -124,7 +124,12 @@ export function HiderBackgroundMap() {
     // Station-card drawer height, bucketed so the route refit below only
     // re-runs on real open/expand/collapse transitions (not 1px jitters).
     const $cardInset = useStore(stationCardInsetPx);
-    const cardInsetBucket = Math.round($cardInset / 60);
+    // v784: bucket at 10px (was 60px). The card grows AFTER the first fit —
+    // the reachability banner appears once the journey resolves, the expander
+    // opens — and a 60px bucket swallowed those increments, so the fit never
+    // re-ran and the route/zone tucked under the drawer. A 10px bucket still
+    // damps 1px jitter but tracks the real drawer height so the fit re-frames.
+    const cardInsetBucket = Math.round($cardInset / 10);
     const $selectedStation = useStore(selectedMapStation);
     const $hidingRadius = useStore(hidingRadius);
     const $hidingRadiusUnits = useStore(hidingRadiusUnits);

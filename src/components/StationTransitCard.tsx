@@ -105,6 +105,32 @@ export function StationTransitCard({
         setTab("trip");
     }, [station?.lat, station?.lng]);
 
+    // v784: guarantee the map BEHIND this non-modal card stays fully
+    // interactive (pan/zoom + tap another zone to switch selection). The app
+    // has a recurring "stuck `body { pointer-events: none }`" left behind by
+    // other modal layers (see AddQuestionDialog + useReleaseStuckBodyLock); if
+    // one leaked before this card opened, the map behind was dead and the card
+    // looked like it had frozen the map — the reported bug. Clear a stuck lock
+    // when the card opens (and once more after a frame + a short delay, to beat
+    // any late set from vaul/Radix). It only runs on the open transition, so a
+    // legitimately-nested modal opened FROM the card (e.g. the endgame confirm)
+    // still gets to set its own lock.
+    useEffect(() => {
+        if (station === null) return;
+        const clearStuckLock = () => {
+            if (document.body.style.pointerEvents === "none") {
+                document.body.style.pointerEvents = "";
+            }
+        };
+        clearStuckLock();
+        const raf = requestAnimationFrame(clearStuckLock);
+        const t = setTimeout(clearStuckLock, 80);
+        return () => {
+            cancelAnimationFrame(raf);
+            clearTimeout(t);
+        };
+    }, [station]);
+
     useEffect(() => {
         if (!station) {
             setJourney(null);
