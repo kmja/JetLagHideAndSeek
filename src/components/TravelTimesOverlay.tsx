@@ -49,9 +49,22 @@ export function TravelTimesOverlay() {
             travelTimesFC.set(null);
             return;
         }
+        // v782: a DEFINITIVE "can't draw" outcome (no provider / no
+        // start-GPS for this game) turns the TOGGLE off, not just clears the
+        // FC — otherwise the "Travel times" button reads ON over an empty map
+        // (the same mismatch reported for the hider hiding-zones overlay).
+        // Turning `showTravelTimes` off re-runs this effect into the
+        // `!enabled` branch. (The transient `stations.length === 0` case below
+        // stays a plain clear — it just means the hiding-zones layer this
+        // overlay labels hasn't finished loading yet, so re-running when
+        // `zones` populates will draw.)
+        const turnOff = () => {
+            travelTimesFC.set(null);
+            showTravelTimes.set(false);
+        };
         const provider = activeJourneyProvider();
         if (!provider) {
-            travelTimesFC.set(null);
+            turnOff();
             // Silent-failure was the "toggle does nothing" bug (v630) —
             // tell the seeker why. Deduped by toastId.
             toast.info(
@@ -61,7 +74,7 @@ export function TravelTimesOverlay() {
             return;
         }
         if (!$startPos || !$endsAt) {
-            travelTimesFC.set(null);
+            turnOff();
             toast.info(
                 "Travel times needs the GPS fix captured at game start — it isn't available for this game.",
                 { toastId: "travel-times-no-start", autoClose: 4000 },

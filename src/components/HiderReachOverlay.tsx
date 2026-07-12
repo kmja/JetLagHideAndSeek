@@ -66,22 +66,32 @@ export function HiderReachOverlay() {
             hiderReachFC.set(null);
             return;
         }
+        // v782: a terminal "can't/shouldn't draw" outcome must turn the
+        // TOGGLE off, not just clear the FC — otherwise the Map-options
+        // "Hiding zones" button reads ON while the map is empty (the
+        // reported mismatch). Turning `showHiderReach` off re-runs this
+        // effect, which then hits the `!enabled` branch above and settles.
+        // Loading is the ONLY non-drawing state that legitimately stays on.
+        const turnOff = () => {
+            hiderReachFC.set(null);
+            showHiderReach.set(false);
+        };
         // No clock → nothing to survey yet.
         if (!$hidingEndsAt) {
-            hiderReachFC.set(null);
+            turnOff();
             return;
         }
         // Auto-disable once the hider has locked their zone — at
         // that point the survey view is no longer guidance, it's
         // clutter. The trip-plan card takes over.
         if ($zone) {
-            hiderReachFC.set(null);
+            turnOff();
             return;
         }
         if (Date.now() >= $hidingEndsAt) {
             // Past the whistle — the overlay can't help and the
             // grace-window picker is taking the screen anyway.
-            hiderReachFC.set(null);
+            turnOff();
             return;
         }
 
@@ -98,12 +108,12 @@ export function HiderReachOverlay() {
             const anchorLat = gps?.lat ?? (centre?.[0] as number) ?? 0;
             const anchorLng = gps?.lng ?? (centre?.[1] as number) ?? 0;
 
-            // v667: a FAILED fetch (Overpass rate-limited / soft-timed-
+            // v667/v782: a FAILED fetch (Overpass rate-limited / soft-timed-
             // out) must not masquerade as "loaded, zero zones" — the old
-            // catch-to-[] did exactly that (the Chicago empty-overlay
-            // bug). Failure → error toast + null FC (the toggle stays on,
-            // so toggling it re-runs the fetch); a genuinely-empty result
-            // → info toast + empty FC.
+            // catch-to-[] did exactly that (the Chicago empty-overlay bug).
+            // Both a failure AND a genuinely-empty result now turn the toggle
+            // OFF (via turnOff) so the "Hiding zones" button never reads ON
+            // over an empty map; the toast explains what happened.
             let stations: AreaStation[];
             try {
                 stations = await fetchAreaStations(anchorLat, anchorLng, {
@@ -112,9 +122,9 @@ export function HiderReachOverlay() {
             } catch (e) {
                 console.warn("HiderReachOverlay: station fetch failed", e);
                 if (!cancelled) {
-                    hiderReachFC.set(null);
+                    turnOff();
                     toast.error(
-                        "Couldn't load hiding zones — the map data service timed out or is rate-limited. Toggle the overlay again to retry.",
+                        "Couldn't load hiding zones — the map data service timed out or is rate-limited. Turn the overlay back on to retry.",
                         { toastId: "hider-reach-failed" },
                     );
                 }
@@ -122,7 +132,7 @@ export function HiderReachOverlay() {
             }
             if (cancelled) return;
             if (stations.length === 0) {
-                hiderReachFC.set({ type: "FeatureCollection", features: [] });
+                turnOff();
                 toast.info(
                     "No candidate hiding zones found in the play area for the allowed transit modes.",
                     { toastId: "hider-reach-empty" },
