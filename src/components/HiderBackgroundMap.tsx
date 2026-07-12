@@ -692,13 +692,17 @@ export function HiderBackgroundMap() {
                                     ["==", ["geometry-type"], "MultiPolygon"],
                                 ]}
                                 paint={fadePaint({
-                                    "fill-color": darkBasemap
-                                        ? "#f5e7e3"
-                                        : "hsl(2, 70%, 54%)",
+                                    // Light basemap: NEUTRAL grey wash (the red
+                                    // tint was too prominent). Dark/satellite:
+                                    // brightening near-white wash. Matches the
+                                    // seeker's hiding-zones-fill.
+                                    "fill-color": !darkBasemap
+                                        ? "hsl(0, 0%, 42%)"
+                                        : "#f5e7e3",
                                     "fill-opacity": shown
                                         ? darkBasemap
                                             ? 0.16
-                                            : 0.08
+                                            : 0.1
                                         : 0,
                                     "fill-opacity-transition": {
                                         duration: 280,
@@ -722,7 +726,11 @@ export function HiderBackgroundMap() {
                                 paint={fadePaint({
                                     "line-color": "hsl(2, 70%, 54%)",
                                     "line-width": 1.5,
-                                    "line-opacity": shown ? 0.4 : 0,
+                                    // Light basemap: no dashed extent edge (it
+                                    // read as clutter). Dark/satellite: keep a
+                                    // faint hint. Matches hiding-zones-line.
+                                    "line-opacity":
+                                        shown && darkBasemap ? 0.4 : 0,
                                     "line-opacity-transition": {
                                         duration: 280,
                                     },
@@ -748,7 +756,12 @@ export function HiderBackgroundMap() {
                                         16,
                                         5,
                                     ],
-                                    "circle-color": "hsl(2, 70%, 54%)",
+                                    // Light basemap: neutral very-dark-grey
+                                    // dots; dark/satellite: brand red. Matches
+                                    // hiding-zones-points.
+                                    "circle-color": darkBasemap
+                                        ? "hsl(2, 70%, 54%)"
+                                        : "hsl(0, 0%, 20%)",
                                     "circle-stroke-color": "#ffffff",
                                     "circle-stroke-width": 1,
                                     "circle-opacity": shown ? 1 : 0,

@@ -1762,22 +1762,26 @@ export function Map({ className }: MapProps) {
                                     ["==", ["geometry-type"], "MultiPolygon"],
                                 ]}
                                 paint={fadePaint({
-                                    // Light mode: faint red tint over the bright
-                                    // basemap reads as "highlighted remaining
-                                    // area". Dark mode: a faint red tint over a
-                                    // near-black basemap disappears, so the
-                                    // overlay paints a brightening near-white
-                                    // wash that POSITIVELY lights up the
-                                    // remaining hiding circles against the
-                                    // (now much darker) eliminated surround.
-                                    "fill-color":
-                                        $theme === "dark"
-                                            ? "#f5e7e3"
-                                            : "hsl(2, 70%, 54%)",
+                                    // Light basemap: a NEUTRAL grey wash — the
+                                    // red tint read as too prominent / "took
+                                    // over" the bright map, so the fill is a
+                                    // plain grey that's visible but recedes.
+                                    // Dark/satellite basemap: a faint red tint
+                                    // disappears on near-black, so the overlay
+                                    // paints a brightening near-white wash that
+                                    // POSITIVELY lights up the remaining hiding
+                                    // circles against the darker surround.
+                                    "fill-color": !darkBasemap
+                                        ? "hsl(0, 0%, 42%)"
+                                        : $theme === "dark"
+                                          ? "#f5e7e3"
+                                          : "hsl(2, 70%, 54%)",
                                     "fill-opacity": shown
-                                        ? $theme === "dark"
-                                            ? 0.16
-                                            : 0.08
+                                        ? !darkBasemap
+                                            ? 0.1
+                                            : $theme === "dark"
+                                              ? 0.16
+                                              : 0.08
                                         : 0,
                                     "fill-opacity-transition": {
                                         duration: 280,
@@ -1797,12 +1801,12 @@ export function Map({ className }: MapProps) {
                                 paint={fadePaint({
                                     "line-color": "hsl(2, 70%, 54%)",
                                     "line-width": 1.5,
-                                    // Subtle: the zone circles now show in
-                                    // the stations overlay too, so a full
-                                    // 0.9 dashed edge crisscrossed the whole
-                                    // view. A faint edge just hints the
-                                    // extent without the noise.
-                                    "line-opacity": shown ? 0.4 : 0,
+                                    // Light basemap: no dashed extent edge — it
+                                    // crisscrossed the bright map and read as
+                                    // clutter. Dark/satellite: a faint dashed
+                                    // edge still hints the extent against the
+                                    // darker surround.
+                                    "line-opacity": shown && darkBasemap ? 0.4 : 0,
                                     "line-opacity-transition": {
                                         duration: 280,
                                     },
@@ -1828,7 +1832,12 @@ export function Map({ className }: MapProps) {
                                         16,
                                         5,
                                     ],
-                                    "circle-color": "hsl(2, 70%, 54%)",
+                                    // Light basemap: neutral very-dark-grey
+                                    // dots (the red field was too loud). Dark/
+                                    // satellite: brand red still reads best.
+                                    "circle-color": darkBasemap
+                                        ? "hsl(2, 70%, 54%)"
+                                        : "hsl(0, 0%, 20%)",
                                     "circle-stroke-color": "#ffffff",
                                     "circle-stroke-width": 1,
                                     "circle-opacity": shown ? 1 : 0,
