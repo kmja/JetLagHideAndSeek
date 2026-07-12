@@ -57,6 +57,10 @@ export interface Env {
      *  family). Set to "false" if the responses strain the worker; the
      *  client falls back to its live poly query, as before. */
     WATER_PREWARM_ENABLED?: string;
+    /** Feature flag for the per-city COASTLINE prewarm (v776, Phase 2d).
+     *  Set to "false" to skip; the client then falls back to the bundled
+     *  1:50m coastline for the sea, as before. */
+    COAST_PREWARM_ENABLED?: string;
     /** Feature flag for the ADJACENT-AREA full curation (v676). When a
      *  curated city's adjacent municipalities are warmed (Phase 4), the
      *  cron now warms each neighbour's boundary *plus* its references and

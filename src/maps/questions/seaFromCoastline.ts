@@ -1,0 +1,263 @@
+import * as turf from "@turf/turf";
+import type {
+    Feature,
+    LineString,
+    MultiLineString,
+    MultiPolygon,
+    Polygon,
+    Position,
+} from "geojson";
+
+/**
+ * Build a SEA (water) polygon from OSM `natural=coastline` LINES, clipped to a
+ * play-area frame.
+ *
+ * Coastal cities (e.g. NYC) tag the open sea / harbour as `natural=coastline`
+ * rather than `natural=water`, so the "is X closer to water than the seeker"
+ * question needs a real water polygon derived from those lines. OSM's coastline
+ * convention is: **LAND is on the LEFT of the way direction, WATER is on the
+ * RIGHT** (Overpass `out geom` preserves way/node order, so the input
+ * coordinates are in way order and carry that direction).
+ *
+ * The strategy: node the clipped coastline against the frame ring, polygonize
+ * the result into faces that tile the frame, then label each face using the
+ * right-hand rule (sample a point just to the RIGHT of each coastline segment;
+ * whichever face contains it is water). Union the water faces.
+ *
+ * Returns `null` (never throws) whenever the result is missing, degenerate, or
+ * fails a sanity guard — the caller is expected to fall back (e.g. treat the
+ * city as inland).
+ */
+
+// How far (in degrees) to step off a coastline midpoint to sample land vs.
+// water. ~0.0004° ≈ 44 m — small enough to stay inside the adjacent face but
+// large enough to clear floating-point noise on the coastline itself.
+const SAMPLE_DELTA_DEG = 0.0004;
+// Tolerance for deciding a coordinate lies on the frame boundary.
+const BOUNDARY_EPS = 1e-9;
+
+export function seaFromCoastline(
+    coastlineLines: Feature<LineString | MultiLineString>[],
+    frameBbox: [number, number, number, number], // [minLng, minLat, maxLng, maxLat]
+    seeker: { lng: number; lat: number },
+): Feature<Polygon | MultiPolygon> | null {
+    try {
+        // 1. No coastline → nothing to do.
+        if (!coastlineLines || coastlineLines.length === 0) return null;
+
+        const [minLng, minLat, maxLng, maxLat] = frameBbox;
+        // 2. The frame polygon we clip and tile against.
+        const framePoly = turf.bboxPolygon(frameBbox);
+
+        // 3. Clip every coastline line to the frame, flattening MultiLineStrings
+        //    into individual LineStrings and PRESERVING coordinate order (the
+        //    OSM way direction that encodes which side is water).
+        const clippedSegments: Position[][] = [];
+        for (const line of coastlineLines) {
+            let clipped: Feature<LineString | MultiLineString>;
+            try {
+                clipped = turf.bboxClip(line, frameBbox) as Feature<
+                    LineString | MultiLineString
+                >;
+            } catch {
+                continue;
+            }
+            if (!clipped || !clipped.geometry) continue;
+            const geom = clipped.geometry;
+            if (geom.type === "LineString") {
+                if (geom.coordinates.length >= 2)
+                    clippedSegments.push(geom.coordinates);
+            } else if (geom.type === "MultiLineString") {
+                for (const part of geom.coordinates) {
+                    if (part.length >= 2) clippedSegments.push(part);
+                }
+            }
+        }
+
+        // 4. No coast inside the frame → caller handles the inland case.
+        if (clippedSegments.length === 0) return null;
+
+        // 5. Collect the clipped-segment endpoints that land ON the frame
+        //    boundary, then split the frame ring's 4 edges at those points so the
+        //    ring shares EXACT coordinates with the coastline endpoints. Without
+        //    shared nodes, polygonize can't close faces along the boundary.
+        const onBoundary = (p: Position): boolean =>
+            Math.abs(p[0] - minLng) < BOUNDARY_EPS ||
+            Math.abs(p[0] - maxLng) < BOUNDARY_EPS ||
+            Math.abs(p[1] - minLat) < BOUNDARY_EPS ||
+            Math.abs(p[1] - maxLat) < BOUNDARY_EPS;
+
+        const boundaryPoints: Position[] = [];
+        for (const seg of clippedSegments) {
+            for (const end of [seg[0], seg[seg.length - 1]]) {
+                if (onBoundary(end)) boundaryPoints.push(end);
+            }
+        }
+
+        // The 4 frame corners, in CCW order matching bboxPolygon's ring.
+        const corners: Record<string, Position[]> = {
+            bottom: [
+                [minLng, minLat],
+                [maxLng, minLat],
+            ],
+            right: [
+                [maxLng, minLat],
+                [maxLng, maxLat],
+            ],
+            top: [
+                [maxLng, maxLat],
+                [minLng, maxLat],
+            ],
+            left: [
+                [minLng, maxLat],
+                [minLng, minLat],
+            ],
+        };
+
+        // Which edge a boundary point belongs to, and its scalar param along it.
+        const nearlyEq = (a: number, b: number) => Math.abs(a - b) < BOUNDARY_EPS;
+        const frameEdges: Position[][] = [];
+        for (const [edge, ends] of Object.entries(corners)) {
+            const [start, end] = ends;
+            // Points on this edge (including endpoints), deduped, sorted by param.
+            const pts: Position[] = [start, end];
+            for (const bp of boundaryPoints) {
+                let on = false;
+                if (edge === "bottom" && nearlyEq(bp[1], minLat)) on = true;
+                else if (edge === "top" && nearlyEq(bp[1], maxLat)) on = true;
+                else if (edge === "left" && nearlyEq(bp[0], minLng)) on = true;
+                else if (edge === "right" && nearlyEq(bp[0], maxLng)) on = true;
+                if (on) pts.push(bp);
+            }
+            // Sort along the edge direction (start → end).
+            const dx = end[0] - start[0];
+            const dy = end[1] - start[1];
+            const param = (p: Position) =>
+                (p[0] - start[0]) * dx + (p[1] - start[1]) * dy;
+            pts.sort((a, b) => param(a) - param(b));
+            // Dedupe consecutive near-identical points.
+            const uniq: Position[] = [];
+            for (const p of pts) {
+                const last = uniq[uniq.length - 1];
+                if (
+                    !last ||
+                    !nearlyEq(last[0], p[0]) ||
+                    !nearlyEq(last[1], p[1])
+                ) {
+                    uniq.push(p);
+                }
+            }
+            // Emit consecutive sub-edges.
+            for (let i = 0; i < uniq.length - 1; i++) {
+                frameEdges.push([uniq[i], uniq[i + 1]]);
+            }
+        }
+
+        // 6. Polygonize (coastline segments + frame sub-edges) into faces.
+        const lineFeatures: Feature<LineString>[] = [
+            ...clippedSegments.map((c) => turf.lineString(c)),
+            ...frameEdges.map((e) => turf.lineString(e)),
+        ];
+        let faces: Feature<Polygon>[];
+        try {
+            const polygonized = turf.polygonize(
+                turf.featureCollection(lineFeatures),
+            );
+            faces = polygonized.features as Feature<Polygon>[];
+        } catch {
+            return null;
+        }
+        if (!faces || faces.length === 0) return null;
+
+        // 7. LABEL faces as water using the right-side rule. For each ORIGINAL
+        //    clipped coastline segment (consecutive coord pair p0→p1): take the
+        //    midpoint M, the direction d = p1 − p0, and the RIGHT-hand normal in
+        //    (lng, lat) = (d.lat, −d.lng). Sample a point just off M along that
+        //    normal — whichever polygonized face CONTAINS it is WATER.
+        const waterFaces: Feature<Polygon>[] = [];
+        const isWater = new Array<boolean>(faces.length).fill(false);
+        for (const seg of clippedSegments) {
+            for (let i = 0; i < seg.length - 1; i++) {
+                const p0 = seg[i];
+                const p1 = seg[i + 1];
+                const dLng = p1[0] - p0[0];
+                const dLat = p1[1] - p0[1];
+                // Right-hand normal of travel direction.
+                let nLng = dLat;
+                let nLat = -dLng;
+                const len = Math.hypot(nLng, nLat);
+                if (len < 1e-15) continue; // zero-length segment
+                nLng /= len;
+                nLat /= len;
+                const mid: Position = [
+                    (p0[0] + p1[0]) / 2,
+                    (p0[1] + p1[1]) / 2,
+                ];
+                const sample = turf.point([
+                    mid[0] + nLng * SAMPLE_DELTA_DEG,
+                    mid[1] + nLat * SAMPLE_DELTA_DEG,
+                ]);
+                for (let f = 0; f < faces.length; f++) {
+                    if (isWater[f]) continue;
+                    try {
+                        if (turf.booleanPointInPolygon(sample, faces[f])) {
+                            isWater[f] = true;
+                            waterFaces.push(faces[f]);
+                            break;
+                        }
+                    } catch {
+                        // ignore a bad face
+                    }
+                }
+            }
+        }
+
+        if (waterFaces.length === 0) return null;
+
+        // 8. Union the water faces into a single sea polygon.
+        let sea: Feature<Polygon | MultiPolygon> | null = null;
+        try {
+            if (waterFaces.length === 1) {
+                sea = waterFaces[0];
+            } else {
+                sea = turf.union(
+                    turf.featureCollection(waterFaces),
+                ) as Feature<Polygon | MultiPolygon> | null;
+            }
+        } catch {
+            return null;
+        }
+
+        // 9. GUARDS — return null so the caller falls back.
+        if (!sea || !sea.geometry) return null;
+        let seaArea = 0;
+        try {
+            seaArea = turf.area(sea);
+        } catch {
+            return null;
+        }
+        // (a) empty / zero-area sea.
+        if (seaArea <= 0) return null;
+        // (b) the seeker is on LAND, so a correctly-wound sea must NOT contain
+        //     them. If it does, we mislabeled / inverted the winding.
+        try {
+            if (turf.booleanPointInPolygon(turf.point([seeker.lng, seeker.lat]), sea))
+                return null;
+        } catch {
+            return null;
+        }
+        // (c) sea covering essentially the whole frame is degenerate.
+        let frameArea = 0;
+        try {
+            frameArea = turf.area(framePoly);
+        } catch {
+            return null;
+        }
+        if (frameArea > 0 && seaArea > 0.98 * frameArea) return null;
+
+        return sea;
+    } catch {
+        // Never throw — any unexpected failure means "no usable sea".
+        return null;
+    }
+}

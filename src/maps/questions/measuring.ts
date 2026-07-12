@@ -1,5 +1,11 @@
 import * as turf from "@turf/turf";
-import type { Feature, MultiPolygon, Polygon } from "geojson";
+import type {
+    Feature,
+    LineString,
+    MultiLineString,
+    MultiPolygon,
+    Polygon,
+} from "geojson";
 import memoize from "lodash/memoize";
 import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
@@ -24,11 +30,16 @@ import {
     prettifyLocation,
     QuestionSpecificLocation,
 } from "@/maps/api";
+import {
+    fetchPrewarmedAreaCoast,
+    requestCoastWarmAll,
+} from "@/maps/api/coast";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import {
     fetchPrewarmedAreaWater,
     requestWaterWarmAll,
 } from "@/maps/api/water";
+import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -478,72 +489,132 @@ export const determineMeasuringBoundary = async (
             // any inverted winding (land mistaken for sea) before it could paint
             // land as water. Falls back to the thin coastline band otherwise.
             try {
-                const coastFC = await fetchCoastline();
+                const seeker = { lng: question.lng, lat: question.lat };
                 let sea: Feature<Polygon | MultiPolygon> | null = null;
+
+                // v776: prefer the DETAILED per-city OSM coastline (prewarmed
+                // `/api/coast/<id>`). OSM tags the open sea/bays as
+                // `natural=coastline`, and the bundled 1:50m coastline is far
+                // too coarse for a metro — NYC's harbour + tidal rivers were
+                // still marked "further from water". `seaFromCoastline` nodes
+                // the coastline against the frame, polygonizes, and labels
+                // water by the OSM right-of-way rule; it self-guards
+                // (seeker-not-in-sea, degeneracy) and returns null on any
+                // failure, so we fall through to the coarse sea below. On a
+                // cold coast it background-warms for next time.
                 if (bBox) {
-                    const frame = turf.bboxPolygon(bBox as any);
-                    const landRaw = turf.lineToPolygon(coastFC as any) as any;
-                    const landFeatures: any[] =
-                        landRaw?.type === "FeatureCollection"
-                            ? landRaw.features
-                            : [landRaw];
-                    const landPolys = landFeatures.filter(
-                        (f) =>
-                            f?.geometry?.type === "Polygon" ||
-                            f?.geometry?.type === "MultiPolygon",
-                    );
-                    if (landPolys.length > 0) {
-                        const landCombined = turf.combine(
-                            turf.featureCollection(landPolys as any),
-                        ).features[0] as Feature<MultiPolygon>;
-                        const landClipped = turf.bboxClip(
-                            landCombined as any,
-                            bBox as any,
-                        ) as Feature<Polygon | MultiPolygon>;
-                        const hasLand =
-                            (landClipped?.geometry?.coordinates?.length ?? 0) >
-                            0;
-                        sea = hasLand
-                            ? (turf.difference(
-                                  turf.featureCollection([
-                                      frame as any,
-                                      landClipped as any,
-                                  ]),
-                              ) as Feature<Polygon | MultiPolygon> | null)
-                            : (frame as Feature<Polygon>); // frame fully offshore
+                    try {
+                        const detailed = await fetchPrewarmedAreaCoast();
+                        if (detailed) {
+                            const geo = osmtogeojson({
+                                elements: detailed.elements,
+                            } as any);
+                            const lines = geo.features.filter(
+                                (f: any) =>
+                                    f.geometry?.type === "LineString" ||
+                                    f.geometry?.type === "MultiLineString",
+                            ) as Feature<LineString | MultiLineString>[];
+                            if (lines.length > 0) {
+                                sea = seaFromCoastline(
+                                    lines,
+                                    bBox as [
+                                        number,
+                                        number,
+                                        number,
+                                        number,
+                                    ],
+                                    seeker,
+                                );
+                            }
+                        } else {
+                            requestCoastWarmAll();
+                        }
+                    } catch (e) {
+                        console.warn(
+                            "body-of-water detailed coast failed:",
+                            e,
+                        );
                     }
                 }
-                const seekerInSea =
-                    sea != null &&
-                    (() => {
-                        try {
-                            return turf.booleanPointInPolygon(
-                                turf.point([question.lng, question.lat]),
-                                sea as any,
-                            );
-                        } catch {
-                            return true; // treat an errored check as unsafe
+
+                // Fallback: coarse 1:50m sea (v770) — frame MINUS the land the
+                // bundled coastline closes into, guarded by seeker-not-in-sea.
+                if (!sea && bBox) {
+                    try {
+                        const coastFC = await fetchCoastline();
+                        const frame = turf.bboxPolygon(bBox as any);
+                        const landRaw = turf.lineToPolygon(
+                            coastFC as any,
+                        ) as any;
+                        const landFeatures: any[] =
+                            landRaw?.type === "FeatureCollection"
+                                ? landRaw.features
+                                : [landRaw];
+                        const landPolys = landFeatures.filter(
+                            (f) =>
+                                f?.geometry?.type === "Polygon" ||
+                                f?.geometry?.type === "MultiPolygon",
+                        );
+                        if (landPolys.length > 0) {
+                            const landCombined = turf.combine(
+                                turf.featureCollection(landPolys as any),
+                            ).features[0] as Feature<MultiPolygon>;
+                            const landClipped = turf.bboxClip(
+                                landCombined as any,
+                                bBox as any,
+                            ) as Feature<Polygon | MultiPolygon>;
+                            const hasLand =
+                                (landClipped?.geometry?.coordinates?.length ??
+                                    0) > 0;
+                            const coarse = hasLand
+                                ? (turf.difference(
+                                      turf.featureCollection([
+                                          frame as any,
+                                          landClipped as any,
+                                      ]),
+                                  ) as Feature<
+                                      Polygon | MultiPolygon
+                                  > | null)
+                                : (frame as Feature<Polygon>);
+                            const bad =
+                                coarse == null ||
+                                (() => {
+                                    try {
+                                        return turf.booleanPointInPolygon(
+                                            turf.point([
+                                                seeker.lng,
+                                                seeker.lat,
+                                            ]),
+                                            coarse as any,
+                                        );
+                                    } catch {
+                                        return true;
+                                    }
+                                })();
+                            if (!bad && turf.area(coarse as any) > 0)
+                                sea = coarse;
                         }
-                    })();
-                if (sea && !seekerInSea && turf.area(sea as any) > 0) {
+                    } catch (e) {
+                        console.warn(
+                            "body-of-water coarse sea failed:",
+                            e,
+                        );
+                    }
+                }
+
+                if (sea && turf.area(sea as any) > 0) {
                     out.push(sea);
                 } else {
-                    const coastLines = clipLinesToBbox(coastFC, bBox);
-                    if (coastLines.length > 0)
-                        out.push(highSpeedBase(coastLines));
-                }
-            } catch (e) {
-                console.warn("body-of-water sea merge failed:", e);
-                try {
+                    // Last resort: the thin 1:50m coastline band.
                     const coastLines = clipLinesToBbox(
                         await fetchCoastline(),
                         bBox,
                     );
                     if (coastLines.length > 0)
                         out.push(highSpeedBase(coastLines));
-                } catch {
-                    /* give up on the sea contribution */
                 }
+            } catch (e) {
+                console.warn("body-of-water sea merge failed:", e);
             }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;

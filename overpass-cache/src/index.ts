@@ -658,6 +658,33 @@ export default {
             }
         }
 
+        // Phase 2d: COASTLINE geometry, per-city (v776). The measuring
+        // body-of-water elimination reads `/api/coast/<id>` to build the SEA
+        // as a detailed AREA (OSM tags the open sea/bays as coastline, not
+        // natural=water — the coarse bundled 1:50m coastline left NYC's
+        // harbour/rivers marked "further from water"). Isolated per-city,
+        // same as water; inland cities cache an empty set. skip-if-fresh
+        // keeps repeat ticks cheap; opt-out via COAST_PREWARM_ENABLED="false".
+        if (env.COAST_PREWARM_ENABLED !== "false") {
+            for (const city of refCities) {
+                const slotOk = await waitForOverpassSlot(`coast ${city.name}`);
+                if (!slotOk) {
+                    console.warn(
+                        `[prewarm] coast ${city.name} skipped — slot wait exceeded cap`,
+                    );
+                    continue;
+                }
+                try {
+                    const r = await prewarmCoastForCity(env, city, ttlMs);
+                    if (r.status === "stored") {
+                        console.log(`[prewarm] coast ${city.name}: stored`);
+                    }
+                } catch (e) {
+                    console.warn(`[prewarm] coast ${city.name} threw:`, e);
+                }
+            }
+        }
+
         // Phase 3: HSR, per-COUNTRY (v214). HSR is an inter-city
         // network, so one `area["ISO3166-1"=XX]` query per country is
         // complete and gap-free where per-city bboxes overlapped and
@@ -1152,6 +1179,36 @@ async function handleRequest(
                 );
             }
             return handleWaterByRelation(request, env, cors, relId);
+        }
+        if (url.pathname.startsWith("/api/coast/")) {
+            // /api/coast/<relationId>[?warm=1] (v776) — the prewarmed OSM
+            // `natural=coastline` geometry for a play area, mirroring
+            // /api/water. The measuring body-of-water elimination folds the
+            // SEA in as a detailed AREA built from these lines (OSM tags the
+            // open sea/bays as coastline, not natural=water).
+            const relId = parseInt(
+                url.pathname.slice("/api/coast/".length),
+                10,
+            );
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationCoast(env, relId).catch((e) =>
+                        console.warn(`warm coast r${relId} threw:`, e),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId },
+                    202,
+                    cors,
+                );
+            }
+            return handleCoastByRelation(request, env, cors, relId);
         }
         if (url.pathname.startsWith("/api/relation-extent/")) {
             const relId = parseInt(
@@ -2438,6 +2495,8 @@ function handleReferenceFilters(cors: HeadersInit): Response {
             stationPadKm: AREA_STATION_PAD_KM,
             waterFilters: WATER_FILTERS,
             waterPadKm: WATER_PAD_KM,
+            coastFilters: COAST_FILTERS,
+            coastPadKm: COAST_PAD_KM,
         },
         200,
         {
@@ -3019,6 +3078,161 @@ async function prewarmWaterForCity(
         city,
         ttlMs,
         "water",
+    );
+}
+
+/**
+ * GET /api/coast/<relationId> — the prewarmed OSM `natural=coastline`
+ * geometry for a play area, by stable relation-id key (v776). The measuring
+ * body-of-water elimination reads this to build the SEA as a detailed AREA
+ * (OSM tags the open sea/bays as coastline, which the coarse bundled 1:50m
+ * coastline smeared over — NYC's harbour/rivers were still marked "further
+ * from water"). Mirrors `handleWaterByRelation` exactly; read-only, any miss
+ * returns `{ elements: [] }` so the client falls back (to the 1:50m sea).
+ */
+async function handleCoastByRelation(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = buildCoastBboxQuery(ext);
+    const cacheKey = await r2KeyForQuery(query);
+
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
+
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("coast-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/** Background warm of one relation's coastline geometry, keyed canonically
+ *  so a later GET /api/coast/<id> hits it (v776). Mirrors
+ *  `warmRelationWater`. */
+async function warmRelationCoast(
+    env: Env,
+    relationId: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary(ct) r${relationId}`))) {
+            return;
+        }
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-coast",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+
+    const coastQuery = buildCoastBboxQuery(ext);
+    const coastKey = await r2KeyForQuery(coastQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${coastKey}`);
+        if (head) {
+            const cachedAt = parseInt(
+                head.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-coast r${relationId}`))) return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(coastQuery),
+    );
+    if (!up) return;
+    const body = await up.text();
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, coastKey, body, {
+            kind: "coast",
+            warmedBy: "on-add",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm coast r${relationId} store failed:`, e);
+    }
+}
+
+/** Per-city coastline geometry — the `out geom` coastline query for a
+ *  city's bbox, keyed identically to the read endpoint. Isolated (its own
+ *  query, never batched), same as water. Inland cities return an empty set
+ *  (no coastline in the bbox), which caches fine. */
+async function prewarmCoastForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ status: string }> {
+    const ext = await canonicalReferenceExtent(env, city);
+    if (!ext) return { status: "skipped-no-extent" };
+    return prewarmQuery(
+        env,
+        buildCoastBboxQuery(ext),
+        city,
+        ttlMs,
+        "coast",
     );
 }
 
@@ -4315,6 +4529,30 @@ function buildWaterBboxQuery(
 ): string {
     const bboxFilter = buildBboxFilter(extent, WATER_PAD_KM);
     const body = WATER_FILTERS.map((f) => `nwr${f};`).join("\n");
+    return `
+[out:json][timeout:180]${bboxFilter};
+(
+${body}
+);
+out geom;
+`;
+}
+
+/** OSM `natural=coastline` — the LINE that separates land from sea/bay/
+ *  tidal water. The measuring body-of-water elimination folds the SEA in as
+ *  an AREA (frame minus the land these lines bound), because OSM tags the
+ *  open sea + large bays as coastline, NOT `natural=water` (v770/v776).
+ *  Coastline is always a way; `out geom` gives the full geometry (way
+ *  direction preserved, so land-on-left / water-on-right holds). Kept
+ *  byte-identical to `buildAreaCoastQuery` in laptop-prewarm.mjs. */
+const COAST_FILTERS: string[] = ['["natural"="coastline"]'];
+const COAST_PAD_KM = 2;
+
+function buildCoastBboxQuery(
+    extent: [number, number, number, number],
+): string {
+    const bboxFilter = buildBboxFilter(extent, COAST_PAD_KM);
+    const body = COAST_FILTERS.map((f) => `way${f};`).join("\n");
     return `
 [out:json][timeout:180]${bboxFilter};
 (
@@ -6958,6 +7196,7 @@ async function handleAdminInspectEncoding(
     if (kind === "refs") query = buildReferenceBboxQuery(ext);
     else if (kind === "stations") query = buildAreaStationsBboxQuery(ext);
     else if (kind === "water") query = buildWaterBboxQuery(ext);
+    else if (kind === "coast") query = buildCoastBboxQuery(ext);
     else if (kind === "metro") query = metroRoutesQuery(ext);
     else if (kind.startsWith("transit-"))
         query = transitRouteQuery(ext, kind.slice("transit-".length));

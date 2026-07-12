@@ -180,6 +180,14 @@ export const AREA_STATIONS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/area-stat
  *  `?warm=1` triggers a background warm. See handleWaterByRelation in
  *  overpass-cache/src/index.ts. */
 export const WATER_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/water`;
+/** Base URL for the relation-id-keyed prewarmed OSM `natural=coastline`
+ *  GEOMETRY (v776). Mirrors WATER_BY_RELATION_BASE. The measuring
+ *  body-of-water elimination folds the SEA in as a detailed AREA built from
+ *  these coastline lines (OSM tags the open sea/bays as coastline, not
+ *  `natural=water`; the bundled 1:50m coastline was too coarse for a metro
+ *  like NYC). `?warm=1` triggers a background warm. See handleCoastByRelation
+ *  in overpass-cache/src/index.ts. */
+export const COAST_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/coast`;
 /** Base URL for self-hosted map glyphs + sprites (v349), proxied +
  *  R2-cached by the worker from protomaps.github.io/basemaps-assets.
  *  The MapLibre style's `glyphs` and `sprite` URLs point here so the

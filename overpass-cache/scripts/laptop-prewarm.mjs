@@ -692,6 +692,19 @@ function waterQuery(extent) {
     return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout geom;\n`;
 }
 
+// EXACT byte-for-byte mirror of COAST_FILTERS + buildCoastBboxQuery in
+// overpass-cache/src/index.ts (v776 — OSM `natural=coastline`, 2 km pad,
+// timeout:180, `out geom`). The measuring body-of-water elimination builds
+// the SEA as an area from these lines. The R2 key hashes this exact string;
+// the worker's /api/coast/<id> read endpoint rebuilds it from the boundary.
+let COAST_FILTERS = ['["natural"="coastline"]'];
+let PAD_KM_COAST = 2;
+function coastQuery(extent) {
+    const bb = bboxFilter(extent, PAD_KM_COAST);
+    const body = COAST_FILTERS.map((f) => `way${f};`).join("\n");
+    return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout geom;\n`;
+}
+
 // Byte-identical to buildHsrCountryQuery in overpass-cache/src/index.ts
 // and src/maps/api/playAreaPrefetch.ts. The R2 key hashes this exact
 // string.
@@ -2038,6 +2051,40 @@ async function processCity(city) {
         }
     }
 
+    // Per-city COASTLINE geometry (v776). The measuring body-of-water
+    // elimination builds the SEA as a detailed area from OSM
+    // `natural=coastline` (the bundled 1:50m coastline was too coarse for a
+    // metro like NYC). Warmed alongside water, keyed by /api/coast/<id>.
+    // Inland cities store an empty set. Rides the same DO_WATER gate.
+    if (refExtent && DO_REFS && DO_WATER) {
+        const q = coastQuery(refExtent);
+        if (await isFresh(q, "coast")) {
+            console.log(`  ⤼ coast already cached — skipping`);
+        } else {
+            const res = await fetchOverpass(q, "coast");
+            if (res) {
+                const parsed = safeJSON(res.text);
+                if (parsed) {
+                    try {
+                        const r = await uploadToWorker({
+                            query: q,
+                            bodyText: res.text,
+                            kind: "coast",
+                            sourceName: city.name,
+                            sourceRelationId: String(city.relationId),
+                        });
+                        console.log(
+                            `  ✓ coast stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms, ${parsed.elements?.length ?? 0} elements)`,
+                        );
+                    } catch (e) {
+                        console.warn(`  ✗ coast upload: ${e.message}`);
+                    }
+                }
+                await sleep(DELAY_MS);
+            }
+        }
+    }
+
     // Per-city BUS overlay (v329: subway + ferry are the cron's
     // per-shard job now — see TRANSIT_ROUTE_TYPES). v249: keyed off the
     // city's bbox via the `[bbox:...]` form (NOT map_to_area, which
@@ -3203,6 +3250,14 @@ async function syncReferenceFilters() {
         (f) => f,
     );
     if (nextWater) WATER_FILTERS = nextWater;
+    const nextCoast = applyList(
+        "coast",
+        data.coastFilters,
+        COAST_FILTERS,
+        (f) => f,
+        (f) => f,
+    );
+    if (nextCoast) COAST_FILTERS = nextCoast;
     const applyPad = (label, remote, local, set) => {
         if (typeof remote !== "number" || !Number.isFinite(remote)) return;
         if (remote !== local) {
@@ -3220,6 +3275,9 @@ async function syncReferenceFilters() {
     });
     applyPad("water", data.waterPadKm, PAD_KM_WATER, (v) => {
         PAD_KM_WATER = v;
+    });
+    applyPad("coast", data.coastPadKm, PAD_KM_COAST, (v) => {
+        PAD_KM_COAST = v;
     });
 }
 
