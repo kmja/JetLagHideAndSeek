@@ -6,6 +6,7 @@ import {
     convertLength as turfConvertLength,
     featureCollection as turfFeatureCollection,
     point as turfPoint,
+    simplify as turfSimplify,
 } from "@turf/turf";
 import { Footprints, HelpCircle, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -286,16 +287,63 @@ export function HiderBackgroundMap() {
     // play area is, painted as a dark fill below the boundary line + dots so
     // the playable region stays bright and everything else recedes. (The
     // hider has no question eliminations, so this is a pure play-area mask.)
-    const playAreaMask = useMemo(() => {
-        if (!$polyGeoJSON?.features?.length) return null;
-        try {
-            return holedMask(
-                $polyGeoJSON as never,
-            ) as GeoJSON.Feature | null;
-        } catch (e) {
-            console.warn("HiderBackgroundMap holedMask failed:", e);
-            return null;
+    //
+    // v758: computed in a DEFERRED effect, NOT a synchronous `useMemo`.
+    // `holedMask` is a turf `union` + world-scale `difference` that, for a
+    // large multipolygon (NYC), blocks the main thread for hundreds of ms.
+    // Running it synchronously as the map MOUNTS froze the tab the instant the
+    // hider view opened (the polygon is already in memory after the wizard, so
+    // there was no async grace like the old hard-reload path gave). Defer it
+    // off the mount/render path (rIC / macrotask) with a cancellation guard so
+    // the map paints first and the mask drops in a beat later — same net
+    // behaviour as the seeker map, which computes its mask inside an async pass.
+    const [playAreaMask, setPlayAreaMask] =
+        useState<GeoJSON.Feature | null>(null);
+    useEffect(() => {
+        if (!$polyGeoJSON?.features?.length) {
+            setPlayAreaMask(null);
+            return;
         }
+        let cancelled = false;
+        const compute = () => {
+            if (cancelled) return;
+            try {
+                // Simplify the boundary before the world-scale difference —
+                // the mask is a faint dimming fill and the crisp play-area
+                // outline is drawn SEPARATELY on top, so a coarser mask edge
+                // is invisible while the vertex cut makes `turf.difference`
+                // dramatically cheaper on a dense multipolygon (NYC).
+                const simplified = turfSimplify($polyGeoJSON as never, {
+                    tolerance: 0.001,
+                    highQuality: false,
+                });
+                const mask = holedMask(
+                    simplified as never,
+                ) as GeoJSON.Feature | null;
+                if (!cancelled) setPlayAreaMask(mask);
+            } catch (e) {
+                console.warn("HiderBackgroundMap holedMask failed:", e);
+                if (!cancelled) setPlayAreaMask(null);
+            }
+        };
+        const ric = (
+            globalThis as {
+                requestIdleCallback?: (cb: () => void) => number;
+            }
+        ).requestIdleCallback;
+        const handle = ric
+            ? ric(compute)
+            : (setTimeout(compute, 0) as unknown as number);
+        return () => {
+            cancelled = true;
+            const cic = (
+                globalThis as {
+                    cancelIdleCallback?: (h: number) => void;
+                }
+            ).cancelIdleCallback;
+            if (ric && cic) cic(handle);
+            else clearTimeout(handle);
+        };
     }, [$polyGeoJSON]);
 
     // v394: one-shot fit-to-play-area when the polygon first arrives, so
