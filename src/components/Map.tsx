@@ -1818,12 +1818,11 @@ export function Map({ className }: MapProps) {
                                 paint={fadePaint({
                                     "line-color": "hsl(2, 70%, 54%)",
                                     "line-width": 1.5,
-                                    // Light basemap: no dashed extent edge — it
-                                    // crisscrossed the bright map and read as
-                                    // clutter. Dark/satellite: a faint dashed
-                                    // edge still hints the extent against the
-                                    // darker surround.
-                                    "line-opacity": shown && darkBasemap ? 0.4 : 0,
+                                    // v783: the red dashed extent border was
+                                    // removed on every basemap — it read as
+                                    // clutter. The faint fill alone conveys the
+                                    // extent.
+                                    "line-opacity": 0,
                                     "line-opacity-transition": {
                                         duration: 280,
                                     },
@@ -1849,11 +1848,11 @@ export function Map({ className }: MapProps) {
                                         16,
                                         4,
                                     ],
-                                    // Light basemap: neutral very-dark-grey
-                                    // dots (the red field was too loud). Dark/
-                                    // satellite: brand red still reads best.
+                                    // Dark/satellite: light-grey dots (v783 —
+                                    // the red field was too loud). Light
+                                    // basemap: neutral very-dark-grey.
                                     "circle-color": darkBasemap
-                                        ? "hsl(2, 70%, 54%)"
+                                        ? "hsl(0, 0%, 80%)"
                                         : "hsl(0, 0%, 20%)",
                                     // No stroke — the white outline read as a
                                     // halo on the light basemap.

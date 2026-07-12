@@ -759,11 +759,9 @@ export function HiderBackgroundMap() {
                                 paint={fadePaint({
                                     "line-color": "hsl(2, 70%, 54%)",
                                     "line-width": 1.5,
-                                    // Light basemap: no dashed extent edge (it
-                                    // read as clutter). Dark/satellite: keep a
-                                    // faint hint. Matches hiding-zones-line.
-                                    "line-opacity":
-                                        shown && darkBasemap ? 0.4 : 0,
+                                    // v783: red dashed extent border removed on
+                                    // every basemap (matches hiding-zones-line).
+                                    "line-opacity": 0,
                                     "line-opacity-transition": {
                                         duration: 280,
                                     },

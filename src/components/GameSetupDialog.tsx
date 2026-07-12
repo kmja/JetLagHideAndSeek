@@ -1,14 +1,11 @@
 import { useStore } from "@nanostores/react";
-import type { LucideIcon } from "lucide-react";
 import {
     Check,
     ChevronLeft,
     Footprints,
     MapPin,
-    Maximize2,
     Pencil,
     Star,
-    TrainTrack,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -767,11 +764,10 @@ export function GameSetupDialog() {
 const EDIT_TABS: Array<{
     value: "area" | "transit" | "size";
     label: string;
-    icon: LucideIcon;
 }> = [
-    { value: "area", label: "Play area", icon: MapPin },
-    { value: "transit", label: "Transit", icon: TrainTrack },
-    { value: "size", label: "Size", icon: Maximize2 },
+    { value: "area", label: "Play area" },
+    { value: "transit", label: "Transit" },
+    { value: "size", label: "Size" },
 ];
 
 function EditTabs({
@@ -790,7 +786,7 @@ function EditTabs({
                 "bg-secondary/40 border border-border",
             )}
         >
-            {EDIT_TABS.map(({ value: v, label, icon: Icon }) => {
+            {EDIT_TABS.map(({ value: v, label }) => {
                 const active = value === v;
                 return (
                     <button
@@ -810,7 +806,6 @@ function EditTabs({
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                         )}
                     >
-                        <Icon className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">{label}</span>
                     </button>
                 );

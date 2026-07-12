@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check, ChevronLeft, Maximize2, MapPin, TrainTrack } from "lucide-react";
+import { Check, ChevronLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -241,9 +241,9 @@ export function SetupPage() {
             <div className="px-4 pt-4 pb-3 shrink-0 border-b border-border space-y-3">
                 <WizardStepper
                     steps={[
-                        { label: "Play area", icon: MapPin },
-                        { label: "Transit", icon: TrainTrack },
-                        { label: "Size", icon: Maximize2 },
+                        { label: "Play area" },
+                        { label: "Transit" },
+                        { label: "Size" },
                     ]}
                     current={step}
                 />
