@@ -599,30 +599,39 @@ function HandCarousel({
     // React bails on same-value setState so re-renders are free.
     useEffect(() => {
         if (!open) return;
-        const el = trackRef.current;
-        if (!el) return;
 
         let raf = 0;
         let lastScrollLeft = Number.NaN;
 
         const tick = () => {
-            const sl = el.scrollLeft;
-            if (sl !== lastScrollLeft) {
-                lastScrollLeft = sl;
-                const cx = sl + el.clientWidth / 2;
-                const slides = Array.from(el.children) as HTMLElement[];
-                let bestIdx = 0;
-                let bestDist = Infinity;
-                for (let i = 0; i < slides.length; i++) {
-                    const sCenter =
-                        slides[i].offsetLeft + slides[i].clientWidth / 2;
-                    const dist = Math.abs(sCenter - cx);
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        bestIdx = i;
+            // v791: read the ref INSIDE the loop each frame, not once at
+            // effect start. Vaul mounts its portal Content a beat AFTER `open`
+            // flips true, so `trackRef.current` is null when this effect first
+            // runs — the old `const el = trackRef.current; if (!el) return;`
+            // bailed out permanently and NEVER started polling, which is why
+            // the highlight/actions stayed stuck on the tapped-open card while
+            // swiping visibly centred others. Reading it per-frame picks the
+            // element up the moment it mounts.
+            const el = trackRef.current;
+            if (el) {
+                const sl = el.scrollLeft;
+                if (sl !== lastScrollLeft) {
+                    lastScrollLeft = sl;
+                    const cx = sl + el.clientWidth / 2;
+                    const slides = Array.from(el.children) as HTMLElement[];
+                    let bestIdx = 0;
+                    let bestDist = Infinity;
+                    for (let i = 0; i < slides.length; i++) {
+                        const sCenter =
+                            slides[i].offsetLeft + slides[i].clientWidth / 2;
+                        const dist = Math.abs(sCenter - cx);
+                        if (dist < bestDist) {
+                            bestDist = dist;
+                            bestIdx = i;
+                        }
                     }
+                    setFocusIndex(bestIdx);
                 }
-                setFocusIndex(bestIdx);
             }
             raf = requestAnimationFrame(tick);
         };
