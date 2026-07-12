@@ -42,7 +42,19 @@ import type {
 } from "../types";
 
 const TRANSITOUS_URL = "https://api.transitous.org/api/v1/plan";
-const UPSTREAM_TIMEOUT_MS = 9_000;
+const UPSTREAM_TIMEOUT_MS = 12_000;
+
+/**
+ * Access/egress walking budget (seconds) MOTIS may use to reach transit
+ * from the origin and to leave transit at the destination. MOTIS defaults
+ * this to ~15 min; that stranded trips where the seeker's GPS OR the
+ * tapped station was a longer walk from the nearest stop — MOTIS then
+ * found NO transit itinerary and the plan fell to the straight-line
+ * walking backstop even though the stop clearly has departures (the
+ * "300-minute walk with a live departures board" bug). 30 min each way
+ * lets MOTIS connect a farther origin/destination to the network.
+ */
+const MAX_ACCESS_EGRESS_SECS = 1_800;
 
 /** Universal — Transitous routes wherever the Mobility Database has a
  *  feed. Outside its coverage it simply returns no itinerary and the
@@ -80,6 +92,16 @@ export async function planViaMotis(
     );
     url.searchParams.set("time", new Date(departAt).toISOString());
     url.searchParams.set("arriveBy", "false");
+    // Let MOTIS walk further to reach/leave the transit network than its
+    // ~15-min default, so an origin/destination that isn't right next to a
+    // stop still yields a transit itinerary instead of falling through to
+    // the walking backstop. (Unknown params are ignored by MOTIS, so this
+    // is safe if an instance predates these fields.)
+    url.searchParams.set("maxPreTransitTime", String(MAX_ACCESS_EGRESS_SECS));
+    url.searchParams.set(
+        "maxPostTransitTime",
+        String(MAX_ACCESS_EGRESS_SECS),
+    );
 
     const ctrl = new AbortController();
     const onAbort = () => ctrl.abort();
