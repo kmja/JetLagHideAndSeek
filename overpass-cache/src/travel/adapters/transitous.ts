@@ -109,7 +109,7 @@ export async function planViaMotis(
     } catch {
         return null;
     }
-    return parseMotisPlan(json, req.destination);
+    return parseMotisPlan(json, req.destination, req.modes);
 }
 
 /* ─────────────────────── Pure parser ─────────────────────── */
@@ -125,20 +125,64 @@ interface MotisPlace {
  * legs: [...] }] }`) into our `Journey`. MOTIS legs are OTP-shaped:
  * `mode`, ISO `startTime`/`endTime`, `from`/`to` places, `distance`,
  * `routeShortName`, `headsign`.
+ *
+ * MOTIS returns MULTIPLE ranked itineraries and frequently ranks a
+ * WALK-ONLY "direct" option first (it can be the shortest by its own
+ * metric). Naively taking `itineraries[0]` therefore surfaced a bogus
+ * "walking only" plan even though transit itineraries followed — the
+ * exact "planner shows walking but the departures board has transit"
+ * bug. So we parse EVERY itinerary and pick the best:
+ *   1. a mode-compliant itinerary that actually uses transit, else
+ *   2. any mode-compliant itinerary (a genuine walk-only trip), else
+ *   3. the first parseable itinerary (dispatcher still mode-filters it).
+ * `allowedModes` (the request's transit allow-set) is honoured here so a
+ * banned-mode "best" itinerary doesn't shadow an allowed transit one that
+ * MOTIS ranked lower.
  */
 export function parseMotisPlan(
     json: unknown,
     destFallback: TravelPlace,
+    allowedModes?: TravelMode[],
 ): Journey | null {
     const itineraries = (json as { itineraries?: unknown[] }).itineraries;
     if (!Array.isArray(itineraries) || itineraries.length === 0) return null;
-    const it = itineraries[0] as { legs?: unknown[] };
+
+    const parsed: Journey[] = [];
+    for (const raw of itineraries) {
+        const j = parseItinerary(raw, destFallback);
+        if (j) parsed.push(j);
+    }
+    if (parsed.length === 0) return null;
+
+    const hasTransit = (j: Journey) => j.legs.some((l) => l.mode !== "walk");
+    const modeOk = (j: Journey) => {
+        if (!allowedModes || allowedModes.length === 0) return true;
+        const allow = new Set<string>(allowedModes);
+        return j.legs.every(
+            (l) =>
+                l.mode === "walk" ||
+                l.mode === "transit" ||
+                allow.has(l.mode),
+        );
+    };
+
+    return (
+        parsed.find((j) => modeOk(j) && hasTransit(j)) ??
+        parsed.find((j) => modeOk(j)) ??
+        parsed[0]
+    );
+}
+
+/** Parse one MOTIS itinerary (`{ legs: [...] }`) into a Journey, or null
+ *  if it has no usable legs / times. */
+function parseItinerary(raw: unknown, destFallback: TravelPlace): Journey | null {
+    const it = raw as { legs?: unknown[] };
     const rawLegs = it.legs;
     if (!Array.isArray(rawLegs) || rawLegs.length === 0) return null;
 
     const legs: JourneyLeg[] = [];
-    for (const raw of rawLegs) {
-        const leg = parseLeg(raw, destFallback);
+    for (const rawLeg of rawLegs) {
+        const leg = parseLeg(rawLeg, destFallback);
         if (leg) legs.push(leg);
     }
     if (legs.length === 0) return null;

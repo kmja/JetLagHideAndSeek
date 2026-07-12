@@ -1078,6 +1078,78 @@ describe("parseMotisPlan (Transitous / NYC)", () => {
         expect(parseMotisPlan({ itineraries: [] }, dest)).toBeNull();
         expect(parseMotisPlan({}, dest)).toBeNull();
     });
+
+    // MOTIS often ranks a WALK-ONLY "direct" itinerary first; taking
+    // itineraries[0] blindly surfaced a bogus walking plan even though a
+    // transit itinerary followed. Prefer the transit-bearing one.
+    test("prefers a transit itinerary over a walk-only first itinerary", () => {
+        const walkFirst = {
+            itineraries: [
+                {
+                    legs: [
+                        {
+                            mode: "WALK",
+                            distance: 3200,
+                            startTime: "2026-06-21T12:00:00Z",
+                            endTime: "2026-06-21T12:40:00Z",
+                            from: { name: "Start", lat: 1, lon: 2 },
+                            to: { name: "End", lat: 3, lon: 4 },
+                        },
+                    ],
+                },
+                {
+                    legs: [
+                        {
+                            mode: "SUBWAY",
+                            startTime: "2026-06-21T12:02:00Z",
+                            endTime: "2026-06-21T12:14:00Z",
+                            from: { name: "Start", lat: 1, lon: 2 },
+                            to: { name: "End", lat: 3, lon: 4 },
+                            routeShortName: "A",
+                        },
+                    ],
+                },
+            ],
+        };
+        const j = parseMotisPlan(walkFirst, dest);
+        expect(j!.legs).toHaveLength(1);
+        expect(j!.legs[0].mode).toBe("subway");
+    });
+
+    // When the player has banned a mode, a banned-mode "best" itinerary
+    // must not shadow an allowed transit one MOTIS ranked lower.
+    test("honours the allowed-mode set across itineraries", () => {
+        const busThenSubway = {
+            itineraries: [
+                {
+                    legs: [
+                        {
+                            mode: "BUS",
+                            startTime: "2026-06-21T12:00:00Z",
+                            endTime: "2026-06-21T12:20:00Z",
+                            from: { name: "Start", lat: 1, lon: 2 },
+                            to: { name: "End", lat: 3, lon: 4 },
+                            routeShortName: "M15",
+                        },
+                    ],
+                },
+                {
+                    legs: [
+                        {
+                            mode: "SUBWAY",
+                            startTime: "2026-06-21T12:03:00Z",
+                            endTime: "2026-06-21T12:18:00Z",
+                            from: { name: "Start", lat: 1, lon: 2 },
+                            to: { name: "End", lat: 3, lon: 4 },
+                            routeShortName: "6",
+                        },
+                    ],
+                },
+            ],
+        };
+        const j = parseMotisPlan(busThenSubway, dest, ["subway", "train"]);
+        expect(j!.legs[0].mode).toBe("subway");
+    });
 });
 
 describe("parseOtpPlan (generic OpenTripPlanner REST)", () => {
