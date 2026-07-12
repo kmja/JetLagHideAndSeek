@@ -43,7 +43,6 @@ import {
 } from "@/components/ui/sidebar-l";
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
-import { useReleaseStuckBodyLock } from "@/hooks/useReleaseStuckBodyLock";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
@@ -153,12 +152,9 @@ export function SeekerPage() {
         return () => window.clearTimeout(t);
     }, [$hidingEndsAt]);
 
-    // Safety net for the lobby→in-game branch swap below: if the lobby
-    // drawer was still open when the game started (e.g. a guest getting
-    // the host's setupChanged push), it unmounts without closing and can
-    // leave `body { pointer-events: none }` stuck — freezing this shell
-    // while the hiding clock keeps ticking. Clear any such leftover.
-    useReleaseStuckBodyLock(gameStarted);
+    // (The lobby→in-game swap could leave a stuck `body{pointer-events:none}`
+    // when the lobby drawer/dialog unmounted without closing — now cleared
+    // globally by installBodyPointerEventsGuard.)
 
     if (!gameStarted) {
         return (

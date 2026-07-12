@@ -447,35 +447,20 @@ export const AddQuestionDialog = ({
         setTimeout(() => setPendingKey(lastKey), 150);
     };
 
-    // Safety net for a Radix UI body-lock cleanup race: Radix can leave
-    // `pointer-events: none` on <body> after a Dialog closes, silently
-    // blocking every click on the rest of the UI. We sequence the picker
-    // and configure dialogs to avoid this (see `promoteLastQuestion`), but
-    // also clear the stale inline style here at a few checkpoints in case
-    // any path is missed. Multiple poll intervals because Radix re-applies
-    // the style during its close animation.
-    const releaseBodyLock = () => {
-        const clear = () => {
-            if (document.body.style.pointerEvents === "none") {
-                document.body.style.pointerEvents = "";
-            }
-        };
-        requestAnimationFrame(clear);
-        setTimeout(clear, 200);
-        setTimeout(clear, 500);
-    };
+    // (A stray `body{pointer-events:none}` left by Radix's close race is now
+    // cleared globally by installBodyPointerEventsGuard — the picker/configure
+    // sequencing in `promoteLastQuestion` still avoids provoking it, but no
+    // per-handler clearing is needed here anymore.)
 
     const handleCancel = () => {
         if (pendingKey === null) return;
         questions.set(questions.get().filter((q) => q.key !== pendingKey));
         setPendingKey(null);
-        releaseBodyLock();
     };
 
     const handleConfirm = async () => {
         if (!pendingQuestion) {
             setPendingKey(null);
-            releaseBodyLock();
             return;
         }
         // Snapshot the question before closing — pendingQuestion will become
@@ -483,7 +468,6 @@ export const AddQuestionDialog = ({
         const q = pendingQuestion;
         const meta = CATEGORIES[q.id as CategoryId];
         setPendingKey(null);
-        releaseBodyLock();
 
         // v348: questions are LOCAL-ONLY until the seeker confirms in
         // the configure dialog. The local add happened in runAdd* via

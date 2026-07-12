@@ -4,6 +4,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { installBodyPointerEventsGuard } from "@/lib/bodyPointerEventsGuard";
 import { installTheme } from "@/lib/theme";
 // Side-effect import: registers the `beforeinstallprompt` listener at
 // startup so the landing's "Install app" button can offer the native
@@ -20,6 +21,12 @@ import { App } from "./App";
 // the first paint is already in the right palette (no white-flash on
 // dark-mode users, no dark-flash on light-mode users).
 installTheme();
+
+// Self-healing guard for the recurring stuck `body { pointer-events: none }`
+// left by Radix modal layers that unmount abruptly / overlap (see the module
+// docs). Installed once for the app lifetime; replaces the per-component
+// band-aids. Runs outside React so it survives every route change.
+installBodyPointerEventsGuard();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root element missing from index.html");

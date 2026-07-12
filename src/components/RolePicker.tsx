@@ -70,38 +70,9 @@ export function RolePicker() {
         $setupCompleted &&
         Boolean($code);
 
-    // v762: release a stuck `body { pointer-events: none }` while the
-    // role picker is open. The picker (a Radix Dialog) opens LAYERED OVER
-    // the still-open lobby (a vaul Drawer). Both libraries set
-    // `document.body.style.pointerEvents = "none"` while their modal is
-    // open, and with the two stacked the lock can end up stuck on the body
-    // — freezing ALL input, so the visible role tiles + name field can't be
-    // tapped or focused even though JS keeps running (the map behind keeps
-    // "Loading map"). The old flow HARD-reloaded between the wizard and the
-    // lobby, which reset `document.body.style` as a side effect and hid
-    // this; the v757 soft-nav removed that reset, so the leftover lock now
-    // persists (and re-appears on every reopen, since the two modals always
-    // open together here). The picker's own overlay still covers the lobby,
-    // so clearing the body lock only re-enables the picker's own content —
-    // it doesn't leak taps to the lobby behind. An interval (not a one-shot)
-    // because vaul/Radix can re-assert the lock during their open/settle
-    // passes; it stops the moment a role is chosen and the picker closes,
-    // after which Radix's clean close restores the body normally.
-    useEffect(() => {
-        if (!open) return;
-        const release = () => {
-            if (document.body.style.pointerEvents === "none") {
-                document.body.style.pointerEvents = "";
-            }
-        };
-        release();
-        const raf = requestAnimationFrame(release);
-        const interval = window.setInterval(release, 150);
-        return () => {
-            cancelAnimationFrame(raf);
-            window.clearInterval(interval);
-        };
-    }, [open]);
+    // (The stuck `body{pointer-events:none}` from the picker-Dialog-over-lobby-
+    // Drawer stack — v762 — is now cleared globally by
+    // installBodyPointerEventsGuard; no picker-local release loop needed.)
 
     // v452: keep the dialog centered within the VISIBLE area (above the
     // on-screen keyboard) instead of the full viewport — otherwise, with
