@@ -30,7 +30,7 @@ import {
     QUESTION_DRAW_BUDGET,
 } from "@/lib/hiderRole";
 import { startDemoGame, stopDemoGame } from "@/lib/multiplayer/demoBroker";
-import { demoMode } from "@/lib/multiplayer/session";
+import { demoMode, seekerLocations } from "@/lib/multiplayer/session";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
 import { receivedCurses } from "@/lib/seekerInbound";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
@@ -495,20 +495,81 @@ export function DebugPhaseControls({
         hiderHand.set([...hiderHand.get(), card]);
     };
 
-    const injectInboxQuestion = () => {
-        const list = hiderInbox.get();
+    /**
+     * Location to anchor a debug inbox question at: the bot seeker's MOST
+     * RECENT live position (demo mode broadcasts `loc` into `seekerLocations`),
+     * so an injected question reads as if that seeker asked it from where they
+     * actually are — falling back to the map centre / Stockholm only when no
+     * seeker has broadcast yet.
+     */
+    const pickSeekerLocation = (): { lat: number; lng: number } => {
+        const locs = Object.values(seekerLocations.get());
+        if (locs.length > 0) {
+            const latest = locs.reduce((a, b) => (b.ts > a.ts ? b : a));
+            return { lat: latest.lat, lng: latest.lng };
+        }
+        return pickCenter();
+    };
+
+    /** Debug question `data` for each category, anchored at (lat,lng). Mirrors
+     *  the seeker-side injectors so the hider sees a real, answerable question. */
+    const buildInboxData = (
+        id: string,
+        lat: number,
+        lng: number,
+    ): Record<string, unknown> => {
+        switch (id) {
+            case "matching":
+                return { lat, lng, type: "airport", drag: true };
+            case "measuring":
+                return { lat, lng, type: "coastline", drag: true };
+            case "tentacles":
+                return {
+                    lat,
+                    lng,
+                    radius: 30,
+                    unit: "miles",
+                    location: false,
+                    locationType: "aquarium",
+                    drag: true,
+                };
+            case "thermometer":
+                return {
+                    latA: lat,
+                    lngA: lng,
+                    latB: lat,
+                    lngB: lng + 0.005,
+                    distance: "500m",
+                    status: "finished",
+                    startedAt: Date.now() - 60_000,
+                    drag: true,
+                };
+            case "photo":
+                return { type: "tree", drag: true };
+            case "radius":
+            default:
+                return { lat, lng, radius: 5, unit: "kilometers", drag: true };
+        }
+    };
+
+    /** Every category, so the debug panel can inject any of the six. */
+    const INBOX_QUESTION_CATEGORIES: Array<{ label: string; id: string }> = [
+        { label: "Radar", id: "radius" },
+        { label: "Matching", id: "matching" },
+        { label: "Measuring", id: "measuring" },
+        { label: "Tentacles", id: "tentacles" },
+        { label: "Thermometer", id: "thermometer" },
+        { label: "Photo", id: "photo" },
+    ];
+
+    const injectInboxQuestion = (id: string) => {
+        const { lat, lng } = pickSeekerLocation();
         hiderInbox.set([
-            ...list,
+            ...hiderInbox.get(),
             {
                 key: Math.floor(Math.random() * 1_000_000),
-                id: "radius",
-                data: {
-                    lat: 59.3293,
-                    lng: 18.0686,
-                    radius: 5,
-                    unit: "kilometers",
-                    drag: true,
-                } as Record<string, unknown>,
+                id,
+                data: buildInboxData(id, lat, lng),
                 arrivedAt: Date.now(),
             },
         ]);
@@ -929,9 +990,19 @@ export function DebugPhaseControls({
                     >
                         Open latest question as hider →
                     </DebugButton>
-                    <DebugButton onClick={injectInboxQuestion}>
-                        Inject test question to inbox
-                    </DebugButton>
+                    <div className="text-[10px] uppercase tracking-wider text-white/50 pt-1">
+                        Inject question to inbox (from bot seeker's location)
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                        {INBOX_QUESTION_CATEGORIES.map((c) => (
+                            <DebugButton
+                                key={c.id}
+                                onClick={() => injectInboxQuestion(c.id)}
+                            >
+                                {c.label}
+                            </DebugButton>
+                        ))}
+                    </div>
                     <DebugButton onClick={markLatestInboxReplied}>
                         Mark latest inbox replied
                     </DebugButton>
