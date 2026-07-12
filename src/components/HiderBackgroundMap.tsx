@@ -28,6 +28,7 @@ import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
 import { useSelfPositionWatch } from "@/hooks/useSelfPositionWatch";
 import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import {
+    followMe,
     hidingRadius,
     hidingRadiusUnits,
     lastKnownPosition,
@@ -117,6 +118,7 @@ export function HiderBackgroundMap() {
     const $spot = useStore(hidingSpot);
     const $scouted = useStore(scoutedSpots);
     const $gps = useStore(lastKnownPosition);
+    const $followMe = useStore(followMe);
     const $reach = useStore(hiderReachFC);
     const $trip = useStore(tripRouteFC);
     // Station-card drawer height, bucketed so the route refit below only
@@ -164,6 +166,18 @@ export function HiderBackgroundMap() {
     // map) writes lastKnownPosition; the blue GPS dot below reads it via
     // $gps, and the hider's trip-plan / reach features read it too.
     useSelfPositionWatch();
+
+    // Follow Me: recenter on each new GPS fix while enabled. MapNavControls
+    // (rendered below) toggles the `followMe` atom, but nothing on the hider
+    // map reacted to it, so the button did nothing — this wires the same
+    // auto-centering the seeker map (Map.tsx) already has. Off by default so
+    // it doesn't fight manual panning.
+    useEffect(() => {
+        if (!$followMe || !$gps) return;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        map.easeTo({ center: [$gps.lng, $gps.lat], duration: 600 });
+    }, [$followMe, $gps]);
 
     // Play-area boundary fetch — shared with the seeker map via
     // usePlayAreaBoundary (was a thinner single-attempt copy here,
