@@ -229,8 +229,15 @@ export function GameSetupDialog() {
     // by the play-area preview map) once it resolves. Deliberately does NOT
     // depend on `draftSize` — it only WRITES it — so the async refine can't
     // fight the sync seed in a loop.
+    // `$open`-gated: this dialog stays MOUNTED (closed) in the pre-game
+    // lobby, retaining a stale `draftFeature`. Without the gate the
+    // closed dialog re-ran `exactTotalAreaKm2` → a raw-boundary
+    // `osmtogeojson` parse on the main thread at the role-pick step
+    // whenever `$additionalAreas` echoed from multiplayer — pointless work
+    // on a huge play area (v762 fix; the inference is only needed while the
+    // wizard/settings is actually open).
     useEffect(() => {
-        if (sizeManuallySet || !draftFeature) return;
+        if (!$open || sizeManuallySet || !draftFeature) return;
         let cancelled = false;
         const bbox = sizeForAreaKm2(
             estimateTotalAreaKm2(draftFeature, $additionalAreas),
@@ -244,18 +251,18 @@ export function GameSetupDialog() {
         return () => {
             cancelled = true;
         };
-    }, [draftFeature, $additionalAreas, sizeManuallySet]);
+    }, [$open, draftFeature, $additionalAreas, sizeManuallySet]);
 
     // Auto allowed-transit from the EFFECTIVE game size (`inferTransitModes`)
     // unless the user toggled a mode by hand. Keyed on `draftSize`, so it
     // re-derives whether the size changed via the auto-infer above OR a
     // manual size pick (bumping to Large pulls in ferry). Guarded setter
-    // avoids a redundant write.
+    // avoids a redundant write. `$open`-gated for the same reason as above.
     useEffect(() => {
-        if (transitManuallySet) return;
+        if (!$open || transitManuallySet) return;
         const modes = inferTransitModes(draftSize);
         setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
-    }, [draftSize, transitManuallySet]);
+    }, [$open, draftSize, transitManuallySet]);
 
     // Clear picked neighbours only when the primary play area genuinely
     // CHANGES to a DIFFERENT area than the one the saved neighbours
