@@ -669,6 +669,35 @@ div.leaflet-control-attribution.leaflet-control {
     h3 {
         @apply font-inter-tight;
     }
+
+    /* Tactile press feedback: any interactive element shrinks slightly
+     * inward while pressed, so taps feel responsive. Declared in
+     * @layer base so a component's own `active:` Tailwind utility
+     * (which lands in @layer utilities) always overrides this default —
+     * this only fills in the long tail of bare buttons / role="button"
+     * tiles / links that don't wire their own press state. The
+     * transition is scoped to `transform` so it never fights a
+     * component's own colour/opacity transitions. Reduced-motion off. */
+    @media (prefers-reduced-motion: no-preference) {
+        button,
+        [role="button"],
+        a[href],
+        summary,
+        label[role="button"] {
+            transition: transform 90ms ease-out;
+        }
+        button:active,
+        [role="button"]:active,
+        a[href]:active,
+        summary:active,
+        label[role="button"]:active {
+            transform: scale(0.97);
+        }
+        button:disabled:active,
+        [aria-disabled="true"]:active {
+            transform: none;
+        }
+    }
 }
 
 /* Brand "plane-trail" gradient — red → peach → yellow, lifted from the

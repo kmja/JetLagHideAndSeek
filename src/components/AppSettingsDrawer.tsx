@@ -8,13 +8,18 @@ import { PWAInstallButton } from "@/components/PWAInstallButton";
 import { RulebookSheet } from "@/components/RulebookSheet";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnitSelect } from "@/components/UnitSelect";
-import { defaultUnit } from "@/lib/context";
+import {
+    additionalMapGeoLocations,
+    defaultUnit,
+    mapGeoLocation,
+} from "@/lib/context";
 import { pauseGame } from "@/lib/gamePause";
 import {
     hidingPeriodEndsAt,
     moreSheetOpen,
     setupCompleted,
 } from "@/lib/gameSetup";
+import { estimateTotalAreaKm2 } from "@/lib/playAreaSize";
 import { cn } from "@/lib/utils";
 
 /**
@@ -40,6 +45,15 @@ export function AppSettingsDrawer() {
     const $defaultUnit = useStore(defaultUnit);
     const $setupCompleted = useStore(setupCompleted);
     const $inGame = useStore(hidingPeriodEndsAt) !== null;
+    // Committed play area (primary + added adjacents) so the preload
+    // estimate reflects THIS game's size instead of the generic
+    // null-area fallback (which always read ~19 MB regardless of city).
+    const $playAreaFeature = useStore(mapGeoLocation);
+    const $additionalAreas = useStore(additionalMapGeoLocations);
+    const preloadAreaKm2 = estimateTotalAreaKm2(
+        $playAreaFeature,
+        $additionalAreas,
+    );
 
     return (
         <VaulDrawer.Root
@@ -138,6 +152,7 @@ export function AppSettingsDrawer() {
                                     </div>
                                     <PreloadChoicesPanel
                                         runImmediatelyOnEnable
+                                        areaKm2={preloadAreaKm2}
                                     />
                                 </div>
                             )}

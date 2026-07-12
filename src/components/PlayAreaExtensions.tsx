@@ -19,7 +19,7 @@ import {
 } from "@/maps/api/playAreaExtensions";
 import type { OpenStreetMap } from "@/maps/api/types";
 
-import { formatAreaLabel } from "./GameSetupDialog";
+import { formatAreaLabel } from "@/lib/playAreaSize";
 
 /**
  * Adjacent-area controller for step 1 of the setup wizard.

@@ -66,6 +66,15 @@ import {
     type OpenStreetMap,
     reverseGeocodeCity,
 } from "@/maps/api";
+import {
+    estimateTotalAreaKm2,
+    exactTotalAreaKm2,
+    formatAreaLabel,
+    inferGameSize,
+    inferTransitModes,
+    sameModes,
+    sizeForAreaKm2,
+} from "@/lib/playAreaSize";
 import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
 import {
     ensureWarmCitiesLoaded,
@@ -96,127 +105,6 @@ import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
  */
 
 /**
- * Empirical bbox→polygon fill factor.
- *
- * Photon only exposes a feature's lat/lng bounding box, not its actual
- * boundary geometry, so we can't measure the real area without an
- * extra round-trip. But the bbox systematically overshoots: real OSM
- * admin regions fill 40–70% of their bbox on average — coastlines,
- * fjords, mountain backdrops, and plain irregular borders eat the rest.
- *
- * Subjective playtest feedback was that the recommended size felt too
- * big; this multiplier corrects the bias without a network call.
- * 0.55 is the rough median across a sample of cities and counties
- * (Berlin ~0.60, Greater London ~0.70, Stockholm City ~0.70, Manhattan
- * ~0.40, Norway ~0.20, Sweden ~0.30) — higher than worst-case sprawl,
- * lower than best-case square cities. Borderline picks now bias
- * toward the smaller, faster size, which usually plays better than
- * starting on more area than the players can cover.
- */
-const BBOX_FILL_FACTOR = 0.55;
-
-/**
- * Infer a recommended GameSize from an OSM relation's bounding-box area.
- *
- * Rulebook (p9) maps area to game size:
- *   - Small:  25 – 250 km²    (town / small city / portion of a metro)
- *   - Medium: 250 – 2,500 km² (major city / metro / region)
- *   - Large:  2,500+ km²      (large region / country / multiple countries)
- *
- * The extent on each OSM feature is stored as `[maxLat, minLng, minLat, maxLng]`
- * after `geocode.ts` swaps Photon's native ordering. We approximate area
- * with the flat-earth formula `Δlat * Δlng·cos(midLat) * 111²` — accurate
- * enough for bucketing across three orders of magnitude — then scale by
- * `BBOX_FILL_FACTOR` to convert that rectangle estimate into a polygon
- * estimate.
- */
-export function sizeForAreaKm2(km2: number | null): GameSize | null {
-    if (km2 === null) return null;
-    if (km2 < 250) return "small";
-    if (km2 < 2500) return "medium";
-    return "large";
-}
-
-function inferGameSize(feature: OpenStreetMap): GameSize | null {
-    return sizeForAreaKm2(estimateAreaKm2(feature));
-}
-
-/**
- * Total play-area size estimate INCLUDING any added adjacent areas, so
- * the recommended game size reflects what the players will actually
- * cover — not just the primary municipality. A Malmö + Lund pick, or
- * an NYC-plus-boroughs pick, should bump the suggested size the way the
- * combined footprint warrants. Sums the primary polygon estimate with
- * each adjacent's estimate (same bbox×fill heuristic as the primary).
- */
-export function estimateTotalAreaKm2(
-    primary: OpenStreetMap | null,
-    adjacents: Array<{ location?: OpenStreetMap | null }>,
-): number | null {
-    if (!primary) return null;
-    let total = estimateAreaKm2(primary) ?? 0;
-    for (const a of adjacents) {
-        if (a?.location) total += estimateAreaKm2(a.location) ?? 0;
-    }
-    return total > 0 ? total : null;
-}
-
-/**
- * Default allowed transit modes for a recommended game size (walking is
- * always implicit). Larger play areas lean on rail — buses are too
- * slow/local to matter once the area outgrows a walkable metro core —
- * so the bus is dropped for Medium and Large:
- *   - Small  → bus + tram                 (local surface transit)
- *   - Medium → tram + subway + train
- *   - Large  → tram + subway + train + ferry
- * A seeded/edited game keeps its saved set; this only feeds the wizard's
- * auto-default, and the player can still toggle any mode by hand.
- */
-export function inferTransitModes(size: GameSize): TransitMode[] {
-    if (size === "small") return ["bus", "tram"];
-    if (size === "medium") return ["tram", "train", "subway"];
-    return ["tram", "train", "subway", "ferry"];
-}
-
-/** Order-insensitive transit-mode set comparison. */
-export function sameModes(a: TransitMode[], b: TransitMode[]): boolean {
-    return (
-        a.length === b.length &&
-        [...a].sort().join(",") === [...b].sort().join(",")
-    );
-}
-
-/**
- * Polygon-area estimate for a Photon OSM feature, in km². Returns
- * null when the feature has no usable extent. Shared by
- * `inferGameSize` (above) and the per-result metadata helper used in
- * the play-area search list, so both surfaces agree on the number.
- *
- * See `BBOX_FILL_FACTOR` for the bbox→polygon adjustment rationale.
- */
-export function estimateAreaKm2(feature: OpenStreetMap): number | null {
-    const extent = feature.properties.extent;
-    if (!extent || extent.length < 4) return null;
-    const [maxLat, minLng, minLat, maxLng] = extent;
-    if (
-        typeof maxLat !== "number" ||
-        typeof minLat !== "number" ||
-        typeof minLng !== "number" ||
-        typeof maxLng !== "number"
-    ) {
-        return null;
-    }
-    const midLat = (maxLat + minLat) / 2;
-    const latSpanKm = Math.abs(maxLat - minLat) * 111;
-    const lngSpanKm =
-        Math.abs(maxLng - minLng) * 111 * Math.cos((midLat * Math.PI) / 180);
-    const bboxAreaKm2 = latSpanKm * lngSpanKm;
-    const areaKm2 = bboxAreaKm2 * BBOX_FILL_FACTOR;
-    if (!Number.isFinite(areaKm2) || areaKm2 <= 0) return null;
-    return areaKm2;
-}
-
-/**
  * Human-readable place-type label for a Photon result, used in the
  * search list to disambiguate same-named results (e.g. Barcelona
  * the city vs. Barcelona the province vs. Catalonia the region).
@@ -241,22 +129,6 @@ function placeTypeLabel(feature: OpenStreetMap): string {
     const lower = raw.toLowerCase();
     if (lower === "administrative") return "Administrative area";
     return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-}
-
-/**
- * Short human-readable area label like "~120 km²" or "~7,700 km²"
- * derived from the bbox-adjusted polygon estimate. Returns null if
- * the feature has no usable extent.
- */
-export function formatAreaLabel(feature: OpenStreetMap): string | null {
-    const km2 = estimateAreaKm2(feature);
-    if (km2 === null) return null;
-    // Round to a sensible precision for the size bucket.
-    let rounded: number;
-    if (km2 < 100) rounded = Math.round(km2);
-    else if (km2 < 1000) rounded = Math.round(km2 / 10) * 10;
-    else rounded = Math.round(km2 / 100) * 100;
-    return `~${rounded.toLocaleString("en-US")} km²`;
 }
 
 /**
@@ -350,39 +222,40 @@ export function GameSetupDialog() {
     // the user is mid-edit.
     const [castPlaceholder] = useState(() => pickRandomCastName());
 
-    // Whenever the play area changes (primary OR added adjacents), derive
-    // the wizard defaults from its size:
-    //   1. Game size — from the TOTAL area (primary + adjacents), per the
-    //      rulebook's S/M/L bands, unless the user picked a size by hand.
-    //   2. Allowed transit — the size-appropriate default set
-    //      (`inferTransitModes`), unless the user toggled a mode by hand.
-    // Transit follows the EFFECTIVE size (a manual size choice still
-    // re-defaults transit, so bumping the game to Large pulls in ferry),
-    // so this effect also depends on `draftSize`. The functional/guarded
-    // setters keep the size→transit chain from looping.
+    // Auto game-size from the play-area size (primary + added adjacents),
+    // per the rulebook's S/M/L bands, unless the user picked a size by
+    // hand. Seed synchronously from the bbox estimate so the size reacts
+    // immediately, then REFINE with the EXACT boundary area (already warmed
+    // by the play-area preview map) once it resolves. Deliberately does NOT
+    // depend on `draftSize` — it only WRITES it — so the async refine can't
+    // fight the sync seed in a loop.
     useEffect(() => {
-        if (!draftFeature) return;
-        let effectiveSize = draftSize;
-        if (!sizeManuallySet) {
-            const inferred = sizeForAreaKm2(
-                estimateTotalAreaKm2(draftFeature, $additionalAreas),
-            );
-            if (inferred) {
-                effectiveSize = inferred;
-                if (inferred !== draftSize) setDraftSize(inferred);
-            }
-        }
-        if (!transitManuallySet) {
-            const modes = inferTransitModes(effectiveSize);
-            setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
-        }
-    }, [
-        draftFeature,
-        $additionalAreas,
-        sizeManuallySet,
-        transitManuallySet,
-        draftSize,
-    ]);
+        if (sizeManuallySet || !draftFeature) return;
+        let cancelled = false;
+        const bbox = sizeForAreaKm2(
+            estimateTotalAreaKm2(draftFeature, $additionalAreas),
+        );
+        if (bbox) setDraftSize(bbox);
+        exactTotalAreaKm2(draftFeature, $additionalAreas).then((km2) => {
+            if (cancelled) return;
+            const exact = sizeForAreaKm2(km2);
+            if (exact) setDraftSize(exact);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [draftFeature, $additionalAreas, sizeManuallySet]);
+
+    // Auto allowed-transit from the EFFECTIVE game size (`inferTransitModes`)
+    // unless the user toggled a mode by hand. Keyed on `draftSize`, so it
+    // re-derives whether the size changed via the auto-infer above OR a
+    // manual size pick (bumping to Large pulls in ferry). Guarded setter
+    // avoids a redundant write.
+    useEffect(() => {
+        if (transitManuallySet) return;
+        const modes = inferTransitModes(draftSize);
+        setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
+    }, [draftSize, transitManuallySet]);
 
     // Clear picked neighbours only when the primary play area genuinely
     // CHANGES to a DIFFERENT area than the one the saved neighbours
@@ -828,11 +701,10 @@ export function GameSetupDialog() {
                             )}
                             {step === 4 && (
                                 <PreloadChoicesPanel
-                                    areaKm2={
-                                        draftFeature
-                                            ? estimateAreaKm2(draftFeature)
-                                            : null
-                                    }
+                                    areaKm2={estimateTotalAreaKm2(
+                                        draftFeature,
+                                        $additionalAreas,
+                                    )}
                                 />
                             )}
                             </div>

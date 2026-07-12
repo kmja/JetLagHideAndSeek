@@ -4,14 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
-    estimateTotalAreaKm2,
-    inferTransitModes,
     PlayAreaStep,
-    sameModes,
-    sizeForAreaKm2,
     SizeStep,
     TransitStep,
 } from "@/components/GameSetupDialog";
+import {
+    estimateTotalAreaKm2,
+    exactTotalAreaKm2,
+    inferTransitModes,
+    sameModes,
+    sizeForAreaKm2,
+} from "@/lib/playAreaSize";
 import { WizardStepper } from "@/components/WizardStepper";
 import { Button } from "@/components/ui/button";
 import {
@@ -109,34 +112,36 @@ export function SetupPage() {
     // chosen play area; same for the transit chips.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
     const [transitManuallySet, setTransitManuallySet] = useState(false);
-    // Derive the wizard defaults from the play-area size (mirrors
-    // GameSetupDialog): game size from the TOTAL area (primary + added
-    // adjacents), and the allowed-transit set from that size. Transit
-    // follows the EFFECTIVE size (a manual size still re-defaults transit),
-    // so `draftSize` is a dep; guarded setters keep the chain from looping.
+    // Auto game-size from the play-area size (primary + added adjacents),
+    // seeded synchronously from the bbox estimate then refined with the
+    // EXACT boundary area once it resolves. Mirrors GameSetupDialog; does
+    // NOT depend on `draftSize` (only writes it) so the async refine can't
+    // fight the sync seed.
     useEffect(() => {
-        if (!draftFeature) return;
-        let effectiveSize = draftSize;
-        if (!sizeManuallySet) {
-            const inferred = sizeForAreaKm2(
-                estimateTotalAreaKm2(draftFeature, $additionalAreas),
-            );
-            if (inferred) {
-                effectiveSize = inferred;
-                if (inferred !== draftSize) setDraftSize(inferred);
-            }
-        }
-        if (!transitManuallySet) {
-            const modes = inferTransitModes(effectiveSize);
-            setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
-        }
-    }, [
-        draftFeature,
-        $additionalAreas,
-        sizeManuallySet,
-        transitManuallySet,
-        draftSize,
-    ]);
+        if (sizeManuallySet || !draftFeature) return;
+        let cancelled = false;
+        const bbox = sizeForAreaKm2(
+            estimateTotalAreaKm2(draftFeature, $additionalAreas),
+        );
+        if (bbox) setDraftSize(bbox);
+        exactTotalAreaKm2(draftFeature, $additionalAreas).then((km2) => {
+            if (cancelled) return;
+            const exact = sizeForAreaKm2(km2);
+            if (exact) setDraftSize(exact);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [draftFeature, $additionalAreas, sizeManuallySet]);
+
+    // Auto allowed-transit from the effective game size, unless the user
+    // toggled a mode by hand. Re-derives on any size change (auto or a
+    // manual size pick).
+    useEffect(() => {
+        if (transitManuallySet) return;
+        const modes = inferTransitModes(draftSize);
+        setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
+    }, [draftSize, transitManuallySet]);
 
     // Wipe any adjacent picks when the primary area genuinely CHANGES
     // to a different area — stale neighbours from a different region
