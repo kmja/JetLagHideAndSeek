@@ -45,7 +45,13 @@ import {
     selfParticipantId,
     sessionToken,
 } from "./session";
-import { playArea } from "@/lib/gameSetup";
+import { mapGeoLocation } from "@/lib/context";
+import {
+    allowedTransit,
+    gameSize,
+    hidingPeriodEndsAt,
+    playArea,
+} from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import { resetCurseState } from "@/lib/roundReset";
 
@@ -79,15 +85,20 @@ function uid(): string {
 }
 
 function defaultSetup(): SetupState {
-    const area = playArea.get();
+    // Mirror the player's ACTUAL wizard choices (like `hostPushSetup`
+    // does) — NOT a hardcoded default. The old hardcoded
+    // `["bus","train","tram","subway"]` + `"medium"` clobbered the
+    // wizard's transit/size the instant the demo's `welcome` snapshot was
+    // applied, so e.g. a New York game whose wizard set train+subway+tram
+    // gained bus the moment it started.
     return {
-        playArea: area ?? null,
-        allowedTransit: ["bus", "train", "tram", "subway"],
-        gameSize: "medium",
-        hidingPeriodEndsAt: null,
+        playArea: playArea.get() ?? null,
+        allowedTransit: allowedTransit.get(),
+        gameSize: gameSize.get(),
+        hidingPeriodEndsAt: hidingPeriodEndsAt.get(),
         endgameStartedAt: null,
         endgameConfirmedAt: null,
-        mapGeoLocation: null,
+        mapGeoLocation: mapGeoLocation.get(),
     };
 }
 

@@ -1778,7 +1778,7 @@ export function Map({ className }: MapProps) {
                                           : "hsl(2, 70%, 54%)",
                                     "fill-opacity": shown
                                         ? !darkBasemap
-                                            ? 0.1
+                                            ? 0.15
                                             : $theme === "dark"
                                               ? 0.16
                                               : 0.08
@@ -1826,11 +1826,11 @@ export function Map({ className }: MapProps) {
                                         ["linear"],
                                         ["zoom"],
                                         8,
-                                        2,
+                                        1.5,
                                         13,
-                                        3.5,
+                                        2.8,
                                         16,
-                                        5,
+                                        4,
                                     ],
                                     // Light basemap: neutral very-dark-grey
                                     // dots (the red field was too loud). Dark/
@@ -1838,8 +1838,9 @@ export function Map({ className }: MapProps) {
                                     "circle-color": darkBasemap
                                         ? "hsl(2, 70%, 54%)"
                                         : "hsl(0, 0%, 20%)",
-                                    "circle-stroke-color": "#ffffff",
-                                    "circle-stroke-width": 1,
+                                    // No stroke — the white outline read as a
+                                    // halo on the light basemap.
+                                    "circle-stroke-width": 0,
                                     "circle-opacity": shown ? 1 : 0,
                                     "circle-stroke-opacity": shown ? 1 : 0,
                                     "circle-opacity-transition": {

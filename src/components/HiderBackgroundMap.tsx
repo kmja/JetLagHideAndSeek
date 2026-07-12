@@ -702,7 +702,7 @@ export function HiderBackgroundMap() {
                                     "fill-opacity": shown
                                         ? darkBasemap
                                             ? 0.16
-                                            : 0.1
+                                            : 0.15
                                         : 0,
                                     "fill-opacity-transition": {
                                         duration: 280,
@@ -750,11 +750,11 @@ export function HiderBackgroundMap() {
                                         ["linear"],
                                         ["zoom"],
                                         8,
-                                        2,
+                                        1.5,
                                         13,
-                                        3.5,
+                                        2.8,
                                         16,
-                                        5,
+                                        4,
                                     ],
                                     // Light basemap: neutral very-dark-grey
                                     // dots; dark/satellite: brand red. Matches
@@ -762,8 +762,9 @@ export function HiderBackgroundMap() {
                                     "circle-color": darkBasemap
                                         ? "hsl(2, 70%, 54%)"
                                         : "hsl(0, 0%, 20%)",
-                                    "circle-stroke-color": "#ffffff",
-                                    "circle-stroke-width": 1,
+                                    // No stroke — the white outline read as a
+                                    // halo on the light basemap.
+                                    "circle-stroke-width": 0,
                                     "circle-opacity": shown ? 1 : 0,
                                     "circle-stroke-opacity": shown ? 1 : 0,
                                     "circle-opacity-transition": {
