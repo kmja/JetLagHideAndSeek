@@ -100,28 +100,41 @@ export const TentacleQuestionComponent = ({
             locked={!data.drag}
             setLocked={(locked) => questionModified((data.drag = !locked))}
         >
-            <SidebarMenuItem>
-                <div className={cn(MENU_ITEM_CLASSNAME, "gap-2 flex flex-row")}>
-                    <Input
-                        type="number"
-                        className="rounded-md p-2 w-16"
-                        value={data.radius}
-                        onChange={(e) =>
-                            questionModified(
-                                (data.radius = parseFloat(e.target.value)),
-                            )
-                        }
-                        disabled={!isQuestionEditable(data) || $isLoading}
-                    />
-                    <UnitSelect
-                        unit={data.unit}
-                        onChange={(unit) =>
-                            questionModified((data.unit = unit))
-                        }
-                        disabled={!isQuestionEditable(data) || $isLoading}
-                    />
-                </div>
-            </SidebarMenuItem>
+            {/* The radius is rulebook-fixed per subtype (museum/library/
+                cinema/hospital = 2 km, zoo/aquarium/theme-park/metro = 25 km;
+                stamped at creation), so there's no radius/unit picker for a
+                standard tentacle — it's determined by the question you chose,
+                which is itself gated by game size. Custom tentacles have no
+                fixed radius, so they keep the manual control. */}
+            {data.locationType === "custom" && (
+                <SidebarMenuItem>
+                    <div
+                        className={cn(
+                            MENU_ITEM_CLASSNAME,
+                            "gap-2 flex flex-row",
+                        )}
+                    >
+                        <Input
+                            type="number"
+                            className="rounded-md p-2 w-16"
+                            value={data.radius}
+                            onChange={(e) =>
+                                questionModified(
+                                    (data.radius = parseFloat(e.target.value)),
+                                )
+                            }
+                            disabled={!isQuestionEditable(data) || $isLoading}
+                        />
+                        <UnitSelect
+                            unit={data.unit}
+                            onChange={(unit) =>
+                                questionModified((data.unit = unit))
+                            }
+                            disabled={!isQuestionEditable(data) || $isLoading}
+                        />
+                    </div>
+                </SidebarMenuItem>
+            )}
             <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
                 <Select
                     trigger="Location Type"
@@ -244,6 +257,13 @@ export const TentacleQuestionComponent = ({
                     questionModified();
                 }}
                 disabled={!isQuestionEditable(data) || $isLoading}
+                // The tentacle reach is centred on the SEEKER's own
+                // position, so lock the pin to GPS — tapping the map must
+                // not relocate it (and, once a fix lands, it renders as the
+                // canonical blue "you are here" dot, not a placeable
+                // teardrop). Custom tentacles place their own points, so
+                // they stay free-pick.
+                lockToGps={data.locationType !== "custom"}
                 // v239: draw the tentacle reach circle + every candidate
                 // on the picker map so the seeker reads the density.
                 impactMode={

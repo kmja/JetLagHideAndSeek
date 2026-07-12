@@ -641,6 +641,26 @@ export function InlineLocationPicker({
         [$pmtilesUrl, $theme],
     );
 
+    // Tentacle reach partitioned into per-reference Voronoi cells, each
+    // shaded a distinct purple, so the seeker reads which slice of the
+    // reach maps to which candidate (v771). Colour is baked onto each
+    // feature so one data-driven fill layer paints them all.
+    const reachCellsFC = useMemo(() => {
+        const cells = impact?.reachCells;
+        if (!cells || cells.length === 0) return null;
+        return {
+            type: "FeatureCollection" as const,
+            features: cells.map((rc, i) => ({
+                ...(rc.cell as GeoJSON.Feature),
+                properties: {
+                    ...((rc.cell as GeoJSON.Feature).properties ?? {}),
+                    fill: PURPLE_CELL_SHADES[i % PURPLE_CELL_SHADES.length],
+                    cellName: rc.name,
+                },
+            })),
+        } as GeoJSON.FeatureCollection;
+    }, [impact?.reachCells]);
+
     // Basemap brightness drives the hiding-zones palette, exactly like the
     // main map (Map.tsx): neutral grey on the light Protomaps basemap,
     // brand red / near-white wash over satellite + dark.
@@ -868,30 +888,68 @@ export function InlineLocationPicker({
                         </Source>
                     )}
                     {impactMode === "tentacles" && impact?.reachCircle && (
-                        <Source
-                            id="impact-reach"
-                            type="geojson"
-                            data={impact.reachCircle as GeoJSON.Feature}
-                        >
-                            <Layer
-                                id="impact-reach-fill"
-                                type="fill"
-                                paint={{
-                                    "fill-color": "hsl(265, 60%, 60%)",
-                                    "fill-opacity": 0.16,
-                                }}
-                            />
-                            <Layer
-                                id="impact-reach-line"
-                                type="line"
-                                paint={{
-                                    "line-color": "hsl(265, 60%, 48%)",
-                                    "line-width": 1.5,
-                                    "line-opacity": 0.9,
-                                    "line-dasharray": [3, 3],
-                                }}
-                            />
-                        </Source>
+                        <>
+                            {/* Per-reference Voronoi cells, each a distinct
+                                purple, so the seeker sees which slice of the
+                                reach maps to which candidate. */}
+                            {reachCellsFC && (
+                                <Source
+                                    id="impact-reach-cells"
+                                    type="geojson"
+                                    data={reachCellsFC}
+                                >
+                                    <Layer
+                                        id="impact-reach-cells-fill"
+                                        type="fill"
+                                        paint={{
+                                            "fill-color": [
+                                                "get",
+                                                "fill",
+                                            ] as any,
+                                            "fill-opacity": 0.35,
+                                        }}
+                                    />
+                                    <Layer
+                                        id="impact-reach-cells-line"
+                                        type="line"
+                                        paint={{
+                                            "line-color": "hsl(265, 45%, 38%)",
+                                            "line-width": 1,
+                                            "line-opacity": 0.7,
+                                        }}
+                                    />
+                                </Source>
+                            )}
+                            <Source
+                                id="impact-reach"
+                                type="geojson"
+                                data={impact.reachCircle as GeoJSON.Feature}
+                            >
+                                {/* Solid fill only when we couldn't partition
+                                    (0–1 references) — otherwise the cells own
+                                    the fill and this is just the boundary. */}
+                                {!reachCellsFC && (
+                                    <Layer
+                                        id="impact-reach-fill"
+                                        type="fill"
+                                        paint={{
+                                            "fill-color": "hsl(265, 60%, 60%)",
+                                            "fill-opacity": 0.16,
+                                        }}
+                                    />
+                                )}
+                                <Layer
+                                    id="impact-reach-line"
+                                    type="line"
+                                    paint={{
+                                        "line-color": "hsl(265, 60%, 48%)",
+                                        "line-width": 1.5,
+                                        "line-opacity": 0.9,
+                                        "line-dasharray": [3, 3],
+                                    }}
+                                />
+                            </Source>
+                        </>
                     )}
                     {/* v371: candidate dots are now subtype-icon markers
                         (museum→Landmark, etc.) drawn as HTML overlays,
@@ -911,20 +969,35 @@ export function InlineLocationPicker({
                                     latitude={c.lat}
                                     anchor="center"
                                 >
-                                    <div
-                                        title={c.name}
-                                        className={cn(
-                                            "flex items-center justify-center",
-                                            "w-5 h-5 rounded-full",
-                                            "bg-background/85 border border-foreground/40",
-                                            "shadow-sm",
-                                        )}
-                                    >
-                                        <Icon
-                                            size={12}
-                                            strokeWidth={2.4}
-                                            className="text-foreground/85"
-                                        />
+                                    <div className="flex flex-col items-center gap-0.5">
+                                        <div
+                                            title={c.name}
+                                            className={cn(
+                                                "flex items-center justify-center",
+                                                "w-5 h-5 rounded-full",
+                                                "bg-background/85 border border-foreground/40",
+                                                "shadow-sm",
+                                            )}
+                                        >
+                                            <Icon
+                                                size={12}
+                                                strokeWidth={2.4}
+                                                className="text-foreground/85"
+                                            />
+                                        </div>
+                                        {/* Name label — like the "nearest
+                                            reference" pill in the matching /
+                                            measuring dialogs, but per candidate
+                                            so the seeker can tie each reach cell
+                                            to its reference. Tentacles only, to
+                                            avoid cluttering the dense point sets
+                                            of matching / measuring. */}
+                                        {impactMode === "tentacles" &&
+                                            c.name && (
+                                                <span className="max-w-[88px] truncate rounded-sm border border-foreground/20 bg-background/85 px-1 py-0.5 text-[9px] font-semibold leading-none text-foreground/85 shadow-sm">
+                                                    {c.name}
+                                                </span>
+                                            )}
                                     </div>
                                 </Marker>
                             );
@@ -1102,6 +1175,19 @@ export function InlineLocationPicker({
         </div>
     );
 }
+
+/** Distinct purple shades cycled across the tentacle Voronoi cells so
+ *  adjacent "nearest reference" regions read apart at a glance. */
+const PURPLE_CELL_SHADES = [
+    "hsl(265, 60%, 58%)",
+    "hsl(288, 52%, 60%)",
+    "hsl(248, 62%, 60%)",
+    "hsl(300, 45%, 55%)",
+    "hsl(272, 55%, 46%)",
+    "hsl(255, 58%, 66%)",
+    "hsl(282, 60%, 50%)",
+    "hsl(240, 52%, 62%)",
+];
 
 /** Bigger radii deserve a wider zoom so the whole circle fits. */
 function zoomForRadius(radiusMeters: number): number {

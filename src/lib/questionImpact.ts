@@ -58,6 +58,14 @@ export interface QuestionImpact {
     candidates: Array<{ lat: number; lng: number; name: string }>;
     /** Tentacle reach circle (tentacles mode only). */
     reachCircle?: Feature<Polygon>;
+    /** Tentacle reach partitioned into one Voronoi cell per reachable
+     *  candidate, each clipped to the circle — "if the hider is here, THIS
+     *  is the nearest one". Rendered in distinct shades so the seeker reads
+     *  which part of the reach maps to which reference. */
+    reachCells?: Array<{
+        cell: Feature<Polygon | MultiPolygon>;
+        name: string;
+    }>;
     /** Seeker's nearest candidate (matching/measuring). */
     nearest: { lat: number; lng: number; name: string } | null;
     /** True while the candidate set is still being fetched. */
@@ -489,13 +497,99 @@ export function useQuestionImpact(
                 }
             }
         } else if (mode === "tentacles" && tentacleRadiusKm) {
+            let reach: Feature<Polygon> | null = null;
             try {
-                out.reachCircle = turf.circle([lng, lat], tentacleRadiusKm, {
+                reach = turf.circle([lng, lat], tentacleRadiusKm, {
                     units: "kilometers",
                     steps: 64,
                 }) as Feature<Polygon>;
             } catch {
-                /* no circle */
+                reach = null;
+            }
+            if (reach) {
+                out.reachCircle = reach;
+                // Partition the reach into one Voronoi cell per reachable
+                // candidate ("if the hider is here, this is the nearest
+                // one"), each clipped to the circle, so the seeker can read
+                // which slice of the reach corresponds to which reference.
+                const inReach = candidates.filter((c) => {
+                    try {
+                        return turf.booleanPointInPolygon(
+                            turf.point([c.lng, c.lat]),
+                            reach as any,
+                        );
+                    } catch {
+                        return false;
+                    }
+                });
+                if (inReach.length === 1) {
+                    out.reachCells = [
+                        { cell: reach as Feature<Polygon>, name: inReach[0].name },
+                    ];
+                } else if (inReach.length >= 2) {
+                    try {
+                        const fc = turf.featureCollection(
+                            inReach.map((c) => turf.point([c.lng, c.lat])),
+                        );
+                        const bb = turf.bbox(reach);
+                        const padX = (bb[2] - bb[0]) * 0.5 + 0.02;
+                        const padY = (bb[3] - bb[1]) * 0.5 + 0.02;
+                        const cells =
+                            turf.voronoi(fc, {
+                                bbox: [
+                                    bb[0] - padX,
+                                    bb[1] - padY,
+                                    bb[2] + padX,
+                                    bb[3] + padY,
+                                ],
+                            })?.features ?? [];
+                        const reachCells: Array<{
+                            cell: Feature<Polygon | MultiPolygon>;
+                            name: string;
+                        }> = [];
+                        for (const cand of inReach) {
+                            const candPt = turf.point([cand.lng, cand.lat]);
+                            const cell = cells.find(
+                                (c) =>
+                                    c?.geometry &&
+                                    (() => {
+                                        try {
+                                            return turf.booleanPointInPolygon(
+                                                candPt,
+                                                c as any,
+                                            );
+                                        } catch {
+                                            return false;
+                                        }
+                                    })(),
+                            );
+                            if (!cell?.geometry) continue;
+                            try {
+                                const clipped = turf.intersect(
+                                    turf.featureCollection([
+                                        cell as any,
+                                        reach as any,
+                                    ]),
+                                );
+                                if (clipped)
+                                    reachCells.push({
+                                        cell: clipped as Feature<
+                                            Polygon | MultiPolygon
+                                        >,
+                                        name: cand.name,
+                                    });
+                            } catch {
+                                /* skip this cell */
+                            }
+                        }
+                        if (reachCells.length) out.reachCells = reachCells;
+                    } catch (e) {
+                        console.warn(
+                            "[impact] tentacle voronoi failed:",
+                            e,
+                        );
+                    }
+                }
             }
         }
 
