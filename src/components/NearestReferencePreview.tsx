@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { cn } from "@/lib/utils";
 import { fetchCoastline, LOCATION_FIRST_TAG } from "@/maps/api";
+import { fetchAreaCoastlineLines } from "@/maps/api/coast";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
     findPlacesInZone,
@@ -472,22 +473,41 @@ async function fetchNearestCoastline(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
-    if (!coastlineCache.fc) {
-        try {
-            coastlineCache.fc =
-                (await fetchCoastline()) as GeoJSON.FeatureCollection;
-        } catch (e) {
-            console.warn("coastline50.geojson load failed:", e);
-            return null;
-        }
-    }
     const target = turf.point([lng, lat]);
     let best: {
         lat: number;
         lng: number;
         distanceMeters: number;
     } | null = null;
-    for (const feature of coastlineCache.fc.features) {
+
+    // v778: prefer the DETAILED per-city OSM coastline (prewarmed R2 → live
+    // play-area Overpass) so the label agrees with the elimination, which now
+    // also uses per-city coast. Falls back to scanning the bundled 1:50m
+    // coastline when per-city coast is unavailable.
+    let scanFeatures: GeoJSON.Feature[] | null = null;
+    try {
+        const perCity = await fetchAreaCoastlineLines();
+        if (perCity && perCity.length > 0) {
+            scanFeatures = perCity as unknown as GeoJSON.Feature[];
+        }
+    } catch {
+        /* fall through to the bundled coastline */
+    }
+
+    if (!scanFeatures) {
+        if (!coastlineCache.fc) {
+            try {
+                coastlineCache.fc =
+                    (await fetchCoastline()) as GeoJSON.FeatureCollection;
+            } catch (e) {
+                console.warn("coastline50.geojson load failed:", e);
+                return null;
+            }
+        }
+        scanFeatures = coastlineCache.fc.features;
+    }
+
+    for (const feature of scanFeatures) {
         const g = feature.geometry;
         if (!g) continue;
         // Natural Earth ships both LineString and MultiLineString.

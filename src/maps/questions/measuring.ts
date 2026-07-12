@@ -1,11 +1,5 @@
 import * as turf from "@turf/turf";
-import type {
-    Feature,
-    LineString,
-    MultiLineString,
-    MultiPolygon,
-    Polygon,
-} from "geojson";
+import type { Feature, MultiPolygon, Polygon } from "geojson";
 import memoize from "lodash/memoize";
 import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
@@ -30,10 +24,7 @@ import {
     prettifyLocation,
     QuestionSpecificLocation,
 } from "@/maps/api";
-import {
-    fetchPrewarmedAreaCoast,
-    requestCoastWarmAll,
-} from "@/maps/api/coast";
+import { fetchAreaCoastlineLines } from "@/maps/api/coast";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import {
     fetchPrewarmedAreaWater,
@@ -194,42 +185,41 @@ export const determineMeasuringBoundary = async (
             return [highSpeedBase(features)];
         }
         case "coastline": {
-            const coastline = turf.lineToPolygon(
-                await fetchCoastline(),
-            ) as Feature<MultiPolygon>;
-
-            const distanceToCoastline = turf.pointToPolygonDistance(
-                turf.point([question.lng, question.lat]),
-                coastline,
-                {
-                    units: "miles",
-                    method: "geodesic",
-                },
-            );
-
-            return [
-                turf.difference(
-                    turf.featureCollection([
-                        turf.bboxPolygon(bBox),
-                        turf.buffer(
-                            turf.bboxClip(
-                                coastline,
-                                bBox
-                                    ? bboxExtension(
-                                          bBox as any,
-                                          distanceToCoastline,
-                                      )
-                                    : [-180, -90, 180, 90],
-                            ),
-                            distanceToCoastline,
-                            {
-                                units: "miles",
-                                steps: 64,
-                            },
-                        )!,
-                    ]),
-                )!,
-            ];
+            // v778: per-city OSM coastline LINES, treated exactly like the
+            // international-/admin1-border cases — the downstream
+            // arcBufferToPoint buffers the coast by the seeker's distance to
+            // it, giving the "closer to the coast than the seeker" region.
+            // This replaces the old close-into-land-polygon + difference
+            // construction, which relied on the bundled 1:50m coastline
+            // (far too coarse for a metro like NYC) and only worked because
+            // arcBufferToPoint's buffer collapsed to ~0. Rulebook p18: only
+            // coast WITHIN the play area exists, which is exactly what the
+            // per-city fetch returns. Falls back to the bundled 1:50m
+            // coastline clipped to the frame when per-city coast is
+            // unavailable, so nothing breaks.
+            const perCity = await fetchAreaCoastlineLines();
+            let coastLines: Feature[];
+            if (perCity && perCity.length > 0) {
+                // Flatten any MultiLineString into LineStrings so the
+                // highSpeedBase line combiner (which only groups
+                // LineStrings) keeps every segment.
+                coastLines = [];
+                for (const f of perCity) {
+                    const g = f.geometry;
+                    if (g?.type === "LineString") {
+                        coastLines.push(f as Feature);
+                    } else if (g?.type === "MultiLineString") {
+                        for (const part of g.coordinates) {
+                            if (part.length >= 2)
+                                coastLines.push(turf.lineString(part));
+                        }
+                    }
+                }
+            } else {
+                coastLines = clipLinesToBbox(await fetchCoastline(), bBox);
+            }
+            if (coastLines.length === 0) return [turf.multiPolygon([])];
+            return [highSpeedBase(coastLines)];
         }
         case "airport":
             return [
@@ -504,30 +494,22 @@ export const determineMeasuringBoundary = async (
                 // cold coast it background-warms for next time.
                 if (bBox) {
                     try {
-                        const detailed = await fetchPrewarmedAreaCoast();
-                        if (detailed) {
-                            const geo = osmtogeojson({
-                                elements: detailed.elements,
-                            } as any);
-                            const lines = geo.features.filter(
-                                (f: any) =>
-                                    f.geometry?.type === "LineString" ||
-                                    f.geometry?.type === "MultiLineString",
-                            ) as Feature<LineString | MultiLineString>[];
-                            if (lines.length > 0) {
-                                sea = seaFromCoastline(
-                                    lines,
-                                    bBox as [
-                                        number,
-                                        number,
-                                        number,
-                                        number,
-                                    ],
-                                    seeker,
-                                );
-                            }
-                        } else {
-                            requestCoastWarmAll();
+                        // v778: shared per-city coastline fetch — prewarmed
+                        // R2, then a live play-area Overpass query on a cold
+                        // city (so an un-warmed coastal metro also gets the
+                        // detailed sea, not just the coarse 1:50m fallback).
+                        const lines = await fetchAreaCoastlineLines();
+                        if (lines && lines.length > 0) {
+                            sea = seaFromCoastline(
+                                lines,
+                                bBox as [
+                                    number,
+                                    number,
+                                    number,
+                                    number,
+                                ],
+                                seeker,
+                            );
                         }
                     } catch (e) {
                         console.warn(

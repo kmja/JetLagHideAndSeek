@@ -26,6 +26,7 @@ import {
     prettifyLocation,
     trainLineNodeFinder,
 } from "@/maps/api";
+import { fetchAreaLandPolygons } from "@/maps/api/coast";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import { holedMask, modifyMapData, safeUnion } from "@/maps/geo-utils";
 import { geoSpatialVoronoi } from "@/maps/geo-utils";
@@ -351,41 +352,64 @@ export const determineMatchingBoundary = memoize(
             }
             case "same-landmass": {
                 // v340: rulebook p18 — "An area of land that is in one
-                // piece, not broken up by a waterway." We use the
-                // bundled Natural Earth 1:50m coastline (already
-                // imported for the coastline measuring question) which
-                // gives a global FeatureCollection of LineStrings;
-                // turf.lineToPolygon closes each loop into a polygon,
-                // and the polygon CONTAINING the seeker IS their
-                // landmass. Same coastline-as-truth contract the
-                // measuring side uses, so answers agree across both
-                // question categories.
-                const coastFC = await fetchCoastline();
-                const polys = turf.lineToPolygon(
-                    coastFC as any,
-                );
+                // piece, not broken up by a waterway." The polygon
+                // CONTAINING the seeker IS their landmass; whether the
+                // hider falls in the same polygon is the answer. Same
+                // coastline-as-truth contract the `coastline` measuring
+                // side uses, so answers agree across both categories.
+                //
+                // v778: prefer PER-CITY OSM land — the play-area frame
+                // MINUS the sea built from detailed OSM coastline
+                // (`fetchAreaLandPolygons`), which resolves NYC's East
+                // River / harbour that the coarse 1:50m coastline smears
+                // over. Falls back to closing the bundled 1:50m coastline
+                // into global land polygons where per-city coast is
+                // unavailable or degenerate, so nothing breaks.
                 const seekerPt = turf.point([question.lng, question.lat]);
-                // lineToPolygon can return either a single Polygon /
-                // MultiPolygon Feature, or a FeatureCollection of
-                // Polygons — both shapes need to be walked. Coerce to
-                // a per-Polygon iterable.
                 const collected: Feature<Polygon>[] = [];
-                if ((polys as any).type === "FeatureCollection") {
-                    for (const f of (polys as any).features) {
-                        if (f.geometry?.type === "Polygon") collected.push(f);
-                        if (f.geometry?.type === "MultiPolygon") {
-                            for (const ring of f.geometry.coordinates) {
-                                collected.push(turf.polygon(ring));
-                            }
+
+                const pushParts = (
+                    poly: Feature<Polygon | MultiPolygon>,
+                ) => {
+                    if (poly.geometry.type === "Polygon") {
+                        collected.push(poly as Feature<Polygon>);
+                    } else {
+                        for (const ring of (poly as Feature<MultiPolygon>)
+                            .geometry.coordinates) {
+                            collected.push(turf.polygon(ring));
                         }
                     }
-                } else if ((polys as any).geometry?.type === "Polygon") {
-                    collected.push(polys as Feature<Polygon>);
-                } else if ((polys as any).geometry?.type === "MultiPolygon") {
-                    for (const ring of (
-                        polys as Feature<MultiPolygon>
-                    ).geometry.coordinates) {
-                        collected.push(turf.polygon(ring));
+                };
+
+                const areaLand = await fetchAreaLandPolygons({
+                    lat: question.lat,
+                    lng: question.lng,
+                });
+                if (areaLand) {
+                    pushParts(areaLand);
+                } else {
+                    // Fallback: bundled 1:50m coastline closed into land.
+                    const coastFC = await fetchCoastline();
+                    const polys = turf.lineToPolygon(coastFC as any);
+                    if ((polys as any).type === "FeatureCollection") {
+                        for (const f of (polys as any).features) {
+                            if (f.geometry?.type === "Polygon")
+                                collected.push(f);
+                            if (f.geometry?.type === "MultiPolygon") {
+                                for (const ring of f.geometry.coordinates) {
+                                    collected.push(turf.polygon(ring));
+                                }
+                            }
+                        }
+                    } else if ((polys as any).geometry?.type === "Polygon") {
+                        collected.push(polys as Feature<Polygon>);
+                    } else if (
+                        (polys as any).geometry?.type === "MultiPolygon"
+                    ) {
+                        for (const ring of (polys as Feature<MultiPolygon>)
+                            .geometry.coordinates) {
+                            collected.push(turf.polygon(ring));
+                        }
                     }
                 }
                 for (const f of collected) {
