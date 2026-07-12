@@ -937,13 +937,45 @@ export function Map({ className }: MapProps) {
                     }
                 }
             }
+            // v759: the pre-game seeker Map is pre-mounted purely for
+            // network warmup and rendered opacity-0 (SeekerPage's lobby
+            // branch), so the dark dimming mask it would produce is
+            // invisible — and computing `holedMask` (a world-scale
+            // turf.difference over the raw play-area multipolygon) at that
+            // point is pure waste AND, on a dense boundary like NYC, blocks
+            // the main thread long enough to FREEZE the tab at the role-
+            // picker step. This was exposed once v757 soft-nav stopped
+            // wiping the volatile polyGeoJSON on the wizard→lobby
+            // transition (before, the hard reload left polyGeoJSON null so
+            // this pass had no geometry to chew on). Skip the mask until the
+            // game has actually started — the visible in-game Map is a
+            // separate instance that mounts with `hidingPeriodEndsAt` set.
             let mask: GeoJSON.Feature | null = null;
-            try {
-                mask = holedMask(
-                    working as never,
-                ) as GeoJSON.Feature | null;
-            } catch (e) {
-                console.warn("Map holedMask failed:", e);
+            if (hidingPeriodEndsAt.get() !== null) {
+                try {
+                    // Simplify the mask input first (mirroring the hider
+                    // map, v758): the mask is a faint dimming fill drawn
+                    // UNDER the crisp play-area outline + question layers,
+                    // so a coarser mask edge is invisible while the vertex
+                    // cut makes the world-scale difference dramatically
+                    // cheaper on a dense multipolygon. Simplify a CLONE so
+                    // the exact `working` geometry stored below
+                    // (questionFinishedMapData + pending-clip) is untouched.
+                    let maskInput: unknown = working;
+                    try {
+                        maskInput = turf.simplify(working as never, {
+                            tolerance: 0.0006,
+                            highQuality: false,
+                        });
+                    } catch {
+                        maskInput = working;
+                    }
+                    mask = holedMask(
+                        maskInput as never,
+                    ) as GeoJSON.Feature | null;
+                } catch (e) {
+                    console.warn("Map holedMask failed:", e);
+                }
             }
             if (myGen !== eliminationGenRef.current) return; // stale
 
