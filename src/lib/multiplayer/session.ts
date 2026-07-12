@@ -139,17 +139,21 @@ export const localIsHost = persistentAtom<boolean>(
  * Lets a developer exercise the full multiplayer code path on a single
  * device without spinning up real peers.
  *
- * PERSISTENT (v777): so a demo game survives an auto-update reload. The
- * bot broker + roster live only in memory, but on boot `MultiplayerBoot`
- * calls `resumeDemoGameIfPersisted()` to rebuild them from the persisted
- * game state (play area / role / questions / hiding clock all persist),
- * so the demo picks up where it left off. `stopDemoGame` clears this, so
- * leaving the demo doesn't leave a stuck flag.
+ * VOLATILE — resets to false on every page load (NOT persisted).
+ *
+ * v779: reverted from the v777 persistent atom. Persisting it so a demo
+ * could survive an auto-update reload backfired: a stale `jlhs:demoMode=true`
+ * from an earlier demo session survived in localStorage (and `stopDemoGame`
+ * early-returns without clearing it once the in-memory `_state` is gone after
+ * a reload), so on the next boot the app flipped into the demo/broker path
+ * and cross-contaminated a REAL game — froze the lobby. Volatile restores the
+ * known-good pre-v777 boot: every load starts with no demo, and the real-game
+ * `tryResumeFromPersistent` reconnect runs normally. The cost is only that a
+ * demo game doesn't survive a reload (the explicitly-accepted fallback —
+ * auto-update itself, the historical default, is unchanged). Making the atom
+ * volatile also makes any lingering `jlhs:demoMode` localStorage value inert.
  */
-export const demoMode = persistentAtom<boolean>("jlhs:demoMode", false, {
-    encode: JSON.stringify,
-    decode: JSON.parse,
-});
+export const demoMode = atom<boolean>(false);
 
 /** Current transport state (no persistence — it derives from the live socket). */
 export const transportStatus = atom<TransportStatus>("idle");

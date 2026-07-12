@@ -30,15 +30,16 @@ declare const self: ServiceWorkerGlobalScope & {
     __WB_MANIFEST: (string | { url: string; revision: string | null })[];
 };
 
-// AUTO-UPDATE (v777, reverting v772's prompt-mode): a new deploy takes
-// over immediately and the page auto-reloads (registerType "autoUpdate" +
-// this skipWaiting + clientsClaim + vite-pwa's controllerchange reload).
-// The user asked for auto-update back. An in-progress REAL multiplayer game
-// survives the reload — it reconnects to its Durable Object via the
-// persisted session and re-applies the server snapshot. The DEMO game
-// (in-memory bots) is rehydrated on boot from persisted state
-// (`demoMode` is now persistent; see MultiplayerBoot). The SKIP_WAITING
-// message handler is kept too so a manual updateSW(true) still works.
+// AUTO-UPDATE (v777, reverting v772's prompt-mode; the historical default):
+// a new deploy takes over immediately and the page auto-reloads (registerType
+// "autoUpdate" + this skipWaiting + clientsClaim + vite-pwa's controllerchange
+// reload). An in-progress REAL multiplayer game survives the reload — it
+// reconnects to its Durable Object via the persisted session and re-applies
+// the server snapshot. A DEMO game (in-memory bots) does NOT survive the
+// reload (v779 reverted the persistent-demoMode resume that caused a stale
+// demo flag to hijack a real game — see session.ts); a reloaded demo drops to
+// offline. The SKIP_WAITING message handler is kept too so a manual
+// updateSW(true) still works.
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("message", (event) => {
     if ((event.data as { type?: string } | undefined)?.type === "SKIP_WAITING")

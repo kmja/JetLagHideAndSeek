@@ -6,7 +6,6 @@ import {
     displayName as displayNameAtom,
     multiplayerEnabled,
 } from "@/lib/multiplayer/session";
-import { resumeDemoGameIfPersisted } from "@/lib/multiplayer/demoBroker";
 import {
     installMultiplayerBridge,
     joinAsGuest,
@@ -34,10 +33,10 @@ export function MultiplayerBoot() {
         // the noise at the source. If we're already past `load`, fire
         // synchronously to keep the resume snappy.
         const fire = () => {
-            // v777: rebuild an in-progress DEMO game (in-memory bots) that an
-            // auto-update reload dropped. If it resumes, skip the real-room
-            // reconnect — the demo code isn't a server room to connect to.
-            if (resumeDemoGameIfPersisted()) return;
+            // v779: demo games no longer persist across a reload (demoMode is
+            // volatile again — see session.ts), so there is nothing to resume;
+            // a reloaded demo simply drops to offline. Real games reconnect via
+            // the persisted session below.
             tryResumeFromPersistent();
             maybeAutoJoinFromUrl();
         };
