@@ -66,6 +66,12 @@ export function SeekerProximityWatcher() {
 
     // Highest closeness rank we've already alerted for this zone/round.
     const notifiedRankRef = useRef(0);
+    // v789: whether we've captured the starting band. The FIRST evaluation of
+    // a seeking phase only records a baseline (no alert), so a seeker team that
+    // starts the seeking phase already in the "heads-up" band doesn't fire the
+    // moment the whistle blows — only a DEEPER band reached as they close in
+    // during ongoing seeking alerts.
+    const baselineSetRef = useRef(false);
     // Latest arrival estimate, so the poll tick can re-evaluate the band as
     // the clock ticks toward it even without a fresh fetch.
     const arrivalRef = useRef<number | null>(null);
@@ -78,12 +84,21 @@ export function SeekerProximityWatcher() {
     useEffect(() => {
         notifiedRankRef.current = 0;
         arrivalRef.current = null;
+        baselineSetRef.current = false;
     }, [zoneKey, seeking]);
 
     const maybeNotify = (arrivalAt: number | null) => {
         if (arrivalAt == null) return;
         const tone = seekerEtaTone(arrivalAt, Date.now());
         const rank = SEEKER_ETA_RANK[tone];
+        // First evaluation of this seeking phase → record the starting band as
+        // the baseline and alert nothing; only a deeper band reached later
+        // (they close in) alerts.
+        if (!baselineSetRef.current) {
+            baselineSetRef.current = true;
+            notifiedRankRef.current = Math.max(notifiedRankRef.current, rank);
+            return;
+        }
         // Only alert from "heads-up" (rank 2) inward, and only when we
         // cross into a rank deeper than anything alerted so far.
         if (rank >= SEEKER_ETA_RANK["heads-up"] && rank > notifiedRankRef.current) {

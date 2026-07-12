@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 
 import {
@@ -50,6 +50,21 @@ export function ClosingInWatcher() {
     const $level = useStore(closingInWarningLevel);
     const $endsAt = useStore(hidingPeriodEndsAt);
 
+    // v789: the seekers' nearest distance to the zone at the FIRST seeking-phase
+    // evaluation — the baseline. A warning only fires when the seekers cross a
+    // threshold from OUTSIDE it (i.e. they genuinely CLOSE IN during ongoing
+    // seeking), not when they merely start the seeking phase already within
+    // range — which used to dogpile the hiding→seeking transition with a
+    // "Seekers within X km" toast the moment the whistle blew.
+    const baselineNearestKmRef = useRef<number | null>(null);
+    const zoneKey = $zone
+        ? `${$zone.stationLat.toFixed(4)},${$zone.stationLng.toFixed(4)}`
+        : null;
+    useEffect(() => {
+        // New zone / new hiding clock → fresh proximity story.
+        baselineNearestKmRef.current = null;
+    }, [zoneKey, $endsAt]);
+
     useEffect(() => {
         // Pre-game / pre-zone / past-urgent — nothing to do.
         if (!$zone) return;
@@ -77,9 +92,17 @@ export function ClosingInWatcher() {
         if (!Number.isFinite(nearestKm)) return;
         const nearestM = nearestKm * 1000;
 
+        // Establish the baseline on the first seeking-phase evaluation. On that
+        // first pass no warning fires (a level only fires when the baseline was
+        // OUTSIDE that level's threshold), so an already-close start is silent.
+        if (baselineNearestKmRef.current === null) {
+            baselineNearestKmRef.current = nearestKm;
+        }
+        const baselineM = baselineNearestKmRef.current * 1000;
+
         const t = THRESHOLDS_M[$size];
 
-        if ($level < 2 && nearestM <= t.urgent) {
+        if ($level < 2 && nearestM <= t.urgent && baselineM > t.urgent) {
             // URGENT — commit to the final spot.
             closingInWarningLevel.set(2);
             const km = nearestKm.toFixed(1);
@@ -98,7 +121,7 @@ export function ClosingInWatcher() {
             });
             return;
         }
-        if ($level < 1 && nearestM <= t.warn) {
+        if ($level < 1 && nearestM <= t.warn && baselineM > t.warn) {
             // CLOSING IN — start heading to a spot.
             closingInWarningLevel.set(1);
             const km = nearestKm.toFixed(1);

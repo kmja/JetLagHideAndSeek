@@ -19,7 +19,6 @@ import { toast } from "react-toastify";
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { MapNavControls } from "@/components/MapNavControls";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
-import { TripRouteLayers } from "@/components/TripRouteLayers";
 import {
     Dialog,
     DialogContent,
@@ -1741,7 +1740,6 @@ export function Map({ className }: MapProps) {
                     via TransitRouteLayers so colours + behaviour match
                     across both map paths. */}
                 <TransitRouteLayers transitFC={transitFC} />
-                <TripRouteLayers />
 
                 {/* Hiding-zones overlay — mirrored from ZoneSidebar's
                     showGeoJSON via the hidingZonesGeoJSON atom. The default

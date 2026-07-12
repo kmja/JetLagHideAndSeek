@@ -49,15 +49,15 @@ export function HiderZoneHint() {
                     type="button"
                     onClick={() => setCollapsed((c) => !c)}
                     aria-expanded={!collapsed}
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+                    className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
                 >
-                    <Tent className="h-4 w-4 shrink-0 text-primary" />
-                    <span className="flex-1 text-sm font-semibold leading-tight">
+                    <Tent className="h-6 w-6 shrink-0 text-primary" />
+                    <span className="flex-1 text-lg font-bold leading-tight tracking-tight">
                         Select a station to hide near
                     </span>
                     <ChevronDown
                         className={cn(
-                            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                            "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
                             collapsed && "-rotate-90",
                         )}
                     />

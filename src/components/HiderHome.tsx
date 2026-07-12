@@ -1003,10 +1003,6 @@ function HidingZoneSection({
             }).then((ok) => {
                 if (!ok) return;
                 endHidingPeriodEarly();
-                toast.success(
-                    "Hiding period ended — seekers can start asking.",
-                    { autoClose: 2500 },
-                );
             });
         }
     };

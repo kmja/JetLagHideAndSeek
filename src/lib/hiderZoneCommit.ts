@@ -62,10 +62,6 @@ export async function confirmAndCommitZone(
         });
         if (end) {
             endHidingPeriodEarly();
-            toast.success(
-                "Hiding period ended — seekers can start asking.",
-                { autoClose: 2500 },
-            );
         }
     }
     return true;

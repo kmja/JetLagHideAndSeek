@@ -14,7 +14,6 @@ import {
     type TravelPlace,
 } from "@/lib/journey/plan";
 import { seekerTripPlannerOpen } from "@/lib/journey/state";
-import { useOwnedTripRoute } from "@/hooks/useOwnedTripRoute";
 import { cn } from "@/lib/utils";
 import { forwardGeocodeOne } from "@/maps/api/geocode";
 
@@ -60,9 +59,8 @@ export function SeekerTripPlannerSheet() {
     // GPS is excluded so position jitter doesn't re-plan; see the effect.
     const lastSigRef = useRef<string | null>(null);
 
-    // Mirror the planned journey onto the map route overlay; clear it
-    // when there's no journey or the planner unmounts.
-    useOwnedTripRoute(journey);
+    // (v789: on-map trip-route overlay removed — it drew a straight leg-to-leg
+    // line, not a street path.)
 
     // On close, only clear the transient search-input state. The
     // destination + planned journey PERSIST so (a) the route overlay

@@ -31,7 +31,6 @@ import {
     fetchDepartures,
 } from "@/lib/journey/departures";
 import { fetchTripPlan, type Journey } from "@/lib/journey/plan";
-import { useOwnedTripRoute } from "@/hooks/useOwnedTripRoute";
 import {
     selectedMapStation,
     stationCardInsetPx,
@@ -189,11 +188,9 @@ export function StationTransitCard({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [station?.lat, station?.lng, $allowed.join(",")]);
 
-    // Draw the planned route on the map behind this (non-modal) card via
-    // the shared `tripRouteFC` overlay (`TripRouteLayers`, already mounted
-    // on both the seeker + hider maps). Cleared when the journey resets
-    // (station change / close) and on unmount so it never lingers.
-    useOwnedTripRoute(journey);
+    // (v789: the on-map trip-route overlay was removed — a planned route is a
+    // straight leg-to-leg line, not a street path, so it was misleading. The
+    // JourneyCard below still shows the textual route/legs.)
 
     // Publish the drawer's on-screen height so the hider map can refit
     // the trip-route view with a matching bottom inset — keeping the GPS
