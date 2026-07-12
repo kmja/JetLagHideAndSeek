@@ -26,6 +26,8 @@ import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import {
+    displayHidingZones,
+    hidingZonesGeoJSON,
     lastKnownPosition,
     mapGeoLocation,
     questionFinishedMapData,
@@ -126,6 +128,12 @@ export function InlineLocationPicker({
     const $maskData = useStore(questionFinishedMapData);
     const $playArea = useStore(mapGeoLocation);
     const $satellite = useStore(satelliteView);
+    // v767: carry the main map's ACTIVE hiding-zones overlay into the
+    // preview too (like satellite + transit lines already do), so the
+    // preview matches the real map. Uses the already-computed
+    // `hidingZonesGeoJSON` atom — no recompute — gated on the toggle.
+    const $showHidingZones = useStore(displayHidingZones);
+    const $hidingZones = useStore(hidingZonesGeoJSON);
     // v747: carry the seeker/hider map's ACTIVE transit-line overlays into the
     // configure/preview map too, so the preview matches the real map. The hook
     // only fetches modes toggled ON (already cached by the main map), so it's a
@@ -633,6 +641,15 @@ export function InlineLocationPicker({
         [$pmtilesUrl, $theme],
     );
 
+    // Basemap brightness drives the hiding-zones palette, exactly like the
+    // main map (Map.tsx): neutral grey on the light Protomaps basemap,
+    // brand red / near-white wash over satellite + dark.
+    const darkBasemap = $satellite || $theme === "dark";
+    const showHidingZonesOverlay =
+        $showHidingZones &&
+        !!$hidingZones &&
+        $hidingZones.features.length > 0;
+
     return (
         <div className="space-y-2">
             <div
@@ -702,6 +719,63 @@ export function InlineLocationPicker({
                                     "line-color": "#0f172a",
                                     "line-width": 1,
                                     "line-opacity": 0.55,
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {/* Active hiding-zones overlay carried over from the main
+                        map (v767). Union fill + centre dots, styled to match
+                        Map.tsx's hiding-zones-* layers (neutral grey on the
+                        light basemap; brand red / near-white on dark +
+                        satellite). Labels + dashed extent are omitted here to
+                        keep the small preview uncluttered. */}
+                    {showHidingZonesOverlay && (
+                        <Source
+                            id="preview-hiding-zones"
+                            type="geojson"
+                            data={$hidingZones as GeoJSON.FeatureCollection}
+                        >
+                            <Layer
+                                id="preview-hiding-zones-fill"
+                                type="fill"
+                                filter={[
+                                    "any",
+                                    ["==", ["geometry-type"], "Polygon"],
+                                    ["==", ["geometry-type"], "MultiPolygon"],
+                                ]}
+                                paint={{
+                                    "fill-color": !darkBasemap
+                                        ? "hsl(0, 0%, 42%)"
+                                        : $theme === "dark"
+                                          ? "#f5e7e3"
+                                          : "hsl(2, 70%, 54%)",
+                                    "fill-opacity": !darkBasemap
+                                        ? 0.15
+                                        : $theme === "dark"
+                                          ? 0.16
+                                          : 0.08,
+                                }}
+                            />
+                            <Layer
+                                id="preview-hiding-zones-points"
+                                type="circle"
+                                filter={["==", ["geometry-type"], "Point"]}
+                                paint={{
+                                    "circle-radius": [
+                                        "interpolate",
+                                        ["linear"],
+                                        ["zoom"],
+                                        8,
+                                        1.5,
+                                        13,
+                                        2.8,
+                                        16,
+                                        4,
+                                    ],
+                                    "circle-color": darkBasemap
+                                        ? "hsl(2, 70%, 54%)"
+                                        : "hsl(0, 0%, 20%)",
+                                    "circle-stroke-width": 0,
                                 }}
                             />
                         </Source>
