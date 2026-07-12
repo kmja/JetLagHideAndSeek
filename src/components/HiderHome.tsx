@@ -18,6 +18,7 @@ import { toast } from "react-toastify";
 import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import { appConfirm } from "@/lib/confirm";
+import { confirmAndCommitZone } from "@/lib/hiderZoneCommit";
 import {
     allowedTransit,
     effectiveHiddenDebitMs,
@@ -1082,26 +1083,15 @@ function HidingZoneSection({
                     {mode === "stations" ? (
                         <NearbyStationsPicker
                             onPick={(s: FoundStation) => {
-                                // Confirm before locking the zone in for the
-                                // round (v754) — committing is a one-way,
-                                // round-defining choice, so don't do it on a
-                                // single stray tap.
-                                void appConfirm({
-                                    title: "Lock in your hiding zone?",
-                                    description: `Set "${s.name}" as your hiding zone for this round? Your actual hiding spot must stay within its radius, and this is what the seekers will be trying to find.`,
-                                    confirmLabel: "Lock it in",
-                                    cancelLabel: "Cancel",
-                                }).then((ok) => {
-                                    if (!ok) return;
-                                    setDraftLat(s.lat);
-                                    setDraftLng(s.lng);
-                                    setDraftName(s.name);
-                                    commitZone({
-                                        lat: s.lat,
-                                        lng: s.lng,
-                                        name: s.name,
-                                    });
-                                });
+                                // Shared confirm-and-commit flow (also used by
+                                // the on-map HiderZoneHint, v787) — asks "Lock
+                                // in?" before committing this round-defining
+                                // choice, then offers to end hiding early.
+                                void confirmAndCommitZone(s, radiusMeters).then(
+                                    (committed) => {
+                                        if (committed) setEditing(false);
+                                    },
+                                );
                             }}
                         />
                     ) : (

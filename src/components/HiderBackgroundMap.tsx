@@ -20,6 +20,7 @@ import Map, {
 
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { HiderMapTimer } from "@/components/HiderMapTimer";
+import { HiderZoneHint } from "@/components/HiderZoneHint";
 import { MapNavControls } from "@/components/MapNavControls";
 import { MapOverlayLoadingToasts } from "@/components/MapOverlayLoadingToasts";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
@@ -1023,6 +1024,12 @@ export function HiderBackgroundMap() {
                 v633: replaced the old HiderTimeHeader flow-row so the hider
                 map matches the seeker map. */}
             <HiderMapTimer />
+
+            {/* v787: on-map zone-picker hint — mirrors the Zone drawer's
+                "zones you're in" list + Select buttons at the top of the map
+                during the hiding period, so the hider doesn't have to open the
+                drawer. Self-gates (hiding period + no committed zone). */}
+            <HiderZoneHint />
 
             {/* v632: the floating top-right map-options popover was removed.
                 Map display options now live in the hider bottom-nav "Map"

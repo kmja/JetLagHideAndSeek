@@ -269,8 +269,7 @@ export function HiderBottomNav() {
                                     Hiding zone
                                 </VaulDrawer.Title>
                                 <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                                    Pick a station to hide near, then keep an
-                                    eye on your zone and scouted spots.
+                                    Select a station to hide near.
                                 </VaulDrawer.Description>
                             </div>
                             {/* Compact golden countdown next to the header —

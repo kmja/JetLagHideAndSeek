@@ -36,19 +36,19 @@ export function HidingCountdownBadge({ className }: { className?: string }) {
             aria-live="polite"
             aria-label={`Hiding time remaining: ${formatTimeRemaining(remainingMs)}`}
             className={cn(
-                "flex shrink-0 items-center gap-2 rounded-lg pl-2 pr-3 py-1.5 shadow-sm bg-[#F2C63C]",
+                "flex shrink-0 items-center gap-2.5 rounded-xl pl-3 pr-4 py-2 shadow-md bg-[#F2C63C]",
                 className,
             )}
         >
             <Timer
-                className="w-5 h-5 shrink-0 text-[#1F2F3F]"
+                className="w-7 h-7 shrink-0 text-[#1F2F3F]"
                 strokeWidth={2.5}
             />
-            <div className="flex flex-col leading-none gap-0.5">
-                <span className="text-[8px] font-poppins font-extrabold uppercase tracking-[0.1em] text-[#1F2F3F]">
+            <div className="flex flex-col leading-none gap-1">
+                <span className="text-[9px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]">
                     Time left
                 </span>
-                <span className="font-inter-tight font-black tabular-nums text-lg leading-none text-[#1F2F3F]">
+                <span className="font-inter-tight font-black tabular-nums text-2xl leading-none text-[#1F2F3F]">
                     {formatTimeRemaining(remainingMs)}
                 </span>
             </div>
