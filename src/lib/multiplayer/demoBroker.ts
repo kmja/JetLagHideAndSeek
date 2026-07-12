@@ -45,7 +45,7 @@ import {
     selfParticipantId,
     sessionToken,
 } from "./session";
-import { mapGeoLocation } from "@/lib/context";
+import { mapGeoLocation, questions } from "@/lib/context";
 import {
     allowedTransit,
     gameSize,
@@ -113,6 +113,13 @@ export interface StartDemoOptions {
     asRole: "seeker" | "hider";
     /** Display name shown in the roster. Defaults to the persistent atom. */
     userName?: string;
+    /**
+     * Resume an existing demo after an auto-update reload (v777): seed the
+     * rebuilt broker's questions from the persisted `questions` atom (so the
+     * welcome snapshot doesn't wipe them via applySnapshot) instead of
+     * starting empty. Set only by `resumeDemoGameIfPersisted`.
+     */
+    resume?: boolean;
 }
 
 /**
@@ -178,7 +185,12 @@ export function startDemoGame(opts: StartDemoOptions) {
         code: DEMO_GAME_CODE,
         createdAt: now,
         setup: defaultSetup(),
-        questions: [],
+        // On resume, carry the persisted questions so the welcome snapshot
+        // (applySnapshot does `questions.set(incoming)`) restores them
+        // instead of wiping them — and so the bots know about pending ones.
+        questions: opts.resume
+            ? (questions.get() as unknown as GameState["questions"])
+            : [],
         roundFoundAt: null,
         participants: roster,
     };
@@ -240,6 +252,32 @@ export function stopDemoGame() {
 /** True if the demo broker is currently driving the transport. */
 export function isDemoActive(): boolean {
     return _state !== null;
+}
+
+/**
+ * Rebuild an in-progress demo after an auto-update reload (v777). The bot
+ * broker + roster live only in memory, so a reload drops them; but the game
+ * itself (play area, role, questions, hiding clock, curses) is in persistent
+ * atoms. If `demoMode` is persisted true and the demo isn't already running,
+ * re-arm the broker + bots from that state (`resume:true` seeds the persisted
+ * questions so the welcome snapshot doesn't wipe them). Returns true if a
+ * demo was (or already is) active. If the persisted state is too incomplete
+ * to resume (no role / no play area), it clears `demoMode` so the app doesn't
+ * sit in a broken "demo flag on, no transport" state.
+ */
+export function resumeDemoGameIfPersisted(): boolean {
+    if (isDemoActive()) return true;
+    if (!demoMode.get()) return false;
+    const role = playerRole.get();
+    const area = playArea.get();
+    if (!role || !area) {
+        stopDemoGame();
+        return false;
+    }
+    const asRole: "seeker" | "hider" =
+        role === "hider" || role === "coHider" ? "hider" : "seeker";
+    startDemoGame({ asRole, resume: true });
+    return true;
 }
 
 /* ────────────────── Client → broker dispatch ────────────────── */

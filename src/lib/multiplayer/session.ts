@@ -137,10 +137,19 @@ export const localIsHost = persistentAtom<boolean>(
  * Demo-game mode. When true, the transport is swapped for an in-browser
  * mock GameRoom that drives scripted bots (a fake hider + fake seekers).
  * Lets a developer exercise the full multiplayer code path on a single
- * device without spinning up real peers. Runtime-only — closing the tab
- * or refreshing exits the demo cleanly.
+ * device without spinning up real peers.
+ *
+ * PERSISTENT (v777): so a demo game survives an auto-update reload. The
+ * bot broker + roster live only in memory, but on boot `MultiplayerBoot`
+ * calls `resumeDemoGameIfPersisted()` to rebuild them from the persisted
+ * game state (play area / role / questions / hiding clock all persist),
+ * so the demo picks up where it left off. `stopDemoGame` clears this, so
+ * leaving the demo doesn't leave a stuck flag.
  */
-export const demoMode = atom<boolean>(false);
+export const demoMode = persistentAtom<boolean>("jlhs:demoMode", false, {
+    encode: JSON.stringify,
+    decode: JSON.parse,
+});
 
 /** Current transport state (no persistence — it derives from the live socket). */
 export const transportStatus = atom<TransportStatus>("idle");
