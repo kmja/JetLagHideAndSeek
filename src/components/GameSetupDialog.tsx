@@ -130,12 +130,60 @@ const BBOX_FILL_FACTOR = 0.55;
  * `BBOX_FILL_FACTOR` to convert that rectangle estimate into a polygon
  * estimate.
  */
-function inferGameSize(feature: OpenStreetMap): GameSize | null {
-    const km2 = estimateAreaKm2(feature);
+export function sizeForAreaKm2(km2: number | null): GameSize | null {
     if (km2 === null) return null;
     if (km2 < 250) return "small";
     if (km2 < 2500) return "medium";
     return "large";
+}
+
+function inferGameSize(feature: OpenStreetMap): GameSize | null {
+    return sizeForAreaKm2(estimateAreaKm2(feature));
+}
+
+/**
+ * Total play-area size estimate INCLUDING any added adjacent areas, so
+ * the recommended game size reflects what the players will actually
+ * cover — not just the primary municipality. A Malmö + Lund pick, or
+ * an NYC-plus-boroughs pick, should bump the suggested size the way the
+ * combined footprint warrants. Sums the primary polygon estimate with
+ * each adjacent's estimate (same bbox×fill heuristic as the primary).
+ */
+export function estimateTotalAreaKm2(
+    primary: OpenStreetMap | null,
+    adjacents: Array<{ location?: OpenStreetMap | null }>,
+): number | null {
+    if (!primary) return null;
+    let total = estimateAreaKm2(primary) ?? 0;
+    for (const a of adjacents) {
+        if (a?.location) total += estimateAreaKm2(a.location) ?? 0;
+    }
+    return total > 0 ? total : null;
+}
+
+/**
+ * Default allowed transit modes for a recommended game size (walking is
+ * always implicit). Larger play areas lean on rail — buses are too
+ * slow/local to matter once the area outgrows a walkable metro core —
+ * so the bus is dropped for Medium and Large:
+ *   - Small  → bus + tram                 (local surface transit)
+ *   - Medium → tram + subway + train
+ *   - Large  → tram + subway + train + ferry
+ * A seeded/edited game keeps its saved set; this only feeds the wizard's
+ * auto-default, and the player can still toggle any mode by hand.
+ */
+export function inferTransitModes(size: GameSize): TransitMode[] {
+    if (size === "small") return ["bus", "tram"];
+    if (size === "medium") return ["tram", "train", "subway"];
+    return ["tram", "train", "subway", "ferry"];
+}
+
+/** Order-insensitive transit-mode set comparison. */
+export function sameModes(a: TransitMode[], b: TransitMode[]): boolean {
+    return (
+        a.length === b.length &&
+        [...a].sort().join(",") === [...b].sort().join(",")
+    );
 }
 
 /**
@@ -226,6 +274,10 @@ export function GameSetupDialog() {
     const $allowedTransit = useStore(allowedTransit);
     const $gameSize = useStore(gameSize);
     const $setupCompleted = useStore(setupCompleted);
+    // Added adjacent areas — folded into the auto game-size / transit
+    // inference so the suggestion reflects the WHOLE play area, not just
+    // the primary municipality.
+    const $additionalAreas = useStore(additionalMapGeoLocations);
 
     // v252: the first-time wizard now lives at the /setup route, so
     // the dialog only opens via "Edit settings" mid-game. The route-
@@ -266,6 +318,9 @@ export function GameSetupDialog() {
     // Track whether the user has overridden the size manually. As soon
     // as they tap a size tile, we stop auto-inferring from the play area.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
+    // Same for transit: once the user toggles any mode chip we stop
+    // auto-defaulting the allowed-transit set from the play-area size.
+    const [transitManuallySet, setTransitManuallySet] = useState(false);
     // Snapshot of the values the dialog opened with. Used in edit
     // mode to gate the "Save changes" button — when the draft still
     // matches the snapshot, there's nothing to save.
@@ -295,14 +350,39 @@ export function GameSetupDialog() {
     // the user is mid-edit.
     const [castPlaceholder] = useState(() => pickRandomCastName());
 
-    // Whenever the selected play area changes (and the user hasn't yet
-    // picked a size by hand), infer the recommended game size from the
-    // OSM extent's approximate area, per the rulebook's S/M/L bands.
+    // Whenever the play area changes (primary OR added adjacents), derive
+    // the wizard defaults from its size:
+    //   1. Game size — from the TOTAL area (primary + adjacents), per the
+    //      rulebook's S/M/L bands, unless the user picked a size by hand.
+    //   2. Allowed transit — the size-appropriate default set
+    //      (`inferTransitModes`), unless the user toggled a mode by hand.
+    // Transit follows the EFFECTIVE size (a manual size choice still
+    // re-defaults transit, so bumping the game to Large pulls in ferry),
+    // so this effect also depends on `draftSize`. The functional/guarded
+    // setters keep the size→transit chain from looping.
     useEffect(() => {
-        if (sizeManuallySet || !draftFeature) return;
-        const inferred = inferGameSize(draftFeature);
-        if (inferred) setDraftSize(inferred);
-    }, [draftFeature, sizeManuallySet]);
+        if (!draftFeature) return;
+        let effectiveSize = draftSize;
+        if (!sizeManuallySet) {
+            const inferred = sizeForAreaKm2(
+                estimateTotalAreaKm2(draftFeature, $additionalAreas),
+            );
+            if (inferred) {
+                effectiveSize = inferred;
+                if (inferred !== draftSize) setDraftSize(inferred);
+            }
+        }
+        if (!transitManuallySet) {
+            const modes = inferTransitModes(effectiveSize);
+            setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
+        }
+    }, [
+        draftFeature,
+        $additionalAreas,
+        sizeManuallySet,
+        transitManuallySet,
+        draftSize,
+    ]);
 
     // Clear picked neighbours only when the primary play area genuinely
     // CHANGES to a DIFFERENT area than the one the saved neighbours
@@ -326,6 +406,13 @@ export function GameSetupDialog() {
     const setDraftSizeManual = (s: GameSize) => {
         setSizeManuallySet(true);
         setDraftSize(s);
+    };
+
+    // Wrap setDraftTransit so any mode-chip toggle flips the override
+    // flag — from then on we stop auto-defaulting transit from the size.
+    const setDraftTransitManual = (v: TransitMode[]) => {
+        setTransitManuallySet(true);
+        setDraftTransit(v);
     };
 
     // Wizard mode = first-time setup or "New game" (setupCompleted=false).
@@ -377,9 +464,11 @@ export function GameSetupDialog() {
                 size,
                 displayName: name,
             });
-            // Reset auto-infer flag for the new session. In edit mode we
-            // assume the existing size is intentional and don't override.
+            // Reset auto-infer flags for the new session. In edit mode we
+            // assume the existing size + transit set are intentional and
+            // don't override them from the area.
             setSizeManuallySet(setupCompleted.get());
+            setTransitManuallySet(setupCompleted.get());
         }
     }, [$open]);
 
@@ -616,7 +705,7 @@ export function GameSetupDialog() {
                                 {editTab === "transit" && (
                                     <TransitStep
                                         value={draftTransit}
-                                        onChange={setDraftTransit}
+                                        onChange={setDraftTransitManual}
                                     />
                                 )}
                                 {editTab === "size" && (
@@ -701,7 +790,7 @@ export function GameSetupDialog() {
                             {step === 2 && (
                                 <TransitStep
                                     value={draftTransit}
-                                    onChange={setDraftTransit}
+                                    onChange={setDraftTransitManual}
                                 />
                             )}
                             {step === 3 && (

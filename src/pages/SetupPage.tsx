@@ -4,8 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
-    estimateAreaKm2,
+    estimateTotalAreaKm2,
+    inferTransitModes,
     PlayAreaStep,
+    sameModes,
+    sizeForAreaKm2,
     SizeStep,
     TransitStep,
 } from "@/components/GameSetupDialog";
@@ -99,19 +102,41 @@ export function SetupPage() {
         allowedTransit.get(),
     );
     const [draftSize, setDraftSize] = useState<GameSize>(gameSize.get());
+    // Added adjacent areas — folded into the size/transit inference so the
+    // suggestion reflects the WHOLE play area, not just the primary.
+    const $additionalAreas = useStore(additionalMapGeoLocations);
     // Once the user taps a size tile we stop auto-inferring from the
-    // chosen play area.
+    // chosen play area; same for the transit chips.
     const [sizeManuallySet, setSizeManuallySet] = useState(false);
-    // Auto-infer size from the picked area unless the user has
-    // overridden it. Mirrors GameSetupDialog's behaviour.
+    const [transitManuallySet, setTransitManuallySet] = useState(false);
+    // Derive the wizard defaults from the play-area size (mirrors
+    // GameSetupDialog): game size from the TOTAL area (primary + added
+    // adjacents), and the allowed-transit set from that size. Transit
+    // follows the EFFECTIVE size (a manual size still re-defaults transit),
+    // so `draftSize` is a dep; guarded setters keep the chain from looping.
     useEffect(() => {
-        if (sizeManuallySet || !draftFeature) return;
-        const km2 = estimateAreaKm2(draftFeature);
-        if (km2 === null) return;
-        if (km2 < 250) setDraftSize("small");
-        else if (km2 < 2500) setDraftSize("medium");
-        else setDraftSize("large");
-    }, [draftFeature, sizeManuallySet]);
+        if (!draftFeature) return;
+        let effectiveSize = draftSize;
+        if (!sizeManuallySet) {
+            const inferred = sizeForAreaKm2(
+                estimateTotalAreaKm2(draftFeature, $additionalAreas),
+            );
+            if (inferred) {
+                effectiveSize = inferred;
+                if (inferred !== draftSize) setDraftSize(inferred);
+            }
+        }
+        if (!transitManuallySet) {
+            const modes = inferTransitModes(effectiveSize);
+            setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
+        }
+    }, [
+        draftFeature,
+        $additionalAreas,
+        sizeManuallySet,
+        transitManuallySet,
+        draftSize,
+    ]);
 
     // Wipe any adjacent picks when the primary area genuinely CHANGES
     // to a different area — stale neighbours from a different region
@@ -135,6 +160,11 @@ export function SetupPage() {
     const setDraftSizeManual = (s: GameSize) => {
         setSizeManuallySet(true);
         setDraftSize(s);
+    };
+
+    const setDraftTransitManual = (v: TransitMode[]) => {
+        setTransitManuallySet(true);
+        setDraftTransit(v);
     };
 
     const handleFinish = () => {
@@ -251,7 +281,7 @@ export function SetupPage() {
                     {step === 2 && (
                         <TransitStep
                             value={draftTransit}
-                            onChange={setDraftTransit}
+                            onChange={setDraftTransitManual}
                         />
                     )}
                     {step === 3 && (
