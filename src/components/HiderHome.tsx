@@ -32,8 +32,6 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     setupCompleted,
-    TRANSIT_ICONS,
-    TRANSIT_LABELS,
 } from "@/lib/gameSetup";
 import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
@@ -42,7 +40,6 @@ import {
     hiderInbox,
     hidingSpot,
     hidingZone,
-    playerRole,
     radiusForGameSize,
     resetHiderRoundState,
     roundFoundAt,
@@ -142,7 +139,6 @@ type HiderPhase =
  */
 export function HiderHomeContent() {
     const navigate = useNavigate();
-    const $role = useStore(playerRole);
     const $hidingZone = useStore(hidingZone);
     const $hidingSpot = useStore(hidingSpot);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
@@ -479,7 +475,6 @@ export function HiderHomeContent() {
                 <HidingPhaseView
                     remainingMs={remainingMs}
                     totalMinutes={HIDING_PERIOD_MINUTES[$gameSize]}
-                    size={$gameSize}
                     zone={$hidingZone}
                     radiusMeters={radiusForGameSize($gameSize)}
                 />
@@ -519,13 +514,6 @@ export function HiderHomeContent() {
                 so it also fires after sharing an answer from `/h?q=…`
                 (not just from `/h`). It self-suppresses when
                 `pendingDraw` is null. */}
-
-            <footer className="mt-auto pt-6 flex flex-col gap-2 text-center">
-                <p className="text-[10px] text-muted-foreground">
-                    Jet Lag Hide and Seek · hider home ·{" "}
-                    {$role === "hider" ? "active" : "guest"}
-                </p>
-            </footer>
         </div>
     );
 }
@@ -549,18 +537,14 @@ export function HiderHome() {
 function HidingPhaseView({
     remainingMs,
     totalMinutes,
-    size,
     zone,
     radiusMeters,
 }: {
     remainingMs: number;
     totalMinutes: number;
-    size: ReturnType<typeof gameSize.get>;
     zone: ReturnType<typeof hidingZone.get>;
     radiusMeters: number;
 }) {
-    const $allowed = useStore(allowedTransit);
-
     return (
         <>
             {/* Big dominant countdown + the End-hiding shortcut tucked
@@ -574,8 +558,7 @@ function HidingPhaseView({
                     {formatTimeRemaining(remainingMs)}
                 </div>
                 <div className="text-xs text-muted-foreground mt-2">
-                    of {totalMinutes} min · size{" "}
-                    <SizeBadge size={size} className="inline-flex" />
+                    of {totalMinutes} min
                 </div>
                 {/* Only offer "end early" once a zone is committed — before
                     that there's nowhere to hide, so ending would strand the
@@ -590,52 +573,6 @@ function HidingPhaseView({
                         <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
                         End hiding · Start seeking
                     </Button>
-                )}
-            </section>
-
-            {/* Short instructions + allowed transit modes. v633: trimmed
-                to the essentials — during the hiding period the hider only
-                needs the timer (above), the one-line rule, the modes they
-                can hide near, and the zone picker below. The trip-plan
-                card + scouted-spots notebook moved to the seeking phase
-                (where they're actually useful) to declutter this stage. */}
-            <section className="rounded-md border border-border bg-secondary/30 px-4 py-3 mb-4 space-y-2 text-sm leading-snug">
-                <p>
-                    Pick a transit station of an allowed mode to hide near. The{" "}
-                    <span className="font-bold">
-                        {(radiusMeters / 1000).toFixed(1)} km
-                    </span>{" "}
-                    area around that station is your hiding zone.
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mr-1">
-                        Allowed
-                    </span>
-                    {$allowed.length === 0 ? (
-                        <span className="text-xs italic text-muted-foreground">
-                            Walking only — no transit modes enabled
-                        </span>
-                    ) : (
-                        $allowed.map((m) => {
-                            const Icon = TRANSIT_ICONS[m];
-                            return (
-                                <span
-                                    key={m}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-[11px]"
-                                >
-                                    <Icon className="w-3 h-3" />
-                                    {TRANSIT_LABELS[m]}
-                                </span>
-                            );
-                        })
-                    )}
-                </div>
-                {zone === null && (
-                    <p className="text-[11px] leading-snug text-destructive border border-destructive/40 bg-destructive/5 rounded-md px-2.5 py-2">
-                        Lock in a zone before the clock hits zero — miss the
-                        5-minute grace period after that too and you forfeit
-                        the round.
-                    </p>
                 )}
             </section>
 
@@ -1027,7 +964,7 @@ function HidingZoneSection({
     lockToStations?: boolean;
 }) {
     const [editing, setEditing] = useState(zone === null);
-    const [mode, setMode] = useState<"stations" | "map">(
+    const [mode] = useState<"stations" | "map">(
         showStationSuggest || lockToStations ? "stations" : "map",
     );
     const [draftLat, setDraftLat] = useState<number>(zone?.stationLat ?? 0);
@@ -1154,40 +1091,11 @@ function HidingZoneSection({
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {/* Mode switcher: GPS station list vs. inline map.
-                        Hidden during the grace window — the rule forces a
-                        current-location station pick, no free map choice. */}
-                    {!lockToStations && (
-                        <div className="flex items-center gap-1 text-xs">
-                            <button
-                                type="button"
-                                onClick={() => setMode("stations")}
-                                className={cn(
-                                    "px-2.5 py-1 rounded-sm font-poppins font-semibold",
-                                    "transition-colors",
-                                    mode === "stations"
-                                        ? "bg-primary text-primary-foreground"
-                                        : "bg-secondary text-foreground hover:bg-accent",
-                                )}
-                            >
-                                Nearby stations
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setMode("map")}
-                                className={cn(
-                                    "px-2.5 py-1 rounded-sm font-poppins font-semibold",
-                                    "transition-colors",
-                                    mode === "map"
-                                        ? "bg-primary text-primary-foreground"
-                                        : "bg-secondary text-foreground hover:bg-accent",
-                                )}
-                            >
-                                Pick on map
-                            </button>
-                        </div>
-                    )}
-
+                    {/* v781: the "Nearby stations / Pick on map" toggle was
+                        removed to declutter the drawer. The station list is
+                        the in-drawer picker; map-picking is still available by
+                        tapping the map behind the drawer. `mode` stays at its
+                        initial value (stations when suggested/locked). */}
                     {mode === "stations" ? (
                         <NearbyStationsPicker
                             onPick={(s: FoundStation) => {
