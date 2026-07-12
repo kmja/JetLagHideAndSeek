@@ -1233,54 +1233,17 @@ export const AddQuestionDialog = ({
                         </div>
 
                         <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0 relative">
-                            {/* v611: single unified loading veil. The card
-                                content mounts underneath (so the picker can
-                                load) but is held invisible until ready, then
-                                the whole dialog reveals at once. */}
-                            {pendingUsesPicker &&
-                                !pickerReady &&
-                                !revealAnyway && (
-                                    <div
-                                        className="absolute inset-0 z-[1] px-6 py-3 space-y-3"
-                                        aria-hidden
-                                    >
-                                        {/* v747: labelled loading state — the
-                                            picker reports which steps are still
-                                            pending, so the veil says what it's
-                                            waiting on instead of blank bars. */}
-                                        <div className="h-[4.5rem] rounded-md bg-muted animate-pulse" />
-                                        <div className="rounded-md border border-border bg-secondary/40 divide-y divide-border overflow-hidden">
-                                            {(loadingLabels.length
-                                                ? loadingLabels
-                                                : ["Preparing question…"]
-                                            ).map((label) => (
-                                                <div
-                                                    key={label}
-                                                    className="flex items-center gap-2 px-3 py-2.5 text-sm text-muted-foreground"
-                                                >
-                                                    <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
-                                                    {label}
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div className="relative h-[40vh] rounded-md bg-muted animate-pulse">
-                                            <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                                                <Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" />
-                                                Loading map…
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            <div
-                                className={cn(
-                                    "transition-opacity duration-200",
-                                    pendingUsesPicker &&
-                                        !pickerReady &&
-                                        !revealAnyway
-                                        ? "opacity-0"
-                                        : "opacity-100",
-                                )}
-                            >
+                            {/* v773: progressive reveal — NO full-body veil.
+                                The question card (category header + config
+                                controls) renders immediately; each async
+                                section shows its OWN loader instead (the map
+                                picker's MapTilesVeil, the nearest-reference
+                                pill's spinner), so the dialog takes shape in
+                                place rather than sitting behind one big
+                                skeleton. The Send button still waits on
+                                `pickerReady` (below), so nothing can be sent
+                                before the location + map are ready. */}
+                            <div>
                             {pendingQuestion &&
                                 (() => {
                                     const q = pendingQuestion;
