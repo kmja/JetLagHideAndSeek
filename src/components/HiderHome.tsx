@@ -28,7 +28,6 @@ import {
     gameSize,
     hiddenCreditMs,
     hiddenDebitMs,
-    HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     setupCompleted,
@@ -157,7 +156,6 @@ export function HiderHomeContent() {
     useVisibleInterval(() => setNow(Date.now()), 1000, $hidingEndsAt !== null);
 
     const inHidingPeriod = $hidingEndsAt !== null && now < $hidingEndsAt;
-    const remainingMs = $hidingEndsAt ? Math.max(0, $hidingEndsAt - now) : 0;
     const elapsedAnchor = $foundAt ?? now;
     const hiddenElapsedMs = $hidingEndsAt
         ? Math.max(0, elapsedAnchor - $hidingEndsAt)
@@ -473,8 +471,6 @@ export function HiderHomeContent() {
 
             {phase === "hiding" && (
                 <HidingPhaseView
-                    remainingMs={remainingMs}
-                    totalMinutes={HIDING_PERIOD_MINUTES[$gameSize]}
                     zone={$hidingZone}
                     radiusMeters={radiusForGameSize($gameSize)}
                 />
@@ -535,46 +531,32 @@ export function HiderHome() {
 /* ────────────────── Phase 1: HIDING ────────────────── */
 
 function HidingPhaseView({
-    remainingMs,
-    totalMinutes,
     zone,
     radiusMeters,
 }: {
-    remainingMs: number;
-    totalMinutes: number;
     zone: ReturnType<typeof hidingZone.get>;
     radiusMeters: number;
 }) {
     return (
         <>
-            {/* Big dominant countdown + the End-hiding shortcut tucked
-                directly under the timer so the action sits next to the
-                thing it acts on. */}
-            <section className="rounded-md border-2 border-primary bg-primary/5 px-4 py-5 mb-4 text-center">
-                <div className="text-[10px] uppercase tracking-[0.2em] font-poppins font-bold text-muted-foreground mb-1.5">
-                    Hiding period
-                </div>
-                <div className="font-inter-tight italic font-black tabular-nums text-5xl sm:text-6xl text-primary leading-none">
-                    {formatTimeRemaining(remainingMs)}
-                </div>
-                <div className="text-xs text-muted-foreground mt-2">
-                    of {totalMinutes} min
-                </div>
-                {/* Only offer "end early" once a zone is committed — before
-                    that there's nowhere to hide, so ending would strand the
-                    hider (same gate as the on-map timer button). */}
-                {zone !== null && (
+            {/* v786: the big in-drawer countdown block was replaced by the
+                compact golden badge in the drawer header (HidingCountdownBadge).
+                Only the End-hiding shortcut stays here, and only once a zone is
+                committed — before that there's nowhere to hide, so ending would
+                strand the hider (same gate as the on-map timer button). */}
+            {zone !== null && (
+                <div className="mb-4 flex justify-center">
                     <Button
                         onClick={endHidingPeriodEarly}
                         variant="outline"
                         size="sm"
-                        className="mt-3 gap-1.5"
+                        className="gap-1.5"
                     >
                         <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
                         End hiding · Start seeking
                     </Button>
-                )}
-            </section>
+                </div>
+            )}
 
             {/* Zone picker — GPS-based station suggest + inline map */}
             <HidingZoneSection
@@ -1030,9 +1012,10 @@ function HidingZoneSection({
 
     return (
         <section className="mt-1">
-            <div className="flex items-center gap-2 mb-2">
-                <MapPin className="w-4 h-4 text-muted-foreground" />
-                <SectionPill>Hiding zone</SectionPill>
+            <div className="flex items-center gap-2 mb-3">
+                <h2 className="text-sm font-semibold tracking-tight">
+                    Select hiding zone
+                </h2>
                 {zone && !editing && (
                     <span className="text-[10px] text-muted-foreground tabular-nums ml-1">
                         {(radiusMeters / 1000).toFixed(

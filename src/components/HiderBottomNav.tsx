@@ -5,6 +5,7 @@ import { Drawer as VaulDrawer } from "vaul";
 
 import { AppSettingsDrawer } from "@/components/AppSettingsDrawer";
 import { HiderHomeContent } from "@/components/HiderHome";
+import { HidingCountdownBadge } from "@/components/HidingCountdownBadge";
 import {
     HiderMapOptionsDrawer,
     useHiderMapOptionsActiveCount,
@@ -17,6 +18,21 @@ import {
     participants,
 } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
+
+/**
+ * True when an outside-interaction target sits inside a nested Radix modal
+ * (an appConfirm AlertDialog / appPrompt Dialog) portaled ABOVE the Zone
+ * drawer. Used to stop the drawer dismissing when the user cancels such a
+ * dialog. The drawer content is itself `role="dialog"`, but an OUTSIDE-tap
+ * target is never inside the drawer's own content, so matching `role=dialog`
+ * here only catches the nested modal, never the drawer.
+ */
+function targetInNestedModal(target: EventTarget | null | undefined): boolean {
+    return (
+        target instanceof Element &&
+        target.closest('[role="dialog"],[role="alertdialog"]') !== null
+    );
+}
 
 /**
  * Hider-side bottom nav. Four slots, in left-to-right order (v632 —
@@ -221,6 +237,22 @@ export function HiderBottomNav() {
                 <VaulDrawer.Portal>
                     <VaulDrawer.Overlay className="fixed inset-0 z-[1050] bg-black/60" />
                     <VaulDrawer.Content
+                        // v786: don't dismiss the drawer when the tap lands
+                        // inside a nested Radix dialog/alertdialog (e.g. the
+                        // zone-commit appConfirm) portaled ABOVE it — those
+                        // portal as body siblings, so vaul reads a tap on their
+                        // Cancel button as an "outside" tap and would close the
+                        // whole drawer. Cancelling the confirm should leave the
+                        // drawer open. (An outside tap on the map/overlay still
+                        // dismisses normally — that target isn't in a modal.)
+                        onPointerDownOutside={(e) => {
+                            if (targetInNestedModal(e.detail?.originalEvent?.target))
+                                e.preventDefault();
+                        }}
+                        onInteractOutside={(e) => {
+                            if (targetInNestedModal(e.detail?.originalEvent?.target))
+                                e.preventDefault();
+                        }}
                         className={cn(
                             "fixed inset-x-0 bottom-0 z-[1055] mt-24",
                             "flex h-auto max-h-[92vh] flex-col",
@@ -230,15 +262,20 @@ export function HiderBottomNav() {
                         )}
                     >
                         <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
-                        <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border space-y-1">
-                            <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
-                                <Tent className="w-4 h-4" />
-                                Hiding zone
-                            </VaulDrawer.Title>
-                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                                Pick a station to hide near, then keep an eye
-                                on your zone and scouted spots.
-                            </VaulDrawer.Description>
+                        <div className="flex items-start gap-3 px-5 pt-2 pb-3 shrink-0 border-b border-border">
+                            <div className="min-w-0 flex-1 space-y-1">
+                                <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
+                                    <Tent className="w-4 h-4" />
+                                    Hiding zone
+                                </VaulDrawer.Title>
+                                <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                                    Pick a station to hide near, then keep an
+                                    eye on your zone and scouted spots.
+                                </VaulDrawer.Description>
+                            </div>
+                            {/* Compact golden countdown next to the header —
+                                replaces the big in-drawer timer block (v786). */}
+                            <HidingCountdownBadge className="mt-0.5" />
                         </div>
                         <div className="flex-1 overflow-y-auto px-2">
                             <HiderHomeContent />
