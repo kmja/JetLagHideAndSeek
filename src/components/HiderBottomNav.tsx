@@ -227,7 +227,7 @@ export function HiderBottomNav() {
                             <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
                                 Questions
                             </VaulDrawer.Title>
-                            <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                            <VaulDrawer.Description className="text-sm text-muted-foreground">
                                 Your inbox of questions from the seekers.
                             </VaulDrawer.Description>
                         </div>
@@ -276,11 +276,10 @@ export function HiderBottomNav() {
                         <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                         <div className="flex items-start gap-3 px-5 pt-2 pb-3 shrink-0 border-b border-border">
                             <div className="min-w-0 flex-1 space-y-1">
-                                <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
-                                    <Tent className="w-4 h-4" />
+                                <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
                                     Hiding zone
                                 </VaulDrawer.Title>
-                                <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
+                                <VaulDrawer.Description className="text-sm text-muted-foreground">
                                     {inZoneStage
                                         ? "Explore your zone and find your final hiding spot."
                                         : "Select a station to hide near."}

@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v810`. Use `git log` for the per-version detail;
+build stamp. Current: `v811`. Use `git log` for the per-version detail;
+
+**v811 — hider Zone + Questions drawer headers match the Map-options drawer.**
+The hider Zone drawer dropped its `Tent` icon from the "Hiding zone" title and both
+the Zone and Questions drawer descriptions went from `text-xs … leading-snug` to
+`text-sm text-muted-foreground` — so all three vaul drawer headers
+(`HiderMapOptionsDrawer`, the Zone drawer, the Questions drawer in `HiderBottomNav`)
+now share the same `text-lg font-semibold` title + `text-sm text-muted-foreground`
+subheader treatment.
 
 **v810 — pre-game lobby is NON-MODAL (fixes the frozen role-picker).** With v808
 correctly landing the user on the lobby + RolePicker after the wizard, a NEW freeze
