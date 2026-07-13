@@ -267,6 +267,52 @@ function parseMaybeJSON(
     return null;
 }
 
+/**
+ * Budget for the cosmetic world-scale dimming mask (v818). Computing
+ * `holedMask` (a `turf.difference` of a world rectangle minus the play
+ * area) on a pathologically large / dense boundary — a whole COUNTY like
+ * Dalarna, a huge metro — blocks the MAIN THREAD for seconds and freezes
+ * the tab (the "PC heats up, map stuck on Loading" report). The mask only
+ * DIMS everything outside the play area; the crisp play-area outline still
+ * renders without it. So past this vertex budget we skip the mask rather
+ * than freeze. v759 already skips it pre-game; this caps it in-game too.
+ */
+const MASK_MAX_VERTICES = 20000;
+
+/**
+ * Count coordinate positions in a GeoJSON geometry/feature/collection,
+ * EARLY-EXITING once `cap` is reached — so the guard itself is O(cap), not
+ * O(n), even on a million-vertex county boundary.
+ */
+function coordCountAtLeast(geom: unknown, cap: number): number {
+    let n = 0;
+    const walk = (c: unknown): void => {
+        if (n >= cap || !Array.isArray(c)) return;
+        if (typeof c[0] === "number") {
+            n++;
+            return;
+        }
+        for (const x of c) {
+            if (n >= cap) return;
+            walk(x);
+        }
+    };
+    const g = geom as {
+        geometry?: { coordinates?: unknown };
+        coordinates?: unknown;
+        features?: { geometry?: { coordinates?: unknown } }[];
+    };
+    if (Array.isArray(g?.features)) {
+        for (const f of g.features) {
+            if (n >= cap) break;
+            walk(f?.geometry?.coordinates);
+        }
+    } else {
+        walk(g?.geometry?.coordinates ?? g?.coordinates);
+    }
+    return n;
+}
+
 export function Map({ className }: MapProps) {
     const $drawingQuestionKey = useStore(drawingQuestionKey);
     const $followMe = useStore(followMe);
@@ -952,7 +998,20 @@ export function Map({ className }: MapProps) {
             // game has actually started — the visible in-game Map is a
             // separate instance that mounts with `hidingPeriodEndsAt` set.
             let mask: GeoJSON.Feature | null = null;
-            if (hidingPeriodEndsAt.get() !== null) {
+            // v818: skip the cosmetic dimming mask on a pathologically large
+            // boundary. holedMask's world-scale turf.difference over a whole
+            // county / huge metro blocks the main thread for seconds and
+            // freezes the tab (the Dalarna County "PC heats up" report). The
+            // play-area outline still renders; only the outside-dim is lost.
+            const boundaryTooBig =
+                coordCountAtLeast(working, MASK_MAX_VERTICES) >=
+                MASK_MAX_VERTICES;
+            if (boundaryTooBig) {
+                console.warn(
+                    "[map] play-area boundary too large — skipping dimming mask to avoid a main-thread freeze",
+                );
+            }
+            if (hidingPeriodEndsAt.get() !== null && !boundaryTooBig) {
                 try {
                     // Simplify the mask input first (mirroring the hider
                     // map, v758): the mask is a faint dimming fill drawn

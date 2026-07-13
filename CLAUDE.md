@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v817`. Use `git log` for the per-version detail;
+build stamp. Current: `v818`. Use `git log` for the per-version detail;
+
+**v818 — huge-boundary main-thread freeze (the "PC heats up, map stuck on
+Loading" bug).** The seeker `Map`'s elimination effect computes `holedMask` — a
+world-scale `turf.difference` (world rectangle MINUS the play area) + a `turf.
+simplify`, ON THE MAIN THREAD — to dim everything outside the play area. On a
+pathologically large / dense boundary (a whole COUNTY like Dalarna, a huge metro)
+that blocks the thread for seconds and freezes the tab (CPU pegged, map stuck on
+"Loading map"). v759 already skipped this pre-game (the invisible warmup Map); v818
+caps it IN-game too: a new `coordCountAtLeast(geom, cap)` (early-exits at the cap,
+so it's O(cap) not O(n)) gates the mask — past `MASK_MAX_VERTICES=20000` the mask is
+skipped entirely. The mask is purely cosmetic (the dim outside the area); the crisp
+play-area outline + all question layers still render, so a giant play area is now
+merely un-dimmed instead of frozen. NOTE: the separate "wizard-finish lands on the
+seeker view instead of the lobby" symptom in the same report is the v808
+stale-room-resume bug, already fixed in latest — it needs the deploy + a reload
+(the root error boundary's Reload wipes the SW/cache) to take effect.
 
 **v817 — hard belts against the freeze / blank-screen.** Two defence-in-depth
 additions after the role-picker freeze persisted (sometimes a frozen pure white/
