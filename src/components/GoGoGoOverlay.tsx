@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Rocket } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
@@ -120,7 +121,16 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
         gameStartOverLobby.set(false);
     };
 
-    return (
+    // Portal to <body> (v820): pre-game the overlay is mounted INSIDE the
+    // pre-game `<div className="fixed inset-0 …">`, which is a
+    // position:fixed stacking context at z-index:auto. The lobby
+    // (`GameLobbyDialog`, a vaul drawer) portals itself to document.body at
+    // z-[1055], so an inline z-[1070] here is TRAPPED below the drawer — the
+    // whole pre-game div paints behind it, hiding the countdown/GO card. That
+    // was the "Start round does nothing" bug: the flourish rendered, but
+    // BEHIND the opaque lobby. Portaling to body puts z-[1070] in the same
+    // stacking context as the drawer so it wins.
+    const overlay = (
         <div
             className="fixed inset-0 z-[1070] flex items-center justify-center px-6"
             role="dialog"
@@ -214,6 +224,9 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
             )}
         </div>
     );
+
+    if (typeof document === "undefined") return overlay;
+    return createPortal(overlay, document.body);
 }
 
 /**

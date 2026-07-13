@@ -428,7 +428,38 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v819`. Use `git log` for the per-version detail;
+build stamp. Current: `v820`. Use `git log` for the per-version detail;
+
+**v820 — "Start round does nothing" (stuck on the lobby) fixed: two causes.**
+The lobby's Start button armed the clock but the game never advanced — the
+user stayed on the lobby, clicking Start repeatedly with nothing happening.
+Root cause was the v814 game-start flourish, in two compounding ways:
+(1) **STACKING BUG (the visible one).** `GoGoGoOverlay` is mounted INLINE
+inside the pre-game `<div className="fixed inset-0 …">` (SeekerPage/HiderPage),
+which is a `position:fixed` stacking context at `z-index:auto`. The lobby
+(`GameLobbyDialog`, a vaul drawer) portals itself to `document.body` at
+`z-[1055]`, so the overlay's inline `z-[1070]` was TRAPPED below the drawer —
+the whole pre-game div (countdown + GO card included) painted BEHIND the
+opaque lobby. So the flourish *did* fire, but invisibly behind the lobby, and
+since `gameStarted` is held false until the (unseen, undismissable) GO card is
+tapped, the user was stranded. Fix: `GoGoGoOverlay` now `createPortal`s to
+`document.body`, so its `z-[1070]` competes in the same stacking context as the
+drawer and actually renders on top. (2) **FRAGILE GATE (defence-in-depth).**
+`gameStarted = $hidingEndsAt !== null && !$overLobby` held the pre-game branch
+on `gameStartOverLobby` ALONE — a volatile flag that, if ever stuck true (a
+swallowed overlay mount, a stale flag), stranded the user forever. The gate is
+now SELF-HEALING: `!($overLobby && $gameStartCelebrationAt !== null)` — the
+hold is tied to the celebration ACTUALLY being live, so the moment the
+celebration clears (or never starts) the map shows. The guest `setupChanged`
+handler (store.ts) now raises `gameStartCelebrationAt` synchronously alongside
+`gameStartOverLobby` (both flip together) so a guest never flashes the map in
+the one-frame gap before its GameStartWatcher effect would have set it. The
+Move powerup still plays its GO-GO-GO over the MAP (it leaves
+`gameStartOverLobby` false mid-game, so the `&&` is false → gameStarted stays
+true). NOTE: the separate "role picker didn't appear / no assigned role after
+the wizard on the real autohosted room" report is on the multiplayer-server
+path (RolePicker is a body-portaled Radix Dialog at z-[1060], NOT hit by the
+stacking bug); pending retest after this deploy + the PWA reinstall.
 
 **v819 — pre-game lobby runs ONE map, not two (role-picker freeze on the Chrome
 PWA).** Firefox-for-Android handled Dalarna County + England fine while the

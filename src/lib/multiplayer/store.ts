@@ -38,6 +38,7 @@ import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
     gameSize,
+    gameStartCelebrationAt,
     gameStartOverLobby,
     endgameConfirmedAt,
     endgameStartedAt,
@@ -959,12 +960,22 @@ function handleServerMessage(msg: ServerMessage) {
             // going null → set) plays the game-start flourish OVER the
             // lobby, same as the host. Set the flag SYNCHRONOUSLY with the
             // clock so the guest's pre-game branch never swaps to the map
-            // for a frame (no flash / no map→lobby→map flicker); the guest's
-            // GameStartWatcher then fires the GO-GO-GO celebration and the
-            // card's dismiss clears the flag. NOT set on a reconnect
-            // (applySnapshot), so a mid-game rejoin never replays it.
+            // for a frame (no flash / no map→lobby→map flicker). NOT set on a
+            // reconnect (applySnapshot), so a mid-game rejoin never replays it.
+            //
+            // v820: also raise `gameStartCelebrationAt` HERE, synchronously,
+            // rather than deferring it to the guest's GameStartWatcher effect.
+            // The self-healing `gameStarted` gate (SeekerPage/HiderPage) holds
+            // the pre-game branch only while the celebration is live, so if
+            // `gameStartOverLobby` flipped true a frame before the celebration
+            // existed, the guest would flash the map. Flipping both together
+            // keeps the branch held from the first render. GameStartWatcher's
+            // own set is guarded by `=== null`, so it won't double-fire.
             if (prevHidingEndsAt === null && msg.setup.hidingPeriodEndsAt !== null) {
                 gameStartOverLobby.set(true);
+                if (gameStartCelebrationAt.get() === null) {
+                    gameStartCelebrationAt.set(Date.now());
+                }
             }
             const prevEndgameAt = endgameStartedAt.get();
             endgameStartedAt.set(msg.setup.endgameStartedAt);

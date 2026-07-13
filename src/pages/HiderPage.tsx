@@ -17,7 +17,11 @@ import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { SeekerProximityWatcher } from "@/components/SeekerProximityWatcher";
 import { StationTransitCard } from "@/components/StationTransitCard";
-import { gameStartOverLobby, hidingPeriodEndsAt } from "@/lib/gameSetup";
+import {
+    gameStartCelebrationAt,
+    gameStartOverLobby,
+    hidingPeriodEndsAt,
+} from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Same lazy-dialog pattern SeekerPage uses — these are all
@@ -82,9 +86,14 @@ export function HiderPage() {
     // their shell takes over.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $overLobby = useStore(gameStartOverLobby);
+    const $celebrationAt = useStore(gameStartCelebrationAt);
     // v814: keep the pre-game branch mounted while the game-start flourish
     // plays over the lobby (see SeekerPage for the full rationale).
-    const gameStarted = $hidingEndsAt !== null && !$overLobby;
+    // v820: SELF-HEALING — the hold is tied to the celebration actually being
+    // live, so a stuck `gameStartOverLobby` can't strand the user on the
+    // lobby (see SeekerPage for the full rationale).
+    const gameStarted =
+        $hidingEndsAt !== null && !($overLobby && $celebrationAt !== null);
 
     // (Lobby→in-game swap body-lock leftover is cleared globally by
     // installBodyPointerEventsGuard — see main.tsx.)

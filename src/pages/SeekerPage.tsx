@@ -45,7 +45,11 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
-import { gameStartOverLobby, hidingPeriodEndsAt } from "@/lib/gameSetup";
+import {
+    gameStartCelebrationAt,
+    gameStartOverLobby,
+    hidingPeriodEndsAt,
+} from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 import { cn } from "@/lib/utils";
 
@@ -131,11 +135,25 @@ export function SeekerPage() {
     // finally takes over.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $overLobby = useStore(gameStartOverLobby);
+    const $celebrationAt = useStore(gameStartCelebrationAt);
     // v814: while the game-start flourish plays OVER the lobby (3-2-1 +
     // GO-GO-GO explosion), stay in the pre-game branch so the lobby stays
     // visible/fading behind it — don't swap to the map shell until the
     // GoGoGo card is dismissed (which clears `gameStartOverLobby`).
-    const gameStarted = $hidingEndsAt !== null && !$overLobby;
+    //
+    // v820: SELF-HEALING gate. The hold is now conditional on the
+    // celebration ACTUALLY being live (`gameStartCelebrationAt !== null`),
+    // not on `gameStartOverLobby` alone. `gameStartOverLobby` is a volatile
+    // flag; if it ever gets stuck true while the celebration is already
+    // cleared (a swallowed overlay mount error, a stale flag), the old gate
+    // stranded the user on the lobby forever ("Start round does nothing").
+    // Tying the hold to the celebration's own lifetime means the pre-game
+    // branch can only hold while the flourish is genuinely up — the moment
+    // the celebration clears, the map shows. The Move powerup re-fires the
+    // celebration mid-game but leaves `gameStartOverLobby` false, so its
+    // GO-GO-GO still plays over the MAP (this stays false mid-game).
+    const gameStarted =
+        $hidingEndsAt !== null && !($overLobby && $celebrationAt !== null);
 
     // v616: during the hiding period the HiderTimer sits bottom-LEFT, so
     // the bottom-left Map-options chip is pushed up above it. A one-shot
