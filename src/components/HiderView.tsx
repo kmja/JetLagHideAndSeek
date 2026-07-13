@@ -182,11 +182,16 @@ function HiderAnswerDialog() {
             }}
         >
             <DialogContent
+                // The answer dialog is opened FROM inside the Questions drawer
+                // (vaul, z-[1055]); a plain Radix Dialog defaults to z-[1050],
+                // so it opened BEHIND the drawer (froze the app, same class as
+                // the QR dialog). Lift content + overlay above the drawer.
                 className={cn(
                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0 sm:max-w-md",
-                    "max-h-[92vh]",
+                    "max-h-[92vh] z-[1060]",
                 )}
+                overlayClassName="z-[1060]"
             >
                 {$q && <HiderQuestionAnswer question={$q} />}
             </DialogContent>

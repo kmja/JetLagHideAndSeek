@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v799`. Use `git log` for the per-version detail;
+build stamp. Current: `v800`. Use `git log` for the per-version detail;
+
+**v800 — hider questions drawer polish.** (1) Empty state now mirrors the
+seeker's dashed "No questions yet" box. (2) Removed the inbox icon in the
+drawer header ("Questions"). (3) The pill-style "Awaiting answer" / "Answered"
+section headers became normal `h3` subheaders. (4) The awaiting-question card
+now uses the shared `QuestionOverlayCard` chrome (like every other question
+card) instead of a bespoke tinted-border row — tapping it opens the answer
+view. (5) **Answered cards expand to real content again** — they used to
+expand to nothing because the shared `QuestionCard` base looks `thisQuestion`
+up from the seeker's `questions` store, which the hider's inbox entries never
+enter. `HiderQuestionLog` now renders a self-contained answered card that feeds
+the reconstructed question (entry data + reply, `drag:false`) DIRECTLY to
+`QuestionOutcomeMap` (photo entries show the received image) — inheriting its
+save-to-PNG snapshot trick for free. (6) The answer dialog (`HiderView`
+`HiderAnswerDialog`) is opened from inside the Questions drawer (vaul z-[1055])
+but defaulted to z-[1050], so it opened BEHIND the drawer and froze the app
+(same class as the v797 QR-dialog bug) — lifted content + overlay to z-[1060].
 
 **v799 — hider seeking-phase zone drawer polish.** (1) The committed-zone
 read-only map preview swapped from `InlineLocationPicker` to the lighter

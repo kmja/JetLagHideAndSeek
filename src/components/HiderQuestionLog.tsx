@@ -1,8 +1,7 @@
 import { useStore } from "@nanostores/react";
-import { ChevronRight, Inbox } from "lucide-react";
-import { useMemo } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { lazy, Suspense, useMemo, useState } from "react";
 
-import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     answeringQuestion,
     hiderInbox,
@@ -11,31 +10,30 @@ import {
 import { cn } from "@/lib/utils";
 import type { Question } from "@/maps/schema";
 
-import { SectionPill } from "./JetLagLogo";
+import { answeredDetail } from "./cards/base";
 import {
-    MatchingQuestionComponent,
-    MeasuringQuestionComponent,
-    PhotoQuestionComponent,
-    RadiusQuestionComponent,
-    TentacleQuestionComponent,
-    ThermometerQuestionComponent,
-} from "./QuestionCards";
+    QuestionOverlayCard,
+    summarizeQuestion,
+} from "./questionOverlayCard";
+
+const QuestionOutcomeMap = lazy(() =>
+    import("./QuestionOutcomeMap").then((m) => ({
+        default: m.QuestionOutcomeMap,
+    })),
+);
 
 /**
  * Hider's view of the inbox, mirroring the seeker's question log.
  * Splits inbox entries into two buckets:
  *
- *   • **Awaiting your answer** — drag-style summary card you can open
- *     the answer link from. Compact list since it's actionable.
+ *   • **Awaiting your answer** — a `QuestionOverlayCard` (same chrome as
+ *     every other question card) you tap to open the answer view.
  *
- *   • **Answered** — full seeker-style question card rendered with
- *     the *committed* data (drag:false + the hider's reply merged
- *     in), so the hider sees the same level of detail the seeker
- *     does in their question log. Useful for going back and seeing
- *     "what did I say about that aquarium question two hours ago?".
- *
- * The cards are read-only here — the hider has already replied; the
- * seeker-side answer toggles aren't actionable.
+ *   • **Answered** — a collapsed `QuestionOverlayCard` that expands to the
+ *     seeker-style `QuestionOutcomeMap` (fed the reconstructed question
+ *     DIRECTLY, since the hider's entries aren't in the seeker `questions`
+ *     store the base card looks them up from — which is why answered cards
+ *     used to expand to nothing).
  */
 export function HiderQuestionLog() {
     const $inbox = useStore(hiderInbox);
@@ -48,34 +46,40 @@ export function HiderQuestionLog() {
     const waiting = sorted.filter((e) => !e.repliedAt);
 
     if (sorted.length === 0) {
+        // Empty state — mirrors the seeker's question-drawer empty box.
         return (
             <section className="mt-5">
-                <div className="flex items-center gap-2 mb-2">
-                    <Inbox className="w-4 h-4 text-muted-foreground" />
-                    <SectionPill>Question log</SectionPill>
+                <div
+                    className={cn(
+                        "rounded-md border-2 border-dashed border-border",
+                        "px-4 py-8 flex flex-col items-center text-center gap-2",
+                    )}
+                >
+                    <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
+                        No questions yet
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-snug max-w-[26ch]">
+                        Questions the seekers send land here. Tap one to reveal
+                        it and send your answer.
+                    </p>
                 </div>
-                <p className="text-xs text-muted-foreground italic px-1 leading-snug">
-                    Questions the seeker sends you will land here.
-                    They arrive via shared link — opening one (or
-                    tapping a question in this log) takes you to the
-                    answer view.
-                </p>
             </section>
         );
     }
 
     return (
-        <section className="mt-5 space-y-4">
+        <section className="mt-5 space-y-5">
             {waiting.length > 0 && (
                 <div>
                     <div className="flex items-center gap-2 mb-2">
-                        <Inbox className="w-4 h-4 text-yellow-500" />
-                        <SectionPill>Awaiting answer</SectionPill>
-                        <span className="text-[10px] text-muted-foreground tabular-nums ml-1">
+                        <h3 className="text-sm font-semibold tracking-tight">
+                            Awaiting answer
+                        </h3>
+                        <span className="text-[10px] text-muted-foreground tabular-nums ml-0.5">
                             {waiting.length}
                         </span>
                     </div>
-                    <ul className="space-y-2">
+                    <ul className="space-y-3">
                         {waiting.map((entry) => (
                             <WaitingRow key={entry.key} entry={entry} />
                         ))}
@@ -86,16 +90,14 @@ export function HiderQuestionLog() {
             {answered.length > 0 && (
                 <div>
                     <div className="flex items-center gap-2 mb-2">
-                        <Inbox className="w-4 h-4 text-muted-foreground" />
-                        <SectionPill>Answered</SectionPill>
-                        <span className="text-[10px] text-muted-foreground tabular-nums ml-1">
+                        <h3 className="text-sm font-semibold tracking-tight">
+                            Answered
+                        </h3>
+                        <span className="text-[10px] text-muted-foreground tabular-nums ml-0.5">
                             {answered.length}
                         </span>
                     </div>
-                    {/* Render with the seeker's own card components so
-                        the hider sees the same level of detail the
-                        seeker has in their question log. */}
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                         {answered.map((entry) => (
                             <AnsweredCard key={entry.key} entry={entry} />
                         ))}
@@ -107,28 +109,12 @@ export function HiderQuestionLog() {
 }
 
 /**
- * Compact summary row for a waiting (un-replied) inbox entry. The row
- * itself is the affordance — tapping it routes to `/h?q=…` with the
- * same encoded payload the seeker would have shared, so the hider
- * lands on the dedicated answer view (reveal-blur, share-back row,
- * etc.) without having to chase down an SMS link.
- *
- * That matters because the inbox can be populated through several
- * paths now: opening the seeker's share link, the debug "→ Hider"
- * ferry, and (later) multiplayer push updates. Telling the hider
- * "open the seeker's share link" was strictly accurate only on the
- * first path, and even there the link had already been opened to
- * land the entry in the inbox in the first place.
+ * Awaiting (un-replied) entry — the same `QuestionOverlayCard` chrome as
+ * every other card. Tapping it routes to the answer view (`answeringQuestion`
+ * atom → the answer dialog over the drawer).
  */
 function WaitingRow({ entry }: { entry: InboxEntry }) {
-    const categoryMeta = CATEGORIES[entry.id as CategoryId];
-    const CategoryIcon = categoryMeta?.icon;
-    const prompt = waitingRowPrompt(entry);
-
     const openAnswerView = () => {
-        // v301: open the answer flow as a dialog over whatever the
-        // user was on (Questions sheet, lobby, etc.) instead of
-        // navigating away. Sheet stays open in the background.
         answeringQuestion.set({
             id: entry.id,
             key: entry.key,
@@ -138,145 +124,117 @@ function WaitingRow({ entry }: { entry: InboxEntry }) {
 
     return (
         <li>
-            <button
-                type="button"
-                onClick={openAnswerView}
-                className={cn(
-                    "w-full text-left rounded-sm border border-border border-l-[5px] border-l-yellow-500",
-                    "px-3 py-2.5 bg-secondary/40",
-                    "flex items-center gap-3",
-                    "hover:bg-accent hover:border-l-yellow-400 transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-                aria-label={`Answer ${categoryMeta?.label ?? entry.id} question`}
-            >
-                {CategoryIcon && (
-                    <span
-                        className="inline-flex items-center justify-center w-8 h-8 rounded shrink-0"
-                        style={{ backgroundColor: categoryMeta.color }}
-                        aria-hidden="true"
-                    >
-                        <CategoryIcon
-                            size={16}
-                            strokeWidth={2.5}
-                            className="text-white"
-                        />
+            <QuestionOverlayCard
+                categoryId={entry.id}
+                summary={summarizeQuestion({ id: entry.id, data: entry.data })}
+                eyebrow={
+                    <span className="text-yellow-600 dark:text-yellow-400">
+                        Needs your answer
                     </span>
-                )}
-                <div className="min-w-0 flex-1">
-                    <div className="font-inter-tight font-bold uppercase text-xs tracking-[0.1em] truncate">
-                        {categoryMeta?.label ?? entry.id}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground leading-snug truncate">
-                        {prompt}
-                    </p>
-                </div>
-                <ChevronRight
-                    className="w-4 h-4 text-muted-foreground shrink-0"
-                    aria-hidden="true"
-                />
-            </button>
+                }
+                right={
+                    <ChevronRight
+                        className="w-5 h-5 text-muted-foreground"
+                        aria-hidden="true"
+                    />
+                }
+                onClick={openAnswerView}
+                ariaLabel={`Answer ${entry.id} question`}
+            />
         </li>
     );
 }
 
 /**
- * Best-effort one-line summary of what the seeker is asking. Mirrors
- * `questionPrompt()` in HiderView.tsx but trimmed so it fits inside a
- * compact log row. We keep this local to avoid an awkward import
- * cycle between HiderQuestionLog and HiderView.
+ * Answered entry — a collapsed overlay card that expands to a static outcome
+ * map (or the received photo). Reconstructs the question object from the
+ * inbox entry (data + the hider's reply, drag:false) and feeds it straight
+ * to `QuestionOutcomeMap` — NOT via the seeker `questions` store, which the
+ * hider's entries never enter.
  */
-function waitingRowPrompt(entry: InboxEntry): string {
-    const d = entry.data as Record<string, unknown>;
-    const nice = (raw: unknown): string =>
-        String(raw ?? "")
-            .replace(/-/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase());
-    switch (entry.id) {
-        case "radius": {
-            const radius = d.radius;
-            const unit = d.unit === "miles" ? "mi" : d.unit === "meters" ? "m" : "km";
-            return `Within ${radius} ${unit} of the seeker?`;
-        }
-        case "thermometer":
-            return "Did the seeker get warmer or colder?";
-        case "matching":
-            return d.type
-                ? `Same ${nice(d.type)}?`
-                : "Do we match on this attribute?";
-        case "measuring":
-            return d.type
-                ? `Closer or further from the nearest ${nice(d.type)}?`
-                : "Closer or further than the seeker?";
-        case "tentacles":
-            return `Closest ${nice(d.locationType) || "location"} to you?`;
-        default:
-            return "Tap to reveal & send your answer.";
-    }
+function AnsweredCard({ entry }: { entry: InboxEntry }) {
+    const [expanded, setExpanded] = useState(false);
+
+    const question = useMemo(
+        () =>
+            ({
+                id: entry.id,
+                key: entry.key,
+                data: {
+                    ...(entry.data as Record<string, unknown>),
+                    ...(entry.reply ?? {}),
+                    drag: false,
+                },
+            }) as Question,
+        [entry],
+    );
+
+    const summary = summarizeQuestion({ id: question.id, data: question.data });
+    const detail = answeredDetail(question) ?? summary.detail;
+    const isPhoto = entry.id === "photo";
+    const d = question.data as Record<string, unknown>;
+    const photoSrc = (d.photoUrl as string) || (d.photoUri as string) || null;
+
+    return (
+        <div className="space-y-2">
+            <QuestionOverlayCard
+                categoryId={entry.id}
+                summary={{ ...summary, detail: detail ?? undefined }}
+                answered
+                eyebrow={
+                    entry.repliedAt ? (
+                        <span className="text-muted-foreground">
+                            {relTime(entry.repliedAt)}
+                        </span>
+                    ) : undefined
+                }
+                right={
+                    <ChevronDown
+                        className={cn(
+                            "w-5 h-5 text-muted-foreground transition-transform",
+                            expanded && "rotate-180",
+                        )}
+                        aria-hidden="true"
+                    />
+                }
+                onClick={() => setExpanded((v) => !v)}
+                ariaLabel={`${expanded ? "Collapse" : "Expand"} answered ${entry.id} question`}
+            />
+            {expanded &&
+                (isPhoto ? (
+                    photoSrc ? (
+                        <img
+                            src={photoSrc}
+                            alt="Answer photo"
+                            className="w-full rounded-md border border-border"
+                        />
+                    ) : (
+                        <p className="px-1 text-xs italic text-muted-foreground">
+                            Photo unavailable.
+                        </p>
+                    )
+                ) : (
+                    <Suspense
+                        fallback={
+                            <div className="h-[180px] w-full animate-pulse rounded-md border border-dashed border-border" />
+                        }
+                    >
+                        <QuestionOutcomeMap question={question} />
+                    </Suspense>
+                ))}
+        </div>
+    );
 }
 
-function AnsweredCard({ entry }: { entry: InboxEntry }) {
-    // Reconstruct the question object the seeker's components expect —
-    // the original data with the hider's reply merged in, and
-    // drag:false to indicate it's committed. The card components
-    // treat drag:false as "answered, read-only result", which is
-    // exactly the read we want here.
-    const data = {
-        ...(entry.data as Record<string, unknown>),
-        ...(entry.reply ?? {}),
-        drag: false,
-        // Force the card to render collapsed-with-summary by default.
-        // The hider can expand to see the seeker's question parameters
-        // (lat/lng, radius, etc.) if they care.
-        collapsed: (entry.data as { collapsed?: boolean }).collapsed ?? true,
-    } as any;
-
-    switch (entry.id) {
-        case "radius":
-            return (
-                <RadiusQuestionComponent
-                    data={data}
-                    questionKey={entry.key}
-                />
-            );
-        case "thermometer":
-            return (
-                <ThermometerQuestionComponent
-                    data={data}
-                    questionKey={entry.key}
-                />
-            );
-        case "matching":
-            return (
-                <MatchingQuestionComponent
-                    data={data}
-                    questionKey={entry.key}
-                />
-            );
-        case "measuring":
-            return (
-                <MeasuringQuestionComponent
-                    data={data}
-                    questionKey={entry.key}
-                />
-            );
-        case "tentacles":
-            return (
-                <TentacleQuestionComponent
-                    data={data}
-                    questionKey={entry.key}
-                />
-            );
-        case "photo":
-            return (
-                <PhotoQuestionComponent
-                    data={data}
-                    questionKey={entry.key}
-                />
-            );
-        default:
-            return null;
-    }
+/** Compact relative time for the answered-card eyebrow ("10m ago"). */
+function relTime(ts: number): string {
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return "just now";
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.round(h / 24)}d ago`;
 }
 
 export default HiderQuestionLog;

@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Inbox, List, Map as MapIcon, Tent, Users } from "lucide-react";
+import { List, Map as MapIcon, Tent, Users } from "lucide-react";
 import { useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
@@ -224,8 +224,7 @@ export function HiderBottomNav() {
                     >
                         <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                         <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border space-y-1">
-                            <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
-                                <Inbox className="w-4 h-4" />
+                            <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
                                 Questions
                             </VaulDrawer.Title>
                             <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
