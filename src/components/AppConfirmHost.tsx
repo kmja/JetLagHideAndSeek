@@ -52,14 +52,14 @@ export function AppConfirmHost() {
                     {$pending?.previewZone && (
                         <Suspense
                             fallback={
-                                <div className="h-40 w-full animate-pulse rounded-lg bg-muted" />
+                                <div className="aspect-square w-full animate-pulse rounded-lg bg-muted" />
                             }
                         >
                             <ZonePreviewMap
                                 lat={$pending.previewZone.lat}
                                 lng={$pending.previewZone.lng}
                                 radiusMeters={$pending.previewZone.radiusMeters}
-                                className="h-40 w-full"
+                                className="aspect-square w-full"
                             />
                         </Suspense>
                     )}

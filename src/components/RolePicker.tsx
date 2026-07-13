@@ -74,32 +74,9 @@ export function RolePicker() {
     // Drawer stack — v762 — is now cleared globally by
     // installBodyPointerEventsGuard; no picker-local release loop needed.)
 
-    // v452: keep the dialog centered within the VISIBLE area (above the
-    // on-screen keyboard) instead of the full viewport — otherwise, with
-    // the name field focused, the centered dialog floats mid-screen with
-    // a big gap down to the keyboard. We track the keyboard inset via the
-    // VisualViewport API and shift the dialog's `top` up by half of it.
-    const [kbInset, setKbInset] = useState(0);
-    useEffect(() => {
-        const vv =
-            typeof window !== "undefined" ? window.visualViewport : null;
-        if (!open || !vv) {
-            setKbInset(0);
-            return;
-        }
-        const update = () => {
-            // Height hidden at the bottom = keyboard (and any bottom UI).
-            const inset = window.innerHeight - (vv.height + vv.offsetTop);
-            setKbInset(inset > 80 ? inset : 0);
-        };
-        update();
-        vv.addEventListener("resize", update);
-        vv.addEventListener("scroll", update);
-        return () => {
-            vv.removeEventListener("resize", update);
-            vv.removeEventListener("scroll", update);
-        };
-    }, [open]);
+    // v803: the dialog is ANCHORED TO THE TOP (see DialogContent below), so
+    // it no longer moves when the keyboard opens/closes — the old
+    // VisualViewport keyboard-inset re-centering was removed.
 
     // v279: name input moved here from the setup wizard. Roles +
     // display name are the same "this is me" decision; co-locating
@@ -179,16 +156,13 @@ export function RolePicker() {
                     "pointer-events-auto",
                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0",
-                    // Safety: if the compact body still can't clear the
-                    // keyboard on a very short viewport, scroll rather
-                    // than clip the role tiles off the top.
-                    "overflow-y-auto",
+                    // v803: ANCHOR TO THE TOP (override the default vertical
+                    // centering: `top-[50%]` + `translate-y-[-50%]`) so the
+                    // dialog stays put when the keyboard opens/closes — the
+                    // name field is near the top and clears the keyboard.
+                    // Cap the height + scroll so a short viewport never clips.
+                    "top-4 translate-y-0 max-h-[calc(100dvh-2rem)] overflow-y-auto",
                 )}
-                // Inline `top` overrides the centered `top-[50%]` class
-                // (the translate-y centering in the class survives), so
-                // when the keyboard is up the dialog re-centers in the
-                // visible area and sits snug above it.
-                style={{ top: `calc(50% - ${kbInset / 2}px)` }}
                 overlayClassName="z-[1060]"
             >
                 {/* Compact header — no logo flourish, so the whole
@@ -221,10 +195,10 @@ export function RolePicker() {
                     />
                 </div>
 
-                {/* Role tiles — side-by-side on EVERY width (was stacked
-                    on mobile, which made the dialog too tall for the
-                    keyboard). Compact: icon + label + one short line. */}
-                <div className="px-5 pt-3 pb-2 grid grid-cols-2 gap-2.5">
+                {/* Role tiles — single column (v803). The top-anchored dialog
+                    no longer has to stay short to clear the keyboard, so the
+                    tiles stack for a clearer, roomier read. */}
+                <div className="px-5 pt-3 pb-2 flex flex-col gap-2.5">
                     <button
                         type="button"
                         onClick={() => setSelected("seeker")}

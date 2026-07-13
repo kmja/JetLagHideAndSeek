@@ -260,7 +260,7 @@ export function SetupPage() {
                         {step === 1 &&
                             "Pick the city or region you'll be seeking in. Add neighbouring municipalities if they should count as one play area."}
                         {step === 2 &&
-                            "Which public transit modes the hider can use."}
+                            "Which public transit modes the hider can use. Walking is always allowed."}
                         {step === 3 &&
                             "Larger games span more ground and last longer."}
                     </p>

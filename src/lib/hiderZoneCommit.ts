@@ -34,7 +34,9 @@ export async function confirmAndCommitZone(
             : `${radiusMeters} m`;
     const zoneName = station.name ?? "this station";
     const ok = await appConfirm({
-        title: "Lock in your hiding zone?",
+        title: station.name
+            ? `Lock in ${station.name}?`
+            : "Lock in your hiding zone?",
         description: `"${zoneName}" and everywhere within its ${radiusLabel} radius becomes your hiding zone for the round — the area the seekers hunt. This cannot be undone.`,
         confirmLabel: "Lock it in",
         cancelLabel: "Cancel",

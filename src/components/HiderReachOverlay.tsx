@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "react-toastify";
 
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
@@ -55,6 +55,24 @@ export function HiderReachOverlay() {
     const $poly = useStore(polyGeoJSON);
     const $radius = useStore(hidingRadius);
     const $units = useStore(hidingRadiusUnits);
+
+    // v803: auto-SHOW the candidate hiding zones during the hiding period so
+    // the hider can see which zone they'd commit to. One-shot per hiding
+    // period (keyed on the deadline) so a manual toggle-off still sticks; a
+    // new round re-enables. Cleared once a zone is committed (the main effect
+    // below turns the overlay off then).
+    const autoShownForRef = useRef<number | null>(null);
+    useEffect(() => {
+        if (
+            $hidingEndsAt !== null &&
+            Date.now() < $hidingEndsAt &&
+            $zone === null &&
+            autoShownForRef.current !== $hidingEndsAt
+        ) {
+            autoShownForRef.current = $hidingEndsAt;
+            showHiderReach.set(true);
+        }
+    }, [$hidingEndsAt, $zone]);
 
     useEffect(() => {
         // Default: not loading. Every early return below (off / zone

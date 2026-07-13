@@ -635,7 +635,7 @@ export function GameSetupDialog() {
                                 {step === 1 &&
                                     "Pick the city or region you'll be seeking in. Add neighbouring municipalities if they should count as one play area."}
                                 {step === 2 &&
-                                    "Which public transit modes the hider can use."}
+                                    "Which public transit modes the hider can use. Walking is always allowed."}
                                 {step === 3 &&
                                     "Larger games span more ground and last longer."}
                                 {step === 4 &&
@@ -1475,6 +1475,18 @@ export function PlayAreaStep({
                                         <button
                                             key={`${r.properties.osm_id}-${r.properties.osm_type}`}
                                             type="button"
+                                            // Prevent the tap from blurring the
+                                            // focused search input FIRST: the blur
+                                            // fires setInputFocused(false), which
+                                            // re-expands the map (still showing the
+                                            // OLD area) and reflows the list before
+                                            // the click resolves — so the first tap
+                                            // only dismissed the keyboard and you
+                                            // had to tap the result twice. Same fix
+                                            // as the "Keep <area>" button above.
+                                            onPointerDown={(e) =>
+                                                e.preventDefault()
+                                            }
                                             onClick={() => handlePickResult(r)}
                                             className={cn(
                                                 "w-full text-left p-3 rounded-md border-2 transition-all active:scale-[0.99]",
@@ -1565,13 +1577,6 @@ export function TransitStep({
     };
     return (
         <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-                Walking is always allowed.{" "}
-                <span className="text-foreground/70">
-                    Bus is off by default — adding it dramatically expands
-                    the search space.
-                </span>
-            </p>
             <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-secondary/40 border border-border">
                 <Footprints className="w-4 h-4 text-muted-foreground" />
                 <span className="text-sm font-medium">Walking</span>

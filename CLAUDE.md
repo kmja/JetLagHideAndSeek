@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v802`. Use `git log` for the per-version detail;
+build stamp. Current: `v803`. Use `git log` for the per-version detail;
+
+**v803 — wizard + hider UX batch.** (1) **Play-area search two-tap bug fixed** —
+tapping a search result while the input was focused blurred it FIRST
+(`setInputFocused(false)` re-expanded the map showing the OLD area and reflowed
+the list), so the first tap only dismissed the keyboard and you had to tap
+twice. The result buttons now `onPointerDown={e => e.preventDefault()}` (same
+fix the "Keep <area>" button already had) so the first tap lands. (2) Transit
+step: "Walking is always allowed." moved into the step SUBHEADER (both
+`SetupPage` + `GameSetupDialog`); the "Bus is off by default…" body line
+removed. (3) **RolePicker** anchored to the TOP (`top-4 translate-y-0`,
+removing the VisualViewport keyboard-inset re-centering) so it no longer jumps
+as the keyboard opens/closes; the seeker/hider tiles are back to a SINGLE
+column. (4) Lock-in confirm dialog: the `ZonePreviewMap` is now SQUARE
+(`aspect-square`), and the header names the zone ("Lock in 71st Street?").
+(5) **Hider hiding-zones overlay auto-shows during the hiding period** —
+`HiderReachOverlay` one-shot-enables `showHiderReach` when the hiding period is
+active and no zone is committed (keyed on the deadline, so a manual toggle-off
+still sticks and a new round re-enables), so the hider sees the candidate zones
+they'd commit to without opening Map options.
 
 **v802 — wizard play-area layout fill + nearby-zones auto-refresh.** (1) The
 full-page wizard's play-area step (`SetupPage` → `PlayAreaStep fillHeight`)
