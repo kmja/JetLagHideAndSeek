@@ -428,7 +428,37 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v824`. Use `git log` for the per-version detail;
+build stamp. Current: `v825`. Use `git log` for the per-version detail;
+
+**v825 — hider auto-compute correctness pass (from a full per-type audit).**
+Three subtypes where the hider's auto-computed answer was wrong or missing:
+(1) **matching `same-length-station`** is a 3-WAY comparison (shorter / same /
+longer), but it was routed through the binary `same` Match/No-match control,
+which never set `lengthComparison` — so the seeker's elimination
+(`matchingStationBoundary`, keyed on `lengthComparison`) graded EVERY answer as
+"same" → wrong map cut. New `AutoGradedLengthAnswer` (3-way) grades via the
+engine's `lengthComparison` and sends that field; `AnswerControls` routes
+same-length-station to it. (2) **measuring `rail-measure-ordinary`** —
+`resolveFamily` only matched the exact string `"rail-measure"`, so the shipped
+`rail-measure-ordinary` subtype resolved to null → no fast nearest-distance
+grade + no answer-view reference overlay. Both `resolveFamily`s
+(`NearestReferencePreview.tsx`, `questionImpact.ts`) now match
+`rail-measure*` → the `rail-station` family. (3) **tentacles out-of-range** —
+`hiderifyTentacles` returns `location:false` when the hider is outside the
+tentacle radius (a legit "none within range" verdict), but the UI treated it
+as "couldn't auto-detect" and forced manual name entry, which sent a name with
+no `location` and mis-graded the seeker (it inverts to eliminating the reach
+interior anyway). Now the out-of-range case is an explicit sendable answer
+(`{location:false}`) with an "actually, I'm near one — name it" escape hatch.
+NOTE (deferred to a focused follow-up): the hider ANSWER-dialog map
+(`HiderMap`) is a deliberately-simple seeker-vs-hider comparison and still
+shows only a connector (no elimination-region overlay) for null-family
+subtypes (admin/border/landmass/street/sea-level/custom); the question CARDS
+(`QuestionOutcomeMap`) already draw the true region for those. Also deferred:
+the matching admin-division (`is_in`) + measuring `admin2-border` questions
+still hit LIVE Overpass (never prewarmed) — the real source of the reported
+"1st admin border" Overpass error (measuring `admin1-border` itself is bundled
+Natural Earth, no Overpass); prewarming those is a separate worker-side task.
 
 **v824 — no OS share sheet on "Mark hider found."** `HiderTimer.handleMarkFound`
 auto-called `shareFoundLink` (OS share sheet / clipboard) — a pre-multiplayer

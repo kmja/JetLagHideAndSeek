@@ -101,6 +101,10 @@ export function resolveFamily(typeRaw: string): ResolvedFamily {
     // itself — same lookup either way.
     if (
         stripped === "rail-measure" ||
+        // v824: the shipped measuring subtype is "rail-measure-ordinary"
+        // (see subtypes.ts); without this it resolved to null → no fast
+        // nearest-distance path and no answer-view reference overlay.
+        stripped.startsWith("rail-measure") ||
         stripped === "same-train-line" ||
         stripped === "same-length-station" ||
         stripped === "same-first-letter-station"

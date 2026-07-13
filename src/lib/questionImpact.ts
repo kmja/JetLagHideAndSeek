@@ -87,7 +87,11 @@ function resolveFamily(typeRaw: string): ResolvedFamily {
     if (stripped === "coastline") return { kind: "coastline" };
     if (stripped === "major-city" || stripped === "city")
         return { kind: "city" };
-    if (stripped === "rail-station")
+    // v824: rail-measure-ordinary (the shipped measuring rail subtype) uses
+    // the nearest rail STATION as its reference, so its impact overlay should
+    // draw the closer/further region around rail stations — without this it
+    // resolved to null and drew nothing.
+    if (stripped === "rail-station" || stripped.startsWith("rail-measure"))
         return { kind: "rail-station", family: "rail-station" };
     // Named water bodies — a point family (centroids from the prewarm
     // cache) for the preview/impact. The real measuring elimination uses

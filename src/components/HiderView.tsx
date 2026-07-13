@@ -833,6 +833,21 @@ function AnswerControls({
                 />
             );
         case "matching":
+            // same-length-station is a 3-way length comparison, not a binary
+            // match — it needs its own control that sends `lengthComparison`
+            // (v824). Every other matching subtype is binary Match/No-match.
+            if (
+                (question.data as { type?: string }).type ===
+                "same-length-station"
+            ) {
+                return (
+                    <AutoGradedLengthAnswer
+                        question={question}
+                        hiderPos={hiderPos}
+                        revealed={revealed}
+                    />
+                );
+            }
             return (
                 <AutoGradedBinaryAnswer
                     question={question}
@@ -1265,6 +1280,120 @@ function AutoGradedBinaryAnswer({
 }
 
 /**
+ * Auto-graded 3-way answer for matching `same-length-station` — the
+ * rulebook "Station Name's Length" question compares the LENGTHS of the
+ * hider's and seeker's nearest station names (shorter / same / longer),
+ * NOT a binary match. It grades through the same `hiderifyQuestion` engine
+ * (which sets `lengthComparison`) and sends THAT field, so the seeker's
+ * elimination (`matchingStationBoundary`, keyed on `lengthComparison`)
+ * agrees. v824 fix: this subtype was wrongly routed through the binary
+ * `same` control, which never set `lengthComparison`, so the seeker graded
+ * every "shorter"/"longer" answer as "same" → wrong map cut.
+ */
+function AutoGradedLengthAnswer({
+    question,
+    hiderPos,
+    revealed,
+}: {
+    question: Question;
+    hiderPos: { lat: number; lng: number; accuracy: number } | null;
+    revealed: boolean;
+}) {
+    type Cmp = "shorter" | "same" | "longer";
+    const [computed, setComputed] = useState<Cmp | null>(null);
+    const [grading, setGrading] = useState(false);
+    const [override, setOverride] = useState<Cmp | null>(null);
+
+    useEffect(() => {
+        if (!hiderPos) return;
+        let cancelled = false;
+        setGrading(true);
+        gradeViaEngine(question, hiderPos)
+            .then((data) => {
+                const v = data.lengthComparison;
+                if (
+                    !cancelled &&
+                    (v === "shorter" || v === "same" || v === "longer")
+                ) {
+                    setComputed(v);
+                }
+            })
+            .catch(() => {
+                /* leave null → hider picks manually */
+            })
+            .finally(() => {
+                if (!cancelled) setGrading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [question.key, hiderPos?.lat, hiderPos?.lng]);
+
+    if (!revealed) return null;
+    if (!hiderPos) {
+        return (
+            <p className="text-sm text-center text-muted-foreground py-6">
+                Waiting for your location…
+            </p>
+        );
+    }
+
+    const effective = override ?? computed;
+    const OPTIONS: Array<{ value: Cmp; label: string }> = [
+        { value: "shorter", label: "Shorter" },
+        { value: "same", label: "Same" },
+        { value: "longer", label: "Longer" },
+    ];
+
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-center text-muted-foreground font-poppins">
+                {grading && computed === null ? (
+                    <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Computing your answer…
+                    </span>
+                ) : computed === null && override === null ? (
+                    "Couldn't auto-compute your answer — pick it below."
+                ) : (
+                    "Your station name vs the seeker's — tap to change if wrong."
+                )}
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+                {OPTIONS.map(({ value, label }) => {
+                    const isSelected = effective === value;
+                    return (
+                        <button
+                            key={value}
+                            type="button"
+                            onClick={() => setOverride(value)}
+                            className={cn(
+                                "py-6 rounded-lg font-poppins font-semibold text-base",
+                                "transition-all border-2",
+                                isSelected
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "bg-secondary text-foreground border-border hover:bg-accent",
+                            )}
+                        >
+                            {label}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {effective !== null && (
+                <ShareBackRow
+                    question={question}
+                    answer={{ lengthComparison: effective }}
+                    shareText={`My station name is ${effective} than yours.`}
+                />
+            )}
+        </div>
+    );
+}
+
+/**
  * Single "Send answer" CTA. In multiplayer the answer rides the
  * wire transport directly via `hiderAnswerQuestion` (called inside
  * `markRepliedInInbox`); in solo/offline it just stamps the local
@@ -1395,6 +1524,13 @@ function AutoGradedTentaclesAnswer({
         feature: unknown;
         name: string;
     } | null>(null);
+    // v824: the engine returns `location:false` when the hider is OUTSIDE the
+    // tentacle radius — a LEGITIMATE "none within range" answer, not a
+    // detection failure. Track it so we can offer an explicit sendable answer
+    // (which eliminates the reach-circle interior seeker-side) instead of
+    // forcing manual entry (which used to send a name with no `location` and
+    // mis-graded the seeker's map).
+    const [outOfRange, setOutOfRange] = useState(false);
     const [graded, setGraded] = useState(false);
     const [manual, setManual] = useState(false);
     const [placeName, setPlaceName] = useState("");
@@ -1402,6 +1538,7 @@ function AutoGradedTentaclesAnswer({
     useEffect(() => {
         if (!hiderPos) return;
         let cancelled = false;
+        setOutOfRange(false);
         gradeViaEngine(question, hiderPos)
             .then((data) => {
                 if (cancelled) return;
@@ -1414,6 +1551,9 @@ function AutoGradedTentaclesAnswer({
                         feature: loc,
                         name: String(loc.properties?.name ?? ""),
                     });
+                } else if (loc === false) {
+                    // Engine resolved "outside the radius" — a real verdict.
+                    setOutOfRange(true);
                 }
             })
             .catch(() => {
@@ -1449,7 +1589,35 @@ function AutoGradedTentaclesAnswer({
         );
     }
 
-    const showManual = manual || !computed;
+    // v824: explicit "you're out of range" answer. Sends `location:false`,
+    // which the seeker's elimination reads as "the hider is NOT within the
+    // tentacle radius of any candidate" and eliminates the reach-circle
+    // interior — the correct semantics for an outside-range hider. The hider
+    // can still switch to naming a place if the engine got it wrong.
+    if (outOfRange && !manual) {
+        return (
+            <div className="space-y-3">
+                <p className="text-sm text-center text-muted-foreground font-poppins">
+                    You&apos;re outside the tentacle range — no candidate place
+                    is within reach of you.
+                </p>
+                <ShareBackRow
+                    question={question}
+                    answer={{ location: false }}
+                    shareText="No candidate place is within range of me."
+                />
+                <button
+                    type="button"
+                    onClick={() => setManual(true)}
+                    className="block mx-auto text-xs text-muted-foreground hover:text-foreground hover:underline"
+                >
+                    Actually, I&apos;m near one — name it
+                </button>
+            </div>
+        );
+    }
+
+    const showManual = manual || (!computed && !outOfRange);
 
     if (showManual) {
         const trimmed = placeName.trim();
