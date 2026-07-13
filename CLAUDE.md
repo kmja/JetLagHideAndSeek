@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v807`. Use `git log` for the per-version detail;
+build stamp. Current: `v808`. Use `git log` for the per-version detail;
+
+**v808 — wizard finish drops the stale room (real root cause of "thrown into a
+dead game").** v807 scrubbed local round state but the user was STILL dumped into
+a "dead" seeking shell (SEEK! then GO-GO-GO overlays, then an empty lobby, no
+running timer). Root cause was one level deeper: finishing the wizard REUSED the
+previous game's multiplayer/demo room. On navigating to `/`, `MultiplayerBoot`'s
+`tryResumeFromPersistent()` reconnects to that persisted room and the STALE server
+snapshot clobbers the just-nulled `hidingPeriodEndsAt` — `applySnapshot` (store.ts
+~738) and the `setupChanged` handler (~938) BOTH write `hidingPeriodEndsAt.set(msg.
+setup.hidingPeriodEndsAt)` unconditionally — so the in-game seeking shell rendered
+instead of the pre-game lobby (the lobby only opens when `hidingEndsAt === null`),
+replaying the celebration overlays off the stale clock. v807's fired-for-key clear
+merely unmasked the SECOND overlay; the resume-clobber was the actual bug (present
+pre-v807 too). Fix: `SetupPage.handleFinish` now calls **`leaveGame()`** instead of
+the old `hostPushSetup()` — finishing the FULL wizard is unambiguously a new game
+from scratch (only reached via first-time setup or `startNewGame`; mid-game tweaks
+use `GameSetupDialog`), so it drops any prior room (real OR demo — `leaveGame` also
+tears down a lingering demo broker's bots) and the lobby's autohost effect then
+creates a guaranteed-fresh, clean-state room and pushes THIS setup. Deterministic:
+no code left to resume → no stale snapshot → the lobby is always the next surface.
+Also (unrelated polish): the map-options **transit-overlay toggles now show a text
+label** under each mode icon (Subway/Bus/Ferry/Train/Tram), matching the Basemap
+buttons' icon+label idiom (`TransitIconToggle` stacks icon over a `text-[10px]`
+label; the segmented row dropped its fixed height to fit two lines).
 
 **v807 — wizard finish = pristine game (stale round-state bleed fix).** Finishing
 the setup wizard could throw the user STRAIGHT into a seeking game — skipping the

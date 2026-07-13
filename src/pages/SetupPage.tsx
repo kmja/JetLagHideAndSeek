@@ -43,11 +43,7 @@ import {
 } from "@/lib/gameSetup";
 import { resetHiderRoundState } from "@/lib/hiderRole";
 import { resetSharedRoundState } from "@/lib/roundReset";
-import {
-    currentGameCode,
-    multiplayerEnabled,
-} from "@/lib/multiplayer/session";
-import { hostPushSetup } from "@/lib/multiplayer/store";
+import { leaveGame } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 import { determineName, type OpenStreetMap } from "@/maps/api";
 import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
@@ -226,9 +222,19 @@ export function SetupPage() {
         // v279: display name now lives in the RolePicker. The wizard
         // doesn't touch displayNameAtom anymore.
 
-        if (multiplayerEnabled.get() && currentGameCode.get()) {
-            hostPushSetup();
-        }
+        // v808: finishing the FULL wizard is a new game from scratch (it's
+        // only reached via first-time setup or startNewGame; mid-game
+        // tweaks use GameSetupDialog). Drop any prior room — real OR demo —
+        // so the lobby autohosts a guaranteed-fresh, clean-state room.
+        // Reusing the old room re-armed the bug: MultiplayerBoot's
+        // tryResumeFromPersistent reconnects on the `/` mount and the STALE
+        // room snapshot clobbers the just-nulled hidingPeriodEndsAt
+        // (applySnapshot / setupChanged overwrite it unconditionally),
+        // rendering the in-game seeking shell instead of the pre-game lobby
+        // and replaying the SEEK / GO-GO-GO overlays. leaveGame() also stops
+        // a lingering demo broker's bots. With no code left, the lobby's
+        // autohost effect creates a fresh room and pushes THIS setup.
+        leaveGame();
 
         navigate("/", { replace: true });
     };

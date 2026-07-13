@@ -261,8 +261,7 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                     <div className={label}>Transit overlays</div>
                     <div
                         className={cn(
-                            "rounded-lg border-2 border-border bg-background overflow-hidden flex",
-                            rowH,
+                            "rounded-lg border-2 border-border bg-background overflow-hidden flex items-stretch",
                         )}
                         role="group"
                         aria-label="Transit overlays"
@@ -323,7 +322,7 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                 push(
                                     "train",
                                     TRANSIT_ICONS.train,
-                                    "Train (lines)",
+                                    "Train",
                                     $train,
                                     $transitLoading.train,
                                     () => showTrainRoutes.set(!$train),
@@ -332,7 +331,7 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                 push(
                                     "tram",
                                     TRANSIT_ICONS.tram,
-                                    "Tram (lines)",
+                                    "Tram",
                                     $tram,
                                     $transitLoading.tram,
                                     () => showTramRoutes.set(!$tram),
@@ -462,7 +461,7 @@ function TransitIconToggle({
             title={loading ? `${label} — loading routes…` : label}
             aria-label={loading ? `${label} (loading routes)` : label}
             className={cn(
-                "flex-1 flex items-center justify-center transition-colors",
+                "flex-1 flex flex-col items-center justify-center gap-1 py-2 px-1 transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 borderLeft && "border-l-2 border-border",
                 loading
@@ -477,6 +476,9 @@ function TransitIconToggle({
             ) : (
                 <Icon className={iconClass} />
             )}
+            <span className="text-[10px] font-poppins font-semibold leading-none text-center">
+                {label}
+            </span>
         </button>
     );
 }
