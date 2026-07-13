@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v816`. Use `git log` for the per-version detail;
+build stamp. Current: `v817`. Use `git log` for the per-version detail;
+
+**v817 — hard belts against the freeze / blank-screen.** Two defence-in-depth
+additions after the role-picker freeze persisted (sometimes a frozen pure white/
+black screen with no UI at all): (1) **`createGame` hard throttle** (`store.ts`) —
+a module-level `CREATE_GAME_MIN_INTERVAL_MS=3000` guard that makes room creation
+physically unable to fire more than once per 3 s, INDEPENDENT of any caller's retry
+logic. This is the definitive stop for a create→fail→create loop pegging the main
+thread (the lobby autohost spinning against the Worker's per-IP 429 room-creation
+rate limit — very reachable after many quick new-games, since v808 makes each
+wizard-finish create a fresh room). Even if the v816 `hostingState==="failed"`
+effect guard ever regresses, `createGame` itself can't hammer. (2) **Root error
+boundary** (`App.tsx`) — the whole app is now wrapped in `MapErrorBoundary` (a
+general boundary despite the name; its Reload wipes the SW + Cache Storage). A crash
+in `BetaGate` / the router / the transition curtain used to bubble past the
+per-route boundaries and blank the page to WHITE with no recovery; now it shows the
+recover card — which ALSO fixes the "stale service-worker serves an index pointing
+at chunks the latest deploy already replaced" white screen that a rapid deploy
+cadence can cause.
 
 **v816 — role-picker freeze: two more triggers killed.** After v810 made the
 pre-game lobby non-modal, the role picker could STILL freeze (frozen input +

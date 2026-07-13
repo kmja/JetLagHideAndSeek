@@ -133,12 +133,30 @@ export function isHiderConnected(): boolean {
 /* ────────────────── Connection lifecycle ────────────────── */
 
 /**
+ * Hard client-side throttle on room creation (v817). A safety net
+ * INDEPENDENT of any caller's own retry logic: no matter what triggers
+ * `createGame`, it physically cannot fire more than once per this window.
+ * This is what makes a create→fail→create loop (e.g. the lobby autohost
+ * spinning against the Worker's 429 rate limit) unable to peg the main
+ * thread / freeze the app even if a guard elsewhere regresses.
+ */
+const CREATE_GAME_MIN_INTERVAL_MS = 3000;
+let lastCreateGameAttemptAt = 0;
+
+/**
  * Create a brand-new room on the server. Returns the 6-char code on
  * success. The caller is expected to then call `joinAsHost(code)` to
  * actually connect (we keep the two steps separate so the UI can
  * surface the code briefly without committing to a connection).
  */
 export async function createGame(): Promise<string> {
+    const now = Date.now();
+    if (now - lastCreateGameAttemptAt < CREATE_GAME_MIN_INTERVAL_MS) {
+        // Refuse to hammer — the caller treats this like any other failure
+        // (shows the retry card); it just can't loop.
+        throw new Error("Slow down — wait a moment before creating a game.");
+    }
+    lastCreateGameAttemptAt = now;
     const origin = getMultiplayerOrigin();
     const resp = await fetch(`${origin}/games`, { method: "POST" });
     if (resp.status === 429) {

@@ -218,7 +218,15 @@ const router = createBrowserRouter([
 
 export function App() {
     return (
-        <>
+        // v817: a ROOT error boundary. Per-route boundaries (RouteWrapper)
+        // already catch page crashes, but a throw in BetaGate, the router
+        // itself, or the transition curtain used to bubble past them and
+        // blank the whole page to white with no recovery. MapErrorBoundary
+        // is a general boundary whose Reload wipes the SW + Cache Storage —
+        // which is also the fix for the "stale service-worker serves an
+        // index pointing at chunks the latest deploy replaced" white screen
+        // that a rapid deploy cadence can cause.
+        <MapErrorBoundary>
             <BetaGate>
                 <RouterProvider router={router} />
             </BetaGate>
@@ -243,7 +251,7 @@ export function App() {
                 theme="dark"
             />
             <PWAUpdatePrompt />
-        </>
+        </MapErrorBoundary>
     );
 }
 
