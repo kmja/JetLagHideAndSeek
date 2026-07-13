@@ -145,6 +145,15 @@ export function RolePicker() {
         >
             <DialogContent
                 closeIcon={false}
+                // v815: DON'T auto-focus the name input on open. Radix
+                // Dialog grabs focus onto the first focusable (the input)
+                // when it mounts, which pops the keyboard AND — layered over
+                // the lobby drawer — can start a focus tug-of-war that pegs
+                // the main thread (the "role picker freezes, keyboard opens
+                // but the field won't type" bug). Letting the user tap the
+                // field to focus it when ready avoids the mount-time grab
+                // entirely; the non-modal lobby then lets the focus hold.
+                onOpenAutoFocus={(e) => e.preventDefault()}
                 // z-[1060] (content + overlay) so it stacks ABOVE the
                 // lobby drawer, whose content sits at z-[1055].
                 className={cn(

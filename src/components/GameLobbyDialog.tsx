@@ -183,6 +183,14 @@ export function GameLobbyDialog() {
         // ≥1 hider) still keeps the game from STARTING until a
         // seeker joins, which is the actual rule.
         if (hostingState === "creating") return; // Already in flight.
+        // v815: a FAILED create must NOT auto-retry. The effect re-runs on
+        // its own `hostingState` change, so without this guard a persistent
+        // failure (most often the Worker's per-IP room-creation rate limit
+        // — HTTP 429 — after a lot of quick new-games) span create → fail →
+        // create in a tight loop that pegged the main thread and froze the
+        // lobby / role picker. Wait for the user's explicit Retry button
+        // (which resets hostingState to "idle") instead.
+        if (hostingState === "failed") return;
         // Working room? Keep it. A persisted code that's currently
         // connecting/reconnecting counts as "in progress" — we
         // don't want to abandon it mid-handshake.

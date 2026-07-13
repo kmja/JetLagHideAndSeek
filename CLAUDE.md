@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v815`. Use `git log` for the per-version detail;
+build stamp. Current: `v816`. Use `git log` for the per-version detail;
+
+**v816 — role-picker freeze: two more triggers killed.** After v810 made the
+pre-game lobby non-modal, the role picker could STILL freeze (frozen input +
+unresponsive UI) via two other mechanisms, both fixed: (1) **Lobby autohost retry
+loop** — the self-heal effect (`GameLobbyDialog`) re-runs on its own `hostingState`
+change, so a persistent `createGame()` failure (most often the multiplayer Worker's
+per-IP room-creation **429 rate limit** after many quick new-games) spun
+create→fail→create in a tight loop that pegged the main thread. Added an
+`if (hostingState === "failed") return;` guard so a failed create waits for the
+user's explicit Retry button (which resets to `"idle"`) instead of auto-retrying.
+(2) **RolePicker auto-focus grab** — Radix Dialog auto-focuses its first focusable
+(the name input) on open, popping the keyboard and, layered over the lobby drawer,
+starting a focus tug-of-war. `onOpenAutoFocus={(e) => e.preventDefault()}` on the
+RolePicker's `DialogContent` stops the mount-time grab; the user taps the field when
+ready and the non-modal lobby lets the focus hold.
 
 **v815 — radar "scan" overlay is a real sweep (beam + fading trail).** The pending
 radar-question overlay on `Map.tsx` was a uniform-opacity 60° turf `sector` — a
