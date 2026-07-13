@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v797`. Use `git log` for the per-version detail;
+build stamp. Current: `v798`. Use `git log` for the per-version detail;
+
+**v798 — hider zone-commit UX polish.** (1) The `HiderZoneHint` on-map header
+("Select a station to hide near") was a stray notification-style pill (thin red
+tent + sentence-case text); restyled to the app's on-map **overlay-card idiom**
+— a solid brand-red icon BLOCK on the left + a bold UPPERCASE label — so it
+reads as part of the same overlay system as `QuestionOverlayCard`. (2) The
+**lock-in confirmation** (`confirmAndCommitZone` → `appConfirm`) now renders a
+small non-interactive **map preview of the zone's radius extent**
+(`ZonePreviewMap`, lazily imported by `AppConfirmHost` so MapLibre stays out of
+the eager confirm bundle; `ConfirmOptions.previewZone`), tighter copy, and ends
+with just "This cannot be undone." (3) The near-identical SECOND modal ("Hiding
+zone locked in… End it now / Keep timer running") was REMOVED — after
+committing during the hiding period, `confirmAndCommitZone` raises a volatile
+`zoneLockedCallout` that `HiderMapTimer` renders as an on-map **callout ABOVE
+the timer, with a downward caret pointing at it**, carrying the same End-early /
+Keep-running choice where the timer + end action already live. (4) The
+end-early button ("End hiding · Start seeking") was reworded to **"End hiding
+early"** on BOTH surfaces (`HiderMapTimer` + `HiderHome`) — "start seeking" read
+wrong from the hider's own perspective.
 
 **v797 — two demo-blocker bug fixes.** (1) **QR-share dialog froze the app.**
 `InviteSheet`'s "Scan to join" QR `Dialog` is launched from INSIDE the lobby

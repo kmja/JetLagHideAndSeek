@@ -554,7 +554,7 @@ function HidingPhaseView({
                         className="gap-1.5"
                     >
                         <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
-                        End hiding · Start seeking
+                        End hiding early
                     </Button>
                 </div>
             )}

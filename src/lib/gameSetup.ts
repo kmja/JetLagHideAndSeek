@@ -390,6 +390,17 @@ export const mapOptionsDrawerOpen = atom<boolean>(false);
 export const endOfRoundDialogOpen = atom<boolean>(false);
 
 /**
+ * Volatile: show the on-map "zone locked in" callout near the hider's
+ * timer (v798)? Set true by `confirmAndCommitZone` right after a zone is
+ * committed DURING the hiding period — it replaces the old second modal
+ * ("End it now / Keep timer running") with a lightweight callout that
+ * points at the hiding timer (where the end-early action lives). Gated on
+ * `phase === "hiding"` by the renderer, so it auto-hides once the period
+ * ends; the hider dismisses it via "Keep timer running".
+ */
+export const zoneLockedCallout = atom<boolean>(false);
+
+/**
  * Volatile per-mode loading state for the Overpass-fetched transit
  * overlays (subway / bus / ferry). The TransitRoutesOverlay component
  * writes to this whenever it kicks off or finishes a fetch; the

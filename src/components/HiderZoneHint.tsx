@@ -44,23 +44,34 @@ export function HiderZoneHint() {
 
     return (
         <div className="absolute top-3 left-1/2 z-[500] w-[min(94vw,26rem)] -translate-x-1/2 px-2">
-            <div className="overflow-hidden rounded-xl border bg-background/95 shadow-lg backdrop-blur">
+            <div className="overflow-hidden rounded-xl border bg-background/95 shadow-xl backdrop-blur">
+                {/* Header styled like the app's on-map overlay cards
+                    (`QuestionOverlayCard`): a solid brand-colour icon BLOCK on
+                    the left + a bold uppercase label — so it reads as part of
+                    the same overlay system, not a stray notification pill. */}
                 <button
                     type="button"
                     onClick={() => setCollapsed((c) => !c)}
                     aria-expanded={!collapsed}
-                    className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
+                    className="flex w-full items-stretch text-left"
                 >
-                    <Tent className="h-6 w-6 shrink-0 text-primary" />
-                    <span className="flex-1 text-lg font-bold leading-tight tracking-tight">
-                        Select a station to hide near
+                    <span
+                        className="flex w-12 shrink-0 items-center justify-center bg-primary text-primary-foreground"
+                        aria-hidden="true"
+                    >
+                        <Tent className="h-5 w-5" strokeWidth={2.25} />
                     </span>
-                    <ChevronDown
-                        className={cn(
-                            "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
-                            collapsed && "-rotate-90",
-                        )}
-                    />
+                    <span className="flex min-w-0 flex-1 items-center gap-2 px-3 py-3">
+                        <span className="flex-1 text-base font-extrabold uppercase leading-tight tracking-tight text-foreground">
+                            Select a station to hide near
+                        </span>
+                        <ChevronDown
+                            className={cn(
+                                "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                                collapsed && "-rotate-90",
+                            )}
+                        />
+                    </span>
                 </button>
                 {!collapsed && (
                     <div className="max-h-[45vh] overflow-y-auto px-2 pb-2">

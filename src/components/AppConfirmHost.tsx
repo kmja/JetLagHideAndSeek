@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import { lazy, Suspense } from "react";
 
 import {
     AlertDialog,
@@ -12,6 +13,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { pendingConfirm } from "@/lib/confirm";
 import { cn } from "@/lib/utils";
+
+// Lazy so MapLibre only loads when a confirm actually asks for a zone
+// preview (the hider lock-in) — not on every appConfirm from anywhere.
+const ZonePreviewMap = lazy(() => import("@/components/ZonePreviewMap"));
 
 /**
  * Renders the app-styled AlertDialog whenever something calls
@@ -44,6 +49,20 @@ export function AppConfirmHost() {
                     <AlertDialogTitle>
                         {$pending?.title ?? ""}
                     </AlertDialogTitle>
+                    {$pending?.previewZone && (
+                        <Suspense
+                            fallback={
+                                <div className="h-40 w-full animate-pulse rounded-lg bg-muted" />
+                            }
+                        >
+                            <ZonePreviewMap
+                                lat={$pending.previewZone.lat}
+                                lng={$pending.previewZone.lng}
+                                radiusMeters={$pending.previewZone.radiusMeters}
+                                className="h-40 w-full"
+                            />
+                        </Suspense>
+                    )}
                     {$pending?.description && (
                         <AlertDialogDescription>
                             {$pending.description}

@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Flag, Plus, Timer } from "lucide-react";
+import { Ban, Flag, Plus, Tent, Timer, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -16,6 +16,7 @@ import {
     endgameStartedAt,
     formatTimeRemaining,
     hidingPeriodEndsAt,
+    zoneLockedCallout,
 } from "@/lib/gameSetup";
 import {
     addScoutedSpot,
@@ -87,6 +88,7 @@ export function HiderMapTimer() {
     const $forfeited = useStore(hiderForfeited);
     const $gps = useStore(lastKnownPosition);
     const $roundLog = useStore(roundLog);
+    const $zoneCallout = useStore(zoneLockedCallout);
 
     const [markPopoverOpen, setMarkPopoverOpen] = useState(false);
     const [draftLabel, setDraftLabel] = useState("");
@@ -277,6 +279,68 @@ export function HiderMapTimer() {
                 </Popover>
             )}
 
+            {/* Zone-locked callout (v798) — replaces the old second modal.
+                Appears ABOVE the timer after committing a zone, pointing down
+                at it, with the same end-early / keep-running choice living
+                where the timer + end action are. Auto-hides once hiding ends
+                (phase gate); "Keep timer running" dismisses it. */}
+            {phase === "hiding" &&
+                $hidingZone !== null &&
+                $zoneCallout && (
+                    <div className="relative w-[min(80vw,20rem)] rounded-xl border-2 border-border bg-card p-3 shadow-xl">
+                        <div className="mb-1 flex items-center gap-2">
+                            <span
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"
+                                aria-hidden="true"
+                            >
+                                <Tent className="h-4 w-4" strokeWidth={2.5} />
+                            </span>
+                            <span className="text-[11px] font-poppins font-extrabold uppercase tracking-[0.12em] text-foreground">
+                                Zone locked in
+                            </span>
+                        </div>
+                        <p className="mb-2.5 text-[12px] leading-snug text-muted-foreground">
+                            <span className="font-semibold text-foreground">
+                                {$hidingZone.stationName}
+                            </span>{" "}
+                            is set. Head to your spot — end the hiding period
+                            when you&apos;re hidden, or keep the timer running.
+                        </p>
+                        <div className="flex items-stretch gap-2">
+                            <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => {
+                                    zoneLockedCallout.set(false);
+                                    endHidingPeriodEarly();
+                                }}
+                                className="flex-1 gap-1.5"
+                            >
+                                <Flag className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                End hiding early
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => zoneLockedCallout.set(false)}
+                                className="flex-1 gap-1.5"
+                            >
+                                <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                Keep timer
+                            </Button>
+                        </div>
+                        {/* Downward caret pointing at the timer below. */}
+                        <span
+                            className={cn(
+                                "absolute -bottom-1.5 h-3 w-3 rotate-45 border-b-2 border-r-2 border-border bg-card",
+                                anchorLeft ? "left-6" : "right-6",
+                            )}
+                            aria-hidden="true"
+                        />
+                    </div>
+                )}
+
             {/* pre-game — muted placeholder box. */}
             {phase === "pre-game" && (
                 <div className="flex items-center gap-3 rounded-xl pl-3 pr-5 py-2 shadow-lg bg-card border-2 border-border">
@@ -320,14 +384,15 @@ export function HiderMapTimer() {
 
             {/* End-hiding shortcut — only once a zone is committed (before
                 that there's nothing to hide in, so ending early would just
-                strand the hider). Ends the hiding period now and starts the
-                seekers hunting (mirrored to peers). Sits directly under the
-                golden countdown, the thing it acts on. */}
+                strand the hider). Ends the hiding period now (mirrored to
+                peers). Sits directly under the golden countdown, the thing
+                it acts on. Worded from the HIDER's view — they're declaring
+                they're hidden, not "seeking" (v798). */}
             {phase === "hiding" && $hidingZone !== null && (
                 <button
                     type="button"
                     onClick={endHidingPeriodEarly}
-                    title="End the hiding period now and start the seekers hunting"
+                    title="End the hiding period now — the seekers start hunting"
                     className={cn(
                         "flex items-center justify-center gap-1.5",
                         "px-2.5 py-1.5 rounded-md shadow-md",
@@ -338,7 +403,7 @@ export function HiderMapTimer() {
                     )}
                 >
                     <Flag className="w-3 h-3" strokeWidth={2.5} />
-                    End hiding · Start seeking
+                    End hiding early
                 </button>
             )}
 

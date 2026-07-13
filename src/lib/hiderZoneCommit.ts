@@ -1,9 +1,8 @@
 import { toast } from "react-toastify";
 
 import { appConfirm } from "@/lib/confirm";
-import { hidingPeriodEndsAt } from "@/lib/gameSetup";
+import { hidingPeriodEndsAt, zoneLockedCallout } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
-import { endHidingPeriodEarly } from "@/lib/roundActions";
 
 export interface ZoneStation {
     lat: number;
@@ -16,21 +15,30 @@ export interface ZoneStation {
  * behind BOTH the Zone drawer's nearby-stations picker and the on-map zone
  * hint (`HiderZoneHint`), so they can never drift.
  *
- * Committing is a one-way, round-defining choice, so it asks "Lock in?" first;
- * on confirm it sets `hidingZone` and then offers the rulebook shortcut to end
- * the hiding period early (skipped once the whistle has already blown).
+ * Committing is a one-way, round-defining choice, so it asks "Lock in?"
+ * first — with a map preview of the zone extent. On confirm it sets
+ * `hidingZone`; if the hiding period is still running it then raises the
+ * on-map `zoneLockedCallout` (near the timer) instead of a second modal, so
+ * the "end early / keep timer" choice lives where the timer + end action are
+ * (v798 — the two stacked modals looked near-identical).
  *
- * Returns true iff the zone was committed (the first confirm accepted).
+ * Returns true iff the zone was committed (the confirm accepted).
  */
 export async function confirmAndCommitZone(
     station: ZoneStation,
     radiusMeters: number,
 ): Promise<boolean> {
+    const radiusLabel =
+        radiusMeters >= 1000
+            ? `${(radiusMeters / 1000).toFixed(radiusMeters % 1000 === 0 ? 0 : 1)} km`
+            : `${radiusMeters} m`;
+    const zoneName = station.name ?? "this station";
     const ok = await appConfirm({
         title: "Lock in your hiding zone?",
-        description: `Set "${station.name ?? "this station"}" as your hiding zone for this round? Your actual hiding spot must stay within its radius, and this is what the seekers will be trying to find.`,
+        description: `"${zoneName}" and everywhere within its ${radiusLabel} radius becomes your hiding zone for the round — the area the seekers hunt. This cannot be undone.`,
         confirmLabel: "Lock it in",
         cancelLabel: "Cancel",
+        previewZone: { lat: station.lat, lng: station.lng, radiusMeters },
     });
     if (!ok) return false;
 
@@ -43,26 +51,13 @@ export async function confirmAndCommitZone(
     });
     toast.success("Hiding zone committed.", { autoClose: 2000 });
 
+    // Still in the hiding period → surface the on-map callout by the timer
+    // so the hider can end early (or keep going) from where that action is.
     if (
         hidingPeriodEndsAt.get() !== null &&
         (hidingPeriodEndsAt.get() ?? 0) > Date.now()
     ) {
-        const radiusLabel =
-            radiusMeters >= 1000
-                ? `${(radiusMeters / 1000).toFixed(radiusMeters % 1000 === 0 ? 0 : 1)} km`
-                : `${radiusMeters} m`;
-        const zoneName = station.name ?? "your station";
-        const end = await appConfirm({
-            // v788: name the zone that was just locked in so the hider has a
-            // clear confirmation of their choice.
-            title: `Hiding zone locked in: ${zoneName}`,
-            description: `Your hiding zone is "${zoneName}" — the ${radiusLabel} radius around it, and what the seekers will be hunting. End the hiding period early and alert them now, or keep the timer running for a bit more time in your spot?`,
-            confirmLabel: "End it now",
-            cancelLabel: "Keep timer running",
-        });
-        if (end) {
-            endHidingPeriodEarly();
-        }
+        zoneLockedCallout.set(true);
     }
     return true;
 }

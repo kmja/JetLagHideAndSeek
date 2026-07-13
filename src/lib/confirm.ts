@@ -34,6 +34,11 @@ export interface ConfirmOptions {
     /** When true, the confirm button uses the destructive (red)
      *  variant — for actions like Delete, Leave game, Discard etc. */
     destructive?: boolean;
+    /** Optional hiding-zone preview: renders a small non-interactive map of
+     *  the zone's radius extent above the description (lazily, so MapLibre
+     *  isn't in the eager confirm-dialog bundle). Used by the hider's
+     *  lock-in confirmation so the choice is visible before committing. */
+    previewZone?: { lat: number; lng: number; radiusMeters: number };
 }
 
 interface PendingConfirm extends ConfirmOptions {
