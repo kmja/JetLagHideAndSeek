@@ -516,9 +516,21 @@ export function setOnlineRole(role: "seeker" | "hider" | null) {
  * No-op offline — the dialog short-circuits to the local "Start
  * new round" path in that case.
  */
-export function seekerRotateHider(toParticipantId: string) {
+export function seekerRotateHider(
+    toParticipantId: string,
+    coHiderIds?: string[],
+) {
     if (!multiplayerEnabled.get()) return;
-    getTransport().send({ t: "rotateHider", to: toParticipantId });
+    getTransport().send({
+        t: "rotateHider",
+        to: toParticipantId,
+        // Additional hide-team members for the new round (v826). Omit the
+        // key entirely when it's a single-hider round so older servers stay
+        // happy (unknown key is ignored, but this keeps the wire minimal).
+        ...(coHiderIds && coHiderIds.length > 0
+            ? { coHiders: coHiderIds }
+            : {}),
+    });
 }
 
 /**

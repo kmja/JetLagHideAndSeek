@@ -180,8 +180,11 @@ export function EndOfRoundDialog() {
         close();
     };
 
-    const handleConfirmRotation = (newHiderId: string) => {
-        seekerRotateHider(newHiderId);
+    const handleConfirmRotation = (
+        primaryHiderId: string,
+        coHiderIds: string[],
+    ) => {
+        seekerRotateHider(primaryHiderId, coHiderIds);
         startNewRound();
         setRotateOpen(false);
         close();
@@ -273,7 +276,7 @@ export function EndOfRoundDialog() {
                     >
                         {formatDuration(currentHidingMs)}
                     </div>
-                    <p className="text-[11px] text-muted-foreground leading-snug pt-1">
+                    <p className="text-xs text-muted-foreground leading-snug pt-1">
                         Time hidden from the end of the hiding period, including
                         any time-bonus cards in the hider&apos;s hand. Longest
                         single hide wins.
@@ -321,7 +324,7 @@ export function EndOfRoundDialog() {
                                 </div>
                             ))}
                         </div>
-                        <p className="text-[10px] text-muted-foreground text-center pt-0.5">
+                        <p className="text-xs text-muted-foreground text-center pt-0.5">
                             Ranked by time hidden — longest hide wins.
                         </p>
                     </div>

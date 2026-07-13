@@ -324,7 +324,7 @@ export class GameRoom {
             case "found":
                 return this.handleMarkFound(socket, msg.foundAt);
             case "rotateHider":
-                return this.handleRotateHider(socket, msg.to);
+                return this.handleRotateHider(socket, msg.to, msg.coHiders);
             case "promoteCoHider":
                 return this.handlePromoteCoHider(socket, msg.to);
             case "setHideZone":
@@ -946,7 +946,11 @@ export class GameRoom {
      * GO GO GO gate on the seeker side is what re-arms the hiding
      * period clock, so we don't touch `hidingPeriodEndsAt` here.
      */
-    private handleRotateHider(socket: WebSocket, toId: string) {
+    private handleRotateHider(
+        socket: WebSocket,
+        toId: string,
+        coHiderIds?: string[],
+    ) {
         const conn = this.lookupConn(socket);
         if (!conn) return;
         const target = this.game.participants.find((q) => q.id === toId);
@@ -957,12 +961,23 @@ export class GameRoom {
                 message: "Unknown participant for hider rotation.",
             });
         }
-        // Assign roles for the new round: the target hides, everyone
-        // else seeks. This covers the old hider (demoted), any racing
-        // second hider, and anyone still unassigned (role null) — one
-        // hider, everyone else a seeker, in a single pass.
+        // Assign roles for the new round: the target is the PRIMARY hider,
+        // any additional selected members become co-hiders (v826 multi-hider
+        // support), and everyone else seeks. This covers the old hider
+        // (demoted), any racing second hider, and anyone still unassigned
+        // (role null) — one primary hider, an optional hide team, everyone
+        // else a seeker, in a single pass. The primary id always wins even
+        // if it also appears in coHiders.
+        const coHiders = new Set(
+            (coHiderIds ?? []).filter((id) => id !== toId),
+        );
         for (const p of this.game.participants) {
-            p.role = p.id === toId ? "hider" : "seeker";
+            p.role =
+                p.id === toId
+                    ? "hider"
+                    : coHiders.has(p.id)
+                      ? "coHider"
+                      : "seeker";
         }
         // Round boundary: clear the round-end marker and the question
         // log so the new round starts clean. The initiator's local

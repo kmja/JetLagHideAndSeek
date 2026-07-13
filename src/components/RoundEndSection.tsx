@@ -72,8 +72,11 @@ export function RoundEndSection() {
         startNewRound();
     };
 
-    const handleConfirmRotation = (newHiderId: string) => {
-        seekerRotateHider(newHiderId);
+    const handleConfirmRotation = (
+        primaryHiderId: string,
+        coHiderIds: string[],
+    ) => {
+        seekerRotateHider(primaryHiderId, coHiderIds);
         startNewRound();
         setRotateDialogOpen(false);
     };

@@ -135,8 +135,16 @@ export interface CMsgUpdateQuestion {
  */
 export interface CMsgRotateHider {
     t: "rotateHider";
-    /** Participant id of the player who should become the new hider. */
+    /** Participant id of the player who should become the new PRIMARY hider
+     *  (the one who answers questions + plays the hand). */
     to: string;
+    /**
+     * Optional additional hide-team members (v826): each becomes a `coHider`
+     * for the new round. Everyone not in `to`/`coHiders` becomes a seeker.
+     * Omitted / empty = a single-hider round (the classic behaviour). The
+     * `to` id is always the primary even if it also appears here.
+     */
+    coHiders?: string[];
 }
 
 /**

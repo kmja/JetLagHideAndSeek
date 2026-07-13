@@ -420,10 +420,30 @@ function handleClientMessage(msg: ClientMessage) {
             return;
         }
 
+        case "rotateHider": {
+            // v826: apply the role reassignment so the demo reflects the
+            // new round's hide team — primary hider + optional co-hiders,
+            // everyone else a seeker — then broadcast presence so the
+            // bridge reconciles the local role (the user may have picked a
+            // bot to hide, making themselves a seeker, or vice versa).
+            const coHiders = new Set(
+                (msg.coHiders ?? []).filter((id) => id !== msg.to),
+            );
+            for (const p of s.state.participants) {
+                p.role =
+                    p.id === msg.to
+                        ? "hider"
+                        : coHiders.has(p.id)
+                          ? "coHider"
+                          : "seeker";
+            }
+            broadcastPresence();
+            return;
+        }
+
         case "loc":
         case "ping":
         case "subscribePush":
-        case "rotateHider":
         case "promoteCoHider":
             // Acknowledged silently. The demo doesn't need any of
             // these to drive a useful test surface.

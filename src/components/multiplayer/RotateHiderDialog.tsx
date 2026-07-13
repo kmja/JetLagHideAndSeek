@@ -35,11 +35,12 @@ export interface RotateHiderDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /**
-     * Called with the picked participant id when the user taps
-     * "Start round". The parent decides what to do with it (send
-     * `seekerRotateHider`, then `startNewRound`).
+     * Called when the user taps "Start round" with the PRIMARY hider id and
+     * the additional hide-team member ids (co-hiders; empty for a classic
+     * single-hider round). The parent sends `seekerRotateHider(primary,
+     * coHiders)` then `startNewRound`.
      */
-    onConfirm: (newHiderId: string) => void;
+    onConfirm: (primaryHiderId: string, coHiderIds: string[]) => void;
 }
 
 export function RotateHiderDialog({
@@ -83,46 +84,71 @@ export function RotateHiderDialog({
         return online[(curIdx + 1) % online.length].id;
     }, [$participants]);
 
-    // Default selection: the suggested rotation, falling back to the
-    // current hider / self / first. Re-derived whenever the dialog
-    // (re-)opens so a long-running app doesn't keep a stale selection
-    // from a previous round.
-    const [selectedId, setSelectedId] = useState<string | null>(
-        suggestedId ?? currentHiderId ?? $self,
+    // v826: MULTI-select hide team. `selectedIds` = everyone hiding this
+    // round; `primaryId` = the one who answers questions + plays the hand
+    // (the rest join as co-hiders). Everyone not selected becomes a seeker.
+    // Default: the suggested single hider, selected + primary. Re-derived on
+    // every (re-)open so a long-running app never keeps a stale selection.
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(
+        () => new Set(),
     );
+    const [primaryId, setPrimaryId] = useState<string | null>(null);
     useEffect(() => {
-        if (open) {
-            setSelectedId(
-                suggestedId ?? currentHiderId ?? $self ?? ordered[0]?.id ?? null,
-            );
-        }
+        if (!open) return;
+        const def =
+            suggestedId ?? currentHiderId ?? $self ?? ordered[0]?.id ?? null;
+        setSelectedIds(def ? new Set([def]) : new Set());
+        setPrimaryId(def);
     }, [open, suggestedId, currentHiderId, $self, ordered]);
-
-    const handleConfirm = () => {
-        if (!selectedId) return;
-        onConfirm(selectedId);
-    };
 
     const canSelect = (online: boolean) => online;
 
+    // Toggle a participant in/out of the hide team, keeping `primaryId`
+    // valid: a newly-added member becomes primary if there wasn't one;
+    // removing the current primary promotes the next remaining member.
+    const toggleMember = (id: string) => {
+        const next = new Set(selectedIds);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        setSelectedIds(next);
+        if (next.has(id)) {
+            if (primaryId === null || !next.has(primaryId)) setPrimaryId(id);
+        } else if (primaryId === id) {
+            setPrimaryId([...next][0] ?? null);
+        }
+    };
+    const makePrimary = (id: string) => {
+        if (selectedIds.has(id)) setPrimaryId(id);
+    };
+
+    const handleConfirm = () => {
+        if (!primaryId) return;
+        const coHiders = [...selectedIds].filter((id) => id !== primaryId);
+        onConfirm(primaryId, coHiders);
+    };
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            {/* This dialog is launched from the lobby drawer (RoundEndSection
-                lives inside GameLobbyDialog), whose content sits at z-[1055].
-                The shared DialogContent/overlay default to z-[1050], so it
-                would open BEHIND the lobby — raise both above it. */}
+            {/* Launched from TWO surfaces: the lobby drawer (RoundEndSection,
+                content z-[1055]) AND the EndOfRoundDialog celebration (a fixed
+                overlay at z-[1072]). The shared DialogContent/overlay default
+                to z-[1050], so it must clear BOTH — v826 bug: at z-[1060] it
+                opened BEHIND the EndOfRoundDialog and "New round did nothing".
+                z-[1080] sits above every launch context. */}
             <DialogContent
-                className="sm:max-w-md z-[1060]"
-                overlayClassName="z-[1060]"
+                className="sm:max-w-md z-[1080]"
+                overlayClassName="z-[1080]"
             >
                 <DialogHeader>
-                    <DialogTitle className="font-inter-tight">
+                    <DialogTitle className="font-inter-tight text-lg font-semibold">
                         Start new round
                     </DialogTitle>
-                    <DialogDescription>
-                        Pick who hides next — everyone else becomes a
-                        seeker. Question log, hand and zone all reset;
-                        play area, transit and game size stay the same.
+                    <DialogDescription className="text-sm">
+                        Pick who hides next — select one or more. The main
+                        hider answers questions and plays the hand; anyone else
+                        you pick joins as a co-hider. Everyone else becomes a
+                        seeker. Question log, hand and zone all reset; play
+                        area, transit and game size stay the same.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -131,7 +157,8 @@ export function RotateHiderDialog({
                         const isCurrentHider = p.role === "hider";
                         const isSelf = p.id === $self;
                         const selectable = canSelect(p.online);
-                        const isSelected = selectedId === p.id;
+                        const isMember = selectedIds.has(p.id);
+                        const isPrimary = primaryId === p.id;
                         const isSuggested =
                             p.id === suggestedId && p.id !== currentHiderId;
                         return (
@@ -139,17 +166,17 @@ export function RotateHiderDialog({
                                 <button
                                     type="button"
                                     onClick={() =>
-                                        selectable && setSelectedId(p.id)
+                                        selectable && toggleMember(p.id)
                                     }
                                     disabled={!selectable}
-                                    aria-pressed={isSelected}
+                                    aria-pressed={isMember}
                                     className={cn(
-                                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-md border text-left",
+                                        "w-full flex items-center gap-3 px-3 py-3 rounded-md border text-left",
                                         "transition-colors",
                                         selectable
                                             ? "hover:bg-accent/40 cursor-pointer"
                                             : "opacity-50 cursor-not-allowed",
-                                        isSelected
+                                        isMember
                                             ? "border-primary bg-primary/10"
                                             : "border-border",
                                     )}
@@ -174,24 +201,50 @@ export function RotateHiderDialog({
                                     {/* Name + role */}
                                     <span className="flex flex-col min-w-0 grow">
                                         <span className="flex items-center gap-1.5">
-                                            <span className="font-medium truncate">
+                                            <span className="text-base font-medium truncate">
                                                 {p.displayName || "Anonymous"}
                                             </span>
                                             {isSelf && (
-                                                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                                <span className="text-xs uppercase tracking-wider text-muted-foreground">
                                                     you
                                                 </span>
                                             )}
                                             {isSuggested && (
-                                                <span className="text-[10px] uppercase tracking-wider font-semibold text-primary">
+                                                <span className="text-xs uppercase tracking-wider font-semibold text-primary">
                                                     suggested
                                                 </span>
                                             )}
                                         </span>
-                                        <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                                            {isCurrentHider ? (
+                                        <span className="text-sm text-muted-foreground flex items-center gap-1.5">
+                                            {isMember && isPrimary ? (
+                                                <span className="inline-flex items-center gap-1 text-primary font-semibold">
+                                                    <EyeOff className="w-3.5 h-3.5" />
+                                                    Main hider — answers
+                                                </span>
+                                            ) : isMember ? (
+                                                <span
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        makePrimary(p.id);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (
+                                                            e.key === "Enter" ||
+                                                            e.key === " "
+                                                        ) {
+                                                            e.stopPropagation();
+                                                            makePrimary(p.id);
+                                                        }
+                                                    }}
+                                                    className="underline hover:text-foreground"
+                                                >
+                                                    Co-hider · make main
+                                                </span>
+                                            ) : isCurrentHider ? (
                                                 <>
-                                                    <EyeOff className="w-3 h-3" />
+                                                    <EyeOff className="w-3.5 h-3.5" />
                                                     Current hider
                                                 </>
                                             ) : p.role === "seeker" ? (
@@ -206,18 +259,18 @@ export function RotateHiderDialog({
                                             )}
                                         </span>
                                     </span>
-                                    {/* Selection check */}
+                                    {/* Membership checkbox */}
                                     <span
                                         className={cn(
-                                            "w-5 h-5 rounded-full border flex items-center justify-center shrink-0",
-                                            isSelected
+                                            "w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0",
+                                            isMember
                                                 ? "border-primary bg-primary text-primary-foreground"
                                                 : "border-border",
                                         )}
                                         aria-hidden
                                     >
-                                        {isSelected && (
-                                            <Check className="w-3 h-3" />
+                                        {isMember && (
+                                            <Check className="w-4 h-4" />
                                         )}
                                     </span>
                                 </button>
@@ -226,29 +279,38 @@ export function RotateHiderDialog({
                     })}
                 </ul>
 
-                {/* Helper note when the picked hider would be a
-                    different person than now — primes the user for
-                    the role-swap that's about to happen. */}
-                {selectedId && currentHiderId && selectedId !== currentHiderId ? (
-                    <p className="text-[11px] text-muted-foreground leading-snug">
-                        Hider role will move from{" "}
-                        <span className="font-medium">
-                            {ordered.find((p) => p.id === currentHiderId)
-                                ?.displayName || "the current hider"}
-                        </span>{" "}
-                        to{" "}
-                        <span className="font-medium">
-                            {ordered.find((p) => p.id === selectedId)
-                                ?.displayName || "this player"}
-                        </span>
-                        .
+                {/* Helper note: summarise the hide team about to be set. */}
+                {primaryId ? (
+                    <p className="text-sm text-muted-foreground leading-snug">
+                        {selectedIds.size > 1 ? (
+                            <>
+                                <span className="font-medium">
+                                    {selectedIds.size} players
+                                </span>{" "}
+                                will hide this round —{" "}
+                                <span className="font-medium">
+                                    {ordered.find((p) => p.id === primaryId)
+                                        ?.displayName || "the main hider"}
+                                </span>{" "}
+                                answers; the rest join as co-hiders. Everyone
+                                else becomes a seeker.
+                            </>
+                        ) : (
+                            <>
+                                <span className="font-medium">
+                                    {ordered.find((p) => p.id === primaryId)
+                                        ?.displayName || "This player"}
+                                </span>{" "}
+                                hides this round; everyone else becomes a
+                                seeker.
+                            </>
+                        )}
                     </p>
-                ) : selectedId && !currentHiderId ? (
-                    <p className="text-[11px] text-muted-foreground leading-snug">
-                        No one is the hider yet — the player you pick
-                        becomes the first hider for this round.
+                ) : (
+                    <p className="text-sm text-muted-foreground leading-snug">
+                        Select at least one player to hide this round.
                     </p>
-                ) : null}
+                )}
 
                 <DialogFooter className="gap-2">
                     <Button
@@ -259,7 +321,7 @@ export function RotateHiderDialog({
                     </Button>
                     <Button
                         onClick={handleConfirm}
-                        disabled={!selectedId}
+                        disabled={!primaryId}
                         className="gap-2"
                     >
                         <Rocket className="w-4 h-4" />

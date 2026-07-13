@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v826`. Use `git log` for the per-version detail;
+build stamp. Current: `v827`. Use `git log` for the per-version detail;
+
+**v827 — "New round does nothing" fix + multi-hider rotation + round-end
+sizing.** (1) **BUG: New round button did nothing.** `EndOfRoundDialog` is a
+plain fixed overlay at `z-[1072]`; `RotateHiderDialog` (the "pick next hider"
+Radix dialog it opens) was `z-[1060]`, so it opened BEHIND the celebration
+overlay — same stacking class as the lobby/GoGoGo bugs. Raised
+RotateHiderDialog content+overlay to `z-[1080]` (clears both the end-of-round
+overlay and the lobby drawer it's also launched from). (2) **Multi-hider
+rotation.** `RotateHiderDialog` is now MULTI-select: pick a whole hide team —
+one MAIN hider (answers questions + plays the hand) plus any number of
+co-hiders; everyone else becomes a seeker. Wired end-to-end: `CMsgRotateHider`
+gained optional `coHiders?: string[]`; `GameRoom.handleRotateHider` assigns
+primary→hider, coHiders→coHider, rest→seeker in one pass; `seekerRotateHider(to,
+coHiders?)`; the demo broker applies the rotation + broadcasts presence (was a
+silent no-op); all four call sites (`EndOfRoundDialog`, `RoundEndSection`,
+`HiderHome`, dialog) pass `(primaryId, coHiderIds)`. Backward-compatible — a
+single-hider round omits `coHiders` entirely. (3) **Round-end sizing.**
+RotateHiderDialog rows/labels bumped from `text-[10px]/[11px]` to `text-sm`/
+`text-base` (name), `py-2.5`→`py-3`, a real checkbox (`w-6 h-6`) per member, and
+an inline "make main" affordance; title `text-lg font-semibold`, description
+`text-sm` — matching the lobby/wizard idiom. EndOfRoundDialog explanatory
+paragraphs `text-[10px]/[11px]`→`text-xs` (its celebration eyebrow labels keep
+the GoGoGo house style). NOTE: the endgame-TRIGGER components (HiderTimer
+endgame badges, StationTransitCard "Start endgame", HiderHome endgame banner)
+are a further size-sweep pass, not done here.
 
 **v826 — matching admin-division question is AREA-keyed, not position-keyed
 (the real "admin border" Overpass-error source).** `findAdminBoundary`

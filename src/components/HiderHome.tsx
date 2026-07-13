@@ -845,8 +845,11 @@ function FinalScoreBanner({
         startNewRound();
     };
 
-    const handleConfirmRotation = (newHiderId: string) => {
-        seekerRotateHider(newHiderId);
+    const handleConfirmRotation = (
+        primaryHiderId: string,
+        coHiderIds: string[],
+    ) => {
+        seekerRotateHider(primaryHiderId, coHiderIds);
         // Local cleanup runs on this device. The bridge wipes
         // hider-only stores on role transitions (see
         // `reconcileLocalRoleFromPresence`) so the player switching
