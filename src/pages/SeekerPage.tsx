@@ -153,7 +153,8 @@ export function SeekerPage() {
     // celebration mid-game but leaves `gameStartOverLobby` false, so its
     // GO-GO-GO still plays over the MAP (this stays false mid-game).
     const gameStarted =
-        $hidingEndsAt !== null && !($overLobby && $celebrationAt !== null);
+        Number.isFinite($hidingEndsAt) &&
+        !($overLobby && $celebrationAt !== null);
 
     // v616: during the hiding period the HiderTimer sits bottom-LEFT, so
     // the bottom-left Map-options chip is pushed up above it. A one-shot

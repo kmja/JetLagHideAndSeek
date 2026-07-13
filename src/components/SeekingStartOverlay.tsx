@@ -49,6 +49,7 @@ export function SeekingStartWatcher() {
     const running =
         $setupCompleted &&
         $endsAt !== null &&
+        Number.isFinite($endsAt) &&
         $endsAt > now &&
         $firedFor !== $endsAt;
     useVisibleInterval(() => setNow(Date.now()), 1000, running);
@@ -56,6 +57,11 @@ export function SeekingStartWatcher() {
     useEffect(() => {
         if (!$setupCompleted) return;
         if ($endsAt === null) return;
+        // v820: a non-finite (NaN) clock must NEVER fire SEEK. `NaN === NaN`
+        // is false, so the dedupe can't hold and `now < NaN` is false, so
+        // without this guard SEEK re-fires every render/tick (the thrash +
+        // frozen-map bug). Treat NaN as "no clock".
+        if (!Number.isFinite($endsAt)) return;
         if (now < $endsAt) return;
         if ($firedFor === $endsAt) return;
         // Claim this fire — write to the persistent atom first so a

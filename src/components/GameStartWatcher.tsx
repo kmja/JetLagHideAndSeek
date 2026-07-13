@@ -49,6 +49,11 @@ export function GameStartWatcher() {
         // full reload, and roundActions clears it to null at every
         // new round so the next game still gets the celebration.
         if ($endsAt === null) return;
+        // v820: a non-finite (NaN) clock must NEVER drive the celebration.
+        // `NaN === NaN` is false, so the value-keyed dedupe below can never
+        // hold for a NaN — without this guard the overlay re-fires every
+        // render/tick, thrashing GO-GO-GO forever and pegging the CPU.
+        if (!Number.isFinite($endsAt)) return;
         if ($firedFor === $endsAt) return;
         // v350: only celebrate a hiding period that's actually
         // STARTING — i.e. whose end is in the future. The bug: when the

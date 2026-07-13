@@ -93,7 +93,8 @@ export function HiderPage() {
     // live, so a stuck `gameStartOverLobby` can't strand the user on the
     // lobby (see SeekerPage for the full rationale).
     const gameStarted =
-        $hidingEndsAt !== null && !($overLobby && $celebrationAt !== null);
+        Number.isFinite($hidingEndsAt) &&
+        !($overLobby && $celebrationAt !== null);
 
     // (Lobby→in-game swap body-lock leftover is cleared globally by
     // installBodyPointerEventsGuard — see main.tsx.)

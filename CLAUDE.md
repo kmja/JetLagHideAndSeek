@@ -428,7 +428,35 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v820`. Use `git log` for the per-version detail;
+build stamp. Current: `v821`. Use `git log` for the per-version detail;
+
+**v821 — NaN hiding-clock = infinite GO-GO-GO/SEEK thrash + frozen map (root
+cause of the "finish wizard → three overlays flicker forever, then a frozen
+seeker view on reopen" bug).** If `hidingPeriodEndsAt` is ever **NaN**, the app
+is catastrophically stuck: `NaN === NaN` is false, so BOTH round-beat watchers'
+value-keyed dedupe (`$firedFor === $endsAt`) can NEVER hold, AND `$endsAt <=
+Date.now()` (GameStartWatcher) / `now < $endsAt` (SeekingStartWatcher) are both
+false for NaN — so GameStartWatcher re-fires GO-GO-GO **and** SeekingStartWatcher
+re-fires SEEK on EVERY render/tick, forever (the 1 s `now` tick + the
+celebration `.set()` re-renders feed the loop), pegging the main thread → the
+map freezes on "Loading". Two overlays (plus the countdown) thrash because both
+watchers fire every frame. **Where the NaN came from:** a corrupt `gameSize`
+(off-enum, from the earlier broken-game state — same family as the v807
+"Seekers frozen NaN:NaN") makes `HIDING_PERIOD_MINUTES[$size]` undefined →
+`minutes` undefined → `Date.now() + undefined*60_000` = **NaN**, which
+`handleStartGame` then armed. And the OLD `hidingPeriodEndsAt` encoder wrote
+`String(NaN)` = `"NaN"` to localStorage, which the OLD decoder read back as NaN
+— so the brick SURVIVED a reload (reopen = still frozen). Defence in depth, all
+layers: (1) **atom decode/encode** (`gameSetup.ts`) coerce non-finite → null
+(also on `pendingHidingDurationMin`), so a persisted `"NaN"` now reads as "no
+game" → LOBBY — this **auto-recovers an already-bricked install on next load**.
+(2) **Both watchers** (`GameStartWatcher`, `SeekingStartOverlay`) bail on
+`!Number.isFinite($endsAt)` — breaks the loop even for a runtime NaN before it
+round-trips through the atom. (3) **The `gameStarted` gate** (SeekerPage/
+HiderPage) uses `Number.isFinite($hidingEndsAt)` instead of `!== null`, so a NaN
+clock renders the pre-game lobby, never a frozen in-game shell. (4) **`handleStartGame`**
+(`GameLobbyDialog`) falls back to 60 min if `minutes` is non-finite, so the clock
+can never be armed to NaN at the source.
 
 **v820 — "Start round does nothing" (stuck on the lobby) fixed: two causes.**
 The lobby's Start button armed the clock but the game never advanced — the

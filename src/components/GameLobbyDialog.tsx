@@ -467,8 +467,17 @@ export function GameLobbyDialog() {
 
     const handleStartGame = () => {
         if (!canStart) return;
+        // v820: harden `minutes` against a corrupt gameSize. If `$size` is
+        // ever an off-enum value, `HIDING_PERIOD_MINUTES[$size]` is undefined
+        // → `minutes` undefined → `Date.now() + undefined*60_000` = NaN, and a
+        // NaN clock sends both round-beat watchers into an infinite GO-GO-GO /
+        // SEEK re-fire loop (thrash + frozen map). Fall back to a sane 60 min.
+        const safeMinutes =
+            Number.isFinite(minutes) && (minutes as number) > 0
+                ? (minutes as number)
+                : HIDING_PERIOD_MINUTES.medium;
         // Arm the clock (correct timing + guest sync via the push below)…
-        hidingPeriodEndsAt.set(Date.now() + minutes * 60_000);
+        hidingPeriodEndsAt.set(Date.now() + safeMinutes * 60_000);
         pendingHidingDurationMin.set(null);
         // …but play the 3-2-1 + GO-GO-GO flourish OVER the lobby first:
         // set both flags SYNCHRONOUSLY so the pre-game branch never swaps

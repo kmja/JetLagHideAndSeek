@@ -452,8 +452,22 @@ export const hidingPeriodEndsAt = persistentAtom<number | null>(
     "hidingPeriodEndsAt",
     null,
     {
-        encode: (v) => (v === null ? "" : String(v)),
-        decode: (v) => (v ? Number(v) : null),
+        // v820: NEVER persist / decode a non-finite clock. A corrupt
+        // gameSize can make `Date.now() + minutes*60_000` evaluate to NaN
+        // (minutes = HIDING_PERIOD_MINUTES[badSize] = undefined), and a
+        // NaN clock is catastrophic: `NaN === NaN` is false, so BOTH the
+        // GameStart and SeekingStart watchers' value-keyed dedupe can never
+        // hold — they re-fire GO-GO-GO + SEEK on every render/tick forever
+        // (the "three overlays thrash, map freezes" bug). Coercing NaN →
+        // null here means a corrupt value reads as "no game" (→ lobby),
+        // never as a frozen, un-dismissable in-game shell.
+        encode: (v) =>
+            v === null || !Number.isFinite(v) ? "" : String(v),
+        decode: (v) => {
+            if (!v) return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        },
     },
 );
 
@@ -470,8 +484,16 @@ export const pendingHidingDurationMin = persistentAtom<number | null>(
     "pendingHidingDurationMin",
     null,
     {
-        encode: (v) => (v === null ? "" : String(v)),
-        decode: (v) => (v ? Number(v) : null),
+        // v820: same non-finite guard as hidingPeriodEndsAt — a corrupt
+        // stored value must decode to null, not NaN, so it can't poison the
+        // `minutes` computation that arms the clock.
+        encode: (v) =>
+            v === null || !Number.isFinite(v) ? "" : String(v),
+        decode: (v) => {
+            if (!v) return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        },
     },
 );
 
