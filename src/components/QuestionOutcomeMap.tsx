@@ -55,8 +55,12 @@ import type { Question } from "@/maps/schema";
  */
 
 /** theme|sig|bbox → captured PNG data URL. Module-level so it survives
- *  collapse/expand and is shared across cards. */
+ *  collapse/expand and is shared across cards. FIFO-capped: each entry is a
+ *  full canvas data-URL (~70-400 KB), and the key varies with question x
+ *  theme x basemap toggle, so an unbounded Map would accrete megabytes over
+ *  a long session. */
 const imageCache = new Map<string, string>();
+const IMAGE_CACHE_LIMIT = 30;
 
 /** Coerce whatever the engine returns into a FeatureCollection. */
 function normalizeFC(value: unknown): GeoJSON.FeatureCollection | null {
@@ -93,6 +97,17 @@ export function QuestionOutcomeMap({
     const base = $mapGeoJSON || $polyGeoJSON;
     const mapRef = useRef<MapRef | null>(null);
     const captured = useRef(false);
+    // onIdle schedules a deferred snapshot; track its id so it's cleared on
+    // unmount (and re-scheduling supersedes the prior one) — otherwise a card
+    // collapsed within 200 ms of tiles settling would setState after unmount.
+    const snapshotTimerRef = useRef<number | null>(null);
+    useEffect(
+        () => () => {
+            if (snapshotTimerRef.current !== null)
+                clearTimeout(snapshotTimerRef.current);
+        },
+        [],
+    );
     const isDraft = question.data.drag === true;
 
     type Outcome = {
@@ -288,6 +303,10 @@ export function QuestionOutcomeMap({
             const url = map.getCanvas().toDataURL("image/png");
             if (url && url.length > 2048) {
                 imageCache.set(cacheKey, url);
+                if (imageCache.size > IMAGE_CACHE_LIMIT) {
+                    const oldest = imageCache.keys().next().value;
+                    if (oldest !== undefined) imageCache.delete(oldest);
+                }
                 captured.current = true;
                 // Swap the veil straight to this final image — no live-map
                 // reveal, so the fit jitter is never shown.
@@ -389,7 +408,12 @@ export function QuestionOutcomeMap({
                     onIdle={() => {
                         setTilesReady(true);
                         // Give the overlay layers a beat to paint, then cache.
-                        window.setTimeout(trySnapshot, 200);
+                        if (snapshotTimerRef.current !== null)
+                            clearTimeout(snapshotTimerRef.current);
+                        snapshotTimerRef.current = window.setTimeout(
+                            trySnapshot,
+                            200,
+                        );
                     }}
                     onError={handleMapLibreError}
                 >

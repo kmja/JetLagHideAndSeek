@@ -44,6 +44,7 @@ export function MultiplayerBoot() {
             fire();
         } else {
             window.addEventListener("load", fire, { once: true });
+            return () => window.removeEventListener("load", fire);
         }
     }, []);
     return null;

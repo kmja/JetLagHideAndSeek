@@ -346,27 +346,75 @@ export function requestStationWarmAll(): void {
     for (const id of playAreaRelationIdsAll()) requestStationWarm(id);
 }
 
-/** Distance-sort + same-name/nearby dedupe, shared by every consumer. */
+/** Distance-sort + same-name/nearby dedupe, shared by every consumer.
+ *
+ *  Spatial-grid implementation: each station's normalised name is computed
+ *  ONCE, and kept stations are bucketed into ~200 m cells so a new station
+ *  only compares against the up-to-9 neighbouring cells instead of every
+ *  prior kept station. This replaces the old `deduped.find(...)` scan that
+ *  recomputed `normaliseName(d.name)` (NFD + ~10 regex passes) per pair —
+ *  O(n^2) with a regex in the inner loop. Since v751 removed the 180-station
+ *  cap, a dense metro (thousands of bus stops) drove that to millions of
+ *  synchronous regex calls on the main thread; the grid makes it ~O(n).
+ *  The dedupe RULES are unchanged (both require dist < 150 m, so any real
+ *  match is guaranteed to fall inside the 3x3 window of >= 150 m cells). */
 function sortAndDedupe(stations: AreaStation[]): AreaStation[] {
     stations.sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+    const CELL_M = 200; // >= the 150 m dedupe radius → a match is <= 1 cell away
+    const M_PER_DEG_LAT = 111_320;
+    // A fixed reference cos(lat) for the lng→metre conversion so nearby
+    // stations bucket consistently regardless of their own latitude (the
+    // exact haversine below still confirms every candidate, so the grid is
+    // only a prefilter and slight cos drift at the margins is harmless).
+    const meanLat =
+        stations.length > 0
+            ? stations.reduce((sum, s) => sum + s.lat, 0) / stations.length
+            : 0;
+    const mPerDegLng = M_PER_DEG_LAT * Math.cos((meanLat * Math.PI) / 180);
+
+    type Kept = { station: AreaStation; norm: string };
+    const grid = new Map<string, Kept[]>();
+    const cellX = (lng: number) => Math.floor((lng * mPerDegLng) / CELL_M);
+    const cellY = (lat: number) => Math.floor((lat * M_PER_DEG_LAT) / CELL_M);
+
     const deduped: AreaStation[] = [];
     for (const s of stations) {
         const norm = normaliseName(s.name);
-        const dup = deduped.find((d) => {
-            const dist = haversineMeters(d.lat, d.lng, s.lat, s.lng);
-            // Same normalised name + near → one stop under two labels.
-            if (dist < 150 && normaliseName(d.name) === norm) return true;
-            // Directional bus-stop pairs sit on opposite sides of the SAME
-            // intersection (~30-70 m apart) under differently-ordered names
-            // ("Nanaimo NB at Dundas" vs "Dundas EB at Nanaimo") the name
-            // normaliser can't always reconcile — collapse any two bus
-            // stops within 90 m so the overlay isn't a wall of paired dots
-            // at every corner (the Vancouver "loads of duplicates" report).
-            if (d.mode === "bus" && s.mode === "bus" && dist < 90) return true;
-            return false;
-        });
-        if (dup) continue;
+        const gx = cellX(s.lng);
+        const gy = cellY(s.lat);
+        let isDup = false;
+        for (let dx = -1; dx <= 1 && !isDup; dx++) {
+            for (let dy = -1; dy <= 1 && !isDup; dy++) {
+                const bucket = grid.get(`${gx + dx}:${gy + dy}`);
+                if (!bucket) continue;
+                for (const k of bucket) {
+                    const d = k.station;
+                    const dist = haversineMeters(d.lat, d.lng, s.lat, s.lng);
+                    // Same normalised name + near → one stop under two labels.
+                    if (dist < 150 && k.norm === norm) {
+                        isDup = true;
+                        break;
+                    }
+                    // Directional bus-stop pairs sit on opposite sides of the
+                    // SAME intersection (~30-70 m apart) under differently-
+                    // ordered names ("Nanaimo NB at Dundas" vs "Dundas EB at
+                    // Nanaimo") the normaliser can't always reconcile —
+                    // collapse any two bus stops within 90 m so the overlay
+                    // isn't a wall of paired dots (the Vancouver report).
+                    if (d.mode === "bus" && s.mode === "bus" && dist < 90) {
+                        isDup = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (isDup) continue;
         deduped.push(s);
+        const key = `${gx}:${gy}`;
+        const existing = grid.get(key);
+        if (existing) existing.push({ station: s, norm });
+        else grid.set(key, [{ station: s, norm }]);
     }
     return deduped;
 }

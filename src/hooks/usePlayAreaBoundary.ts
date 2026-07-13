@@ -92,17 +92,25 @@ export function usePlayAreaBoundary(): void {
             // no boundary on disk. Race a 3 s timeout so a stuck Cache API
             // (iOS PWA bug) can't block the fetch forever.
             if (!polyGeoJSONHydrated.get()) {
-                await Promise.race([
-                    new Promise<void>((resolve) => {
-                        const unsub = polyGeoJSONHydrated.subscribe((v) => {
-                            if (v) {
-                                unsub();
-                                resolve();
-                            }
-                        });
-                    }),
-                    new Promise<void>((resolve) => setTimeout(resolve, 3000)),
-                ]);
+                // Capture the subscription + timer so BOTH are cleaned up
+                // after the race regardless of which side won. The old code
+                // only unsubscribed inside the (v) branch, so when the 3 s
+                // timeout won first the subscriber stayed attached forever
+                // (a leak on every stuck-hydration mount).
+                let resolveHydrated!: () => void;
+                const hydrated = new Promise<void>((resolve) => {
+                    resolveHydrated = resolve;
+                });
+                const unsub = polyGeoJSONHydrated.subscribe((v) => {
+                    if (v) resolveHydrated();
+                });
+                let timerId = 0;
+                const timeout = new Promise<void>((resolve) => {
+                    timerId = window.setTimeout(resolve, 3000);
+                });
+                await Promise.race([hydrated, timeout]);
+                unsub();
+                if (timerId) clearTimeout(timerId);
                 if (cancelled) return;
                 if (mapGeoJSON.get() || polyGeoJSON.get()) return;
             }

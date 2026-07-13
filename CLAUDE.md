@@ -428,7 +428,37 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v792`. Use `git log` for the per-version detail;
+build stamp. Current: `v793`. Use `git log` for the per-version detail;
+
+**v793 — perf + correctness pass (from a 5-agent review).** Four correctness
+fixes: (1) multiplayer `transport.ts` auto-reconnect now continues past
+attempt 1 — the old `wasOpen` guard only rescheduled from "open"/"connecting",
+so a failed RETRY (status "reconnecting") died after one try; `reconnectNow`
+also no longer spawns a duplicate socket mid-connect. (2) `nearestToQuestion`
+(`overpass.ts`) + the twin loop in `ZoneSidebar.selectionProcess` are radius-
+CAPPED (1000 mi) and return null instead of hammering Overpass forever when a
+reference is absent or a mirror is soft-timing-out; all four call sites
+(matching/measuring grade + ZoneSidebar) guard the null. (3) `context.ts`
+`questions` decode uses `safeParse` → `[]` (was a hard `parse` that ZodError'd
+the whole route on any schema-drifted/corrupt localStorage). Performance
+(battery/long-session focus): (4) `sortAndDedupe` (`journey/stations.ts`) and
+`mergeDuplicateStation` (`stationManipulations.ts`) went from O(n²)-with-a-
+regex-per-pair to ~O(n) (spatial-grid + precomputed normalised names / name-
+bucketed union-find) — the biggest main-thread win, hit every hiding-zones
+open in a dense metro since the v751 station-cap removal; (5) matching's
+Voronoi `sameCells` filter is an O(n) site-key Set lookup (a cell contains
+exactly its own site, so the per-pair `booleanPointInPolygon` was redundant);
+(6) the Overpass mirror race now gives each racer its own `AbortController`
+and cancels the LOSERS on a win (was downloading every mirror's full multi-MB
+body after one already won — real mobile data; `cacheFetch` bypasses in-flight
+coalescing when a signal is passed so a loser can't cancel a coalesced
+sibling); (7) FIFO-capped the three unbounded module caches (`REVERSE_CACHE`
+300, `QuestionOutcomeMap` PNG snapshots 30, `playAreaPrefetch` 160); (8) minor
+leak/robustness cleanups (`usePlayAreaBoundary` hydration-race subscription +
+timer always cleaned up, `QuestionOutcomeMap` snapshot timer tracked+cleared,
+`MultiplayerBoot` load listener removed on unmount, `geocode()` guards
+resp.ok/non-JSON). Security findings from the same review were deliberately
+NOT actioned (friends-only game; convenience over enforcement).
 the headline arcs since the v414 rulebook-audit pass (a SECOND rulebook
 conformance pass landed in v671–v672 — see `RULEBOOK_AUDIT.md` section D:
 time-bonus scoring direction fix, tentacle 2 km/25 km radii, one shared

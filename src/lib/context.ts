@@ -211,7 +211,21 @@ if (typeof window !== "undefined") {
 
 export const questions = persistentAtom<Questions>("questions", [], {
     encode: JSON.stringify,
-    decode: (x) => questionsSchema.parse(JSON.parse(x)),
+    // safeParse, NOT parse: nanostores calls decode() with no try/catch on
+    // first read AND on cross-tab storage events. A hard `parse` throws a
+    // ZodError on ANY shape mismatch — a saved game from an older app
+    // version after a schema change, a quota-truncated write, a concurrent
+    // tab write — which bubbles to MapErrorBoundary and bricks the route on
+    // every reload with no self-heal. Degrade to an empty list instead (the
+    // pattern hiderRole.ts already uses).
+    decode: (x) => {
+        try {
+            const parsed = questionsSchema.safeParse(JSON.parse(x));
+            return parsed.success ? parsed.data : [];
+        } catch {
+            return [];
+        }
+    },
 });
 export const addQuestion = (question: DeepPartial<Question>) =>
     questionModified(questions.get().push(questionSchema.parse(question)));

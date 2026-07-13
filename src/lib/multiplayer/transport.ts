@@ -266,14 +266,18 @@ export class MultiplayerTransport {
 
     private handleClose() {
         this.clearPings();
-        const wasOpen = this.status === "open" || this.status === "connecting";
         this.socket = null;
         if (this.closedByUser) {
             this.setStatus("closed");
             return;
         }
-        if (wasOpen) this.scheduleReconnect();
-        else this.setStatus("closed");
+        // Any close that wasn't user-initiated should keep retrying. The
+        // old guard only rescheduled from "open"/"connecting", so a failed
+        // RETRY (status "reconnecting") fell through to "closed" and the
+        // exponential backoff died after attempt 1 — a >1 s blip stranded
+        // the client offline until a visibility/online event happened to
+        // fire reconnectNow(). scheduleReconnect() owns the backoff cap.
+        this.scheduleReconnect();
     }
 
     /**
@@ -288,6 +292,13 @@ export class MultiplayerTransport {
         if (this.closedByUser) return;
         if (this.status === "open" || this.status === "connecting") return;
         if (!this.url) return;
+        // A connect attempt is already in flight (openSocket assigned
+        // this.socket and is mid-handshake, status "reconnecting" with no
+        // pending backoff timer). Opening another socket here would orphan
+        // the first — its four listeners stay live and keep mutating shared
+        // state. During the backoff WAIT this.socket is null, so we still
+        // fall through and connect immediately, skipping the wait.
+        if (this.socket !== null) return;
         if (this.reconnectTimer !== null) {
             window.clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;

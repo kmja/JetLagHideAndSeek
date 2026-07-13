@@ -221,12 +221,34 @@ async function matchingStationBoundary(
 
     // Voronoi over ALL stations so the cell boundaries are correct; keep
     // only the cells belonging to the matching stations, then union.
-    const cells = geoSpatialVoronoi(stations);
-    const sameCells = cells.features.filter((cell) =>
-        matching.some((s) =>
-            turf.booleanPointInPolygon(s as any, cell as any),
-        ),
+    //
+    // A Voronoi cell always contains its OWN site and no other site (cells
+    // partition space), so "some matching station lies inside this cell" is
+    // exactly "this cell's site is a matching station". That lets us keep
+    // cells by a Set lookup on the site's stable key instead of the old
+    // O(cells x matching) `booleanPointInPolygon` per pair — O(n) instead of
+    // O(n^2), and more robust at cell boundaries. `properties.site` is the
+    // original input feature (the same field ZoneSidebar reads).
+    const siteKey = (f: {
+        properties?: { id?: unknown };
+        geometry?: { coordinates?: number[] };
+    }): string => {
+        const id = f?.properties?.id;
+        if (id != null) return `id:${String(id)}`;
+        const c = f?.geometry?.coordinates;
+        return c ? `c:${c[0]},${c[1]}` : "";
+    };
+    const matchingKeys = new Set(
+        matching.map((s) => siteKey(s as unknown as { properties?: { id?: unknown } })),
     );
+    const cells = geoSpatialVoronoi(stations);
+    const sameCells = cells.features.filter((cell) => {
+        const site = (cell as unknown as { properties?: { site?: unknown } })
+            .properties?.site as
+            | { properties?: { id?: unknown }; geometry?: { coordinates?: number[] } }
+            | undefined;
+        return site ? matchingKeys.has(siteKey(site)) : false;
+    });
     if (sameCells.length === 0) return false;
     return safeUnion(
         turf.featureCollection(sameCells as any),
@@ -630,6 +652,11 @@ export const hiderifyMatching = async (question: MatchingQuestion) => {
             color: "black",
             collapsed: false,
         });
+
+        // No reference found within the capped search radius (absent in-area
+        // or an Overpass hiccup) — leave the verdict ungraded rather than
+        // dereferencing a null. The hider can still answer manually.
+        if (!questionNearest || !hiderNearest) return question;
 
         question.same =
             questionNearest.properties.name === hiderNearest.properties.name;

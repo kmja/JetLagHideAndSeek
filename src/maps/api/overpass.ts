@@ -143,7 +143,10 @@ export const getOverpassData = async (
     // failed which — invaluable when 'all mirrors timed out'
     // and the user needs to know if it's their network, their
     // Cloudflare worker, or the public mirrors that are sad.
-    const tryFetch = async (url: string): Promise<Response | null> => {
+    const tryFetch = async (
+        url: string,
+        signal?: AbortSignal,
+    ): Promise<Response | null> => {
         const t0 = Date.now();
         const shortName = url.replace(/^https?:\/\//, "").split("/")[0];
         try {
@@ -154,6 +157,7 @@ export const getOverpassData = async (
                 fetchTimeoutMs,
                 reportProgress,
                 progressLabel,
+                signal,
             );
             const ms = Date.now() - t0;
             if (r && r.ok) {
@@ -226,7 +230,10 @@ export const getOverpassData = async (
     // through cacheFetch (cache-aware, timeout-managed); the
     // polygons.osm.fr racer wraps its JSON in a Response so the
     // downstream code path doesn't care which mirror won.
-    type Racer = { name: string; run: () => Promise<Response | null> };
+    type Racer = {
+        name: string;
+        run: (signal: AbortSignal) => Promise<Response | null>;
+    };
     const hostOf = (url: string) =>
         url.replace(/^https?:\/\//, "").split("/")[0];
 
@@ -235,7 +242,10 @@ export const getOverpassData = async (
     // in a few hundred ms, before tier 1.5 even starts — so the
     // external polygons.osm.fr request is never made.
     const tier1: Racer[] = [
-        { name: hostOf(primaryUrl), run: () => tryFetch(primaryUrl) },
+        {
+            name: hostOf(primaryUrl),
+            run: (signal) => tryFetch(primaryUrl, signal),
+        },
     ];
 
     // Tier 1.5 — polygons.openstreetmap.fr's pre-computed polygons.
@@ -250,6 +260,9 @@ export const getOverpassData = async (
     if (fastPathRelationId !== null) {
         midTier.push({
             name: "polygons.osm.fr",
+            // Signal unused: this racer fetches a small pre-computed JSON
+            // polygon, not a multi-MB body, so cancelling it saves nothing
+            // worth threading a signal into the separate module for.
             run: async () => {
                 const t0 = Date.now();
                 const json = await fetchBoundaryAsOverpassShape(
@@ -274,7 +287,10 @@ export const getOverpassData = async (
     // path have failed or been slow, so a healthy cache hit never
     // touches them and the per-IP rate limit isn't tripped.
     const tier2: Racer[] = [fallbackUrl, tertiaryUrl, quaternaryUrl].map(
-        (url) => ({ name: hostOf(url), run: () => tryFetch(url) }),
+        (url) => ({
+            name: hostOf(url),
+            run: (signal) => tryFetch(url, signal),
+        }),
     );
 
     const winner = await raceWithStaggeredFallback([
@@ -378,7 +394,10 @@ const POLYGON_FAST_PATH_STAGGER_MS = 1500;
  */
 async function raceWithStaggeredFallback(
     tiers: Array<{
-        racers: Array<{ name: string; run: () => Promise<Response | null> }>;
+        racers: Array<{
+            name: string;
+            run: (signal: AbortSignal) => Promise<Response | null>;
+        }>;
         /** ms after start at which this tier kicks in (0 = immediate).
          *  A tier also starts early if every racer started so far has
          *  already failed. */
@@ -390,11 +409,32 @@ async function raceWithStaggeredFallback(
         let pending = 0;
         const startedTiers = new Set<number>();
         const timers: Array<ReturnType<typeof setTimeout>> = [];
+        // One AbortController per racer so a winner can cancel the LOSERS
+        // without touching its own already-resolved body. Losing mirrors
+        // otherwise download their full multi-MB boundary body (Sweden
+        // ≈17 MB × 3) even after another mirror wins — real mobile data +
+        // battery for bytes we throw away. The winner's controller is left
+        // un-aborted (its Response body is already buffered by tryFetch's
+        // abort-sniff anyway, but we skip it to be safe).
+        const controllers: AbortController[] = [];
 
-        const finish = (r: Response | null) => {
+        const abortLosers = (winner: AbortController | null) => {
+            for (const c of controllers) {
+                if (c !== winner) {
+                    try {
+                        c.abort();
+                    } catch {
+                        /* no-op */
+                    }
+                }
+            }
+        };
+
+        const finish = (r: Response | null, winner: AbortController | null) => {
             if (resolved) return;
             resolved = true;
             for (const t of timers) clearTimeout(t);
+            abortLosers(winner);
             resolve(r);
         };
 
@@ -404,7 +444,12 @@ async function raceWithStaggeredFallback(
             const tier = tiers[i];
             pending += tier.racers.length;
             tier.racers.forEach(({ run }) => {
-                run().then(onSettled, () => onSettled(null));
+                const controller = new AbortController();
+                controllers.push(controller);
+                run(controller.signal).then(
+                    (r) => onSettled(r, controller),
+                    () => onSettled(null, controller),
+                );
             });
         };
 
@@ -418,10 +463,10 @@ async function raceWithStaggeredFallback(
             return false;
         };
 
-        function onSettled(r: Response | null) {
+        function onSettled(r: Response | null, controller: AbortController) {
             if (resolved) return;
             if (r) {
-                finish(r);
+                finish(r, controller);
                 return;
             }
             pending--;
@@ -429,7 +474,7 @@ async function raceWithStaggeredFallback(
                 // Everything started so far failed — bring the next
                 // unstarted tier in immediately rather than waiting on
                 // its timer.
-                if (!startNextUnstarted()) finish(null);
+                if (!startNextUnstarted()) finish(null, null);
             }
         }
 
@@ -994,7 +1039,14 @@ export const nearestToQuestion = async (
 ) => {
     let radius = 30;
     let instances: any = { features: [] };
-    while (instances.features.length === 0) {
+    // Grow the search radius until we find a reference, but CAP it. Without
+    // a bound this loops forever when the reference type is genuinely absent
+    // in-area OR (worse) Overpass is congested and keeps returning an empty
+    // `{elements:[]}` — the exact soft-timeout condition this codebase fights
+    // — hammering the mirrors with ever-larger `around:` queries. ~1000 mi is
+    // far past any real play area, so hitting the cap means "none found".
+    const MAX_RADIUS_MILES = 1000;
+    while (instances.features.length === 0 && radius <= MAX_RADIUS_MILES) {
         instances = await findTentacleLocations(
             {
                 lat: question.lat,
@@ -1012,6 +1064,7 @@ export const nearestToQuestion = async (
         );
         radius += 30;
     }
+    if (instances.features.length === 0) return null;
     const questionPoint = turf.point([question.lng, question.lat]);
     return turf.nearestPoint(questionPoint, instances as any);
 };

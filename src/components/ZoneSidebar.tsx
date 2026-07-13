@@ -1351,7 +1351,13 @@ async function selectionProcess(
 
             const nearestPoints = [];
 
-            while (instances.features.length === 0) {
+            // Cap the growing search radius. Without it this loops forever
+            // when the reference type is absent in-area OR Overpass is
+            // congested and keeps returning empty — hammering the mirrors.
+            // ~1000 mi is far past any real play area.
+            const MAX_RADIUS_MILES = 1000;
+
+            while (instances.features.length === 0 && radius <= MAX_RADIUS_MILES) {
                 instances = await findTentacleLocations(
                     {
                         lat: station.properties.geometry.coordinates[1],
@@ -1402,6 +1408,14 @@ async function selectionProcess(
                         )
                         .map((x) => x.point),
                 );
+            }
+
+            // No reference resolved (absent in-area or an Overpass hiccup hit
+            // the radius cap) — skip this question's elimination rather than
+            // dereferencing a null nearestQuestion / building a Voronoi over
+            // an empty point set. Leaves the remaining area unchanged.
+            if (!nearestQuestion || nearestPoints.length === 0) {
+                continue;
             }
 
             if (question.id === "matching") {

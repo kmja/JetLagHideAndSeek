@@ -783,6 +783,11 @@ export const hiderifyMeasuring = async (question: MeasuringQuestion) => {
             collapsed: false,
         });
 
+        // No reference found within the capped search radius (absent in-area
+        // or an Overpass hiccup) — leave the verdict ungraded rather than
+        // dereferencing a null. The hider can still answer manually.
+        if (!questionNearest || !hiderNearest) return question;
+
         question.hiderCloser =
             questionNearest.properties.distanceToPoint >
             hiderNearest.properties.distanceToPoint;

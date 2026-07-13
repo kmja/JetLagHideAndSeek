@@ -109,9 +109,21 @@ const fetchWithTimeout = async (
     url: string,
     timeoutMs: number,
     init?: RequestInit,
+    /** Optional external canceller (the mirror race's per-racer signal).
+     *  Folded into this fetch's own timeout controller so a losing racer
+     *  stops downloading its body the moment another mirror wins. */
+    externalSignal?: AbortSignal,
 ) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const onExternalAbort = () => controller.abort();
+    if (externalSignal) {
+        if (externalSignal.aborted) controller.abort();
+        else
+            externalSignal.addEventListener("abort", onExternalAbort, {
+                once: true,
+            });
+    }
     try {
         // Long-URL escape hatch: when the URL crosses the GET-friendly
         // limit AND it's an Overpass `?data=…` query, split it and
@@ -144,6 +156,8 @@ const fetchWithTimeout = async (
         return await fetch(url, { ...init, signal: controller.signal });
     } finally {
         clearTimeout(timeoutId);
+        if (externalSignal)
+            externalSignal.removeEventListener("abort", onExternalAbort);
     }
 };
 
@@ -412,6 +426,12 @@ export const cacheFetch = async (
      *  `reportProgress` is true — otherwise the piece atom isn't
      *  touched. */
     progressLabel?: string,
+    /** Optional per-caller abort signal (the mirror race's loser-canceller).
+     *  When present, the in-flight coalescing is bypassed so aborting this
+     *  caller never cancels a different caller that coalesced onto the same
+     *  URL. Same-URL concurrency across races is rare, so an isolated fetch
+     *  is a safe trade for clean per-racer cancellation. */
+    signal?: AbortSignal,
 ) => {
     // Register this piece up front (waiting state) so the overlay
     // shows a row IMMEDIATELY when the fetch is queued, even before
@@ -448,7 +468,12 @@ export const cacheFetch = async (
         }
 
         const fetchAndMaybeCache = async () => {
-            const rawResponse = await fetchWithTimeout(url, timeoutMs);
+            const rawResponse = await fetchWithTimeout(
+                url,
+                timeoutMs,
+                undefined,
+                signal,
+            );
             if (!rawResponse.ok) {
                 await cache.delete(url);
                 if (reportProgress && progressLabel) {
@@ -502,6 +527,16 @@ export const cacheFetch = async (
             );
             return responseFromBuffer(decoded, rawResponse);
         };
+
+        // Abort-signal callers bypass coalescing (see the `signal` param
+        // doc): each racer owns an isolated fetch so cancelling a loser
+        // can't take down a coalesced sibling.
+        if (signal) {
+            const response = await (loadingText
+                ? toast.promise(fetchAndMaybeCache(), { pending: loadingText })
+                : fetchAndMaybeCache());
+            return response.clone();
+        }
 
         const fetchPromise = fetchAndMaybeCache();
         inFlightFetches.set(inflightKey, fetchPromise);

@@ -221,13 +221,25 @@ export const geocode = async (
     // the (once, cached) seed-id load so it's ready. Fire-and-forget: if the
     // very first search races it, ranking falls back to score-only cleanly.
     if (filter) void ensureSeedCitiesLoaded();
-    const features = (
-        await (
-            await fetch(
-                `${PHOTON_FORWARD_API}?lang=${language}&q=${encodeURIComponent(address)}`,
-            )
-        ).json()
-    ).features as OpenStreetMap[];
+    // Guard the network + parse: Photon can return an error page, a non-JSON
+    // body, or JSON without a `features` array. The play-area search path
+    // (filter=true) calls this directly (unlike forwardGeocodeOne, which
+    // wraps it), so an unguarded `.json()` / `.features` would throw and
+    // surface as a broken search. Degrade to an empty result instead.
+    let features: OpenStreetMap[] = [];
+    try {
+        const resp = await fetch(
+            `${PHOTON_FORWARD_API}?lang=${language}&q=${encodeURIComponent(address)}`,
+        );
+        if (resp.ok) {
+            const data = await resp.json();
+            if (Array.isArray(data?.features)) {
+                features = data.features as OpenStreetMap[];
+            }
+        }
+    } catch {
+        features = [];
+    }
 
     features.forEach((feature) => {
         feature.geometry.coordinates = convertToLatLong(
@@ -290,6 +302,10 @@ export const geocode = async (
  * so dragging a marker around doesn't fire a request per pixel.
  */
 const REVERSE_CACHE = new Map<string, Promise<string | null>>();
+// FIFO cap so months of marker-dragging (a fresh 4-dp key per ~11 m move)
+// can't grow this module-level Map without bound. Map preserves insertion
+// order, so the oldest key is `keys().next()`.
+const REVERSE_CACHE_LIMIT = 300;
 
 export const reverseGeocode = (
     lat: number,
@@ -323,6 +339,10 @@ export const reverseGeocode = (
         })
         .catch(() => null);
     REVERSE_CACHE.set(key, promise);
+    if (REVERSE_CACHE.size > REVERSE_CACHE_LIMIT) {
+        const oldest = REVERSE_CACHE.keys().next().value;
+        if (oldest !== undefined) REVERSE_CACHE.delete(oldest);
+    }
     return promise;
 };
 

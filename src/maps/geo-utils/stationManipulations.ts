@@ -110,13 +110,28 @@ export function mergeDuplicateStation(
         parent[find(a)] = find(b);
     };
 
+    // Bucket indices by normalised name first, then only compare pairs
+    // WITHIN a same-name bucket (the only pairs that can ever merge). This
+    // replaces the O(n^2) all-pairs scan — for a few thousand stations the
+    // old double loop did millions of string compares on the seeker
+    // ZoneSidebar path. Names are almost all unique, so this is ~O(n) plus a
+    // tiny per-hub quadratic; union-find still chains a spread-out hub.
+    const byName = new Map<string, number[]>();
     for (let i = 0; i < n; i++) {
         if (names[i] === "") continue; // unnamed nodes never merge
-        for (let j = i + 1; j < n; j++) {
-            // Same normalised name + reasonably near → duplicate stop.
-            if (names[i] !== names[j]) continue;
-            if (approxMeters(coords[i], coords[j]) <= sameNameMergeM)
-                union(i, j);
+        const g = byName.get(names[i]);
+        if (g) g.push(i);
+        else byName.set(names[i], [i]);
+    }
+    for (const idxs of byName.values()) {
+        for (let a = 0; a < idxs.length; a++) {
+            for (let b = a + 1; b < idxs.length; b++) {
+                const i = idxs[a];
+                const j = idxs[b];
+                // Same normalised name + reasonably near → duplicate stop.
+                if (approxMeters(coords[i], coords[j]) <= sameNameMergeM)
+                    union(i, j);
+            }
         }
     }
 

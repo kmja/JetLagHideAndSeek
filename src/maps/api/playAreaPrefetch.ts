@@ -73,6 +73,20 @@ export interface PrefetchedFeature {
 const cache = new Map<string, PrefetchedFeature[]>();
 const inFlight = new Map<string, Promise<PrefetchedFeature[]>>();
 
+// The cache key includes the play-area signature (see `cacheKey`), so
+// previewing many cities in the wizard search accretes ~15 family arrays
+// (features WITH full tag dicts) per city and never evicts. FIFO-cap the
+// total so a long browsing session can't grow this without bound —
+// ~10 cities' worth is plenty; an evicted family simply re-warms on demand.
+const CACHE_LIMIT = 160;
+function setCache(key: string, value: PrefetchedFeature[]): void {
+    cache.set(key, value);
+    if (cache.size > CACHE_LIMIT) {
+        const oldest = cache.keys().next().value;
+        if (oldest !== undefined) cache.delete(oldest);
+    }
+}
+
 /** Single-flight gate + recent-failure backoff for the master
  *  prefetchFamiliesInOneQuery — what tries to warm every reference
  *  family in one combined Overpass call. Keyed on the play-area
@@ -501,7 +515,7 @@ export async function prefetchCategory(
             }
             try {
                 const feats = await runSingleFamilyBboxFetch(family);
-                cache.set(key, feats);
+                setCache(key, feats);
                 bumpStatus({ warmedKey: key, count: feats.length });
                 return feats;
             } catch (e) {
@@ -1243,13 +1257,13 @@ async function runPrefetchFamiliesInOneQuery(
                 // bug to fix at the source + re-warm, NOT a runtime live
                 // fallback — see /admin/inspect-refs.)
                 if (complete) {
-                    cache.set(cacheKey(family), []);
+                    setCache(cacheKey(family), []);
                     bumpStatus({ warmedKey: cacheKey(family), count: 0 });
                 } else {
                     emptyFamilies.push(family);
                 }
             } else {
-                cache.set(cacheKey(family), feats);
+                setCache(cacheKey(family), feats);
                 bumpStatus({
                     warmedKey: cacheKey(family),
                     count: feats.length,
@@ -1287,7 +1301,7 @@ async function runPrefetchFamiliesInOneQuery(
                 void (async () => {
                     try {
                         const feats = await runSingleFamilyBboxFetch(f);
-                        cache.set(cacheKey(f), feats);
+                        setCache(cacheKey(f), feats);
                         bumpStatus({
                             warmedKey: cacheKey(f),
                             count: feats.length,
