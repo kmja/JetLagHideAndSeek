@@ -527,8 +527,7 @@ export function Welcome() {
                                 rel="noopener noreferrer"
                                 className="inline-block text-xs font-semibold text-white drop-shadow hover:underline"
                             >
-                                Love it? Buy the official Hide+Seek box from
-                                Nebula →
+                                Buy the official Hide+Seek box from Nebula →
                             </a>
                         </div>
                     </div>
@@ -540,7 +539,7 @@ export function Welcome() {
                             rel="noopener noreferrer"
                             className="inline-block text-xs font-semibold text-jetlag-yellow hover:underline"
                         >
-                            Love it? Buy the official Hide+Seek box from Nebula →
+                            Buy the official Hide+Seek box from Nebula →
                         </a>
                     </div>
                 )}

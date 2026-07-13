@@ -428,7 +428,11 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v805`. Use `git log` for the per-version detail;
+build stamp. Current: `v806`. Use `git log` for the per-version detail;
+
+**v806 — copy tweak.** Dropped "Love it?" from the landing-page Nebula-store
+footer link (`Welcome.tsx`, both layout branches) → "Buy the official Hide+Seek
+box from Nebula →".
 
 **v805 — branded curtain over the seeker↔hider shell swap.** Picking a role
 navigates between two SEPARATE full-screen apps (the seeker `/` and hider `/h`
