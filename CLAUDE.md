@@ -428,7 +428,19 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v803`. Use `git log` for the per-version detail;
+build stamp. Current: `v804`. Use `git log` for the per-version detail;
+
+**v804 — hider end-timer / zone-callout cleanup.** (1) The just-committed
+on-map **callout** (`HiderMapTimer`): tent icon removed, description simplified
+("<zone> is set. You can let the seekers know, or keep the timer running to
+give yourself more time."), and its button renamed **"End hiding early" →
+"End timer"**. (2) The redundant **navy on-map "End hiding early" button** below
+the `HiderMapTimer` golden box was REMOVED — the end-timer action now lives only
+in the callout (just after committing) and the Zone drawer (below the timer).
+(3) The Zone drawer's end button was likewise renamed to **"End timer"**.
+(4) The committed-zone card's **"Change" button was removed** — locking a zone
+is irreversible (we tell the hider so at commit), so there's no re-pick
+affordance once committed (the picker still shows before the first commit).
 
 **v803 — wizard + hider UX batch.** (1) **Play-area search two-tap bug fixed** —
 tapping a search result while the input was focused blurred it FIRST

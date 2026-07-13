@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Flag, Plus, Tent, Timer, X } from "lucide-react";
+import { Ban, Flag, Plus, Timer, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -288,13 +288,7 @@ export function HiderMapTimer() {
                 $hidingZone !== null &&
                 $zoneCallout && (
                     <div className="relative w-[min(80vw,20rem)] rounded-xl border-2 border-border bg-card p-3 shadow-xl">
-                        <div className="mb-1 flex items-center gap-2">
-                            <span
-                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground"
-                                aria-hidden="true"
-                            >
-                                <Tent className="h-4 w-4" strokeWidth={2.5} />
-                            </span>
+                        <div className="mb-1">
                             <span className="text-[11px] font-poppins font-extrabold uppercase tracking-[0.12em] text-foreground">
                                 Zone locked in
                             </span>
@@ -303,8 +297,8 @@ export function HiderMapTimer() {
                             <span className="font-semibold text-foreground">
                                 {$hidingZone.stationName}
                             </span>{" "}
-                            is set. Head to your spot — end the hiding period
-                            when you&apos;re hidden, or keep the timer running.
+                            is set. You can let the seekers know, or keep the
+                            timer running to give yourself more time.
                         </p>
                         <div className="flex items-stretch gap-2">
                             <Button
@@ -317,7 +311,7 @@ export function HiderMapTimer() {
                                 className="flex-1 gap-1.5"
                             >
                                 <Flag className="h-3.5 w-3.5" strokeWidth={2.5} />
-                                End hiding early
+                                End timer
                             </Button>
                             <Button
                                 type="button"
@@ -382,30 +376,10 @@ export function HiderMapTimer() {
                 </div>
             )}
 
-            {/* End-hiding shortcut — only once a zone is committed (before
-                that there's nothing to hide in, so ending early would just
-                strand the hider). Ends the hiding period now (mirrored to
-                peers). Sits directly under the golden countdown, the thing
-                it acts on. Worded from the HIDER's view — they're declaring
-                they're hidden, not "seeking" (v798). */}
-            {phase === "hiding" && $hidingZone !== null && (
-                <button
-                    type="button"
-                    onClick={endHidingPeriodEarly}
-                    title="End the hiding period now — the seekers start hunting"
-                    className={cn(
-                        "flex items-center justify-center gap-1.5",
-                        "px-2.5 py-1.5 rounded-md shadow-md",
-                        "bg-[#1F2F3F] text-white border-2 border-[#1F2F3F]/60",
-                        "hover:bg-[#1F2F3F]/90 active:bg-[#1F2F3F]/80 transition-colors",
-                        "text-[10px] font-poppins font-bold uppercase tracking-wider",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    )}
-                >
-                    <Flag className="w-3 h-3" strokeWidth={2.5} />
-                    End hiding early
-                </button>
-            )}
+            {/* v803: the navy on-map "End hiding early" button was removed —
+                the end-timer action lives in the Zone drawer (below the timer)
+                and in the just-committed callout above, so a third copy on the
+                map was redundant. */}
 
             {/* grace — red urgent "PICK A ZONE" box. */}
             {phase === "grace" && (

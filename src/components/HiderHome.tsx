@@ -555,7 +555,7 @@ function HidingPhaseView({
                         className="gap-1.5"
                     >
                         <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
-                        End hiding early
+                        End timer
                     </Button>
                 </div>
             )}
@@ -1037,15 +1037,9 @@ function HidingZoneSection({
                                 {zone.stationLng.toFixed(5)}
                             </div>
                         </div>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setEditing(true)}
-                            disabled={disabled}
-                            className="shrink-0"
-                        >
-                            Change
-                        </Button>
+                        {/* v803: no "Change" — locking a zone can't be undone
+                            (we tell the hider that at commit time), so there's
+                            no re-pick affordance once committed. */}
                     </div>
                     {/* Read-only preview of the committed zone with its radius
                         drawn — a lightweight non-interactive map (ZonePreviewMap)
