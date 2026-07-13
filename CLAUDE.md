@@ -428,7 +428,28 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v795`. Use `git log` for the per-version detail;
+build stamp. Current: `v796`. Use `git log` for the per-version detail;
+
+**v796 — overpass-cache abort-sniff gap closed (worker; reliability).** The v667
+Overpass soft-timeout defence (HTTP 200 + `remark` + empty/truncated elements)
+was applied inconsistently: the **refs / transit / metro** `?warm=1` warmers
+(`warmRelationReferences` / `warmRelationTransit` / `warmRelationMetro`) piped
+the upstream body straight to R2 via `streamStoreNoTee` with NO sniff, while
+the stations/water/coast warmers already buffer-then-sniff. So one transient
+Overpass timeout during a warm-on-add stored an empty body for the full 30-day
+TTL, and skip-if-fresh then saw the poison as "fresh" and never re-warmed — a
+STARRED city could serve empty references for a month. Two-part fix (auto-
+deploys with the `overpass-cache` Workers Build): (1) WRITE side — those three
+warmers now `await up.text()` → `isAbortedOverpassText` → `compressAndStoreString`,
+matching the working warmers (never store poison). (2) READ side — a shared
+`serveRelationR2HitHealed` gives `handleReferencesByRelation` /
+`handleTransitByRelation` / `handleMetroByRelation` the same self-heal the
+interpreter path has: a small (<64 KB) R2 hit is sniffed, a poisoned one is
+deleted and treated as a miss (transit falls through to the shard slice, refs/
+metro to a clean re-warm), and a clean small entry is re-served from the
+decoded text. Large entries stream straight through untouched (zero overhead on
+the common path). This heals EXISTING poison too, not just future writes. No
+frontend change; APP_VERSION bumped to keep the changelog continuous.
 
 **v795 — bundle-size cleanup (safe Tier-4 from the review).** (1) The geometry
 Web Worker core (`geometry/clipCore.ts` + `combineCore.ts`) switched from

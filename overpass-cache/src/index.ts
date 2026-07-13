@@ -2605,12 +2605,17 @@ async function handleReferencesByRelation(
         console.warn("refs-by-relation: R2 get failed:", e);
     }
     if (r2Hit) {
-        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
-        const age = cachedAt ? Date.now() - cachedAt : 0;
         // References change slowly; serve whatever's present regardless of
         // TTL freshness (the cron/laptop refresh handles staleness). A
         // present-but-stale entry still beats a live Overpass round trip.
-        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+        // Self-heals a poisoned (abort-remark) entry → falls through to miss.
+        const served = await serveRelationR2HitHealed(
+            env,
+            cacheKey,
+            r2Hit,
+            cors,
+        );
+        if (served) return served;
     }
     return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
 }
@@ -2729,11 +2734,24 @@ async function warmRelationReferences(
         fetchFromMirrorChainWithRetry(refsQuery),
     );
     if (!up) return;
-    await streamStoreNoTee(env, `overpass/${refsKey}`, up, {
-        kind: "references",
-        warmedBy: "on-add",
-        sourceRelationId: String(relationId),
-    });
+    const body = await up.text();
+    // v667-parity: NEVER store an aborted body (Overpass soft timeout returns
+    // HTTP 200 with a `remark` + empty/truncated elements). The old
+    // streamStoreNoTee piped it straight to R2 with no sniff, so one transient
+    // upstream timeout during a warm-on-add poisoned a starred city's refs for
+    // the full 30-day TTL — and skip-if-fresh then saw the poison as "fresh"
+    // and never re-warmed. The stations/water/coast warmers already sniff;
+    // this brings refs into line (matching handleAreaStationsByRelation).
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, refsKey, body, {
+            kind: "references",
+            warmedBy: "on-add",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm refs r${relationId} store failed:`, e);
+    }
 }
 
 /**
@@ -3302,11 +3320,16 @@ async function handleTransitByRelation(
         console.warn("transit-by-relation: R2 get failed:", e);
     }
     if (r2Hit) {
-        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
-        const age = cachedAt ? Date.now() - cachedAt : 0;
         // Transit data changes slowly; serve whatever's present regardless
-        // of TTL — mirror the references endpoint's read policy.
-        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+        // of TTL — mirror the references endpoint's read policy. A poisoned
+        // (abort-remark) entry self-heals → falls through to the shard slice.
+        const served = await serveRelationR2HitHealed(
+            env,
+            cacheKey,
+            r2Hit,
+            cors,
+        );
+        if (served) return served;
     }
     // v730: subway + ferry are NOT stored per-city under the exact key —
     // they live only as country-wide geographic SHARDS
@@ -3422,11 +3445,19 @@ async function warmRelationTransit(
         fetchFromMirrorChainWithRetry(tQuery),
     );
     if (!up) return;
-    await streamStoreNoTee(env, `overpass/${tKey}`, up, {
-        kind: `transit-${mode}`,
-        warmedBy: "on-add-transit",
-        sourceRelationId: String(relationId),
-    });
+    const body = await up.text();
+    // v667-parity: never store an aborted body (Overpass soft timeout) — see
+    // warmRelationReferences. Was streamed straight to R2 with no sniff.
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, tKey, body, {
+            kind: `transit-${mode}`,
+            warmedBy: "on-add-transit",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm transit r${relationId} ${mode} store failed:`, e);
+    }
 }
 
 /**
@@ -3473,9 +3504,15 @@ async function handleMetroByRelation(
         console.warn("metro-by-relation: R2 get failed:", e);
     }
     if (r2Hit) {
-        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
-        const age = cachedAt ? Date.now() - cachedAt : 0;
-        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+        // Serve regardless of TTL; self-heal a poisoned (abort-remark) entry
+        // → falls through to the miss below (which re-warms clean).
+        const served = await serveRelationR2HitHealed(
+            env,
+            cacheKey,
+            r2Hit,
+            cors,
+        );
+        if (served) return served;
     }
     return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
 }
@@ -3539,11 +3576,19 @@ async function warmRelationMetro(
         fetchFromMirrorChainWithRetry(mQuery),
     );
     if (!up) return;
-    await streamStoreNoTee(env, `overpass/${mKey}`, up, {
-        kind: "metro-routes",
-        warmedBy: "on-add-metro",
-        sourceRelationId: String(relationId),
-    });
+    const body = await up.text();
+    // v667-parity: never store an aborted body (Overpass soft timeout) — see
+    // warmRelationReferences. Was streamed straight to R2 with no sniff.
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, mKey, body, {
+            kind: "metro-routes",
+            warmedBy: "on-add-metro",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm metro r${relationId} store failed:`, e);
+    }
 }
 
 /**
@@ -10018,6 +10063,61 @@ async function buildR2Response(
     );
     headers["X-Serve"] = `r2-peel; enc=${encoding}; layers=${layers}`;
     return new Response(bytes as unknown as BodyInit, { status: 200, headers });
+}
+
+/**
+ * Serve an R2 relation-endpoint hit, self-healing a v667-style poisoned
+ * entry (an Overpass soft-timeout: HTTP 200 with a `remark` + empty or
+ * truncated elements). Mirrors the interpreter read-path self-heal.
+ *
+ * These endpoints serve any hit regardless of TTL, and the warmers
+ * skip-if-fresh, so without this a poisoned entry would be served for the
+ * full 30-day TTL and never re-warm (the v793-review "starred city empty for
+ * a month" hole). Only SMALL entries are sniffed — a poisoned body is <1 KB
+ * compressed, while a real city's data is far bigger and streams straight
+ * through untouched. On poison: delete + return null so the caller falls
+ * through (to a shard slice for transit, else a miss that re-warms clean).
+ * On a clean small entry the one-shot body is already consumed by the sniff,
+ * so it's re-served from the decoded (gzip-peeled) plain text.
+ */
+async function serveRelationR2HitHealed(
+    env: Env,
+    cacheKey: string,
+    r2Hit: R2ObjectBody,
+    cors: HeadersInit,
+): Promise<Response | null> {
+    const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+    const age = cachedAt ? Date.now() - cachedAt : 0;
+    if (r2Hit.size > ABORT_SNIFF_MAX_GZ_BYTES) {
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    let text: string;
+    try {
+        text = await readR2BodyText(r2Hit);
+    } catch (e) {
+        // Body stream already consumed / unreadable — treat as a miss.
+        console.warn(`[relation] abort sniff read failed at ${cacheKey}:`, e);
+        return null;
+    }
+    if (isAbortedOverpassText(text)) {
+        console.warn(
+            `[relation] poisoned cache entry (abort remark) at ${cacheKey} — deleting + treating as miss`,
+        );
+        await env.CACHE.delete(`overpass/${cacheKey}`).catch(() => {});
+        return null;
+    }
+    // Clean — serve the decoded PLAIN text (the sniff consumed the stream).
+    return new Response(text, {
+        status: 200,
+        headers: {
+            ...corsHeadersAsObject(cors),
+            "Content-Type": "application/json",
+            "Cache-Control": `public, max-age=${CACHE_API_TTL_SECS}`,
+            "X-Cache": "R2_HIT_RELATION",
+            "X-Cache-Age-Ms": String(age),
+            "X-Serve": "r2-peel-text",
+        },
+    });
 }
 
 function appendCacheStatus(
