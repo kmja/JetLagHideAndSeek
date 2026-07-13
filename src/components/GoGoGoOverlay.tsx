@@ -50,6 +50,11 @@ export interface GoGoGoPreview {
 /** How long each of the 3 / 2 / 1 numbers holds before the next. */
 const COUNTDOWN_STEP_MS = 750;
 
+/** v822: how long the overlay's opaque backdrop takes to fade out on
+ *  dismiss, uncovering the (already-mounted, loading/loaded) game view
+ *  beneath. Keep in sync with the backdrop's transition duration. */
+const REVEAL_MS = 520;
+
 export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
     let $at = useStore(gameStartCelebrationAt);
     let $endsAt = useStore(hidingPeriodEndsAt);
@@ -70,6 +75,14 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
         preview ? "go" : "countdown",
     );
     const [count, setCount] = useState(3);
+    // v822: once the user taps "show me the map", we DON'T unmount instantly.
+    // We drop `gameStartOverLobby` (so the game shell mounts + loads beneath
+    // this overlay) but keep the overlay up, fading its opaque backdrop out —
+    // uncovering the now-loading/loaded map for a smooth reveal instead of a
+    // hard cut. `dismissing` drives that fade; the celebration atom is cleared
+    // only after the fade completes.
+    const [dismissing, setDismissing] = useState(false);
+    const dismissTimerRef = useRef<number | null>(null);
     // Guard so we only (re)start the countdown once per distinct trigger,
     // not on every unrelated re-render while the overlay is up.
     const startedForRef = useRef<number | null>(null);
@@ -77,10 +90,12 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
     useEffect(() => {
         if ($at === null) {
             startedForRef.current = null;
+            setDismissing(false);
             return;
         }
         if (startedForRef.current === $at) return;
         startedForRef.current = $at;
+        setDismissing(false);
         if (preview) {
             setPhase("go");
             return;
@@ -88,6 +103,15 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
         setPhase("countdown");
         setCount(3);
     }, [$at, preview]);
+
+    // Clean up the dismiss timer on unmount.
+    useEffect(
+        () => () => {
+            if (dismissTimerRef.current)
+                window.clearTimeout(dismissTimerRef.current);
+        },
+        [],
+    );
 
     // Drive the countdown ticks; hand off to the GO card at zero.
     useEffect(() => {
@@ -113,12 +137,24 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
     const inGo = phase === "go";
 
     const handleDismiss = () => {
-        // Clear both flags: celebration ends the overlay, and dropping
-        // `gameStartOverLobby` lets the pre-game branch finally swap to the
-        // map shell (v814) — the user tapped "show me the map", so revealing
-        // it now is expected, not a glimpse.
-        gameStartCelebrationAt.set(null);
+        if (dismissing) return;
+        // v822: drop `gameStartOverLobby` NOW so the in-game map shell mounts
+        // and starts loading BENEATH this overlay (the self-healing gate makes
+        // `gameStarted` flip true), but keep the celebration atom set so the
+        // overlay stays up as an opaque cover. `dismissing` fades that cover
+        // out over REVEAL_MS — uncovering the loaded map for a smooth reveal —
+        // then we clear the celebration to unmount. (In `preview` mode there's
+        // no real game beneath, so just clear immediately.)
+        if (preview) {
+            gameStartCelebrationAt.set(null);
+            gameStartOverLobby.set(false);
+            return;
+        }
         gameStartOverLobby.set(false);
+        setDismissing(true);
+        dismissTimerRef.current = window.setTimeout(() => {
+            gameStartCelebrationAt.set(null);
+        }, REVEAL_MS);
     };
 
     // Portal to <body> (v820): pre-game the overlay is mounted INSIDE the
@@ -144,11 +180,13 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
             <div
                 className="absolute inset-0 bg-background transition-[opacity] duration-500 ease-out"
                 style={{
-                    opacity: inGo ? 0.92 : 0.4,
+                    // v822: fade the cover fully out on dismiss to uncover the
+                    // game shell loading beneath.
+                    opacity: dismissing ? 0 : inGo ? 0.96 : 0.4,
                     backdropFilter: inGo ? "blur(4px)" : "blur(1px)",
                 }}
             />
-            {!inGo ? (
+            {dismissing ? null : !inGo ? (
                 <div
                     // Keyed on the number so each digit re-runs the punch-in.
                     key={count}
@@ -237,19 +275,25 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
  */
 function DustBurst() {
     const particles = useMemo(() => {
-        const N = 20;
+        const N = 26;
         return Array.from({ length: N }, (_, i) => {
             const ring = i % 2; // alternate inner / outer ring
             const angle = (i / N) * Math.PI * 2 + (ring ? 0.16 : 0);
-            const dist = ring ? 210 : 140; // px outward
-            const size = ring ? 12 + (i % 3) * 6 : 20 + (i % 3) * 9;
+            // v822: bigger throw + bigger puffs so the burst clearly flies
+            // OUT past the card edges (the old 140/210px stayed mostly under
+            // the card and was easy to miss).
+            const dist = ring ? 320 : 220; // px outward
+            const size = ring ? 16 + (i % 3) * 8 : 26 + (i % 3) * 12;
             return {
                 i,
                 dx: Math.cos(angle) * dist,
                 dy: Math.sin(angle) * dist,
                 size,
-                ds: 1.4 + (i % 3) * 0.4,
-                delay: ring ? 45 : 0,
+                ds: 1.6 + (i % 3) * 0.5,
+                // v822: burst AS the card lands (jlGoExplode peaks ~285ms),
+                // not before it's even visible — so the poofs read as thrown
+                // outward by the card's impact. Slight per-ring stagger.
+                delay: 160 + (ring ? 60 : 0),
                 // Every few puffs pick up the brand red; the rest are dust.
                 brand: i % 4 === 0,
             };
@@ -277,7 +321,7 @@ function DustBurst() {
                             "--dx": `${p.dx}px`,
                             "--dy": `${p.dy}px`,
                             "--ds": String(p.ds),
-                            animation: `jlDustPoof 760ms cubic-bezier(0.22,1,0.36,1) ${p.delay}ms both`,
+                            animation: `jlDustPoof 950ms cubic-bezier(0.22,1,0.36,1) ${p.delay}ms both`,
                         } as CSSProperties
                     }
                 />

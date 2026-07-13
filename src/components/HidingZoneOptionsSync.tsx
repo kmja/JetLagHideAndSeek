@@ -60,7 +60,22 @@ export function HidingZoneOptionsSync() {
         const pruned = current.filter(
             (f) => !allModeFilters.has(f) || allowedFilters.has(f),
         );
-        if (!same(pruned)) displayHidingZonesOptions.set(pruned);
+        // v822: NEVER leave an empty candidate pool, even in custom mode.
+        // These two atoms are persistent across games, so a stuck
+        // `auto=false` + `options=[]` from a past session (a cleared
+        // MultiSelect, an imported game with no zoneOptions) survived into a
+        // fresh game and made "Hiding zones" error with "At least one place
+        // type must be selected" on every toggle. An empty custom list is
+        // never useful — self-heal to the allowed-transit default (or the
+        // conventional station filter) so the overlay always has something to
+        // draw. A real custom pick (non-empty) is still left untouched.
+        const next =
+            pruned.length > 0
+                ? pruned
+                : hidingZoneFiltersFor($allowed).length > 0
+                  ? hidingZoneFiltersFor($allowed)
+                  : ["[railway=station]"];
+        if (!same(next)) displayHidingZonesOptions.set(next);
     }, [$auto, $allowed]);
 
     return null;

@@ -86,11 +86,8 @@ const GameSetupDialog = lazyWithRetry(() =>
         default: m.GameSetupDialog,
     })),
 );
-const GoGoGoOverlay = lazyWithRetry(() =>
-    import("@/components/GoGoGoOverlay").then((m) => ({
-        default: m.GoGoGoOverlay,
-    })),
-);
+// v822: GoGoGoOverlay is now mounted once at the App level (survives the
+// pre-game→in-game branch swap so it can fade out over the loaded map).
 const SeekingStartOverlay = lazyWithRetry(() =>
     import("@/components/SeekingStartOverlay").then((m) => ({
         default: m.SeekingStartOverlay,
@@ -203,9 +200,9 @@ export function SeekerPage() {
                     <GameSetupDialog />
                     <DebugPhaseControls />
                     <StaleSessionPrompt />
-                    {/* v814: the game-start flourish plays HERE, over the
-                        lobby, before the map shell mounts. */}
-                    <GoGoGoOverlay />
+                    {/* v822: the game-start flourish (GoGoGoOverlay) is mounted
+                        at the App level now, so it survives this branch swap
+                        and fades out over the loaded map. */}
                 </Suspense>
                 <AppConfirmHost />
                 <AppPromptHost />
@@ -218,7 +215,11 @@ export function SeekerPage() {
     const showMap = true;
 
     return (
-        <div className="bg-jetlag">
+        // v822: fade the in-game shell in — when the game-start flourish is
+        // dismissed, the App-level GoGoGoOverlay fades its opaque cover out
+        // while this shell (mounted + loading beneath) fades up, so the
+        // lobby→game handoff reads as one smooth reveal rather than a cut.
+        <div className="bg-jetlag animate-in fade-in duration-500">
             <SidebarProviderL>
                 <SidebarProviderR defaultOpen={false}>
                     <QuestionSidebar />
@@ -306,7 +307,6 @@ export function SeekerPage() {
                             stays only on desktop, which has no header. */}
                         <DebugPhaseControls floating="desktop" />
                         <StaleSessionPrompt />
-                        <GoGoGoOverlay />
                         <SeekingStartOverlay />
                         <SeekingStartWatcher />
                         <EndOfRoundDialog />

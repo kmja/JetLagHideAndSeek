@@ -800,7 +800,34 @@ export function Map({ className }: MapProps) {
         }
     };
 
-    const triggerEliminationFlash = (delta: GeoJSON.Feature) => {
+    // v822: after the flash has run, glide the camera to frame the area that
+    // REMAINS (the post-elimination region), so the beat reads as "here's the
+    // slice we just ruled out → now here's what's left." Unlike the flash fit,
+    // this always reframes (no fully-in-view skip) so the seeker ends on the
+    // tightened search area. Cap the zoom so a small remaining area doesn't
+    // rocket in and lose all context.
+    const fitMapToRemaining = (remaining: GeoJSON.Feature) => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        try {
+            const bb = turf.bbox(remaining); // [minLng,minLat,maxLng,maxLat]
+            if (!bb.every((n) => Number.isFinite(n))) return;
+            map.fitBounds(
+                [
+                    [bb[0], bb[1]],
+                    [bb[2], bb[3]],
+                ],
+                { padding: 48, duration: 900, maxZoom: 14 },
+            );
+        } catch (e) {
+            console.warn("Map remaining-area fit failed:", e);
+        }
+    };
+
+    const triggerEliminationFlash = (
+        delta: GeoJSON.Feature,
+        remaining?: GeoJSON.Feature | null,
+    ) => {
         fitMapToFlash(delta);
         flashTimersRef.current.forEach((t) => window.clearTimeout(t));
         flashTimersRef.current = [];
@@ -828,6 +855,18 @@ export function Map({ className }: MapProps) {
                         f ? { ...f, visible, fadeMs } : null,
                     );
                 }, delay),
+            );
+        }
+        // v822: as the final fade BEGINS, glide the camera to frame what
+        // remains — so the flash of the ruled-out slice resolves into a view
+        // of the tightened search area. Runs during the fade so it reads as
+        // one continuous beat rather than a hard jump after.
+        if (remaining) {
+            flashTimersRef.current.push(
+                window.setTimeout(
+                    () => fitMapToRemaining(remaining),
+                    BLINK * 5,
+                ),
             );
         }
         // Unmount once the final fade has fully run.
@@ -865,7 +904,7 @@ export function Map({ className }: MapProps) {
                         turf.featureCollection([a as never, b as never]),
                     ) as GeoJSON.Feature | null;
                     if (delta && turf.area(delta) > 1) {
-                        triggerEliminationFlash(delta);
+                        triggerEliminationFlash(delta, b);
                     }
                 }
             } catch (e) {
@@ -1059,7 +1098,7 @@ export function Map({ className }: MapProps) {
                             // handler replays the cumulative delta from the
                             // hidden baseline instead.
                             if (document.visibilityState !== "hidden") {
-                                triggerEliminationFlash(delta);
+                                triggerEliminationFlash(delta, b);
                             }
                         }
                     }

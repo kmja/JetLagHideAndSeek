@@ -215,12 +215,16 @@ export const ZoneSidebar = () => {
             isLoading.set(true);
 
             const needsDefault = !useCustomStations || includeDefaultStations;
-            if (needsDefault && $displayHidingZonesOptions.length === 0) {
-                toast.error("At least one place type must be selected");
-                zoneComputingRef.current = false;
-                isLoading.set(false);
-                return;
-            }
+            // v822: never hard-error on an empty option list. These options
+            // are persistent across games, so a stuck `[]` from a past session
+            // used to make toggling "Hiding zones" fail with "At least one
+            // place type must be selected" on a normally-started game.
+            // HidingZoneOptionsSync now self-heals the atom, but fall back
+            // here too (belt-and-braces) so a toggle always draws something.
+            const effectiveOptions =
+                needsDefault && $displayHidingZonesOptions.length === 0
+                    ? ["[railway=station]"]
+                    : $displayHidingZonesOptions;
 
             let places: StationPlace[] = [];
 
@@ -252,7 +256,7 @@ export const ZoneSidebar = () => {
                 // Custom/partial-mode selections, non-relation play areas,
                 // and cold misses return null → the live poly query below.
                 const prewarmed = await fetchPrewarmedHidingZoneStations(
-                    $displayHidingZonesOptions,
+                    effectiveOptions,
                 );
                 if (prewarmed) {
                     // @ts-expect-error osmtogeojson always defines properties with an "id" string
@@ -269,11 +273,11 @@ export const ZoneSidebar = () => {
                     // @ts-expect-error osmtogeojson always defines properties with an "id" string
                     places = osmtogeojson(
                         await findPlacesInZone(
-                            $displayHidingZonesOptions[0],
+                            effectiveOptions[0],
                             undefined,
                             "nwr",
                             "center",
-                            $displayHidingZonesOptions.slice(1),
+                            effectiveOptions.slice(1),
                         ),
                     ).features;
                     if (

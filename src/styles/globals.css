@@ -270,7 +270,8 @@ div.leaflet-control-attribution.leaflet-control {
 }
 @keyframes jlDustPoof {
     0%   { transform: translate(0, 0) scale(0.2);                       opacity: 0; }
-    12%  { opacity: 0.9; }
+    12%  { opacity: 0.95; }
+    55%  { opacity: 0.85; }
     100% { transform: translate(var(--dx, 0), var(--dy, 0)) scale(var(--ds, 1.6)); opacity: 0; }
 }
 

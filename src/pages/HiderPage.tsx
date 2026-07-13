@@ -43,11 +43,8 @@ const GameSetupDialog = lazyWithRetry(() =>
         default: m.GameSetupDialog,
     })),
 );
-const GoGoGoOverlay = lazyWithRetry(() =>
-    import("@/components/GoGoGoOverlay").then((m) => ({
-        default: m.GoGoGoOverlay,
-    })),
-);
+// v822: GoGoGoOverlay is mounted once at the App level now (survives the
+// pre-game→in-game branch swap so it can fade out over the loaded map).
 const SeekingStartOverlay = lazyWithRetry(() =>
     import("@/components/SeekingStartOverlay").then((m) => ({
         default: m.SeekingStartOverlay,
@@ -107,8 +104,8 @@ export function HiderPage() {
                     <GameSetupDialog />
                     <DebugPhaseControls />
                     <StaleSessionPrompt />
-                    {/* v814: game-start flourish plays over the lobby. */}
-                    <GoGoGoOverlay />
+                    {/* v822: game-start flourish (GoGoGoOverlay) is mounted at
+                        the App level now. */}
                 </Suspense>
                 <AppConfirmHost />
                 <AppPromptHost />
@@ -119,7 +116,9 @@ export function HiderPage() {
     }
 
     return (
-        <div className="bg-background min-h-screen">
+        // v822: fade the in-game shell in as the App-level GoGoGoOverlay fades
+        // its cover out (smooth lobby→game reveal — see SeekerPage).
+        <div className="bg-background min-h-screen animate-in fade-in duration-500">
             <HiderView />
             <MultiplayerBoot />
             <GameStartWatcher />
@@ -161,8 +160,7 @@ export function HiderPage() {
                     same component. Triggered by the Lobby slot in
                     the bottom nav. */}
                 <GameLobbyDialog />
-                {/* Hiding-period gate + GO GO GO moment. */}
-                <GoGoGoOverlay />
+                {/* v822: GoGoGoOverlay mounted at App level now. */}
                 {/* Seeking-phase start moment (the hiding clock hit
                     zero). Mirror of the GO GO GO beat, fired for both
                     roles. */}

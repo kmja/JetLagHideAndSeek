@@ -428,7 +428,33 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v821`. Use `git log` for the per-version detail;
+build stamp. Current: `v822`. Use `git log` for the per-version detail;
+
+**v822 — flourish reveal + hiding-zones self-heal + elimination reframe.**
+(1) **Game-start flourish now masks the lobby→game handoff.** `GoGoGoOverlay`
+moved from per-page mounts (SeekerPage/HiderPage, both branches) to a SINGLE
+App-level mount (sibling of `RouteTransitionCurtain`), so it survives the
+pre-game→in-game branch swap. On dismiss it no longer unmounts instantly: it
+drops `gameStartOverLobby` (so the in-game shell MOUNTS + starts loading
+beneath it — the self-healing gate flips `gameStarted` true) but KEEPS the
+celebration atom set, fading its opaque cover out over `REVEAL_MS` (520 ms),
+then clears the celebration. The in-game shell fades in (`animate-in fade-in
+duration-500`), so the loaded map is smoothly uncovered instead of a hard cut.
+(`preview` mode still clears immediately — no real game beneath.) (2) **Dust
+burst is visible now** — bigger throw (220/320 px), bigger puffs, `delay`
+160 ms so it bursts AS the card lands (not before it's drawn), 950 ms duration,
+and `jlDustPoof` holds opacity through 55% before fading. (3) **Hiding-zones
+"At least one place type must be selected" toaster fixed.**
+`displayHidingZonesOptions` + `hidingZonesAutoFromTransit` are persistent
+across games and never reset by the wizard, so a stuck `auto=false` + `[]` from
+past testing survived into a fresh game and errored on every toggle.
+`HidingZoneOptionsSync` now self-heals an empty custom list to the
+allowed-transit default (or `[railway=station]`), and `ZoneSidebar` falls back
+to `[railway=station]` instead of hard-erroring (belt-and-braces). (4)
+**Elimination flash reframes to the REMAINING area.** After the flash of the
+newly-ruled-out slice, `triggerEliminationFlash(delta, remaining)` glides the
+camera (`fitMapToRemaining`, 900 ms) to frame the post-elimination region as
+the red fades — "here's what we ruled out → now here's what's left."
 
 **v821 — NaN hiding-clock = infinite GO-GO-GO/SEEK thrash + frozen map (root
 cause of the "finish wizard → three overlays flicker forever, then a frozen

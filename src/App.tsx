@@ -11,6 +11,7 @@ import { ToastContainer } from "react-toastify";
 import { registerAppNavigate } from "@/lib/appNavigate";
 
 import { BetaGate } from "@/components/BetaGate";
+import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
@@ -233,6 +234,15 @@ export function App() {
             {/* Branded curtain over the seeker↔hider shell swap — mounted
                 OUTSIDE the router so it survives the route change. */}
             <RouteTransitionCurtain />
+            {/* v822: the game-start flourish is mounted ONCE here, above the
+                router, so it survives the pre-game→in-game branch swap inside
+                SeekerPage/HiderPage. That's what lets the overlay stay up
+                (fading its opaque cover out) WHILE the game shell mounts and
+                loads beneath it — a smooth reveal instead of a hard cut. It
+                portals to <body> and is inert (renders null) unless a
+                celebration is active, so mounting it globally is safe on every
+                route. */}
+            <GoGoGoOverlay />
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to
