@@ -3,7 +3,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { atom } from "nanostores";
 import * as React from "react";
-import { LiaThumbtackSolid } from "react-icons/lia";
+import { Pin } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { Button } from "@/components/ui/button";
@@ -297,7 +297,7 @@ const SidebarTrigger = React.forwardRef<
             }}
             {...props}
         >
-            <LiaThumbtackSolid />
+            <Pin />
         </button>
     );
 });

@@ -1,5 +1,5 @@
 import { type RefObject, useEffect, useState } from "react";
-import { MdOutlineVerticalAlignTop } from "react-icons/md";
+import { ArrowUpToLine } from "lucide-react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 
@@ -62,7 +62,7 @@ export function ScrollToTop({
                     className="fixed rounded-full right-2 w-12 h-12 z-[1050] hover:bg-slate-500 p-1"
                     {...props}
                 >
-                    <MdOutlineVerticalAlignTop className="!w-1/2 !h-1/2 " />
+                    <ArrowUpToLine className="!w-1/2 !h-1/2 " />
                 </Button>
             )}
         </>

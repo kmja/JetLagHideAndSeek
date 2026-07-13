@@ -1,4 +1,17 @@
-import * as turf from "@turf/turf";
+// Named imports (not `import * as turf`) so this geometry-worker bundle
+// tree-shakes to just the functions it uses — matching the sibling workers
+// (hidingZonesUnion / seekerZones) and shrinking the worker's Rollup chunk.
+import {
+    area,
+    bbox,
+    centroid,
+    difference,
+    distance,
+    featureCollection,
+    intersect,
+    rewind,
+    union,
+} from "@turf/turf";
 import type {
     Feature,
     FeatureCollection,
@@ -70,7 +83,7 @@ export function parseLandPolys(fc: FeatureCollection): LandPoly[] {
                 geometry: { type: "Polygon", coordinates: [coords] },
             };
             try {
-                poly = turf.rewind(poly, {
+                poly = rewind(poly, {
                     reverse: false,
                 }) as Feature<Polygon>;
             } catch {
@@ -78,7 +91,7 @@ export function parseLandPolys(fc: FeatureCollection): LandPoly[] {
             }
             out.push({
                 feature: poly,
-                bbox: turf.bbox(poly) as [number, number, number, number],
+                bbox: bbox(poly) as [number, number, number, number],
             });
         }
     }
@@ -100,7 +113,7 @@ export function parseLakePolys(fc: FeatureCollection): LakePoly[] {
         try {
             out.push({
                 feature,
-                bbox: turf.bbox(feature) as [number, number, number, number],
+                bbox: bbox(feature) as [number, number, number, number],
             });
         } catch {
             /* skip malformed lake */
@@ -141,10 +154,10 @@ function filterMeaningfulPieces(
     }[];
     try {
         withMeta = pieces.map((p) => {
-            const a = turf.area(p);
+            const a = area(p);
             let c: any = null;
             try {
-                c = turf.centroid(p);
+                c = centroid(p);
             } catch {
                 c = null;
             }
@@ -163,7 +176,7 @@ function filterMeaningfulPieces(
         if (it.area / largest.area >= MIN_RELATIVE_AREA) return true;
         if (!it.center) return false;
         try {
-            const km = turf.distance(largestCenter, it.center, {
+            const km = distance(largestCenter, it.center, {
                 units: "kilometers",
             });
             return km <= MAX_PIECE_DISTANCE_KM;
@@ -182,14 +195,14 @@ function subtractLakes(
     lakes: LakePoly[],
 ): Feature<Polygon | MultiPolygon> {
     if (lakes.length === 0) return feature;
-    const fBbox = turf.bbox(feature) as [number, number, number, number];
+    const fBbox = bbox(feature) as [number, number, number, number];
     const overlapping = lakes.filter((l) => bboxesOverlap(fBbox, l.bbox));
     if (overlapping.length === 0) return feature;
     let acc = feature;
     for (const lake of overlapping) {
         try {
-            const diff = turf.difference(
-                turf.featureCollection([acc, lake.feature]),
+            const diff = difference(
+                featureCollection([acc, lake.feature]),
             ) as Feature<Polygon | MultiPolygon> | null;
             // null means the lake fully covers the feature — that'd
             // mean the whole play area is water, which is never right,
@@ -241,7 +254,7 @@ export function clipPolygonToLandWith(
     lakePolys: LakePoly[],
 ): Feature<Polygon | MultiPolygon> | null {
     try {
-        const playBbox = turf.bbox(polygon) as [
+        const playBbox = bbox(polygon) as [
             number,
             number,
             number,
@@ -274,8 +287,8 @@ export function clipPolygonToLandWith(
         const pieces: Feature<Polygon | MultiPolygon>[] = [];
         for (const land of relevant) {
             try {
-                const inter = turf.intersect(
-                    turf.featureCollection([polygon, land.feature]),
+                const inter = intersect(
+                    featureCollection([polygon, land.feature]),
                 ) as Feature<Polygon | MultiPolygon> | null;
                 if (inter && inter.geometry) {
                     pieces.push(inter);
@@ -293,8 +306,8 @@ export function clipPolygonToLandWith(
             acc = filtered[0];
             for (let i = 1; i < filtered.length; i++) {
                 try {
-                    const u = turf.union(
-                        turf.featureCollection([acc, filtered[i]]),
+                    const u = union(
+                        featureCollection([acc, filtered[i]]),
                     ) as Feature<Polygon | MultiPolygon> | null;
                     if (u) acc = u;
                 } catch {
@@ -306,8 +319,8 @@ export function clipPolygonToLandWith(
         acc = subtractLakes(acc, lakePolys);
 
         try {
-            const inArea = turf.area(polygon);
-            const outArea = turf.area(acc);
+            const inArea = area(polygon);
+            const outArea = area(acc);
             if (inArea > 0 && outArea / inArea < MIN_KEEP) {
                 console.warn(
                     `clipPolygonToLand kept only ${(

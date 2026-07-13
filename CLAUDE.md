@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v794`. Use `git log` for the per-version detail;
+build stamp. Current: `v795`. Use `git log` for the per-version detail;
+
+**v795 — bundle-size cleanup (safe Tier-4 from the review).** (1) The geometry
+Web Worker core (`geometry/clipCore.ts` + `combineCore.ts`) switched from
+`import * as turf` to NAMED `@turf/turf` imports, matching the sibling workers
+(`hidingZonesUnion` / `seekerZones`) so that worker's Rollup chunk tree-shakes
+to just the functions it uses. (2) `react-icons` (shipped for exactly 3 icons)
+dropped — `LiaThumbtackSolid`/`TbMessage2Question`/`MdOutlineVerticalAlignTop`
+replaced with Lucide `Pin`/`MessageCircleQuestion`/`ArrowUpToLine`, and the dep
+removed from `package.json` (a whole vendor out of the eager `vendor-ui`
+chunk). (3) `workbox-window` removed as a DIRECT dep (it stays transitively via
+`vite-plugin-pwa`; nothing imported it directly). pnpm lockfile refreshed. The
+larger `import * as turf` main-thread refactor is still deferred (its own
+careful pass) — modern Rollup tree-shakes `turf.<fn>` member access reasonably,
+so the main-thread files are low priority.
 
 **v794 — perf pass 2 (battery / long-session, from the same review).**
 (1) `useTransitRouteOverlays` is now ONE effect PER MODE (`useOneTransitOverlay`)

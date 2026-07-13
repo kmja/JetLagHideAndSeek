@@ -3,7 +3,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { atom } from "nanostores";
 import * as React from "react";
-import { TbMessage2Question } from "react-icons/tb";
+import { MessageCircleQuestion } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { Button } from "@/components/ui/button";
@@ -308,7 +308,7 @@ const SidebarTrigger = React.forwardRef<
             }}
             {...props}
         >
-            <TbMessage2Question />
+            <MessageCircleQuestion />
         </button>
     );
 });
