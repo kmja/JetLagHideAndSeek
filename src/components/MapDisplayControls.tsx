@@ -260,9 +260,7 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                 <div className="space-y-2">
                     <div className={label}>Transit overlays</div>
                     <div
-                        className={cn(
-                            "rounded-lg border-2 border-border bg-background overflow-hidden flex items-stretch",
-                        )}
+                        className="flex flex-wrap gap-2"
                         role="group"
                         aria-label="Transit overlays"
                     >
@@ -284,7 +282,6 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                         on={on}
                                         loading={loading}
                                         onToggle={onToggle}
-                                        borderLeft={buttons.length > 0}
                                         iconClass={rowIcon}
                                     />,
                                 );
@@ -436,7 +433,6 @@ function TransitIconToggle({
     on,
     loading,
     onToggle,
-    borderLeft,
     iconClass = "w-4 h-4",
 }: {
     icon: LucideIcon;
@@ -449,7 +445,6 @@ function TransitIconToggle({
      *  the map. */
     loading?: boolean;
     onToggle: () => void;
-    borderLeft?: boolean;
     iconClass?: string;
 }) {
     return (
@@ -461,22 +456,26 @@ function TransitIconToggle({
             title={loading ? `${label} — loading routes…` : label}
             aria-label={loading ? `${label} (loading routes)` : label}
             className={cn(
-                "flex-1 flex flex-col items-center justify-center gap-1 py-2 px-1 transition-colors",
+                // Each toggle is a self-contained pill so the row can
+                // wrap (flex-wrap on the parent) when the icon+label
+                // buttons no longer fit; flex-1 + basis lets them share
+                // the available width and line-break as a group.
+                "flex-1 basis-24 flex items-center justify-center gap-1.5 py-2 px-2.5",
+                "rounded-lg border-2 border-border transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                borderLeft && "border-l-2 border-border",
                 loading
                     ? "bg-primary/20 text-primary hover:bg-primary/30"
                     : on
                       ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                      : "hover:bg-accent",
+                      : "bg-background hover:bg-accent",
             )}
         >
             {loading ? (
-                <Loader2 className={cn(iconClass, "animate-spin")} />
+                <Loader2 className={cn(iconClass, "shrink-0 animate-spin")} />
             ) : (
-                <Icon className={iconClass} />
+                <Icon className={cn(iconClass, "shrink-0")} />
             )}
-            <span className="text-[10px] font-poppins font-semibold leading-none text-center">
+            <span className="text-xs font-poppins font-semibold leading-none">
                 {label}
             </span>
         </button>

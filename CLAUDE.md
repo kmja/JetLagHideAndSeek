@@ -428,7 +428,16 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v808`. Use `git log` for the per-version detail;
+build stamp. Current: `v809`. Use `git log` for the per-version detail;
+
+**v809 — transit-overlay toggles: label BESIDE the icon, wrap when they don't
+fit.** Follow-up to v808's stacked icon-over-label: the map-options
+`TransitIconToggle`s now render icon + label side-by-side and the row
+(`flex flex-wrap gap-2`) line-breaks the buttons as a group when they no longer
+fit one row. Each toggle became a self-contained bordered pill (`flex-1 basis-24
+rounded-lg border-2`) instead of segments of one bordered box with `border-l`
+dividers, since the old segmented group couldn't wrap cleanly; the `borderLeft`
+prop was dropped.
 
 **v808 — wizard finish drops the stale room (real root cause of "thrown into a
 dead game").** v807 scrubbed local round state but the user was STILL dumped into
