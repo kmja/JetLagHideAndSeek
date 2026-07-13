@@ -5,6 +5,7 @@ import { toast } from "react-toastify";
 
 import { useNow } from "@/hooks/useNow";
 import {
+    configuringQuestionKey,
     pendingOverlayActive,
     questionModified,
     questions,
@@ -56,7 +57,15 @@ export function PendingAnswerOverlay({
     // "sent vs share" handler stays accurate.
     useStore(participants);
 
-    const pending = findOldestPending($questions);
+    // Exclude the question currently open in the configure dialog — it's a
+    // still-unsent draft (drag:true, no createdAt) and would otherwise show as
+    // a "Couldn't send — tap retry" card floating behind the dialog (v823).
+    // In preview (gallery) mode there's no live dialog, so don't filter.
+    const $configuringKey = useStore(configuringQuestionKey);
+    const pending = findOldestPending(
+        $questions,
+        preview ? null : $configuringKey,
+    );
 
     // Lifecycle phases for the card itself.
     type Phase = "active" | "answered" | "closing";
@@ -349,9 +358,14 @@ export function PendingAnswerOverlay({
  * deadline. A "started" thermometer is excluded — the seeker is moving,
  * it's not waiting for an answer yet.
  */
-function findOldestPending(qs: Question[]): Question | null {
+function findOldestPending(
+    qs: Question[],
+    configuringKey: number | null,
+): Question | null {
     const candidates = qs.filter((q) => {
         if (q.data.drag !== true) return false;
+        // Skip the draft still open in the configure dialog (not sent yet).
+        if (configuringKey !== null && q.key === configuringKey) return false;
         if (q.id === "thermometer") {
             const status = (q.data as ThermometerQuestion).status ?? "finished";
             if (status === "started") return false;

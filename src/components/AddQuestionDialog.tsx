@@ -28,6 +28,7 @@ import {
 import { receivedCurses } from "@/lib/seekerInbound";
 import {
     addQuestion,
+    configuringQuestionKey,
     defaultCustomQuestions,
     defaultUnit,
     lastKnownPosition,
@@ -350,6 +351,15 @@ export const AddQuestionDialog = ({
         if (pendingKey === null) return;
         const t = window.setTimeout(() => setRevealAnyway(true), 6000);
         return () => window.clearTimeout(t);
+    }, [pendingKey]);
+    // v823: publish which question is being configured so the seeker's
+    // PendingAnswerOverlay can exclude this still-unsent draft (it lives in
+    // the `questions` store as drag:true with no createdAt, which the overlay
+    // would otherwise render as a "Couldn't send — tap retry" card behind the
+    // dialog). Cleared when the dialog closes (pendingKey → null).
+    React.useEffect(() => {
+        configuringQuestionKey.set(pendingKey);
+        return () => configuringQuestionKey.set(null);
     }, [pendingKey]);
     const pendingUsesPicker =
         pendingQuestion?.id === "matching" ||

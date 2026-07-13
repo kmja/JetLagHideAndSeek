@@ -280,6 +280,23 @@ function parseMaybeJSON(
 const MASK_MAX_VERTICES = 20000;
 
 /**
+ * Stable empty FeatureCollection. Used so the elimination `<Source>` /
+ * `<Layer>` can stay MOUNTED even when there's no mask — a stable
+ * `beforeId` target so transit-route overlays (which load async and would
+ * otherwise append ON TOP of a later-created mask) always insert BELOW the
+ * dimming mask and therefore get dimmed with everything else outside the
+ * remaining play area (v823). A module-level constant (not a per-render
+ * literal) so react-map-gl doesn't call `setData` every render.
+ */
+const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = {
+    type: "FeatureCollection",
+    features: [],
+};
+
+/** The elimination mask's fill layer id — transit overlays anchor below it. */
+const ELIMINATION_MASK_LAYER_ID = "elimination-fill";
+
+/**
  * Count coordinate positions in a GeoJSON geometry/feature/collection,
  * EARLY-EXITING once `cap` is reached — so the guard itself is O(cap), not
  * O(n), even on a million-vertex county boundary.
@@ -1877,10 +1894,53 @@ export function Map({ className }: MapProps) {
                     chip now lives, bottom-left). */}
                 <AttributionControl compact position="top-left" />
 
+                {/* Elimination mask — everything OUTSIDE the in-play polygon
+                    (the play area minus eliminated regions) gets darkened.
+                    v823: mounted FIRST (before transit) and ALWAYS present
+                    (empty data when there's no mask) so `elimination-fill` is
+                    a stable, already-added `beforeId` target. maplibre REFUSES
+                    to add a layer whose `beforeId` doesn't exist yet, so
+                    transit — which anchors below this — must find it already on
+                    the map. Everything drawn AFTER this (transit anchors below
+                    it; hiding zones / play-area / flash / pins are appended
+                    above it) lands in the right order deterministically,
+                    regardless of async load timing. Empty data draws nothing,
+                    so an inactive mask is invisible. */}
+                <Source
+                    id="elimination"
+                    type="geojson"
+                    data={eliminationResult.mask ?? EMPTY_FEATURE_COLLECTION}
+                >
+                    <Layer
+                        id={ELIMINATION_MASK_LAYER_ID}
+                        type="fill"
+                        paint={{
+                            "fill-color": eliminationFillColor,
+                            "fill-opacity": eliminationFillOpacity,
+                        }}
+                    />
+                    <Layer
+                        id="elimination-outline"
+                        type="line"
+                        paint={{
+                            "line-color": eliminationFillColor,
+                            "line-width": 1,
+                            "line-opacity": eliminationOutlineOpacity,
+                        }}
+                    />
+                </Source>
+
                 {/* Transit-route overlays — shared with the hider map
                     via TransitRouteLayers so colours + behaviour match
-                    across both map paths. */}
-                <TransitRouteLayers transitFC={transitFC} />
+                    across both map paths. v823: anchored BELOW the
+                    elimination mask (`beforeId`) so lines outside the
+                    remaining area get dimmed like everything else — without
+                    it, the async-loaded transit layers appended on top of the
+                    mask and stayed bright ("subway lines aren't dimmed"). */}
+                <TransitRouteLayers
+                    transitFC={transitFC}
+                    beforeId={ELIMINATION_MASK_LAYER_ID}
+                />
 
                 {/* Hiding-zones overlay — mirrored from ZoneSidebar's
                     showGeoJSON via the hidingZonesGeoJSON atom. The default
@@ -2223,35 +2283,6 @@ export function Map({ className }: MapProps) {
                     );
                 })()}
 
-                {/* Elimination mask — everything OUTSIDE the
-                    in-play polygon (which is the play area
-                    minus eliminated regions) gets darkened.
-                    Same visual cue Leaflet's Map.tsx draws. */}
-                {eliminationResult.mask && (
-                    <Source
-                        id="elimination"
-                        type="geojson"
-                        data={eliminationResult.mask}
-                    >
-                        <Layer
-                            id="elimination-fill"
-                            type="fill"
-                            paint={{
-                                "fill-color": eliminationFillColor,
-                                "fill-opacity": eliminationFillOpacity,
-                            }}
-                        />
-                        <Layer
-                            id="elimination-outline"
-                            type="line"
-                            paint={{
-                                "line-color": eliminationFillColor,
-                                "line-width": 1,
-                                "line-opacity": eliminationOutlineOpacity,
-                            }}
-                        />
-                    </Source>
-                )}
 
                 {/* Newly-eliminated-area flash — a brand-red wash over the
                     slice an answer just ruled out, drawn ON TOP of the dark

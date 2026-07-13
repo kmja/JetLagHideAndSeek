@@ -909,13 +909,17 @@ export function InlineLocationPicker({
                                             "fill-opacity": 0.35,
                                         }}
                                     />
+                                    {/* v823: CLEAR LIGHT-purple borders
+                                        between cells so adjacent segments stay
+                                        easy to tell apart even when two land on
+                                        similar shades. */}
                                     <Layer
                                         id="impact-reach-cells-line"
                                         type="line"
                                         paint={{
-                                            "line-color": "hsl(265, 45%, 38%)",
-                                            "line-width": 1,
-                                            "line-opacity": 0.7,
+                                            "line-color": "hsl(266, 80%, 88%)",
+                                            "line-width": 2,
+                                            "line-opacity": 0.95,
                                         }}
                                     />
                                 </Source>
@@ -1176,17 +1180,20 @@ export function InlineLocationPicker({
     );
 }
 
-/** Distinct purple shades cycled across the tentacle Voronoi cells so
- *  adjacent "nearest reference" regions read apart at a glance. */
+/** v823: a repeating range of SHADES of the tentacle category purple —
+ *  same hue/saturation, only the lightness varies — cycled across the
+ *  Voronoi cells. (Was a spread of different HUES, 240–300, which read as
+ *  different colours rather than one family.) The light-purple cell borders
+ *  (`impact-reach-cells-line`) keep adjacent cells legible even when two
+ *  happen to land on similar shades. Hue 266 ≈ the tentacle category
+ *  color (#b09cd5). */
 const PURPLE_CELL_SHADES = [
-    "hsl(265, 60%, 58%)",
-    "hsl(288, 52%, 60%)",
-    "hsl(248, 62%, 60%)",
-    "hsl(300, 45%, 55%)",
-    "hsl(272, 55%, 46%)",
-    "hsl(255, 58%, 66%)",
-    "hsl(282, 60%, 50%)",
-    "hsl(240, 52%, 62%)",
+    "hsl(266, 50%, 44%)",
+    "hsl(266, 48%, 54%)",
+    "hsl(266, 46%, 64%)",
+    "hsl(266, 50%, 49%)",
+    "hsl(266, 47%, 59%)",
+    "hsl(266, 45%, 69%)",
 ];
 
 /** Bigger radii deserve a wider zoom so the whole circle fits. */

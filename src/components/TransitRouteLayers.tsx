@@ -27,11 +27,16 @@ function FadingTransitLine({
     data,
     color,
     dash,
+    beforeId,
 }: {
     id: string;
     data: GeoJSON.FeatureCollection | null | undefined;
     color: string;
     dash?: [number, number];
+    /** Insert both layers BELOW this layer id (e.g. the elimination mask on
+     *  the seeker map) so the overlay gets dimmed. Ignored if the target
+     *  layer doesn't exist (the hider map has no mask). */
+    beforeId?: string;
 }) {
     return (
         <FadeOverlay active data={data} durationMs={FADE_MS}>
@@ -40,6 +45,7 @@ function FadingTransitLine({
                     <Layer
                         id={`${id}-line`}
                         type="line"
+                        beforeId={beforeId}
                         filter={["==", ["geometry-type"], "LineString"]}
                         paint={fadePaint({
                             "line-color": color,
@@ -58,6 +64,7 @@ function FadingTransitLine({
                     <Layer
                         id={`${id}-stations`}
                         type="circle"
+                        beforeId={beforeId}
                         filter={["==", ["geometry-type"], "Point"]}
                         minzoom={11}
                         paint={fadePaint({
@@ -89,34 +96,48 @@ function FadingTransitLine({
     );
 }
 
-export function TransitRouteLayers({ transitFC }: { transitFC: TransitFC }) {
+export function TransitRouteLayers({
+    transitFC,
+    beforeId,
+}: {
+    transitFC: TransitFC;
+    /** Insert every mode's layers BELOW this layer id (the seeker map passes
+     *  the elimination mask so transit gets dimmed outside the remaining
+     *  area). Omitted on the hider map, which has no mask. */
+    beforeId?: string;
+}) {
     return (
         <>
             <FadingTransitLine
                 id="transit-subway"
                 data={transitFC.subway}
                 color="hsl(280, 60%, 60%)"
+                beforeId={beforeId}
             />
             <FadingTransitLine
                 id="transit-bus"
                 data={transitFC.bus}
                 color="hsl(35, 90%, 55%)"
+                beforeId={beforeId}
             />
             <FadingTransitLine
                 id="transit-ferry"
                 data={transitFC.ferry}
                 color="hsl(200, 85%, 55%)"
                 dash={[4, 4]}
+                beforeId={beforeId}
             />
             <FadingTransitLine
                 id="transit-train"
                 data={transitFC.train}
                 color="hsl(140, 55%, 45%)"
+                beforeId={beforeId}
             />
             <FadingTransitLine
                 id="transit-tram"
                 data={transitFC.tram}
                 color="hsl(330, 75%, 60%)"
+                beforeId={beforeId}
             />
         </>
     );

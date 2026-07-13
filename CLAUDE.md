@@ -428,7 +428,30 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v822`. Use `git log` for the per-version detail;
+build stamp. Current: `v823`. Use `git log` for the per-version detail;
+
+**v823 — three map/overlay bug fixes.** (1) **Transit overlays now get dimmed
+by the elimination mask.** The seeker map's `TransitRouteLayers` load
+asynchronously, so their MapLibre layers were appended AFTER the elimination
+mask already existed → they painted on top and stayed bright over ruled-out
+land ("subway lines aren't dimmed"). Fix: the elimination `<Source>` is now
+mounted FIRST (before transit) and ALWAYS present (empty `FeatureCollection`
+when there's no mask) so `elimination-fill` is a stable, already-added
+`beforeId` target — maplibre refuses to add a layer whose `beforeId` doesn't
+exist yet, so the mask must exist before transit references it. Transit passes
+`beforeId={ELIMINATION_MASK_LAYER_ID}` (threaded through `TransitRouteLayers`)
+so it anchors below the mask; everything drawn after (hiding zones, play-area
+outline, flash, pins) lands above it — deterministic regardless of async load
+order. Hider map omits `beforeId` (no mask there). (2) **Phantom "Couldn't
+send — tap retry" card behind the configure dialog.** A brand-new question is
+added to the `questions` store as a DRAFT (`drag:true`, no `createdAt`) while
+being configured, and `PendingAnswerOverlay.findOldestPending` picked it up as
+a not-yet-sent card. New volatile `configuringQuestionKey` atom (set from
+`AddQuestionDialog`'s `pendingKey`) tells the overlay which draft is mid-config
+so it excludes it. (3) **Tentacle Voronoi cell shades** now vary only LIGHTNESS
+of the tentacle-category purple (hue 266) instead of a spread of hues
+(240–300), with CLEAR light-purple borders (`hsl(266,80%,88%)`, width 2)
+between cells so adjacent segments stay distinct even on similar shades.
 
 **v822 — flourish reveal + hiding-zones self-heal + elimination reframe.**
 (1) **Game-start flourish now masks the lobby→game handoff.** `GoGoGoOverlay`

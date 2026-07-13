@@ -618,6 +618,17 @@ export const isLoading = atom<boolean>(false);
  * way. Set by `PendingAnswerOverlay`; runtime-only. */
 export const pendingOverlayActive = atom<boolean>(false);
 
+/**
+ * The `key` of the question currently open in the Add-question CONFIGURE
+ * dialog (null when no configure dialog is open). A brand-new question is
+ * added to the `questions` store as a DRAFT (`drag:true`, no `createdAt`)
+ * the moment the picker promotes it, so it lives in the store while being
+ * configured — and the seeker's `PendingAnswerOverlay` would otherwise pick
+ * it up as a `createdAt`-less "Couldn't send — tap retry" card floating
+ * behind the dialog (v823 bug). The overlay excludes this key so a draft
+ * being configured never reads as a failed send. Runtime-only. */
+export const configuringQuestionKey = atom<number | null>(null);
+
 export const baseTileLayer = persistentAtom<
     | "auto"
     | "voyager"
