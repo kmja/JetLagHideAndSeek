@@ -70,7 +70,6 @@ import {
     hostPushSetup,
     joinAsHost,
     leaveGame,
-    promoteCoHider,
     setOnlineRole,
 } from "@/lib/multiplayer/store";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
@@ -156,8 +155,7 @@ export function GameLobbyDialog() {
                 // rather than snapping shut before it.
                 ($hidingEndsAt === null || $overLobby)));
 
-    const isHiderRole =
-        $playerRole === "hider" || $playerRole === "coHider";
+    const isHiderRole = $playerRole === "hider";
 
     const isMidGame = $manualOpen && $hidingEndsAt !== null;
 
@@ -233,13 +231,12 @@ export function GameLobbyDialog() {
     const seekers = $participants.filter(
         (p) => p.online && p.role === "seeker",
     );
-    const hider = $participants.find(
+    // v829: the hide team is a flat list of equal `hider`s (no main/co
+    // distinction). `hider` = the first for any single-hider display bits.
+    const hiders = $participants.filter(
         (p) => p.online && p.role === "hider",
     );
-    const coHiders = $participants.filter(
-        (p) => p.online && p.role === "coHider",
-    );
-    const hiders = [...(hider ? [hider] : []), ...coHiders];
+    const hider = hiders[0];
     // Require a real room with at least one seeker AND one hider.
     // Solo "single device" play is not allowed — the wizard now
     // always auto-creates a multiplayer room on finish, so the only
@@ -295,11 +292,11 @@ export function GameLobbyDialog() {
 
     // v447: pick / switch team from the lobby roster zero-state. Mirrors
     // Welcome.handlePickRole — sets the local role, pushes it to the
-    // server (coHider is client-only), and routes hiders to /h, seekers
-    // back to / if they were on the hider page.
-    const joinTeam = (role: "seeker" | "hider" | "coHider") => {
+    // server, and routes hiders to /h, seekers back to / if they were on
+    // the hider page. v829: any number of players can be hiders.
+    const joinTeam = (role: "seeker" | "hider") => {
         playerRole.set(role);
-        if (role !== "coHider") setOnlineRole(role);
+        setOnlineRole(role);
         if (typeof window === "undefined") return;
         // v756: SOFT-navigate (SPA) instead of window.location.assign — a full
         // reload here tore down the live WS + let the reconnect snapshot
@@ -308,7 +305,7 @@ export function GameLobbyDialog() {
         // also soft-navigates now, so this is just the immediate, responsive
         // move; falls back to a hard nav only if the router bridge is absent.
         const onHiderPage = window.location.pathname.startsWith("/h");
-        if (role === "hider" || role === "coHider") {
+        if (role === "hider") {
             if (!onHiderPage && !appNavigate("/h", { replace: true }))
                 window.location.assign("/h");
         } else if (onHiderPage) {
@@ -914,43 +911,17 @@ export function GameLobbyDialog() {
                                 joinLabel="Join seekers"
                             />
                             <RosterCard
-                                label={`Hiders · ${(hider ? 1 : 0) + coHiders.length}`}
+                                label={`Hiders · ${hiders.length}`}
                                 tone="hider"
-                                participants={[
-                                    ...(hider ? [hider] : []),
-                                    ...coHiders,
-                                ]}
-                                mainHiderId={hider?.id ?? null}
+                                participants={hiders}
                                 selfId={$self}
                                 hostId={hostId}
-                                onJoin={(() => {
-                                    if (isMidGame) return undefined;
-                                    const seatOpen =
-                                        !hider || hider.id === $self;
-                                    if (seatOpen) {
-                                        // No main hider yet (or it's me) →
-                                        // take the seat. Already main hider
-                                        // → no join button.
-                                        return $playerRole === "hider"
-                                            ? undefined
-                                            : () => joinTeam("hider");
-                                    }
-                                    // Seat held by someone else → co-hide.
-                                    return $playerRole === "coHider"
-                                        ? undefined
-                                        : () => joinTeam("coHider");
-                                })()}
-                                joinLabel={
-                                    !hider || hider.id === $self
-                                        ? "Join hiders"
-                                        : "Join as co-hider"
+                                onJoin={
+                                    !isMidGame && $playerRole !== "hider"
+                                        ? () => joinTeam("hider")
+                                        : undefined
                                 }
-                                showPromote={
-                                    $playerRole === "hider" &&
-                                    !!hider &&
-                                    hider.id === $self
-                                }
-                                onPromote={(id) => promoteCoHider(id)}
+                                joinLabel="Join hiders"
                             />
                         </div>
                     )}
@@ -1230,33 +1201,24 @@ function RosterCard({
     participants: rows,
     selfId,
     hostId,
-    mainHiderId,
     onJoin,
     joinLabel,
-    showPromote = false,
-    onPromote,
 }: {
     label: string;
     tone: "seeker" | "hider";
     participants: {
         id: string;
         displayName: string;
-        role: "seeker" | "hider" | "coHider" | null;
+        role: "seeker" | "hider" | null;
         online: boolean;
     }[];
     selfId: string | null;
     hostId: string | null;
-    /** When set, the row matching this id wears the MAIN badge. */
-    mainHiderId?: string | null;
     /** When set, render a "join this team" button (zero-state pick +
      *  inline switch). The parent decides whether to pass it based on
-     *  the local player's current role + seat availability. */
+     *  the local player's current role. v829: any number of hiders. */
     onJoin?: () => void;
     joinLabel?: string;
-    /** Show a "Promote" button next to co-hiders (gated on the
-     *  caller already confirming the local player can act). */
-    showPromote?: boolean;
-    onPromote?: (id: string) => void;
 }) {
     // Identity is carried by icon + (for hiders) a subtle dim,
     // not a brand-coloured dot — the role colors were colliding
@@ -1308,10 +1270,6 @@ function RosterCard({
                     {rows.map((p) => {
                         const isMe = p.id === selfId;
                         const isHost = p.id === hostId;
-                        const isMain =
-                            mainHiderId !== undefined &&
-                            mainHiderId === p.id;
-                        const isCoHider = p.role === "coHider";
                         return (
                             <li
                                 key={p.id}
@@ -1326,18 +1284,6 @@ function RosterCard({
                                     <span>
                                         {p.displayName || "Anonymous"}
                                     </span>
-                                    {isMain && (
-                                        <span
-                                            className={cn(
-                                                "text-[10px] font-display font-extrabold uppercase tracking-[0.10em]",
-                                                "rounded-[3px] px-1.5 py-[2px] leading-none",
-                                                "bg-accent-yellow text-[hsl(var(--sidebar-background))]",
-                                            )}
-                                            title="Main hider — answers questions and plays the deck."
-                                        >
-                                            MAIN
-                                        </span>
-                                    )}
                                     {isHost && (
                                         <span className="text-xs uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
                                             Host
@@ -1349,26 +1295,6 @@ function RosterCard({
                                         </span>
                                     )}
                                 </span>
-                                {showPromote &&
-                                    isCoHider &&
-                                    p.online &&
-                                    onPromote && (
-                                        <button
-                                            type="button"
-                                            onClick={() => onPromote(p.id)}
-                                            className={cn(
-                                                "text-[10px] uppercase tracking-[0.08em] font-display font-extrabold",
-                                                "rounded-[3px] px-2 py-1 leading-none",
-                                                "bg-[hsl(var(--accent-yellow)/0.15)] text-accent-yellow",
-                                                "border border-[hsl(var(--accent-yellow))/0.4]",
-                                                "hover:bg-[hsl(var(--accent-yellow)/0.25)]",
-                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-yellow",
-                                            )}
-                                            title="Promote to main hider (you become a co-hider)"
-                                        >
-                                            Promote
-                                        </button>
-                                    )}
                             </li>
                         );
                     })}

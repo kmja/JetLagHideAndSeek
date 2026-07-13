@@ -275,7 +275,7 @@ export function resumeDemoGameIfPersisted(): boolean {
         return false;
     }
     const asRole: "seeker" | "hider" =
-        role === "hider" || role === "coHider" ? "hider" : "seeker";
+        role === "hider" ? "hider" : "seeker";
     startDemoGame({ asRole, resume: true });
     return true;
 }
@@ -295,12 +295,13 @@ function handleClientMessage(msg: ClientMessage) {
 
         case "role": {
             const me = s.state.participants.find((p) => p.id === s.userId);
-            if (me) me.role = msg.role;
-            // If the user just took the hider seat, demote the bot hider
-            // to seeker so the "max 1 hider" invariant holds.
-            if (msg.role === "hider") {
-                const bot = s.state.participants.find((p) => p.id === s.hiderId);
-                if (bot && bot.role === "hider") bot.role = "seeker";
+            // v829: the hide team is a unit of equal hiders — no "max 1
+            // hider" demotion anymore. Coerce a stale "coHider" to "hider".
+            if (me) {
+                me.role =
+                    (msg.role as string) === "coHider"
+                        ? "hider"
+                        : msg.role;
             }
             broadcastPresence();
             return;
@@ -421,21 +422,16 @@ function handleClientMessage(msg: ClientMessage) {
         }
 
         case "rotateHider": {
-            // v826: apply the role reassignment so the demo reflects the
-            // new round's hide team — primary hider + optional co-hiders,
-            // everyone else a seeker — then broadcast presence so the
-            // bridge reconciles the local role (the user may have picked a
-            // bot to hide, making themselves a seeker, or vice versa).
-            const coHiders = new Set(
-                (msg.coHiders ?? []).filter((id) => id !== msg.to),
-            );
+            // Apply the role reassignment so the demo reflects the new
+            // round's hide team, then broadcast presence so the bridge
+            // reconciles the local role. v829: the whole picked set
+            // (`to` + `coHiders`) are equal hiders; everyone else seeks.
+            const hiders = new Set<string>([
+                msg.to,
+                ...(msg.coHiders ?? []),
+            ]);
             for (const p of s.state.participants) {
-                p.role =
-                    p.id === msg.to
-                        ? "hider"
-                        : coHiders.has(p.id)
-                          ? "coHider"
-                          : "seeker";
+                p.role = hiders.has(p.id) ? "hider" : "seeker";
             }
             broadcastPresence();
             return;
@@ -444,7 +440,6 @@ function handleClientMessage(msg: ClientMessage) {
         case "loc":
         case "ping":
         case "subscribePush":
-        case "promoteCoHider":
             // Acknowledged silently. The demo doesn't need any of
             // these to drive a useful test surface.
             return;

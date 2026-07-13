@@ -53,7 +53,7 @@ export const PhotoQuestionComponent = ({
     const $gameSize = useStore(gameSize);
     const $role = useStore(playerRole);
     const $endgame = useStore(endgameStartedAt);
-    const isHideTeam = $role === "hider" || $role === "coHider";
+    const isHideTeam = $role === "hider";
     const inEndgame = $endgame !== null;
 
     const label = `Photo ${

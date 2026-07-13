@@ -135,42 +135,28 @@ export interface CMsgUpdateQuestion {
  */
 export interface CMsgRotateHider {
     t: "rotateHider";
-    /** Participant id of the player who should become the new PRIMARY hider
-     *  (the one who answers questions + plays the hand). */
+    /** Participant id of a player who should hide this round. */
     to: string;
     /**
-     * Optional additional hide-team members (v826): each becomes a `coHider`
-     * for the new round. Everyone not in `to`/`coHiders` becomes a seeker.
-     * Omitted / empty = a single-hider round (the classic behaviour). The
-     * `to` id is always the primary even if it also appears here.
+     * Optional additional hide-team members (v826): the whole set
+     * (`to` + `coHiders`) becomes equal `hider`s for the new round;
+     * everyone else becomes a seeker (v829 — no more main/co distinction).
+     * Omitted / empty = a single-hider round. `to` is included even if it
+     * also appears here. (Field name kept for wire compatibility.)
      */
     coHiders?: string[];
 }
 
 /**
  * The primary hider pushes their committed hiding zone (or null when
- * cleared / reset). The server stores it and fans it out to the hide
- * team — co-hiders — only. Seekers never receive it; the zone is the
- * secret they're trying to deduce.
+ * cleared / reset). The server stores it and fans it out to the whole
+ * hide team (every `hider`) except the sender. Seekers never receive it;
+ * the zone is the secret they're trying to deduce. v829: any hider may
+ * commit/change the zone (no more primary-only).
  */
 export interface CMsgSetHideZone {
     t: "setHideZone";
     zone: HidingZoneShare | null;
-}
-
-/**
- * The primary hider hands the seat off to a co-hider. The server
- * swaps the two roles: the sender (must currently be the hider)
- * becomes a co-hider, the target (must currently be a co-hider)
- * becomes the hider. Other co-hiders and seekers are untouched —
- * unlike `rotateHider`, this is a within-the-hide-team promotion,
- * not a round-end role reset. Broadcast as a fresh presence so
- * every client reconciles its local `playerRole`.
- */
-export interface CMsgPromoteCoHider {
-    t: "promoteCoHider";
-    /** Participant id of the co-hider being promoted to main hider. */
-    to: string;
 }
 
 /**
@@ -269,7 +255,6 @@ export type ClientMessage =
     | CMsgUpdateQuestion
     | CMsgMarkFound
     | CMsgRotateHider
-    | CMsgPromoteCoHider
     | CMsgSetHideZone
     | CMsgStartEndgame
     | CMsgCancelEndgame

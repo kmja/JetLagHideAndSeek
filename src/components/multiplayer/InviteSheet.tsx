@@ -271,9 +271,7 @@ function TeamRoster({
     participants: Participant[];
     selfDisplayName: string | null;
 }) {
-    const hiders = participants.filter(
-        (p) => p.role === "hider" || p.role === "coHider",
-    );
+    const hiders = participants.filter((p) => p.role === "hider");
     const seekers = participants.filter((p) => p.role === "seeker");
     const unassigned = participants.filter((p) => !p.role);
     const $locations = useStore(seekerLocations);
@@ -443,13 +441,12 @@ function formatFreshness(ts: number): string {
     return `${hr}h ago (stale)`;
 }
 
-/** Order: hider → co-hider(s) → seekers. Within a team, alphabetic
- *  on the display name for stable rendering across re-renders. */
+/** Order: hiders → seekers. Within a team, alphabetic on the display
+ *  name for stable rendering across re-renders. */
 function sortRoster(list: Participant[]): Participant[] {
     const order: Record<string, number> = {
         hider: 0,
-        coHider: 1,
-        seeker: 2,
+        seeker: 1,
     };
     return [...list].sort((a, b) => {
         const ra = a.role ? (order[a.role] ?? 9) : 9;
@@ -466,14 +463,6 @@ function roleMeta(role: Participant["role"]) {
             icon: VenetianMask,
             iconCls: "text-purple-300",
             chipCls: "bg-purple-500/20 text-purple-300",
-        };
-    }
-    if (role === "coHider") {
-        return {
-            label: "Co-hider",
-            icon: Users,
-            iconCls: "text-purple-300/80",
-            chipCls: "bg-purple-500/15 text-purple-300/90",
         };
     }
     if (role === "seeker") {

@@ -68,7 +68,7 @@ export function SeekingStartWatcher() {
         // mounted copy on the other route doesn't double-fire.
         seekingStartFiredFor.set($endsAt);
         seekingStartCelebrationAt.set(Date.now());
-        const isHider = $role === "hider" || $role === "coHider";
+        const isHider = $role === "hider";
         // v350: no toast banner here — the full-screen SEEK! /
         // ON THE HUNT! overlay below already announces the moment, so a
         // duplicate banner is noise. The OS notification stays: it's
@@ -96,7 +96,7 @@ export function SeekingStartOverlay() {
 
     if ($at === null) return null;
 
-    const isHider = $role === "hider" || $role === "coHider";
+    const isHider = $role === "hider";
     const date = new Date($at);
     const hh = String(date.getHours()).padStart(2, "0");
     const mm = String(date.getMinutes()).padStart(2, "0");

@@ -533,17 +533,6 @@ export function seekerRotateHider(
     });
 }
 
-/**
- * Hand the main-hider seat to a co-hider. Sender must currently be
- * the hider; target must be a co-hider. Server validates both and
- * rejects with `bad_message` otherwise. On success, the next
- * presence broadcast carries the swapped roles and every client
- * reconciles its local `playerRole` from there.
- */
-export function promoteCoHider(toParticipantId: string) {
-    if (!multiplayerEnabled.get()) return;
-    getTransport().send({ t: "promoteCoHider", to: toParticipantId });
-}
 
 /** Hider broadcasts a curse to all seekers in the room. */
 export function hiderCastCurse(curse: CursePayload) {
@@ -681,12 +670,11 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
     // stale data lying around AND a player switching INTO the
     // seat lands on a clean slate. Skip this on first role assignment
     // (prev === null) — that's the role-picker landing case.
-    // Reset on any transition into OR out of a hide-team seat (hider or
-    // coHider), so a demoted co-hider doesn't keep a stale hiding zone /
-    // inbox and a freshly-promoted one lands clean — not just on hider
-    // transitions.
-    const wasHideTeam = prev === "hider" || prev === "coHider";
-    const nowHideTeam = me.role === "hider" || me.role === "coHider";
+    // Reset on any transition into OR out of the hide team (v829: a single
+    // `hider` role now), so a demoted hider doesn't keep a stale hiding zone
+    // / inbox and a freshly-added one lands clean.
+    const wasHideTeam = prev === "hider";
+    const nowHideTeam = me.role === "hider";
     if (prev !== null && (wasHideTeam || nowHideTeam)) {
         resetHiderRoundState();
     }
@@ -700,13 +688,12 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
         const onHider = path === "/h" || path.startsWith("/h/");
         const onSeeker =
             path === "/" || (!onHider && !path.startsWith("/h"));
-        // Hider and co-hider both live on the hider surface (/h); the
-        // co-hider just renders the read-only companion view there. v756:
-        // SOFT-navigate via the appNavigate bridge (fall back to a hard nav
-        // only if the router bridge isn't mounted). A `window.location`
-        // reload here tore down the live WS + re-applied the server snapshot
-        // over local state — the "lobby reloads when I pick hider" bug.
-        if ((me.role === "hider" || me.role === "coHider") && !onHider) {
+        // Every hider lives on the hider surface (/h). v756: SOFT-navigate
+        // via the appNavigate bridge (fall back to a hard nav only if the
+        // router bridge isn't mounted). A `window.location` reload here tore
+        // down the live WS + re-applied the server snapshot over local state
+        // — the "lobby reloads when I pick hider" bug.
+        if (me.role === "hider" && !onHider) {
             if (!appNavigate("/h", { replace: true }))
                 window.location.assign("/h");
         } else if (me.role === "seeker" && !onSeeker) {
@@ -841,11 +828,7 @@ function handleServerMessage(msg: ServerMessage) {
             // to seeker locally.
             {
                 const local = playerRole.get();
-                if (
-                    local === "seeker" ||
-                    local === "hider" ||
-                    local === "coHider"
-                ) {
+                if (local === "seeker" || local === "hider") {
                     getTransport().send({ t: "role", role: local });
                 }
             }
@@ -891,7 +874,7 @@ function handleServerMessage(msg: ServerMessage) {
             const label =
                 (q && q.id && CATEGORIES[q.id as keyof typeof CATEGORIES]?.label) ||
                 "question";
-            if (msg.t === "qAdded" && (role === "hider" || role === "coHider")) {
+            if (msg.t === "qAdded" && (role === "hider")) {
                 notify({
                     title: "New question",
                     body: `The seeker asked a ${label.toLowerCase()} question.`,
@@ -936,8 +919,7 @@ function handleServerMessage(msg: ServerMessage) {
                 notify({
                     title: "Round over",
                     body:
-                        playerRole.get() === "hider" ||
-                        playerRole.get() === "coHider"
+                        playerRole.get() === "hider"
                             ? "The seeker marked you as found."
                             : "The hider was found.",
                     tag: "round-ended",
@@ -955,12 +937,18 @@ function handleServerMessage(msg: ServerMessage) {
             reconcileLocalRoleFromPresence(msg.participants);
             return;
         case "hideZone":
-            // Hide-team sync: the primary hider's committed zone, or
-            // null on clear / new round. Co-hiders mirror it locally
-            // so the companion view can render it. The hider is the
-            // source and never receives this (server excludes them),
-            // so this only ever lands on a co-hider.
-            hidingZone.set(msg.zone);
+            // Hide-team sync: a teammate's committed zone, or null on
+            // clear / new round. v829: every hider mirrors it locally (any
+            // hider can commit; the server fans to all OTHER hiders). Guard
+            // the atom write so it doesn't re-trigger the push subscription
+            // → server → back to us → loop; `applyingRemoteZone` tells the
+            // subscription "this set came from the wire, don't re-send".
+            applyingRemoteZone = true;
+            try {
+                hidingZone.set(msg.zone);
+            } finally {
+                applyingRemoteZone = false;
+            }
             return;
         case "setupChanged": {
             if (msg.setup.playArea) playArea.set(msg.setup.playArea);
@@ -1016,7 +1004,7 @@ function handleServerMessage(msg: ServerMessage) {
                 msg.setup.endgameStartedAt !== null
             ) {
                 const role = playerRole.get();
-                if (role === "hider" || role === "coHider") {
+                if (role === "hider") {
                     notify({
                         title: "Endgame — lock down",
                         body: "The seeker says they're in your zone. Commit to a final spot — or refute it if they're wrong.",
@@ -1071,7 +1059,7 @@ function handleServerMessage(msg: ServerMessage) {
                 msg.setup.hidingPeriodEndsAt <= Date.now()
             ) {
                 const role = playerRole.get();
-                if (role === "hider" || role === "coHider") {
+                if (role === "hider") {
                     notify({
                         title: "Hiding period over",
                         body: "The seeker can start asking questions now.",
@@ -1166,6 +1154,10 @@ function handleServerMessage(msg: ServerMessage) {
  * call sites.
  */
 let _installed = false;
+/** v829: true while an inbound `hideZone` is being written to the local
+ *  atom, so the zone-push subscription doesn't echo a wire-driven set back
+ *  to the server (which would loop across the now-multiple equal hiders). */
+let applyingRemoteZone = false;
 export function installMultiplayerBridge() {
     if (_installed) return;
     _installed = true;
@@ -1205,21 +1197,24 @@ export function installMultiplayerBridge() {
         if (!multiplayerEnabled.get()) return;
         if (!currentGameCode.get()) return;
         if (transportStatus.get() !== "open") return;
-        if (role === "seeker" || role === "hider" || role === "coHider") {
+        if (role === "seeker" || role === "hider") {
             getTransport().send({ t: "role", role });
         }
     });
 
-    // Forward the primary hider's committed hiding zone to the server
-    // so it can fan out to co-hiders. Only the hider pushes — co-hiders
-    // mirror it inbound, and pushing from them would loop. Skip the
-    // initial nanostores fire (stale value from a prior session).
+    // Forward a hider's committed hiding zone to the server so it can fan
+    // out to the rest of the hide team. v829: EVERY hider can commit, so
+    // any hider pushes — but an inbound `hideZone` also writes the atom, and
+    // re-pushing that would loop (us → server → other hiders → back). The
+    // `applyingRemoteZone` guard skips the send for a wire-driven set. Skip
+    // the initial nanostores fire too (stale value from a prior session).
     let firstZoneFire = true;
     hidingZone.subscribe((zone) => {
         if (firstZoneFire) {
             firstZoneFire = false;
             return;
         }
+        if (applyingRemoteZone) return;
         if (!multiplayerEnabled.get()) return;
         if (!currentGameCode.get()) return;
         if (transportStatus.get() !== "open") return;

@@ -85,8 +85,8 @@ export function Welcome() {
     // and disable the Hider tile when one already holds the seat.
     const seekers = $participants.filter((p) => p.role === "seeker");
     const hider = $participants.find((p) => p.role === "hider");
-    const coHiders = $participants.filter((p) => p.role === "coHider");
-    const hiderTaken = Boolean(hider);
+    // v829: the hide team is a flat list of equal hiders (no co-hider role).
+    const hiders = $participants.filter((p) => p.role === "hider");
 
     const handleStartNew = () => {
         welcomeSeen.set(true);
@@ -116,14 +116,9 @@ export function Welcome() {
     // Step 2 of join: user picked a role from the informed
     // options. Persist it + push to server, then close Welcome
     // and let the lobby / hider home take over.
-    const handlePickRole = (role: "seeker" | "hider" | "coHider") => {
+    const handlePickRole = (role: "seeker" | "hider") => {
         playerRole.set(role);
-        if (role !== "coHider") {
-            // Server only knows seeker / hider / null — co-hider
-            // is a client-only concept layered on top of the
-            // hider role.
-            setOnlineRole(role);
-        }
+        setOnlineRole(role);
         welcomeSeen.set(true);
         setupCompleted.set(true);
         // SOFT-navigate for BOTH roles (v755). The hider used to HARD-navigate
@@ -136,7 +131,7 @@ export function Welcome() {
         // on the SPA keeps the connection (and the wizard values) intact; the
         // route guard mounts HiderPage/SeekerPage by role (HiderPage is
         // lazy-loaded, so the welcome chunk isn't meaningfully co-bundled).
-        navigate(role === "hider" || role === "coHider" ? "/h" : "/", {
+        navigate(role === "hider" ? "/h" : "/", {
             replace: true,
         });
     };
@@ -359,33 +354,17 @@ export function Welcome() {
                                 emptyHint="No seekers yet."
                             />
                             <RosterGroup
-                                label={`Team Hiders · ${hider ? 1 + coHiders.length : coHiders.length}`}
+                                label={`Team Hiders · ${hiders.length}`}
                                 tone="hider"
-                                entries={[
-                                    ...(hider
-                                        ? [
-                                              {
-                                                  name:
-                                                      hider.displayName ||
-                                                      "Anonymous",
-                                                  badge: "MAIN",
-                                              },
-                                          ]
-                                        : []),
-                                    ...coHiders.map((p) => ({
-                                        name:
-                                            p.displayName ||
-                                            "Anonymous",
-                                    })),
-                                ]}
-                                emptyHint="No hiders yet — the seat is open."
+                                entries={hiders.map((p) => ({
+                                    name: p.displayName || "Anonymous",
+                                }))}
+                                emptyHint="No hiders yet."
                             />
                         </div>
 
-                        {/* Role tiles. Hider is disabled when the
-                            seat is taken; Co-hider only shows when a
-                            hider exists (it's a layered role on top
-                            of the hider's view). */}
+                        {/* Role tiles. v829: any number of players can
+                            hide together — no exclusive seat, no co-hider. */}
                         <div className="px-6 pb-2 space-y-2">
                             <label className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground block">
                                 Your role
@@ -417,17 +396,14 @@ export function Welcome() {
                             <button
                                 type="button"
                                 onClick={() => handlePickRole("hider")}
-                                disabled={
-                                    hiderTaken || $status !== "open"
-                                }
+                                disabled={$status !== "open"}
                                 className={cn(
                                     "w-full flex items-start gap-3 p-3 rounded-sm border-2 text-left",
                                     "bg-secondary border-border",
                                     "transition-colors",
-                                    hiderTaken
-                                        ? "opacity-50 cursor-not-allowed"
-                                        : "hover:bg-accent hover:border-[hsl(var(--accent-yellow))/0.5]",
+                                    "hover:bg-accent hover:border-[hsl(var(--accent-yellow))/0.5]",
                                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    "disabled:opacity-50 disabled:cursor-not-allowed",
                                 )}
                             >
                                 <MapPin
@@ -442,53 +418,12 @@ export function Welcome() {
                                     </div>
                                     <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">
                                         Answers the seekers' questions and
-                                        manages the deck of hider cards.
-                                        One per game.
+                                        plays the deck of hider cards. Team
+                                        up — multiple players can hide
+                                        together.
                                     </div>
-                                    {hiderTaken && (
-                                        <div className="text-[11px] text-destructive font-semibold mt-1">
-                                            Taken by{" "}
-                                            {hider?.displayName ||
-                                                "another player"}{" "}
-                                            — join as a Co-hider instead.
-                                        </div>
-                                    )}
                                 </div>
                             </button>
-                            {hiderTaken && (
-                                <button
-                                    type="button"
-                                    onClick={() =>
-                                        handlePickRole("coHider")
-                                    }
-                                    disabled={$status !== "open"}
-                                    className={cn(
-                                        "w-full flex items-start gap-3 p-3 rounded-sm border-2 text-left",
-                                        "bg-secondary border-border",
-                                        "transition-colors",
-                                        "hover:bg-accent hover:border-primary/40",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                        "disabled:opacity-50 disabled:cursor-not-allowed",
-                                    )}
-                                >
-                                    <Users className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground" />
-                                    <div className="flex-1 min-w-0">
-                                        <div className="font-display font-extrabold uppercase tracking-[0.06em] text-sm">
-                                            Co-hider
-                                        </div>
-                                        <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">
-                                            Joins the hide with{" "}
-                                            {hider?.displayName ||
-                                                "the hider"}
-                                            . View-only — you see the
-                                            hider's view live (zone,
-                                            incoming questions, deck)
-                                            but they answer and play
-                                            the cards.
-                                        </div>
-                                    </div>
-                                </button>
-                            )}
                         </div>
 
                         <div className="px-6 pb-7 pt-2 flex gap-2">

@@ -10,15 +10,17 @@
  */
 
 /**
- * Player roles. One `hider` per room; `coHider`s are hide-team
- * teammates who watch the same hide (zone + incoming questions) but
- * don't own the canonical hider state; everyone else `seek`s.
+ * Player roles (v829). The hide team is a UNIT: any number of equal
+ * `hider`s share the hide (same zone + incoming questions + — in a
+ * later track — the same hand). Everyone else `seek`s. The old
+ * `coHider` / "main hider" distinction was removed; a stale client
+ * sending `"coHider"` is coerced to `"hider"` server-side.
  */
-export type Role = "seeker" | "hider" | "coHider";
+export type Role = "seeker" | "hider";
 
 /**
- * The hider's committed hiding zone, shared with the hide team (the
- * primary hider + any co-hiders). Mirrors the client `HidingZone`
+ * The hider's committed hiding zone, shared with the whole hide team
+ * (every `hider`). Mirrors the client `HidingZone`
  * shape. Deliberately NOT part of `GameState`: it's a secret from the
  * seekers, so the server keeps it out of the wholesale snapshot and
  * delivers it only to hide-team connections.

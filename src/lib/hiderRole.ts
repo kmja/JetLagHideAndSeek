@@ -47,13 +47,16 @@ const __globalPersistent = <T>(
 
 /* ────────────────── Role selection ────────────────── */
 
-export type PlayerRole = "seeker" | "hider" | "coHider" | null;
+export type PlayerRole = "seeker" | "hider" | null;
 
 /**
  * Which side of the game this device is playing. `null` means the user
  * hasn't picked yet — surfaces the role-picker overlay on first load.
  *
  * Stored as plain string in localStorage for clarity ("seeker" / "hider").
+ * v829: the `coHider` role was removed — the hide team is a unit of equal
+ * hiders. A persisted `"coHider"` (from before the collapse) decodes to
+ * `"hider"` so a returning teammate stays on the hide team.
  */
 export const playerRole = __globalPersistent<PlayerRole>(
     "__jlhs_playerRole",
@@ -61,7 +64,11 @@ export const playerRole = __globalPersistent<PlayerRole>(
     null,
     (v) => (v === null ? "" : v),
     (v) =>
-        v === "seeker" || v === "hider" || v === "coHider" ? v : null,
+        v === "seeker" || v === "hider"
+            ? v
+            : v === "coHider"
+              ? "hider"
+              : null,
 );
 
 /* ────────────────── Hiding zone ────────────────── */

@@ -370,17 +370,12 @@ export function RoleChip({
     onDark = true,
     className,
 }: {
-    role: "seeker" | "hider" | "coHider";
+    role: "seeker" | "hider";
     tag?: string;
     onDark?: boolean;
     className?: string;
 }) {
-    const label =
-        role === "seeker"
-            ? "Seeker"
-            : role === "hider"
-              ? "Hider"
-              : "Co-hider";
+    const label = role === "seeker" ? "Seeker" : "Hider";
     const border = onDark ? "border-white text-white" : "border-primary text-primary";
     return (
         <span

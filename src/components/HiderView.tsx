@@ -3,7 +3,6 @@ import { Ban, Camera, Dices, Loader2, MapPin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
-import { CompanionView } from "@/components/CompanionView";
 import { DrawPickerDialog } from "@/components/DrawPickerDialog";
 import { distanceKm,HiderMap } from "@/components/HiderMap";
 import { HiderShell } from "@/components/HiderShell";
@@ -72,16 +71,13 @@ import type { Question } from "@/maps/schema";
  * round-end ping from the seeker; same shape.
  */
 export function HiderView() {
-    const $role = useStore(playerRole);
-
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const q = decodeQuestionFromUrl(params);
         if (q) {
             // Auto-mark this device as the hider when they open a
             // /h?q= link — they're clearly playing the hider side.
-            // Don't clobber a co-hider's role though.
-            if (playerRole.get() !== "coHider") playerRole.set("hider");
+            if (playerRole.get() !== "hider") playerRole.set("hider");
             // Save to inbox if not already there. Keyed by
             // question.key for idempotency.
             const inbox = hiderInbox.get();
@@ -126,7 +122,7 @@ export function HiderView() {
         try {
             const found = decodeFoundFromUrl(params);
             if (found) {
-                if (playerRole.get() !== "coHider") playerRole.set("hider");
+                if (playerRole.get() !== "hider") playerRole.set("hider");
                 if (roundFoundAt.get() === null) {
                     roundFoundAt.set(found.foundAt);
                     toast.success("Seeker says they found you. Round over!", {
@@ -152,11 +148,9 @@ export function HiderView() {
         }
     }, []);
 
-    // Co-hiders get the read-only hide-team view, never the answer /
-    // deck flow — they don't own the canonical hider state.
-    if ($role === "coHider") {
-        return <CompanionView />;
-    }
+    // v829: every hider gets the full hide-team shell (answer + deck flow).
+    // The read-only CompanionView / "main vs co-hider" split was removed —
+    // the hide team is a unit of equal hiders.
 
     return (
         <>

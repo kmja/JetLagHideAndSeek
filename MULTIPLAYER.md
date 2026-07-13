@@ -294,39 +294,49 @@ Genuine follow-ups, not bugs:
 - **Spectator mode.** All participants are either the hider or a
   seeker; there's no read-only role.
 
-### Planned: unified hide team (retire main-hider / co-hider) — decided, deferred
+### Unified hide team (retire main-hider / co-hider) — Track 1 SHIPPED (v829), Track 2 deferred
 
-Agreed design direction (post-demo): there should be **no "main hider" vs
-"co-hider" distinction** — the hide team is one unit where **any** member can
-answer questions, commit/change the hiding zone, and play cards from **one
-shared hand/deck**. This matches real Jet Lag (the team shares a deck and
-decides together) and *removes* complexity (no `coHider` role, no
-`promoteCoHider`, no view-only gating).
+Agreed design direction: there should be **no "main hider" vs "co-hider"
+distinction** — the hide team is one unit where **any** member can answer
+questions, commit/change the hiding zone, and play cards from **one shared
+hand/deck**. This matches real Jet Lag (the team shares a deck and decides
+together) and *removes* complexity (no `coHider` role, no `promoteCoHider`, no
+view-only gating). It was split into two independently-shippable tracks.
 
-Why it isn't a quick change — what's shared today vs. not:
-- **Answering questions** and **committing the zone** are ALREADY
-  server-mediated (`questions` in `GameState`; `setHideZone` → stored → fanned
-  to the hide team). Opening these to any hide-team member is cheap: drop the
-  role gates and pick a conflict rule (last-write-wins is fine — two people
-  rarely answer the same question simultaneously).
-- **The hand / deck economy is the real work.** Deck order, hand, discard,
-  hand-limit, pending draw, Chalice charges, and time-bonus live ONLY in
-  device-local persistent atoms (`src/lib/hiderRole.ts`) — there are NO wire
-  messages for them. To share the hand, this state must become
-  **server-authoritative** in the Durable Object, with draw / keep / discard /
-  play as wire actions the server serializes + broadcasts to the team; the
-  client atoms become mirrors of server state, and the demo broker must model
-  it too.
+**Track 1 — collapse the role model to equal hiders (SHIPPED v829).**
+`Role = "seeker" | "hider"` only; the `coHider` role, `CompanionView`,
+`CMsgPromoteCoHider`/`handlePromoteCoHider`/`promoteCoHider`, and the
+`role_taken` single-main-hider lockout are all GONE. Any number of players can
+be hiders and **every hider is equal** — each can commit/change the zone,
+answer questions, and play their deck. Server (`GameRoom`): `handleSetRole`
+allows multiple hiders + coerces any inbound `"coHider"`→`"hider"`;
+`handleSetHideZone` fans the committed zone to every OTHER hider (and delivers
+the current zone on hider join); every `role==="hider" || "coHider"` fan-out
+disjunct collapsed to `role==="hider"`. `CMsgRotateHider.coHiders?` now means
+"the rest of the hide team" (all assigned `hider`). Client: a stray persisted
+`"coHider"` is coerced to `"hider"` on read (`hiderRole.ts`, `store`,
+`demoBroker`). **Multi-hider zone-commit echo guard:** since any hider can
+commit AND the server fans the zone back, `store.ts` has a module-level
+`applyingRemoteZone` flag — the inbound-zone handler wraps `hidingZone.set` in
+try/finally toggling it, and the outbound push subscription early-returns while
+set, so a received commit doesn't loop back out.
 
+**Track 2 — server-authoritative SHARED hand/deck (DEFERRED).** Still the real
+work. Deck order, hand, discard, hand-limit, pending draw, Chalice charges, and
+time-bonus live ONLY in device-local persistent atoms (`src/lib/hiderRole.ts`)
+— there are NO wire messages for them, so **today each hider holds their own
+independent hand** (the shared surface is the zone + answers, not the deck).
+Snapshot-sync (last-write-wins) is NOT viable here: the deck is order-dependent
+and has a blocking pending-draw modal, so a naive mirror would corrupt draw
+order and double-resolve the modal. To truly share the hand this state must
+become **server-authoritative** in the Durable Object, with draw / keep /
+discard / play as wire actions the server serializes + broadcasts; the client
+atoms become mirrors, and the demo broker must model the deck too.
 Implementation sketch when picked up: (1) move the hider economy into
 `GameState` (new `hideTeam` sub-object); (2) add `CMsg` actions for
-draw/keep/discard/playCard (+ existing `setHideZone`/answer opened to all hide
-roles); (3) `GameRoom` applies + broadcasts, serializing concurrent actions;
-(4) collapse `coHider`→`hider` everywhere (RolePicker, role gates, rotation —
-`rotateHider`'s `coHiders` list just becomes "additional hiders", all equal);
-(5) client `hiderRole.ts` reads from the synced state; (6) demo broker mirrors.
-This is a focused multiplayer-state refactor, intentionally kept off the
-demo-crunch path.
+draw/keep/discard/playCard; (3) `GameRoom` applies + broadcasts, serializing
+concurrent actions; (4) client `hiderRole.ts` reads from the synced state;
+(5) demo broker mirrors. A focused multiplayer-state refactor.
 
 ## Quick sanity test
 

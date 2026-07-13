@@ -44,19 +44,9 @@ export function RolePicker() {
     const $setupCompleted = useStore(setupCompleted);
     const $code = useStore(currentGameCode);
 
-    // In an online room the main hider slot is exclusive — the server
-    // rejects a second hider (`role_taken`). Gate the option in the UI
-    // so a joiner can't pick a role that's only going to bounce back.
-    // The hider slot is exclusive AND persistent: the server's
-    // max-one-hider check keys off role alone, not connection status, so
-    // a transiently-offline hider (subway, backgrounded app) still holds
-    // it. Gate on role presence — NOT `online` — otherwise a brief blip
-    // would re-enable the Hider tile (claim bounces with role_taken) and
-    // hide the co-hider "Join the hide" option mid-round.
-    const hiderHolder = $mp
-        ? $participants.find((p) => p.role === "hider" && p.id !== $self)
-        : undefined;
-    const hiderTaken = Boolean(hiderHolder);
+    // v829: the hide team is a unit of equal hiders — any number may pick
+    // Hider (no more exclusive "main hider" slot / `role_taken` lockout /
+    // separate co-hider option).
 
     // v448: the host's role + name dialog. It layers OVER the lobby once
     // the game room exists ($code), so the host sees the lobby they just
@@ -97,36 +87,32 @@ export function RolePicker() {
 
     // v452: select-then-confirm. Tapping a tile only HIGHLIGHTS it (like
     // the transit-mode chips); the "Join game" button below commits.
-    const [selected, setSelected] = useState<
-        "seeker" | "hider" | "coHider" | null
-    >(null);
+    const [selected, setSelected] = useState<"seeker" | "hider" | null>(
+        null,
+    );
 
     // v784: warm the lazy HiderPage chunk the moment the hider tile is
     // highlighted, so confirming doesn't flash App.tsx's full-screen Suspense
     // spinner (the "whole UI reloads" feel) before /h paints. No-op if already
     // loaded; the dynamic import stays a separate chunk.
     useEffect(() => {
-        if (selected === "hider" || selected === "coHider") {
+        if (selected === "hider") {
             void import("@/pages/HiderPage");
         }
     }, [selected]);
 
     const confirmJoin = () => {
         if (!selected) return;
-        if (selected === "hider" && hiderTaken) return;
-        if (selected === "coHider" && !hiderTaken) return;
         commitName();
         playerRole.set(selected);
-        // Server only knows seeker / hider / null — coHider is layered
-        // on top of the hider role client-side.
-        if (selected !== "coHider") setOnlineRole(selected);
+        setOnlineRole(selected);
         if (typeof window === "undefined") return;
         // v756: SOFT-navigate (SPA) — a window.location reload tore down the
         // live WS and let the reconnect snapshot clobber the wizard's
         // transit/size settings (the "lobby reloads when I pick hider" bug).
         // Falls back to a hard nav only if the router bridge isn't mounted.
         const onHiderPage = window.location.pathname.startsWith("/h");
-        if (selected === "hider" || selected === "coHider") {
+        if (selected === "hider") {
             if (!onHiderPage && !appNavigate("/h", { replace: true }))
                 window.location.assign("/h");
         } else if (onHiderPage) {
@@ -238,17 +224,15 @@ export function RolePicker() {
                     <button
                         type="button"
                         onClick={() => setSelected("hider")}
-                        disabled={hiderTaken}
                         aria-pressed={selected === "hider"}
                         className={cn(
                             "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm border-2",
                             "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                            "transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            hiderTaken
-                                ? "opacity-50 cursor-not-allowed border-border/70 bg-secondary/20"
-                                : selected === "hider"
-                                  ? "border-primary bg-primary/10 hover:-translate-y-[1px]"
-                                  : "border-border/70 bg-secondary/20 hover:bg-accent hover:-translate-y-[1px]",
+                            "transition-all hover:-translate-y-[1px]",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            selected === "hider"
+                                ? "border-primary bg-primary/10"
+                                : "border-border/70 bg-secondary/20 hover:bg-accent",
                         )}
                     >
                         <div className="flex items-center gap-2">
@@ -260,51 +244,11 @@ export function RolePicker() {
                             </span>
                         </div>
                         <p className="text-[11px] text-muted-foreground leading-snug">
-                            Answer questions, play the hider deck. One per
-                            game.
+                            Answer questions and play the hider deck. Team up —
+                            multiple players can hide together.
                         </p>
-                        {hiderTaken && (
-                            <p className="text-[10px] font-semibold text-destructive leading-snug">
-                                Taken by{" "}
-                                {hiderHolder?.displayName || "another player"}
-                            </p>
-                        )}
                     </button>
                 </div>
-
-                {hiderTaken && (
-                    <div className="px-5 pb-2">
-                        <button
-                            type="button"
-                            onClick={() => setSelected("coHider")}
-                            aria-pressed={selected === "coHider"}
-                            className={cn(
-                                "w-full flex items-center text-left gap-2.5 p-2.5 rounded-sm border-2",
-                                "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                                "transition-all hover:-translate-y-[1px]",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                selected === "coHider"
-                                    ? "border-primary bg-primary/10"
-                                    : "border-border bg-secondary hover:bg-accent",
-                            )}
-                        >
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-muted text-foreground shrink-0">
-                                <Users size={16} strokeWidth={2.4} />
-                            </span>
-                            <span className="flex flex-col gap-0.5 min-w-0">
-                                <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
-                                    Co-hider
-                                </span>
-                                <span className="text-[11px] text-muted-foreground leading-snug">
-                                    Join{" "}
-                                    {hiderHolder?.displayName || "the hider"}
-                                    's hide — view-only; they answer and play
-                                    the cards.
-                                </span>
-                            </span>
-                        </button>
-                    </div>
-                )}
 
                 {/* Confirm — disabled until a role is highlighted. */}
                 <div className="px-5 pb-4">

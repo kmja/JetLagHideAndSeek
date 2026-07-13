@@ -5,7 +5,7 @@ import { HideSeekWordmark } from "@/components/JetLagLogo";
 import { playerRole } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 
-const isHiderSide = (r: string | null) => r === "hider" || r === "coHider";
+const isHiderSide = (r: string | null) => r === "hider";
 
 /**
  * Branded transition curtain for the seeker↔hider SHELL swap (v805).

@@ -325,8 +325,6 @@ export class GameRoom {
                 return this.handleMarkFound(socket, msg.foundAt);
             case "rotateHider":
                 return this.handleRotateHider(socket, msg.to, msg.coHiders);
-            case "promoteCoHider":
-                return this.handlePromoteCoHider(socket, msg.to);
             case "setHideZone":
                 return this.handleSetHideZone(socket, msg.zone);
             case "startEndgame":
@@ -575,13 +573,10 @@ export class GameRoom {
         });
         // The hiding zone lives outside GameState (it's secret from
         // seekers) so it isn't in the welcome snapshot. Re-deliver it to a
-        // reconnecting hide-team member, otherwise a co-hider who reloads
-        // or drops connection loses the zone view for the rest of the
-        // round (it's only otherwise pushed on a fresh role claim).
-        if (
-            existing &&
-            (existing.role === "coHider" || existing.role === "hider")
-        ) {
+        // reconnecting hider, otherwise a hider who reloads or drops
+        // connection loses the zone view for the rest of the round (it's
+        // only otherwise pushed on a fresh role claim / commit).
+        if (existing && existing.role === "hider") {
             this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
         }
         this.broadcastPresence();
@@ -592,24 +587,17 @@ export class GameRoom {
         if (!conn) return;
         const p = this.game.participants.find((q) => q.id === conn.participantId);
         if (!p) return;
-        if (
-            role === "hider" &&
-            this.game.participants.some(
-                (q) => q.role === "hider" && q.id !== conn.participantId,
-            )
-        ) {
-            return this.sendTo(socket, {
-                t: "error",
-                code: "role_taken",
-                message: "Another participant is already the hider.",
-            });
-        }
-        p.role = role;
+        // v829: the hide team is a unit of equal `hider`s — no more "max 1
+        // hider" limit and no `coHider` role. Coerce a stale client still
+        // sending "coHider" (deploy-window race) to "hider".
+        const effRole: Role | null =
+            (role as string) === "coHider" ? "hider" : role;
+        p.role = effRole;
         this.broadcastPresence();
-        // A freshly-minted co-hider joins the hide team mid-round —
-        // hand them the current zone so they can watch the hide right
-        // away (the inbox rebuilds from the snapshot they already got).
-        if (role === "coHider") {
+        // A freshly-claimed hider joins the hide team mid-round — hand them
+        // the current zone so they can watch/act on the hide right away
+        // (the inbox rebuilds from the snapshot they already got).
+        if (effRole === "hider") {
             this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
         }
     }
@@ -621,16 +609,18 @@ export class GameRoom {
         const conn = this.lookupConn(socket);
         if (!conn) return;
         const p = this.game.participants.find((q) => q.id === conn.participantId);
-        // Only the primary hider owns the zone. Ignore anyone else so
-        // a co-hider (read-only) or a seeker can't spoof the hide.
+        // v829: ANY hider may commit/change the zone (the hide team is one
+        // unit). Ignore seekers so they can't spoof the hide.
         if (!p || p.role !== "hider") return;
         this.hidingZone = zone;
-        // Fan out to co-hiders only — never to seekers (the zone is
-        // the secret they're deducing) and not back to the hider (we'd
-        // just echo their own commit, risking a sync loop client-side).
+        // Fan out to every OTHER hider — never to seekers (the zone is the
+        // secret they're deducing) and not back to the sender (that would
+        // echo their own commit, risking a client-side sync loop; the
+        // sender already has the value locally).
         for (const [pid, c] of this.conns.entries()) {
+            if (pid === conn.participantId) continue;
             const cp = this.game.participants.find((q) => q.id === pid);
-            if (cp?.role === "coHider") {
+            if (cp?.role === "hider") {
                 this.sendTo(c.socket, { t: "hideZone", zone });
             }
         }
@@ -798,7 +788,7 @@ export class GameRoom {
         const sender = this.game.participants.find(
             (p) => p.id === conn.participantId,
         );
-        if (!sender || (sender.role !== "hider" && sender.role !== "coHider"))
+        if (!sender || (sender.role !== "hider"))
             return;
         if (this.game.setup.endgameStartedAt === null) return;
         if (this.game.setup.endgameConfirmedAt != null) return;
@@ -818,7 +808,7 @@ export class GameRoom {
         const sender = this.game.participants.find(
             (p) => p.id === conn.participantId,
         );
-        if (!sender || (sender.role !== "hider" && sender.role !== "coHider"))
+        if (!sender || (sender.role !== "hider"))
             return;
         if (this.game.setup.endgameStartedAt === null) return;
         this.game.setup.endgameStartedAt = null;
@@ -851,7 +841,7 @@ export class GameRoom {
         if (!vapidKeys) return;
         for (const [pid, sub] of this.pushSubscriptions.entries()) {
             const p = this.game.participants.find((q) => q.id === pid);
-            if (!p || (p.role !== "hider" && p.role !== "coHider") || p.online)
+            if (!p || (p.role !== "hider") || p.online)
                 continue;
             const result = await sendWebPush(
                 sub,
@@ -918,7 +908,7 @@ export class GameRoom {
         };
         const payload = JSON.stringify(msg);
         for (const p of this.game.participants) {
-            if (p.role !== "hider" && p.role !== "coHider") continue;
+            if (p.role !== "hider") continue;
             const c = this.conns.get(p.id);
             if (!c) continue;
             try {
@@ -965,19 +955,12 @@ export class GameRoom {
         // any additional selected members become co-hiders (v826 multi-hider
         // support), and everyone else seeks. This covers the old hider
         // (demoted), any racing second hider, and anyone still unassigned
-        // (role null) — one primary hider, an optional hide team, everyone
-        // else a seeker, in a single pass. The primary id always wins even
-        // if it also appears in coHiders.
-        const coHiders = new Set(
-            (coHiderIds ?? []).filter((id) => id !== toId),
-        );
+        // (role null) — the whole picked set hides, everyone else seeks, in
+        // a single pass. v829: every picked member is an equal `hider` (no
+        // more main/co distinction); `to` + `coHiders` are unioned.
+        const hiders = new Set<string>([toId, ...(coHiderIds ?? [])]);
         for (const p of this.game.participants) {
-            p.role =
-                p.id === toId
-                    ? "hider"
-                    : coHiders.has(p.id)
-                      ? "coHider"
-                      : "seeker";
+            p.role = hiders.has(p.id) ? "hider" : "seeker";
         }
         // Round boundary: clear the round-end marker and the question
         // log so the new round starts clean. The initiator's local
@@ -1008,44 +991,6 @@ export class GameRoom {
             t: "roundStarted",
             participants: this.game.participants,
         });
-    }
-
-    /**
-     * Hand off the main hider seat to a co-hider mid-game. Sender
-     * must be the current hider; target must currently be a
-     * coHider. Swap is in-place: sender becomes coHider, target
-     * becomes hider; other coHiders / seekers untouched. We
-     * deliberately do NOT reset round state (no roundStarted
-     * broadcast) — the hide team's view continues with the
-     * questions, deck, and hiding zone they already share.
-     */
-    private handlePromoteCoHider(socket: WebSocket, toId: string) {
-        const conn = this.lookupConn(socket);
-        if (!conn) return;
-        const sender = this.game.participants.find(
-            (q) => q.id === conn.participantId,
-        );
-        if (!sender || sender.role !== "hider") {
-            return this.sendTo(socket, {
-                t: "error",
-                code: "bad_message",
-                message:
-                    "Only the current main hider can promote a co-hider.",
-            });
-        }
-        const target = this.game.participants.find((q) => q.id === toId);
-        if (!target || target.role !== "coHider") {
-            return this.sendTo(socket, {
-                t: "error",
-                code: "bad_message",
-                message: "Target must be a current co-hider.",
-            });
-        }
-        sender.role = "coHider";
-        target.role = "hider";
-        // Broadcast the new roster via presence — clients reconcile
-        // their local playerRole atoms from this.
-        this.broadcastPresence();
     }
 
     private handleCastCurse(socket: WebSocket, curse: CursePayload) {

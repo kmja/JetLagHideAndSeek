@@ -428,7 +428,39 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v828`. Use `git log` for the per-version detail;
+build stamp. Current: `v829`. Use `git log` for the per-version detail;
+
+**v829 — hide team is a UNIT of equal hiders (main-hider / co-hider split
+REMOVED); Track 1 of the hider-role rework.** There used to be one privileged
+"main hider" (answered questions, played the deck, committed the zone) plus
+passive "co-hiders" (a read-only `CompanionView`). That split is gone: the
+role model is now just **`Role = "seeker" | "hider"`** (`protocol/state.ts`),
+any number of players can be hiders, and **every hider is equal** — each can
+commit the hiding zone, answer questions, and play the hider deck. `CompanionView`
+was DELETED (`HiderView` no longer branches on a co-hider role; a stray
+`playerRole==="coHider"` is coerced to `"hider"` on read everywhere —
+`hiderRole.ts` decode, `demoBroker`, `store`). **Wire/server:**
+`CMsgPromoteCoHider` (+ `handlePromoteCoHider` + `promoteCoHider` client action)
+removed; `CMsgRotateHider.coHiders?: string[]` is now "the rest of the hide
+team" (assigned `hider`, not `coHider`); `GameRoom.handleSetRole` dropped the
+`role_taken` exclusivity lockout (multiple hiders allowed) and coerces an
+inbound `"coHider"` → `"hider"`; `handleSetHideZone` now FANS the committed zone
+to every OTHER hider (`cp.role==="hider" && pid!==sender`) so the whole team
+sees it, and delivers the current zone to a hider on join; all the old
+`role==="hider" || role==="coHider"` fan-out disjuncts collapsed to
+`role==="hider"`. **Multi-hider zone-commit echo guard:** because any hider can
+commit AND the server now fans the zone back to the other hiders, `store.ts` has
+a module-level `applyingRemoteZone` flag — the inbound-zone handler wraps
+`hidingZone.set` in try/finally toggling it, and the outbound push subscription
+early-returns while it's set, so a received commit doesn't bounce back out and
+loop. **RolePicker** dropped the exclusive-slot / co-hider tile — the Hider tile
+now reads "Team up — multiple players can hide together." **`RotateHiderDialog`
+is multi-select** (from v827): pick a whole hide team; everyone selected becomes
+an equal `hider`. **Track 2 (deferred):** the hider deck/hand/discard economy is
+STILL per-device (`hiderRole.ts` local atoms, no wire messages) — a truly SHARED
+server-authoritative hand (so the team draws/keeps/discards/plays from one deck)
+is the next step, documented in `MULTIPLAYER.md`. Until then each hider holds
+their own hand; the shared surface is the zone + answers.
 
 **v828 — game view loads DURING the countdown (not after the GO-GO-GO card is
 closed).** v822 claimed the in-game shell mounted+loaded beneath the flourish,

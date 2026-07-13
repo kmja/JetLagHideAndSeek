@@ -96,7 +96,7 @@ function GameRouteGate({
     if (!$welcomeSeen) return <Navigate to="/welcome" replace />;
     if (!$setupCompleted) return <Navigate to="/setup" replace />;
     if ($role !== null) {
-        const onHiderSide = $role === "hider" || $role === "coHider";
+        const onHiderSide = $role === "hider";
         if (expectedRole === "seeker" && onHiderSide) {
             return <Navigate to="/h" replace />;
         }

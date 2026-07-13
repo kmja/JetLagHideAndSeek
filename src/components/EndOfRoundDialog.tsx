@@ -156,7 +156,7 @@ export function EndOfRoundDialog() {
     const showLeaderboard = board.length > 1;
 
     const roleTitle =
-        $role === "hider" || $role === "coHider"
+        $role === "hider"
             ? "You were found!"
             : "You found them!";
 
