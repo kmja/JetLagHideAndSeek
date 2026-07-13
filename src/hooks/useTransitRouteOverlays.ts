@@ -1,4 +1,5 @@
 import { useStore } from "@nanostores/react";
+import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useState } from "react";
 
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
@@ -32,6 +33,54 @@ export type TransitFC = Record<TransitMode, GeoJSON.FeatureCollection | null>;
  * identical toggles did nothing (no fetch, no render). Extracted here so
  * the two maps stay in lockstep and a fix to one reaches both.
  */
+/**
+ * One mode's fetch effect. Split out (one effect per mode, fixed count) so
+ * toggling ANOTHER mode — or the same mode re-rendering — doesn't re-fetch
+ * this one or cancel its in-flight request. The old single effect over all
+ * five modes re-ran on any toggle and re-fetched every enabled mode (a
+ * spurious loading-spinner flash on already-loaded overlays); worse, a
+ * naive "only fetch the changed mode" guard on that shared effect would
+ * have cancelled an in-flight fetch for an unchanged mode without
+ * restarting it. A per-mode effect fixes both cleanly: it fires only when
+ * THIS mode's on-state or the play area changes.
+ */
+function useOneTransitOverlay(
+    mode: TransitMode,
+    on: boolean,
+    areaKey: string | number,
+    setTransitFC: Dispatch<SetStateAction<TransitFC>>,
+): void {
+    useEffect(() => {
+        let cancelled = false;
+        if (!on) {
+            setTransitFC((curr) => ({ ...curr, [mode]: null }));
+            return;
+        }
+        const curr = transitRoutesLoading.get();
+        transitRoutesLoading.set({ ...curr, [mode]: true });
+        void (async () => {
+            try {
+                const fc = await fetchTransitRoutesFeatures(mode);
+                if (cancelled) return;
+                setTransitFC((c) => ({ ...c, [mode]: fc }));
+            } catch (e) {
+                console.warn(`transit (${mode}) fetch failed`, e);
+            } finally {
+                // Don't clobber the loading flag if the effect was torn
+                // down mid-flight — we'd be writing a stale store after the
+                // user toggled away.
+                if (!cancelled) {
+                    const c = transitRoutesLoading.get();
+                    transitRoutesLoading.set({ ...c, [mode]: false });
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [mode, on, areaKey, setTransitFC]);
+}
+
 export function useTransitRouteOverlays(): TransitFC {
     const $allowedTransit = useStore(allowedTransit);
     const $subway = useStore(showSubwayRoutes);
@@ -60,43 +109,11 @@ export function useTransitRouteOverlays(): TransitFC {
         $mapGeoLocation?.properties?.osm_id ??
         ($polyGeoJSON ? "custom-poly" : "none");
 
-    useEffect(() => {
-        let cancelled = false;
-        const fetchAndSet = async (mode: TransitMode, on: boolean) => {
-            if (!on) {
-                setTransitFC((curr) => ({ ...curr, [mode]: null }));
-                return;
-            }
-            const curr = transitRoutesLoading.get();
-            transitRoutesLoading.set({ ...curr, [mode]: true });
-            try {
-                const fc = await fetchTransitRoutesFeatures(mode);
-                if (cancelled) return;
-                setTransitFC((c) => ({ ...c, [mode]: fc }));
-            } catch (e) {
-                console.warn(`transit (${mode}) fetch failed`, e);
-            } finally {
-                // Don't clobber the loading flag if the effect was already
-                // torn down — we'd be writing into a stale store after the
-                // user toggled away. Skip-with-guard instead of
-                // return-from-finally so we don't swallow any in-flight
-                // exception escape.
-                if (!cancelled) {
-                    const c = transitRoutesLoading.get();
-                    transitRoutesLoading.set({ ...c, [mode]: false });
-                }
-            }
-        };
-        fetchAndSet("subway", subwayOn);
-        fetchAndSet("bus", busOn);
-        fetchAndSet("ferry", ferryOn);
-        fetchAndSet("train", trainOn);
-        fetchAndSet("tram", tramOn);
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [subwayOn, busOn, ferryOn, trainOn, tramOn, areaKey]);
+    useOneTransitOverlay("subway", subwayOn, areaKey, setTransitFC);
+    useOneTransitOverlay("bus", busOn, areaKey, setTransitFC);
+    useOneTransitOverlay("ferry", ferryOn, areaKey, setTransitFC);
+    useOneTransitOverlay("train", trainOn, areaKey, setTransitFC);
+    useOneTransitOverlay("tram", tramOn, areaKey, setTransitFC);
 
     return transitFC;
 }

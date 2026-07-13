@@ -205,19 +205,42 @@ function writeSizeCache(map: Record<string, number>) {
     }
 }
 
+// In-memory copy, hydrated once from localStorage on first access. The old
+// code JSON.parsed (and rememberSize also stringified + wrote) the WHOLE
+// size-cache object on EVERY progress-reporting fetch — repeated synchronous
+// main-thread parse/stringify of up to 200 entries per fetch, worst during a
+// parallel adjacent-area warm (the exact load-heavy moment we don't want to
+// jank). Now reads hit memory and writes are debounced to at most 1/s.
+let sizeCacheMem: Record<string, number> | null = null;
+let sizeCacheFlushTimer: number | null = null;
+
+function ensureSizeCache(): Record<string, number> {
+    if (sizeCacheMem === null) sizeCacheMem = readSizeCache();
+    return sizeCacheMem;
+}
+
+function scheduleSizeCacheFlush() {
+    if (sizeCacheFlushTimer !== null) return;
+    sizeCacheFlushTimer = window.setTimeout(() => {
+        sizeCacheFlushTimer = null;
+        // writeSizeCache trims the cap in place, keeping mem + disk in sync.
+        if (sizeCacheMem) writeSizeCache(sizeCacheMem);
+    }, 1000);
+}
+
 function getCachedSize(url: string): number | null {
-    const m = readSizeCache();
+    const m = ensureSizeCache();
     const v = m[url];
     return typeof v === "number" && v > 0 ? v : null;
 }
 
 function rememberSize(url: string, size: number) {
     if (!Number.isFinite(size) || size <= 0) return;
-    const m = readSizeCache();
+    const m = ensureSizeCache();
     // Re-insert to refresh recency (delete then set bumps to tail).
     delete m[url];
     m[url] = size;
-    writeSizeCache(m);
+    scheduleSizeCacheFlush();
 }
 
 /**

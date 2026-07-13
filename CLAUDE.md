@@ -428,7 +428,28 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v793`. Use `git log` for the per-version detail;
+build stamp. Current: `v794`. Use `git log` for the per-version detail;
+
+**v794 — perf pass 2 (battery / long-session, from the same review).**
+(1) `useTransitRouteOverlays` is now ONE effect PER MODE (`useOneTransitOverlay`)
+— the old single effect re-ran on any toggle and re-fetched every enabled
+mode (spurious spinner flash), and a naive "only the changed mode" guard on
+the shared effect would have cancelled an unchanged mode's in-flight fetch
+without restarting it; per-mode effects fix both. (2) `tentacles.ts`
+`findMetroTentacleCandidates` uses an inline `haversineMeters` over raw coords
+instead of allocating a turf point + `turf.distance` per route vertex (metro
+networks have hundreds of vertices/route; runs per metro-line question).
+(3) `cache.ts` size-cache is now an in-memory copy hydrated once + a debounced
+(1/s) flush — was JSON.parse'ing (and stringify+writing) the whole ≤200-entry
+object on EVERY progress fetch, worst during a parallel adjacent warm.
+(4) `sw.ts` `trimPmtilesRangeCache` no longer relies solely on a SW-lifetime
+counter (which resets every ~30 s-idle termination, so the 8000-entry cap
+could never fire) — it also trims probabilistically (~1/50 puts) and force-
+trims on a put QuotaExceededError (the manual cache had no `purgeOnQuotaError`).
+NOT done: the `highSpeedBase` memo key (a lighter signature risks a hash
+collision → wrong elimination region, a trust bug, for a rarely-hot Low item)
+and the `import * as turf` eager-bundle shrink (a large multi-file refactor
+worth its own careful pass).
 
 **v793 — perf + correctness pass (from a 5-agent review).** Four correctness
 fixes: (1) multiplayer `transport.ts` auto-reconnect now continues past

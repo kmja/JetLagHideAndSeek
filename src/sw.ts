@@ -83,9 +83,20 @@ const PMTILES_RANGE_CACHE = "tiles-pmtiles-ranges";
 const PMTILES_RANGE_MAX_ENTRIES = 8000;
 let pmtilesPutsSinceTrim = 0;
 
-async function trimPmtilesRangeCache(): Promise<void> {
-    // Amortise: only sweep occasionally, not on every tile write.
-    if (++pmtilesPutsSinceTrim < 250) return;
+async function trimPmtilesRangeCache(force = false): Promise<void> {
+    // Amortise the sweep, but NOT purely on the counter: `pmtilesPutsSinceTrim`
+    // is a module-level SW variable that resets every time the browser
+    // terminates the SW (frequent — after ~30 s idle). If the SW rarely
+    // survives 250 puts in one lifetime, a counter-only gate never fires and
+    // the bucket grows to the storage quota. So we ALSO trim probabilistically
+    // (~1/50 puts) — SW-lifetime-independent — and immediately when `force`
+    // (a quota error already hit, below). The real cap is the keys().length
+    // check; the triggers just decide when to pay for it.
+    if (!force) {
+        const byCounter = ++pmtilesPutsSinceTrim >= 250;
+        const byChance = Math.random() < 1 / 50;
+        if (!byCounter && !byChance) return;
+    }
     pmtilesPutsSinceTrim = 0;
     const cache = await caches.open(PMTILES_RANGE_CACHE);
     const keys = await cache.keys();
@@ -147,7 +158,10 @@ registerRoute(
             cache
                 .put(cacheKey, new Response(buf, { status: 200, headers: storeHeaders }))
                 .then(() => trimPmtilesRangeCache())
-                .catch(() => {}),
+                // A put failure is usually QuotaExceededError — force a real
+                // length-check trim to reclaim space (workbox caches get
+                // purgeOnQuotaError; this manual cache had no such fallback).
+                .catch(() => trimPmtilesRangeCache(true).catch(() => {})),
         );
         const headers = new Headers({
             "Content-Type": "application/octet-stream",

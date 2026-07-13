@@ -5,6 +5,7 @@ import {
     hiderMode,
     mapGeoLocation,
 } from "@/lib/context";
+import { haversineMeters } from "@/lib/geo";
 import { METRO_BY_RELATION_BASE } from "@/maps/api/constants";
 import { referenceExtent } from "@/maps/api/playAreaPrefetch";
 import { findTentacleLocations, getOverpassData } from "@/maps/api";
@@ -142,7 +143,11 @@ async function findMetroTentacleCandidates(
         return turf.featureCollection([]);
     }
     if (!data) return turf.featureCollection([]);
-    const seeker = turf.point([centerLng, centerLat]);
+    // Compare in metres with an inline haversine (below) instead of turf —
+    // a metro network has hundreds of vertices per route and this runs per
+    // route on every metro-line question, so allocating a turf point +
+    // running turf.distance per vertex was pure churn.
+    const radiusMeters = turf.convertLength(radius, unit, "meters");
     const seen = new Set<string>();
     const candidates: GeoJSON.Feature<GeoJSON.Point>[] = [];
     for (const el of data.elements ?? []) {
@@ -167,12 +172,12 @@ async function findMetroTentacleCandidates(
         // Distance constraint = seeker → CLOSEST point on the line.
         // Real geometry, not centroid — the centroid is only used as
         // the Voronoi seed below.
-        let closestDistance = Infinity;
+        let closestMeters = Infinity;
         for (const c of coords) {
-            const d = turf.distance(seeker, turf.point(c), { units: unit });
-            if (d < closestDistance) closestDistance = d;
+            const d = haversineMeters(centerLat, centerLng, c[1], c[0]);
+            if (d < closestMeters) closestMeters = d;
         }
-        if (closestDistance > radius) continue;
+        if (closestMeters > radiusMeters) continue;
         // Centroid as Voronoi seed. multiPoint avoids the LineString-
         // closed-loop assumption of turf.centroid for lines.
         const centroid = turf.centroid(turf.multiPoint(coords));
