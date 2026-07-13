@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v813`. Use `git log` for the per-version detail;
+build stamp. Current: `v814`. Use `git log` for the per-version detail;
+
+**v814 — game-start flourish plays OVER the lobby (no seeker-view flash).** The
+v813 countdown appeared over the seeker MAP, because arming the clock
+(`hidingPeriodEndsAt`) flips `gameStarted` and instantly swaps the pre-game branch
+(lobby only) for the in-game shell (map) — so you glimpsed the map before the
+GoGoGo overlay mounted. Fixed with a dedicated volatile flag
+**`gameStartOverLobby`** (`gameSetup.ts`): set TRUE synchronously the instant the
+clock is armed — from the lobby's `handleStartGame` (host, alongside a synchronous
+`gameStartCelebrationAt`) and from the `setupChanged` null→non-null transition
+(guest) — and cleared when the GoGoGo card is dismissed. `gameStarted` in
+SeekerPage/HiderPage is now `$hidingEndsAt !== null && !$overLobby`, so the pre-game
+branch (and the lobby, whose `open` gains `|| $overLobby`) STAY mounted through the
+whole flourish; `GoGoGoOverlay` is now mounted in the pre-game branch too. Result:
+the 3-2-1 countdown punches in OVER the lobby (backdrop only `opacity-0.4` so the
+lobby reads through), then the GO-GO-GO card explodes while the backdrop deepens to
+`0.92` — fading the lobby away in the background — and only when the user taps "show
+me the map" (dismiss → clears both flags) does the branch finally swap to the map.
+A dedicated flag (not reusing `gameStartCelebrationAt` for the gate) is REQUIRED
+because a mid-game **Move** powerup also re-fires that celebration, and Move must NOT
+bounce the player back to the lobby view — Move leaves `gameStartOverLobby` false, so
+its GoGoGo plays over the map as before. Not set on reconnect (`applySnapshot`), so a
+mid-game rejoin never replays it.
 
 **v813 — lobby polish + game-start flourish.** Pre-game lobby (`GameLobbyDialog`):
 (1) bigger header — city title `text-xl font-bold` → `text-3xl font-black`, and the

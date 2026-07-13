@@ -17,7 +17,7 @@ import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { SeekerProximityWatcher } from "@/components/SeekerProximityWatcher";
 import { StationTransitCard } from "@/components/StationTransitCard";
-import { hidingPeriodEndsAt } from "@/lib/gameSetup";
+import { gameStartOverLobby, hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
 // Same lazy-dialog pattern SeekerPage uses — these are all
@@ -81,7 +81,10 @@ export function HiderPage() {
     // lobby opens so the hider's reference cache warms before
     // their shell takes over.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
-    const gameStarted = $hidingEndsAt !== null;
+    const $overLobby = useStore(gameStartOverLobby);
+    // v814: keep the pre-game branch mounted while the game-start flourish
+    // plays over the lobby (see SeekerPage for the full rationale).
+    const gameStarted = $hidingEndsAt !== null && !$overLobby;
 
     // (Lobby→in-game swap body-lock leftover is cleared globally by
     // installBodyPointerEventsGuard — see main.tsx.)
@@ -94,6 +97,8 @@ export function HiderPage() {
                     <GameSetupDialog />
                     <DebugPhaseControls />
                     <StaleSessionPrompt />
+                    {/* v814: game-start flourish plays over the lobby. */}
+                    <GoGoGoOverlay />
                 </Suspense>
                 <AppConfirmHost />
                 <AppPromptHost />

@@ -522,6 +522,22 @@ export const endgameConfirmedAt = persistentAtom<number | null>(
 export const gameStartCelebrationAt = atom<number | null>(null);
 
 /**
+ * Volatile "the game-start flourish is playing OVER the lobby" flag
+ * (v814). Set true synchronously the instant the hiding period is armed
+ * from the lobby (host) or a `setupChanged` start push (guest), and
+ * cleared when the GoGoGo card is dismissed. While it's true the
+ * pre-game branch (SeekerPage/HiderPage) stays mounted and the lobby
+ * stays open, so the 3-2-1 countdown + GO-GO-GO explosion play OVER the
+ * lobby and the lobby fades away behind the deepening backdrop — instead
+ * of the branch instantly swapping to the map (which flashed the seeker
+ * view before the overlay appeared). Distinct from
+ * `gameStartCelebrationAt` because a mid-game Move powerup ALSO re-fires
+ * that celebration, and Move must NOT bounce the player back to the
+ * lobby view — only the initial start sets this flag.
+ */
+export const gameStartOverLobby = atom<boolean>(false);
+
+/**
  * Volatile celebration trigger — unix ms set the moment the hiding
  * period CLOCK actually hits zero (either by the timer counting down
  * or by the hider tapping End hiding early). The SeekingStartOverlay

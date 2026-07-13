@@ -45,7 +45,7 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
-import { hidingPeriodEndsAt } from "@/lib/gameSetup";
+import { gameStartOverLobby, hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 import { cn } from "@/lib/utils";
 
@@ -130,7 +130,12 @@ export function SeekerPage() {
     // the boundary load doesn't start cold when the seeker shell
     // finally takes over.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
-    const gameStarted = $hidingEndsAt !== null;
+    const $overLobby = useStore(gameStartOverLobby);
+    // v814: while the game-start flourish plays OVER the lobby (3-2-1 +
+    // GO-GO-GO explosion), stay in the pre-game branch so the lobby stays
+    // visible/fading behind it — don't swap to the map shell until the
+    // GoGoGo card is dismissed (which clears `gameStartOverLobby`).
+    const gameStarted = $hidingEndsAt !== null && !$overLobby;
 
     // v616: during the hiding period the HiderTimer sits bottom-LEFT, so
     // the bottom-left Map-options chip is pushed up above it. A one-shot
@@ -189,6 +194,9 @@ export function SeekerPage() {
                     <GameSetupDialog />
                     <DebugPhaseControls />
                     <StaleSessionPrompt />
+                    {/* v814: the game-start flourish plays HERE, over the
+                        lobby, before the map shell mounts. */}
+                    <GoGoGoOverlay />
                 </Suspense>
                 <AppConfirmHost />
                 <AppPromptHost />

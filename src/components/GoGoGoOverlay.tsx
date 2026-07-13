@@ -8,6 +8,7 @@ import {
     formatTimeRemaining,
     gameSize,
     gameStartCelebrationAt,
+    gameStartOverLobby,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
@@ -103,21 +104,45 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
 
     if ($at === null) return null;
 
-    const shell =
-        "fixed inset-0 z-[1070] flex items-center justify-center px-6 bg-background/90 backdrop-blur-sm";
+    const date = new Date($at);
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mm = String(date.getMinutes()).padStart(2, "0");
+    const totalMinutes = HIDING_PERIOD_MINUTES[$gameSize];
+    const remainingMs = Math.max(0, ($endsAt ?? 0) - now);
+    const inGo = phase === "go";
 
-    if (phase === "countdown") {
-        return (
+    const handleDismiss = () => {
+        // Clear both flags: celebration ends the overlay, and dropping
+        // `gameStartOverLobby` lets the pre-game branch finally swap to the
+        // map shell (v814) — the user tapped "show me the map", so revealing
+        // it now is expected, not a glimpse.
+        gameStartCelebrationAt.set(null);
+        gameStartOverLobby.set(false);
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-[1070] flex items-center justify-center px-6"
+            role="dialog"
+            aria-modal="true"
+            aria-live="assertive"
+        >
+            {/* Backdrop as its own layer so it can TRANSITION between phases:
+                light during the countdown (the lobby reads through, numbers
+                on top), then deepens as the GO card explodes — which is what
+                makes the lobby fade away in the background. */}
             <div
-                className={shell}
-                role="dialog"
-                aria-modal="true"
-                aria-live="assertive"
-            >
+                className="absolute inset-0 bg-background transition-[opacity] duration-500 ease-out"
+                style={{
+                    opacity: inGo ? 0.92 : 0.4,
+                    backdropFilter: inGo ? "blur(4px)" : "blur(1px)",
+                }}
+            />
+            {!inGo ? (
                 <div
                     // Keyed on the number so each digit re-runs the punch-in.
                     key={count}
-                    className="font-display font-black text-primary leading-none select-none tabular-nums"
+                    className="relative font-display font-black text-primary leading-none select-none tabular-nums"
                     style={{
                         fontSize: "clamp(8rem, 42vw, 16rem)",
                         letterSpacing: "-0.04em",
@@ -126,27 +151,7 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
                 >
                     {count}
                 </div>
-            </div>
-        );
-    }
-
-    const date = new Date($at);
-    const hh = String(date.getHours()).padStart(2, "0");
-    const mm = String(date.getMinutes()).padStart(2, "0");
-    const totalMinutes = HIDING_PERIOD_MINUTES[$gameSize];
-    const remainingMs = Math.max(0, ($endsAt ?? 0) - now);
-
-    const handleDismiss = () => {
-        gameStartCelebrationAt.set(null);
-    };
-
-    return (
-        <div
-            className={shell}
-            role="dialog"
-            aria-modal="true"
-            aria-live="assertive"
-        >
+            ) : (
             <div className="relative max-w-md w-full">
                 {/* Dust-poof burst behind the card. */}
                 <DustBurst />
@@ -206,6 +211,7 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
                     </Button>
                 </div>
             </div>
+            )}
         </div>
     );
 }

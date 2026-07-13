@@ -37,6 +37,7 @@ import {
     gamePausedForLocationAt,
     gameStartCelebrationAt,
     gameStartFiredFor,
+    gameStartOverLobby,
     gameStartPosition,
     hiddenCreditMs,
     hiddenDebitMs,
@@ -111,6 +112,7 @@ export function resetSharedRoundState(): void {
     // Volatile celebration overlays — a stale GO-GO-GO / SEEK! trigger
     // left mid-session must not replay itself into the next round/game.
     gameStartCelebrationAt.set(null);
+    gameStartOverLobby.set(false);
     seekingStartCelebrationAt.set(null);
     closingInWarningLevel.set(0);
 

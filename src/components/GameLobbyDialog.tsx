@@ -33,6 +33,8 @@ import {
     allowedTransit,
     type GameSize,
     gameSize,
+    gameStartCelebrationAt,
+    gameStartOverLobby,
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
@@ -124,6 +126,7 @@ export function GameLobbyDialog() {
     const $pending = useStore(pendingHidingDurationMin);
     const $size = useStore(gameSize);
     const $manualOpen = useStore(lobbyManualOpen);
+    const $overLobby = useStore(gameStartOverLobby);
     const $foundAt = useStore(roundFoundAt);
     const $seekerSharing = useStore(seekerLocationSharing);
     // v442: the setup/area editor is a Radix Dialog that would otherwise
@@ -145,7 +148,13 @@ export function GameLobbyDialog() {
     const open =
         !$setupOpen &&
         ($manualOpen ||
-            ($welcomeSeen && $setupCompleted && $hidingEndsAt === null));
+            ($welcomeSeen &&
+                $setupCompleted &&
+                // v814: stay open through the game-start flourish (the
+                // clock is armed but the GO-GO-GO overlay is playing OVER
+                // the lobby) so the lobby fades behind the explosion
+                // rather than snapping shut before it.
+                ($hidingEndsAt === null || $overLobby)));
 
     const isHiderRole =
         $playerRole === "hider" || $playerRole === "coHider";
@@ -450,8 +459,16 @@ export function GameLobbyDialog() {
 
     const handleStartGame = () => {
         if (!canStart) return;
+        // Arm the clock (correct timing + guest sync via the push below)…
         hidingPeriodEndsAt.set(Date.now() + minutes * 60_000);
         pendingHidingDurationMin.set(null);
+        // …but play the 3-2-1 + GO-GO-GO flourish OVER the lobby first:
+        // set both flags SYNCHRONOUSLY so the pre-game branch never swaps
+        // to the map for a frame (no seeker-view flash), and the lobby
+        // stays open behind the countdown (v814). The GoGoGo card's
+        // dismiss clears both, revealing the map.
+        gameStartOverLobby.set(true);
+        gameStartCelebrationAt.set(Date.now());
         // Mirror to peers — the setup atoms are the source of truth.
         hostPushSetup();
     };

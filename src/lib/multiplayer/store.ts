@@ -38,6 +38,7 @@ import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
     gameSize,
+    gameStartOverLobby,
     endgameConfirmedAt,
     endgameStartedAt,
     endOfRoundDialogOpen,
@@ -936,6 +937,17 @@ function handleServerMessage(msg: ServerMessage) {
             gameSize.set(msg.setup.gameSize);
             const prevHidingEndsAt = hidingPeriodEndsAt.get();
             hidingPeriodEndsAt.set(msg.setup.hidingPeriodEndsAt);
+            // v814: a guest receiving the host's START push (hiding clock
+            // going null → set) plays the game-start flourish OVER the
+            // lobby, same as the host. Set the flag SYNCHRONOUSLY with the
+            // clock so the guest's pre-game branch never swaps to the map
+            // for a frame (no flash / no map→lobby→map flicker); the guest's
+            // GameStartWatcher then fires the GO-GO-GO celebration and the
+            // card's dismiss clears the flag. NOT set on a reconnect
+            // (applySnapshot), so a mid-game rejoin never replays it.
+            if (prevHidingEndsAt === null && msg.setup.hidingPeriodEndsAt !== null) {
+                gameStartOverLobby.set(true);
+            }
             const prevEndgameAt = endgameStartedAt.get();
             endgameStartedAt.set(msg.setup.endgameStartedAt);
             const prevEndgameConfirmedAt = endgameConfirmedAt.get();
