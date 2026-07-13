@@ -32,6 +32,15 @@ const EDGE_CACHE_TTL_SECS = 60 * 60; // 1h
 
 const ALL_MODES: TravelMode[] = ["bus", "tram", "train", "subway", "ferry"];
 
+/** True when a journey has NO transit leg — every leg is on foot (or it's
+ *  empty/null). Such a journey is equivalent to the walking backstop even
+ *  when a real adapter produced it, so it must not be persisted (see the
+ *  cache-write guard). */
+function isAllWalkingJourney(journey: Journey | null): boolean {
+    if (!journey || journey.legs.length === 0) return true;
+    return journey.legs.every((leg) => leg.mode === "walk");
+}
+
 export async function handleTravelPlan(
     request: Request,
     env: Env,
@@ -103,15 +112,22 @@ export async function handleTravelPlan(
         journey,
     };
 
-    // Write back through both layers, best-effort + non-blocking. The
-    // walking fallback is NOT persisted: it's produced whenever every
-    // real adapter declines OR transiently fails, so caching it for
-    // 24h would mask a recovered upstream (a one-off Transitous hiccup
-    // would pin "walking estimate" on a route that actually has
-    // transit). Walking is a cheap haversine to recompute, so we just
-    // re-dispatch next time and pick up the real journey once the
-    // upstream is healthy again.
-    if (source !== "walking") {
+    // Write back through both layers, best-effort + non-blocking. A
+    // transit-LESS journey is NOT persisted, regardless of which adapter
+    // produced it. Two cases:
+    //   - `source === "walking"`: the unconditional haversine backstop,
+    //     produced whenever every real adapter declines OR transiently
+    //     fails — caching it for 24h would mask a recovered upstream.
+    //   - an all-walk journey from a REAL adapter (source "transitous" /
+    //     the self-hosted MOTIS box): MOTIS can momentarily return a
+    //     walk-only itinerary when it finds no transit within the
+    //     access/egress budget, even though the departures board for the
+    //     same stop proves transit exists. Caching THAT for 24h is what
+    //     pinned "a really long walk" on a route that has transit (the
+    //     recurring trip-planner report). Both are cheap to recompute, so
+    //     we re-dispatch next time and pick up the real journey once the
+    //     upstream is healthy again.
+    if (source !== "walking" && !isAllWalkingJourney(journey)) {
         ctx.waitUntil(writeCached(env, edgeCache, key, payload));
     }
 

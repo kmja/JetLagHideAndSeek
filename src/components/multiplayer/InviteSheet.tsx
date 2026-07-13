@@ -211,10 +211,19 @@ export function InvitePanel() {
             {shareUrl && (
                 <Dialog open={qrOpen} onOpenChange={setQrOpen}>
                     <DialogContent
+                        // InviteSheet renders INSIDE the lobby drawer (vaul,
+                        // z-[1055]). A plain Radix Dialog defaults to z-[1050],
+                        // so this opened BEHIND the lobby — invisible, but its
+                        // DismissableLayer still froze the page (body
+                        // pointer-events:none) with no reachable way to dismiss
+                        // it. Lift content + overlay above the lobby, matching
+                        // RotateHiderDialog (the same launched-from-lobby case).
                         className={cn(
                             "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                             "sm:max-w-xs flex flex-col items-center p-6 gap-4",
+                            "z-[1060]",
                         )}
+                        overlayClassName="z-[1060]"
                     >
                         <DialogTitle className="font-poppins font-bold uppercase text-base tracking-[0.10em]">
                             Scan to join

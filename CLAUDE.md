@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v796`. Use `git log` for the per-version detail;
+build stamp. Current: `v797`. Use `git log` for the per-version detail;
+
+**v797 — two demo-blocker bug fixes.** (1) **QR-share dialog froze the app.**
+`InviteSheet`'s "Scan to join" QR `Dialog` is launched from INSIDE the lobby
+drawer (vaul, z-[1055]) but a plain Radix Dialog defaults to z-[1050], so it
+opened BEHIND the lobby — invisible, yet its `DismissableLayer` still set
+`body{pointer-events:none}` with no reachable way to dismiss it → whole app
+unresponsive. Lifted content + overlay to `z-[1060]` (+ `overlayClassName`),
+matching `RotateHiderDialog` (the same launched-from-lobby case in the
+z-index-ladder docs). (2) **Trip planner showed a long walk while departures
+proved transit exists.** The plan cache-write guard only skipped
+`source === "walking"`, so an ALL-WALK itinerary from a REAL adapter
+(`source: "transitous"` / self-hosted MOTIS — MOTIS momentarily returns
+walk-only when it can't connect within the access/egress budget) got persisted
+for 24h, pinning "a really long walk" on a route that has transit. Now
+`isAllWalkingJourney(journey)` (no transit leg) is treated like the walking
+backstop and NOT cached, so the next dispatch re-tries and picks up the real
+transit journey. (Worker `travel/plan.ts` — auto-deploys with the
+overpass-cache Workers Build.)
 
 **v796 — overpass-cache abort-sniff gap closed (worker; reliability).** The v667
 Overpass soft-timeout defence (HTTP 200 + `remark` + empty/truncated elements)
