@@ -1206,18 +1206,25 @@ export function Map({ className }: MapProps) {
         };
     }, [$questions]);
 
-    // Radar sweep animation — rotating wedge over each pending
-    // radius question. Builds a turf sector per target every
-    // animation frame and feeds the FeatureCollection back to
-    // MapLibre via getSource().setData(...) so re-rendering
-    // stays GPU-side instead of triggering a React re-render
-    // each frame. Loop is gated on having at least one target
-    // so an empty pending set burns no CPU.
-    const SWEEP_PERIOD_MS = 3500; // ms per full rotation
-    const SWEEP_WIDTH_DEG = 60;
+    // Radar sweep animation — a classic rotating radar BEAM with a
+    // fading TRAIL behind it, over each pending radius question (the old
+    // uniform-opacity wedge read as a rotating pie-slice, not a radar
+    // scan). Each frame we build, per target: a triangle-fan TRAIL of
+    // `SWEEP_SEGMENTS` thin wedges spanning `SWEEP_TRAIL_DEG` behind the
+    // head — each tagged with a brightness `a` (1 at the leading edge →
+    // 0 at the tail) that a data-driven `fill-opacity` fades out — PLUS a
+    // bright leading beam line from the centre to the perimeter at the
+    // head angle. Written straight into the MapLibre source via
+    // getSource().setData(...) so the animation stays GPU-side (no React
+    // re-render per frame). Gated on having ≥1 target so an empty pending
+    // set burns no CPU.
+    const SWEEP_PERIOD_MS = 4000; // ms per full rotation
+    const SWEEP_TRAIL_DEG = 150; // length of the fading trail behind the beam
+    const SWEEP_SEGMENTS = 24; // trail resolution
     useEffect(() => {
         if (radarTargets.length === 0) return;
         let raf = 0;
+        const step = SWEEP_TRAIL_DEG / SWEEP_SEGMENTS;
         const tick = () => {
             const map = mapRef.current?.getMap();
             const source = map?.getSource("radar-sweep") as
@@ -1225,24 +1232,60 @@ export function Map({ className }: MapProps) {
                 | undefined;
             if (source) {
                 const now = performance.now();
+                // Head sweeps clockwise (decreasing bearing over time reads
+                // as a clockwise rotation on the map).
                 const headDeg =
                     ((now % SWEEP_PERIOD_MS) / SWEEP_PERIOD_MS) * 360;
                 const features: GeoJSON.Feature[] = [];
                 for (const t of radarTargets) {
-                    try {
-                        const sector = turf.sector(
-                            [t.lng, t.lat],
-                            t.radiusKm,
-                            headDeg,
-                            (headDeg + SWEEP_WIDTH_DEG) % 360,
-                            { units: "kilometers", steps: 32 },
-                        );
-                        features.push(sector as GeoJSON.Feature);
-                    } catch {
-                        /* turf.sector occasionally fails on
-                           degenerate bearings; skip the frame
-                           rather than crash. */
+                    const center: [number, number] = [t.lng, t.lat];
+                    // Perimeter points along the trail arc, head → tail.
+                    const perim: [number, number][] = [];
+                    for (let i = 0; i <= SWEEP_SEGMENTS; i++) {
+                        const bearing = headDeg - i * step;
+                        try {
+                            const p = turf.destination(
+                                center,
+                                t.radiusKm,
+                                bearing,
+                                { units: "kilometers" },
+                            );
+                            perim.push(
+                                p.geometry.coordinates as [number, number],
+                            );
+                        } catch {
+                            perim.push(center);
+                        }
                     }
+                    // Fan of thin wedges [centre, perim[i], perim[i+1]],
+                    // brightness fading from the head (a=1) to the tail.
+                    for (let i = 0; i < SWEEP_SEGMENTS; i++) {
+                        const a = 1 - i / SWEEP_SEGMENTS;
+                        features.push({
+                            type: "Feature",
+                            properties: { a },
+                            geometry: {
+                                type: "Polygon",
+                                coordinates: [
+                                    [
+                                        center,
+                                        perim[i],
+                                        perim[i + 1],
+                                        center,
+                                    ],
+                                ],
+                            },
+                        });
+                    }
+                    // Leading beam line — centre → perimeter at the head.
+                    features.push({
+                        type: "Feature",
+                        properties: { beam: 1 },
+                        geometry: {
+                            type: "LineString",
+                            coordinates: [center, perim[0]],
+                        },
+                    });
                 }
                 source.setData({
                     type: "FeatureCollection",
@@ -2153,16 +2196,14 @@ export function Map({ className }: MapProps) {
                     </Source>
                 )}
 
-                {/* Radar sweep — rotating wedge over each
-                    pending radius. The Source starts with an
-                    empty FeatureCollection; the
-                    requestAnimationFrame loop above writes the
-                    current rotation directly via
-                    getSource().setData(), so this Source
-                    declaration is just there to set up the
-                    rendering pipeline. Mounted before the
-                    static fill so the sweep paints UNDER the
-                    circle stroke. */}
+                {/* Radar sweep — a rotating beam + fading trail over each
+                    pending radius. The Source starts empty; the rAF loop
+                    above writes the current frame via getSource().setData().
+                    The TRAIL fill fades via a data-driven `fill-opacity`
+                    keyed on each wedge's `a` (1 at the leading edge → 0 at
+                    the tail); the BEAM line is the bright leading edge (a
+                    `line-blur` gives it a soft radar glow). Mounted before
+                    the static circle so the sweep paints UNDER the stroke. */}
                 {radarTargets.length > 0 && (
                     <Source
                         id="radar-sweep"
@@ -2172,11 +2213,33 @@ export function Map({ className }: MapProps) {
                         <Layer
                             id="radar-sweep-fill"
                             type="fill"
+                            filter={["==", ["geometry-type"], "Polygon"]}
                             paint={{
                                 "fill-color":
-                                    CATEGORIES.radius?.color ??
-                                    "#f5a888",
-                                "fill-opacity": 0.25,
+                                    CATEGORIES.radius?.color ?? "#f5a888",
+                                // Fade the trail from the leading edge back.
+                                "fill-opacity": [
+                                    "interpolate",
+                                    ["linear"],
+                                    ["get", "a"],
+                                    0,
+                                    0,
+                                    1,
+                                    0.4,
+                                ],
+                                "fill-antialias": false,
+                            }}
+                        />
+                        <Layer
+                            id="radar-sweep-beam"
+                            type="line"
+                            filter={["==", ["geometry-type"], "LineString"]}
+                            paint={{
+                                "line-color":
+                                    CATEGORIES.radius?.color ?? "#f5a888",
+                                "line-width": 2.5,
+                                "line-opacity": 0.95,
+                                "line-blur": 2,
                             }}
                         />
                     </Source>

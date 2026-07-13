@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v814`. Use `git log` for the per-version detail;
+build stamp. Current: `v815`. Use `git log` for the per-version detail;
+
+**v815 — radar "scan" overlay is a real sweep (beam + fading trail).** The pending
+radar-question overlay on `Map.tsx` was a uniform-opacity 60° turf `sector` — a
+rotating pie-slice, not a radar scan (the old Leaflet-era `RadarScanOverlay` sweep
+was never ported after the migration; the in-file comment said so). Rebuilt as a
+classic radar sweep: per pending radar target, the rAF loop builds a triangle-fan
+**trail** of `SWEEP_SEGMENTS=24` thin wedges spanning `SWEEP_TRAIL_DEG=150°` behind
+the head — each wedge tagged with a brightness `a` (1 at the leading edge → 0 at the
+tail) that a **data-driven `fill-opacity`** (`interpolate` on `["get","a"]`, 0→0,
+1→0.4) fades out — PLUS a bright **beam line** (centre→perimeter at the head angle,
+`line-blur:2` for a soft radar glow). Both live in the one `radar-sweep` source; the
+fill layer filters `geometry-type == Polygon`, the beam layer `== LineString`
+(`fill-antialias:false` kills seams between adjacent trail wedges). Geometry is
+written via `getSource().setData()` each frame (GPU-side, no React re-render);
+`SWEEP_PERIOD_MS=4000`. Trail wedges use `turf.destination` per perimeter point
+(cheaper than the old per-frame `turf.sector`). Seeker-only (hider never sees the
+deduction overlay).
 
 **v814 — game-start flourish plays OVER the lobby (no seeker-view flash).** The
 v813 countdown appeared over the seeker MAP, because arming the clock
