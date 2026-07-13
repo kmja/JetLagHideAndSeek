@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v801`. Use `git log` for the per-version detail;
+build stamp. Current: `v802`. Use `git log` for the per-version detail;
+
+**v802 — wizard play-area layout fill + nearby-zones auto-refresh.** (1) The
+full-page wizard's play-area step (`SetupPage` → `PlayAreaStep fillHeight`)
+left dead space below the "Change area" button. Restructured: the play-area
+card sits on TOP with a compact **Edit** button to its RIGHT (was a full-width
+button below), and the map GROWS to fill the space beneath. Done with flex
+`order` so the map block stays FIRST in the DOM (mount persistence across
+preview↔search — it must never remount/reload) while sitting visually below
+the card in preview. `PlayAreaStep` gained a `fillHeight` prop (only the
+full-page wizard passes it; the `GameSetupDialog` modal keeps the fixed
+near-square map + more content below). `SetupPage`'s step wrapper gets `h-full`
+on step 1 so the `flex-1` map can fill. (2) `NearbyStationsPicker` (the hider's
+"zones you're in" picker) only computed once on mount — it never reacted to GPS
+movement, so "no zone contains your position" never cleared as the hider walked
+toward a station. It now auto-refreshes off the live `lastKnownPosition` atom
+(the same fix the "You" dot uses), **distance-gated at 25 m** so it recomputes
+as they walk without re-running on every ping (`findZonesNearPoint` is the
+cached play-area query, so a move-gated recompute is cheap); a one-shot
+`getCurrentPosition` is the fallback only when there's no live fix yet.
 
 **v801 — CI build hotfix: restore `workbox-window` direct dep.** v795 dropped
 `workbox-window` from `package.json` believing it was only transitive. It is

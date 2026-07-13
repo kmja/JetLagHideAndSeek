@@ -830,9 +830,15 @@ const LOCATING_SUBLABEL =
 export function PlayAreaStep({
     value,
     onChange,
+    fillHeight = false,
 }: {
     value: OpenStreetMap | null;
     onChange: (v: OpenStreetMap | null) => void;
+    /** When true (the full-page wizard), the preview lays out as a flex
+     *  column that fills the parent — the play-area card sits on top and the
+     *  map grows to fill the space below. The modal editor leaves it false
+     *  (fixed near-square map, more content below). */
+    fillHeight?: boolean;
 }) {
     // Preview vs. search. Default: preview when there's a committed
     // area (edit mode reopen, or a fresh wizard that's already
@@ -1189,8 +1195,16 @@ export function PlayAreaStep({
     // it — same persistence intent as the osm_id key above.
     const hideMapForSearch = !inPreview && inputFocused;
 
+    // Fill layout (full-page wizard, preview only): the card sits on top and
+    // the map GROWS to fill the space below instead of leaving a fixed
+    // near-square with dead space beneath it. Achieved with flex `order` so
+    // the map block stays FIRST in the DOM (mount persistence across
+    // preview↔search — it must never remount/reload), while the content
+    // block visually sits above it in preview.
+    const fillPreview = fillHeight && inPreview;
+
     return (
-        <div className="space-y-3">
+        <div className={cn("flex flex-col gap-3", fillPreview && "h-full")}>
             {value && (
                 // Smoothly collapse the map (grid-rows 1fr→0fr) instead of
                 // an instant `hidden` when the keyboard is up — the map
@@ -1200,13 +1214,17 @@ export function PlayAreaStep({
                     className={cn(
                         "grid transition-[grid-template-rows] duration-300 ease-out",
                         hideMapForSearch ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+                        // Preview: map BELOW the card (order-2) and fills; search:
+                        // map on top (order-1), fixed strip.
+                        inPreview ? "order-2" : "order-1",
+                        fillPreview && "flex-1 min-h-[12rem]",
                     )}
                 >
-                    <div className="overflow-hidden">
+                    <div className="overflow-hidden h-full">
                         <PlayAreaPreviewMap
                             key={value.properties.osm_id}
                             value={value}
-                            height={mapHeightClass}
+                            height={fillPreview ? "h-full" : mapHeightClass}
                             veilLabel={
                                 inPreview && fromGpsSuggest
                                     ? LOCATING_LABEL
@@ -1229,7 +1247,11 @@ export function PlayAreaStep({
                 (typing, focus) don't remount the input. */}
             <div
                 key={inPreview ? "preview" : "search"}
-                className="space-y-3 animate-in fade-in duration-200"
+                className={cn(
+                    "space-y-3 animate-in fade-in duration-200",
+                    inPreview ? "order-1" : "order-2",
+                    fillPreview && "shrink-0",
+                )}
             >
             {inPreview ? (
                 (() => {
@@ -1245,65 +1267,72 @@ export function PlayAreaStep({
                     );
                     return (
                         <>
-                            <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2">
-                                <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
-                                <div className="min-w-0 flex-1">
-                                    <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
-                                        Play area
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="text-base font-bold truncate">
-                                            {label}
-                                        </span>
-                                        {warm && (
-                                            <Star
-                                                className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
-                                                aria-label="Fully cached, including adjacent areas — plays offline-fast"
-                                            />
-                                        )}
-                                    </div>
-                                    <div className="flex items-center flex-wrap gap-1.5 mt-1">
-                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
-                                            {typeLabel}
-                                        </span>
-                                        {areaLabel && (
-                                            <span className="text-[10px] tabular-nums text-muted-foreground">
-                                                {areaLabel}
+                            {/* Card row: the play-area card takes the width and
+                                the edit button sits to its RIGHT (matching the
+                                card height), instead of a full-width button
+                                below — so the map can own the space beneath. */}
+                            <div className="flex items-stretch gap-2">
+                                <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2 flex-1 min-w-0">
+                                    <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
+                                            Play area
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-base font-bold truncate">
+                                                {label}
                                             </span>
-                                        )}
-                                        {sizeHint && (
-                                            <SizeBadge
-                                                size={sizeHint}
-                                                className="!text-[9px] !px-1.5 !py-0.5"
-                                            />
-                                        )}
+                                            {warm && (
+                                                <Star
+                                                    className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
+                                                    aria-label="Fully cached, including adjacent areas — plays offline-fast"
+                                                />
+                                            )}
+                                        </div>
+                                        <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
+                                                {typeLabel}
+                                            </span>
+                                            {areaLabel && (
+                                                <span className="text-[10px] tabular-nums text-muted-foreground">
+                                                    {areaLabel}
+                                                </span>
+                                            )}
+                                            {sizeHint && (
+                                                <SizeBadge
+                                                    size={sizeHint}
+                                                    className="!text-[9px] !px-1.5 !py-0.5"
+                                                />
+                                            )}
+                                        </div>
                                     </div>
+                                    <Check className="w-4 h-4 text-primary shrink-0" />
                                 </div>
-                                <Check className="w-4 h-4 text-primary shrink-0" />
+
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        userInitiatedSearch.current = true;
+                                        pendingSearchFocus.current = true;
+                                        // Optimistically mark focused so the map
+                                        // shrinks in ONE smooth step (not
+                                        // preview→tall-search→short-search) — the
+                                        // input auto-focuses right after.
+                                        setInputFocused(true);
+                                        setMode("search");
+                                        setQuery("");
+                                        setResults([]);
+                                        setSearched(false);
+                                    }}
+                                    aria-label="Change play area"
+                                    className="shrink-0 self-stretch h-auto flex-col gap-1 px-4 active:scale-[0.98] transition-transform"
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                    <span className="text-xs">Edit</span>
+                                </Button>
                             </div>
 
                             <PlayAreaExtensions primary={value} />
-
-                            <Button
-                                variant="outline"
-                                onClick={() => {
-                                    userInitiatedSearch.current = true;
-                                    pendingSearchFocus.current = true;
-                                    // Optimistically mark focused so the map
-                                    // shrinks in ONE smooth step (not
-                                    // preview→tall-search→short-search) — the
-                                    // input auto-focuses right after.
-                                    setInputFocused(true);
-                                    setMode("search");
-                                    setQuery("");
-                                    setResults([]);
-                                    setSearched(false);
-                                }}
-                                className="gap-1.5 w-full active:scale-[0.98] transition-transform"
-                            >
-                                <Pencil className="w-3.5 h-3.5" />
-                                Change area
-                            </Button>
                         </>
                     );
                 })()

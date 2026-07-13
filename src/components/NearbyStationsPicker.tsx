@@ -1,7 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { convertLength } from "@turf/turf";
 import { Loader2, LocateFixed } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -9,9 +9,20 @@ import {
     TRANSIT_ICONS,
     type TransitMode,
 } from "@/lib/gameSetup";
-import { hidingRadius, hidingRadiusUnits } from "@/lib/context";
+import {
+    hidingRadius,
+    hidingRadiusUnits,
+    lastKnownPosition,
+} from "@/lib/context";
+import { haversineMeters } from "@/lib/geo";
 import { findZonesNearPoint } from "@/lib/journey/stations";
 import { cn } from "@/lib/utils";
+
+/** How far the hider must move (metres) before the picker auto-recomputes
+ *  which zones they're standing in. Distance-gated so a stationary GPS
+ *  jitter (or every ping) doesn't re-run — but walking toward a station
+ *  refreshes the list without a manual tap. */
+const AUTO_REFRESH_DEADBAND_M = 25;
 
 /**
  * GPS-based hiding-zone picker for the hider during the hiding period —
@@ -60,6 +71,7 @@ export function NearbyStationsPicker({
     const $allowed = useStore(allowedTransit);
     const $hidingRadius = useStore(hidingRadius);
     const $hidingRadiusUnits = useStore(hidingRadiusUnits);
+    const $gps = useStore(lastKnownPosition);
     const radiusMeters = Math.round(
         convertLength($hidingRadius, $hidingRadiusUnits, "meters"),
     );
@@ -75,7 +87,39 @@ export function NearbyStationsPicker({
           }
         | { status: "error"; message: string }
     >({ status: "idle" });
+    // The last position we actually recomputed for — drives the distance
+    // deadband so we don't re-run on every GPS ping.
+    const lastComputedRef = useRef<{ lat: number; lng: number } | null>(null);
 
+    // Resolve which zones contain a given point (the cached play-area query,
+    // so this is cheap to repeat). Shared by the live-GPS auto-refresh and
+    // the manual getCurrentPosition path.
+    const computeFor = (lat: number, lng: number) => {
+        lastComputedRef.current = { lat, lng };
+        setState({ status: "fetching", lat, lng });
+        findZonesNearPoint(lat, lng, { allowed: $allowed, radiusMeters })
+            .then((stations) => {
+                if (stations.length === 0) {
+                    setState({
+                        status: "error",
+                        message: `No hiding zone of the allowed modes contains your position (nearest station must be within ${radiusMeters} m). Move closer to one, or pick a zone manually below.`,
+                    });
+                    return;
+                }
+                setState({ status: "results", stations, lat, lng });
+            })
+            .catch((e) => {
+                console.warn("Nearby-stations fetch failed", e);
+                setState({
+                    status: "error",
+                    message:
+                        "Couldn't fetch nearby stations — try again or pick manually below.",
+                });
+            });
+    };
+
+    // Manual "Retry GPS" / "Refresh" — force a fresh one-shot fix, then
+    // recompute. Also the bootstrap when there's no live GPS atom yet.
     const run = () => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
             setState({
@@ -86,37 +130,7 @@ export function NearbyStationsPicker({
         }
         setState({ status: "locating" });
         navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const { latitude: lat, longitude: lng } = pos.coords;
-                setState({ status: "fetching", lat, lng });
-                findZonesNearPoint(lat, lng, {
-                    allowed: $allowed,
-                    radiusMeters,
-                })
-                    .then((stations) => {
-                        if (stations.length === 0) {
-                            setState({
-                                status: "error",
-                                message: `No hiding zone of the allowed modes contains your position (nearest station must be within ${radiusMeters} m). Move closer to one, or pick a zone manually below.`,
-                            });
-                            return;
-                        }
-                        setState({
-                            status: "results",
-                            stations,
-                            lat,
-                            lng,
-                        });
-                    })
-                    .catch((e) => {
-                        console.warn("Nearby-stations fetch failed", e);
-                        setState({
-                            status: "error",
-                            message:
-                                "Couldn't fetch nearby stations — try again or pick manually below.",
-                        });
-                    });
-            },
+            (pos) => computeFor(pos.coords.latitude, pos.coords.longitude),
             (err) => {
                 setState({
                     status: "error",
@@ -130,11 +144,27 @@ export function NearbyStationsPicker({
         );
     };
 
-    // Auto-run on mount.
+    // Auto-refresh off the LIVE GPS atom (the same fix the "You" dot uses),
+    // distance-gated so it recomputes as the hider walks toward a station —
+    // clearing the "no zone contains you" state without a manual tap — but
+    // not on every ping. Falls back to a one-shot getCurrentPosition only
+    // when there's no live fix yet (GPS watcher not running).
     useEffect(() => {
-        run();
+        if (!$gps) {
+            if (lastComputedRef.current === null) run();
+            return;
+        }
+        const last = lastComputedRef.current;
+        if (
+            last &&
+            haversineMeters(last.lat, last.lng, $gps.lat, $gps.lng) <
+                AUTO_REFRESH_DEADBAND_M
+        ) {
+            return;
+        }
+        computeFor($gps.lat, $gps.lng);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [$gps?.lat, $gps?.lng]);
 
     if (state.status === "idle" || state.status === "locating") {
         return (

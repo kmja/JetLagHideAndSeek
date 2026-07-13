@@ -275,12 +275,17 @@ export function SetupPage() {
                         stepDir === "fwd"
                             ? "slide-in-from-right-6"
                             : "slide-in-from-left-6",
+                        // Play-area step fills the scroll area so its map can
+                        // grow to the bottom (fillHeight). Other steps are
+                        // natural-height.
+                        step === 1 && "h-full",
                     )}
                 >
                     {step === 1 && (
                         <PlayAreaStep
                             value={draftFeature}
                             onChange={setDraftFeature}
+                            fillHeight
                         />
                     )}
                     {step === 2 && (
