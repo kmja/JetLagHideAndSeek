@@ -106,12 +106,12 @@ export function HouseRulesSection({
 
     return (
         <div className="pt-3 mt-3 border-t border-border">
-            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
+            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
                 House rules
             </div>
 
             {visible.length > 0 && (
-                <p className="text-xs text-muted-foreground mb-3 leading-snug">
+                <p className="text-sm text-muted-foreground mb-3 leading-snug">
                     Deviations from the printed rulebook. Defaults follow the
                     rulebook.
                     {readOnly && " The host sets these for the whole table."}
@@ -139,19 +139,19 @@ export function HouseRulesSection({
                     type="button"
                     onClick={() => setShowInactive((s) => !s)}
                     className={cn(
-                        "mt-3 inline-flex items-center gap-1.5 text-xs font-poppins font-semibold",
+                        "mt-3 inline-flex items-center gap-1.5 text-sm font-poppins font-semibold",
                         "text-muted-foreground hover:text-foreground transition-colors",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm",
                     )}
                 >
                     {showInactive ? (
                         <>
-                            <ChevronDown className="w-3.5 h-3.5 rotate-180 transition-transform" />
+                            <ChevronDown className="w-4 h-4 rotate-180 transition-transform" />
                             Hide rulebook defaults
                         </>
                     ) : (
                         <>
-                            <Plus className="w-3.5 h-3.5" />
+                            <Plus className="w-4 h-4" />
                             {active.length > 0
                                 ? `Add another house rule (${inactive.length})`
                                 : "Add a house rule"}
@@ -195,10 +195,10 @@ function Row({
                 className="mt-0.5 shrink-0"
             />
             <span className="flex-1 min-w-0">
-                <span className="block text-sm font-semibold leading-tight">
+                <span className="block text-base font-semibold leading-tight">
                     {label}
                 </span>
-                <span className="block text-xs text-muted-foreground leading-snug mt-0.5">
+                <span className="block text-sm text-muted-foreground leading-snug mt-0.5">
                     {description}
                 </span>
                 {!checked && (

@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v812`. Use `git log` for the per-version detail;
+build stamp. Current: `v813`. Use `git log` for the per-version detail;
+
+**v813 — lobby polish + game-start flourish.** Pre-game lobby (`GameLobbyDialog`):
+(1) bigger header — city title `text-xl font-bold` → `text-3xl font-black`, and the
+top-right Share button went from `size="sm"` to default so it anchors the larger
+title. (2) Bigger Seekers/Hiders roster (`RosterCard`) — card padding, section
+label (`text-[10px]`→`text-xs`), player-name rows (`text-sm`→`text-base font-medium`),
+HOST/(you)/MAIN badges, empty-state, and Join button all bumped a step. (3) Removed
+the "Need at least one seeker and one hider…" line (the "Pick your team above to
+continue." hint stays, enlarged to `text-sm`, shown only when role is null).
+(4) Bigger House rules section (`HouseRulesSection`) — heading, intro, per-rule
+label (`text-sm`→`text-base`) + description (`text-xs`→`text-sm`), and the add-rule
+button. (5) **Game-start flourish** — `GoGoGoOverlay` now plays a huge **3-2-1
+countdown** (`jlCountPunch`, 750 ms/number) then the **GO-GO-GO card EXPLODES in**
+(`jlGoExplode` overshoot) with a ring of **cartoon dust poofs** bursting outward
+behind it (`DustBurst` — 20 deterministic memoised particles, two rings, driven by
+the `jlDustPoof` keyframe via per-particle `--dx/--dy/--ds` CSS vars). Both beats
+ride the existing single `gameStartCelebrationAt` trigger, so host + guests get the
+full sequence; the debug-gallery preview skips the countdown to show the card. The
+hiding clock already runs underneath, so the ~2 s countdown is purely visual.
 
 **v812 — contextual "turn on notifications" prompt.** Instead of asking for
 notification permission up-front (low conversion, easy to deny before the value is

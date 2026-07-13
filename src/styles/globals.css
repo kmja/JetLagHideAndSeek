@@ -251,6 +251,29 @@ div.leaflet-control-attribution.leaflet-control {
     100% { transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--rot, 0deg)) scale(0.6);    opacity: 0; }
 }
 
+/* Game-start flourish (v813) — the 3-2-1 countdown punches each number
+ * in then recedes; the GO-GO-GO card explodes into view with a quick
+ * overshoot; a ring of cartoon dust poofs balloons outward behind it.
+ * Each dust particle carries its own outward vector (--dx/--dy) + end
+ * scale (--ds) via inline style. */
+@keyframes jlCountPunch {
+    0%   { transform: scale(2.4); opacity: 0; }
+    22%  { transform: scale(1);   opacity: 1; }
+    70%  { transform: scale(1);   opacity: 1; }
+    100% { transform: scale(0.55); opacity: 0; }
+}
+@keyframes jlGoExplode {
+    0%   { transform: scale(0.3);  opacity: 0; }
+    55%  { transform: scale(1.08); opacity: 1; }
+    75%  { transform: scale(0.97); }
+    100% { transform: scale(1);    opacity: 1; }
+}
+@keyframes jlDustPoof {
+    0%   { transform: translate(0, 0) scale(0.2);                       opacity: 0; }
+    12%  { opacity: 0.9; }
+    100% { transform: translate(var(--dx, 0), var(--dy, 0)) scale(var(--ds, 1.6)); opacity: 0; }
+}
+
 /* Fizzle shake + red flash — used when the curse roll lands on a
  * fail value. Brief left/right wobble plus a red glow so the
  * player feels the disappointment without the dialog jumping

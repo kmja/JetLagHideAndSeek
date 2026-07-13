@@ -571,7 +571,7 @@ export function GameLobbyDialog() {
                                 the header and the Share button sit on one
                                 line. */}
                             <div className="flex items-center gap-3">
-                                <VaulDrawer.Title className="flex-1 min-w-0 text-xl font-bold leading-tight tracking-tight truncate">
+                                <VaulDrawer.Title className="flex-1 min-w-0 text-3xl font-black leading-tight tracking-tight truncate">
                                     {cityLabel || "Lobby"}
                                 </VaulDrawer.Title>
                                 <VaulDrawer.Description className="sr-only">
@@ -581,13 +581,12 @@ export function GameLobbyDialog() {
                                 </VaulDrawer.Description>
                                 {$mp && $code && (
                                     <Button
-                                        size="sm"
                                         onClick={handleShare}
                                         aria-label="Share invite link"
                                         title="Share invite link"
-                                        className="shrink-0 gap-1.5"
+                                        className="shrink-0 gap-2"
                                     >
-                                        <Share2 className="w-3.5 h-3.5" />
+                                        <Share2 className="w-4 h-4" />
                                         Share
                                     </Button>
                                 )}
@@ -921,24 +920,11 @@ export function GameLobbyDialog() {
                             />
                         </div>
                     )}
-                    {$mp &&
-                        !isMidGame &&
-                        ($playerRole === null || !hasRoleBalance) && (
-                            <p className="text-[11px] text-muted-foreground leading-snug animate-in fade-in duration-200">
-                                {$playerRole === null ? (
-                                    <>
-                                        Pick your team above to continue.
-                                    </>
-                                ) : (
-                                    <>
-                                        Need at least one <b>seeker</b> and
-                                        one <b>hider</b> before the game can
-                                        start. Share the invite to bring
-                                        more in.
-                                    </>
-                                )}
-                            </p>
-                        )}
+                    {$mp && !isMidGame && $playerRole === null && (
+                        <p className="text-sm text-muted-foreground leading-snug animate-in fade-in duration-200">
+                            Pick your team above to continue.
+                        </p>
+                    )}
 
                     {/* Share / room code section (v455): the full-width
                         card is back, positioned here at the bottom of the
@@ -1257,18 +1243,18 @@ function RosterCard({
     return (
         <div
             className={cn(
-                "rounded-md border px-3 py-2 space-y-1.5",
+                "rounded-md border px-3.5 py-3 space-y-2",
                 cardCls,
             )}
         >
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
                 <RoleIcon
-                    className={cn("w-3.5 h-3.5 shrink-0", iconCls)}
+                    className={cn("w-4 h-4 shrink-0", iconCls)}
                     aria-hidden
                 />
                 <span
                     className={cn(
-                        "text-[10px] uppercase tracking-[0.12em] font-display font-extrabold",
+                        "text-xs uppercase tracking-[0.12em] font-display font-extrabold",
                         tone === "seeker"
                             ? "text-muted-foreground"
                             : "text-muted-foreground/80",
@@ -1278,13 +1264,13 @@ function RosterCard({
                 </span>
             </div>
             {rows.length === 0 ? (
-                <div className="text-[11px] text-muted-foreground italic leading-snug pl-3.5">
+                <div className="text-sm text-muted-foreground italic leading-snug pl-6">
                     {tone === "seeker"
                         ? "No seekers yet."
                         : "No hiders yet — the seat is open."}
                 </div>
             ) : (
-                <ul className="space-y-1 pl-3.5">
+                <ul className="space-y-1.5 pl-6">
                     {rows.map((p) => {
                         const isMe = p.id === selfId;
                         const isHost = p.id === hostId;
@@ -1295,11 +1281,11 @@ function RosterCard({
                         return (
                             <li
                                 key={p.id}
-                                className="flex items-center gap-2 text-sm"
+                                className="flex items-center gap-2 text-base"
                             >
                                 <span
                                     className={cn(
-                                        "flex-1 truncate flex items-center gap-1.5",
+                                        "flex-1 truncate flex items-center gap-1.5 font-medium",
                                         !p.online && "opacity-50",
                                     )}
                                 >
@@ -1309,8 +1295,8 @@ function RosterCard({
                                     {isMain && (
                                         <span
                                             className={cn(
-                                                "text-[9px] font-display font-extrabold uppercase tracking-[0.10em]",
-                                                "rounded-[3px] px-1 py-[1px] leading-none",
+                                                "text-[10px] font-display font-extrabold uppercase tracking-[0.10em]",
+                                                "rounded-[3px] px-1.5 py-[2px] leading-none",
                                                 "bg-accent-yellow text-[hsl(var(--sidebar-background))]",
                                             )}
                                             title="Main hider — answers questions and plays the deck."
@@ -1319,12 +1305,12 @@ function RosterCard({
                                         </span>
                                     )}
                                     {isHost && (
-                                        <span className="text-[10px] uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
+                                        <span className="text-xs uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
                                             Host
                                         </span>
                                     )}
                                     {isMe && (
-                                        <span className="text-xs text-muted-foreground">
+                                        <span className="text-sm text-muted-foreground">
                                             (you)
                                         </span>
                                     )}
@@ -1359,15 +1345,15 @@ function RosterCard({
                     type="button"
                     onClick={onJoin}
                     className={cn(
-                        "mt-1 w-full inline-flex items-center justify-center gap-1.5",
-                        "rounded-sm px-2 py-1.5",
-                        "text-[11px] uppercase tracking-[0.08em] font-display font-extrabold",
+                        "mt-1.5 w-full inline-flex items-center justify-center gap-1.5",
+                        "rounded-sm px-2 py-2",
+                        "text-xs uppercase tracking-[0.08em] font-display font-extrabold",
                         "border border-dashed border-border text-foreground/80",
                         "hover:bg-accent hover:text-foreground hover:border-solid",
                         "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     )}
                 >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-4 h-4" />
                     {joinLabel}
                 </button>
             )}
