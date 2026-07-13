@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
+import { NotificationPrompt } from "@/components/NotificationPrompt";
 import { AppPromptHost } from "@/components/AppPromptHost";
 import { ClosingInWatcher } from "@/components/ClosingInWatcher";
 import { GamePausedOverlay } from "@/components/GamePausedOverlay";
@@ -124,6 +125,7 @@ export function HiderPage() {
             <LocationPauseWatcher />
             <HidingZoneOptionsSync />
             <LocationPauseBanner />
+            <NotificationPrompt />
             <AppConfirmHost />
             <AppPromptHost />
             <Suspense fallback={null}>

@@ -47,6 +47,10 @@ import {
     isHiderConnected,
     seekerResendQuestion,
 } from "@/lib/multiplayer/store";
+import {
+    maybePromptForNotifications,
+    SEEKER_NOTIFICATION_PROMPT,
+} from "@/lib/notificationPrompt";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { useSubtypeAvailability } from "@/lib/subtypeAvailability";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
@@ -490,6 +494,10 @@ export const AddQuestionDialog = ({
                     { autoClose: 2500 },
                 );
             }
+            // The seeker just sent a question and is now waiting on the
+            // answer — the ideal moment to offer background notifications
+            // (once), so they hear the reply without watching the app.
+            maybePromptForNotifications(SEEKER_NOTIFICATION_PROMPT);
             return;
         }
 

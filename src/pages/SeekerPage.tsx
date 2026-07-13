@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { Suspense, useEffect, useState } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
+import { NotificationPrompt } from "@/components/NotificationPrompt";
 import { AppPromptHost } from "@/components/AppPromptHost";
 import { AppShell } from "@/components/AppShell";
 import { BottomNav } from "@/components/BottomNav";
@@ -302,6 +303,7 @@ export function SeekerPage() {
                     <HidingZoneOptionsSync />
                     <LocationPauseBanner />
                     <StationTransitCard allowEndgame />
+                    <NotificationPrompt />
                     <AppConfirmHost />
                     <AppPromptHost />
                     <GameStartWatcher />

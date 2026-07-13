@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v811`. Use `git log` for the per-version detail;
+build stamp. Current: `v812`. Use `git log` for the per-version detail;
+
+**v812 — contextual "turn on notifications" prompt.** Instead of asking for
+notification permission up-front (low conversion, easy to deny before the value is
+clear), the app now asks at the first moment the grant pays off, ONCE per device.
+`src/lib/notificationPrompt.ts` owns it: `maybePromptForNotifications(copy)` no-ops
+unless `notificationPermission === "default"` (undecided — already-granted needs no
+ask, denied/unsupported can't be helped) AND the persisted `notificationPromptSeen`
+(`jlhs:notifPromptSeen`) is false; it claims the one-shot synchronously then raises
+the volatile `notificationPrompt` atom on a 600 ms delay (so the triggering UI —
+the configure dialog / lock-in confirm — settles first, no modal-over-closing-modal
+flash). `NotificationPrompt.tsx` renders the friendly soft-ask dialog (z-[1060],
+button-only so no focus-trap fight over a drawer); its Enable button is the user
+gesture that fires the real `requestNotificationPermission()`. Mounted on both the
+seeker and hider in-game trees. Triggers: the **seeker** after sending a question
+(`AddQuestionDialog.handleConfirm`, multiplayer branch — "get notified when the
+answer arrives") and the **hider** after locking a zone (`confirmAndCommitZone` —
+"get notified when questions come in"). A dismissed prompt never auto-nags again;
+the header bell (`NotificationsToggle`/`NotificationsIconButton`) stays the manual
+entry point.
 
 **v811 — hider Zone + Questions drawer headers match the Map-options drawer.**
 The hider Zone drawer dropped its `Tent` icon from the "Hiding zone" title and both

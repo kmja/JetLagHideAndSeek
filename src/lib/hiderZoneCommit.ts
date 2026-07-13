@@ -3,6 +3,10 @@ import { toast } from "react-toastify";
 import { appConfirm } from "@/lib/confirm";
 import { hidingPeriodEndsAt, zoneLockedCallout } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
+import {
+    HIDER_NOTIFICATION_PROMPT,
+    maybePromptForNotifications,
+} from "@/lib/notificationPrompt";
 
 export interface ZoneStation {
     lat: number;
@@ -61,5 +65,9 @@ export async function confirmAndCommitZone(
     ) {
         zoneLockedCallout.set(true);
     }
+
+    // The hider just locked their zone and is now waiting on the seekers'
+    // questions — the ideal moment to offer background notifications (once).
+    maybePromptForNotifications(HIDER_NOTIFICATION_PROMPT);
     return true;
 }
