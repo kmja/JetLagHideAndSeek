@@ -294,6 +294,40 @@ Genuine follow-ups, not bugs:
 - **Spectator mode.** All participants are either the hider or a
   seeker; there's no read-only role.
 
+### Planned: unified hide team (retire main-hider / co-hider) — decided, deferred
+
+Agreed design direction (post-demo): there should be **no "main hider" vs
+"co-hider" distinction** — the hide team is one unit where **any** member can
+answer questions, commit/change the hiding zone, and play cards from **one
+shared hand/deck**. This matches real Jet Lag (the team shares a deck and
+decides together) and *removes* complexity (no `coHider` role, no
+`promoteCoHider`, no view-only gating).
+
+Why it isn't a quick change — what's shared today vs. not:
+- **Answering questions** and **committing the zone** are ALREADY
+  server-mediated (`questions` in `GameState`; `setHideZone` → stored → fanned
+  to the hide team). Opening these to any hide-team member is cheap: drop the
+  role gates and pick a conflict rule (last-write-wins is fine — two people
+  rarely answer the same question simultaneously).
+- **The hand / deck economy is the real work.** Deck order, hand, discard,
+  hand-limit, pending draw, Chalice charges, and time-bonus live ONLY in
+  device-local persistent atoms (`src/lib/hiderRole.ts`) — there are NO wire
+  messages for them. To share the hand, this state must become
+  **server-authoritative** in the Durable Object, with draw / keep / discard /
+  play as wire actions the server serializes + broadcasts to the team; the
+  client atoms become mirrors of server state, and the demo broker must model
+  it too.
+
+Implementation sketch when picked up: (1) move the hider economy into
+`GameState` (new `hideTeam` sub-object); (2) add `CMsg` actions for
+draw/keep/discard/playCard (+ existing `setHideZone`/answer opened to all hide
+roles); (3) `GameRoom` applies + broadcasts, serializing concurrent actions;
+(4) collapse `coHider`→`hider` everywhere (RolePicker, role gates, rotation —
+`rotateHider`'s `coHiders` list just becomes "additional hiders", all equal);
+(5) client `hiderRole.ts` reads from the synced state; (6) demo broker mirrors.
+This is a focused multiplayer-state refactor, intentionally kept off the
+demo-crunch path.
+
 ## Quick sanity test
 
 After deploying:
