@@ -37,12 +37,12 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     playArea,
-    resetMapOverlays,
     setupCompleted,
     type TransitMode,
     welcomeSeen,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState } from "@/lib/hiderRole";
+import { resetSharedRoundState } from "@/lib/roundReset";
 import {
     currentGameCode,
     multiplayerEnabled,
@@ -175,17 +175,27 @@ export function SetupPage() {
     const handleFinish = () => {
         allowedTransit.set(draftTransit);
         gameSize.set(draftSize);
+
+        // v807: finishing the wizard = starting a PRISTINE game. Scrub
+        // every per-round / economy / freeze / celebration / endgame atom
+        // so a stale (or corrupt) value from a previous game can't bleed
+        // in — the reported "thrown straight into a seeking game with a
+        // 'Seekers frozen — NaN:NaN' banner" was exactly this: a leftover
+        // `seekersFrozenUntil` (and a stale non-null `hidingPeriodEndsAt`,
+        // which is why the lobby never appeared) surviving the old
+        // partial reset. resetSharedRoundState nulls the live clock +
+        // freeze + celebration triggers; it does NOT touch play-area
+        // config, so the area/size/transit we just set stay put.
+        resetSharedRoundState();
         // v444: the preload decision moved to the lobby (network-aware —
         // auto on wifi, a checkbox on cellular), so the wizard no longer
         // touches preloadChoices.
-        resetMapOverlays();
+        // (resetSharedRoundState already reverted the map overlays.)
 
-        // Defer the hiding-period clock until the play-area boundary
-        // is actually rendered — otherwise a country-sized load eats
-        // the first chunk of the hider's window while the map is
-        // still painting. GameStartWatcher converts
-        // pendingHidingDurationMin → hidingPeriodEndsAt once
-        // mapGeoJSON / polyGeoJSON is set.
+        // Stage the hiding-period duration; the clock itself stays null
+        // until the host taps Start in the lobby (GameLobbyDialog arms
+        // hidingPeriodEndsAt then), so the lobby is the guaranteed next
+        // surface after the wizard — never the in-game seeking shell.
         pendingHidingDurationMin.set(HIDING_PERIOD_MINUTES[draftSize]);
         hidingPeriodEndsAt.set(null);
 

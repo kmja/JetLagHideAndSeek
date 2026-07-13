@@ -30,9 +30,9 @@ export function SeekerFrozenBanner({
     const active = $frozenUntil !== null && $frozenUntil > Date.now();
     const now = useNow(active);
 
-    if ($frozenUntil === null) return null;
+    if ($frozenUntil === null || !Number.isFinite($frozenUntil)) return null;
     const remainingMs = $frozenUntil - now;
-    if (remainingMs <= 0) return null;
+    if (!(remainingMs > 0)) return null;
 
     const totalSec = Math.ceil(remainingMs / 1000);
     const mm = Math.floor(totalSec / 60);

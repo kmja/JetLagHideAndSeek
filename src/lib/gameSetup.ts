@@ -641,7 +641,14 @@ export const seekersFrozenUntil = persistentAtom<number | null>(
     null,
     {
         encode: (v) => (v === null ? "" : String(v)),
-        decode: (v) => (v ? Number(v) : null),
+        // Guard against a corrupt/NaN value ever surviving a reload — a
+        // stored "NaN" decodes to NaN, which the frozen banner renders as
+        // "NaN:NaN". Only a finite timestamp is a valid freeze.
+        decode: (v) => {
+            if (!v) return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        },
     },
 );
 

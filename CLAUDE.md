@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v806`. Use `git log` for the per-version detail;
+build stamp. Current: `v807`. Use `git log` for the per-version detail;
+
+**v807 — wizard finish = pristine game (stale round-state bleed fix).** Finishing
+the setup wizard could throw the user STRAIGHT into a seeking game — skipping the
+lobby/role-picker — with a bogus **"Seekers frozen — NaN:NaN"** banner. Root cause:
+`SetupPage.handleFinish` did only a PARTIAL reset (play area / size / transit +
+`hidingPeriodEndsAt=null`), never scrubbing the per-round economy/freeze/celebration/
+endgame atoms. So a leftover `seekersFrozenUntil` from a previous game bled into the
+new one — and `NaN` proves it was CORRUPT persisted state (a fresh game never
+produces it; a stored `"NaN"` decoded back to `NaN`). A stale non-null
+`hidingPeriodEndsAt` (past) likewise rendered the in-game seeking shell instead of
+the pre-game lobby. Fixes: (1) `handleFinish` now calls **`resetSharedRoundState()`**
+(the shared per-round scrub — nulls the live clock, Move freeze, credit/debit,
+endgame stamps, celebration triggers; does NOT touch play-area config) before staging
+`pendingHidingDurationMin`, so the lobby is the guaranteed next surface after the
+wizard. (2) `resetSharedRoundState` also nulls the VOLATILE celebration atoms
+(`gameStartCelebrationAt`/`seekingStartCelebrationAt`) so a mid-session stale
+GO-GO-GO / SEEK! overlay can't replay into the next round/game. (3) NaN hardening —
+`seekersFrozenUntil`'s decode drops any non-finite value to `null`, and
+`SeekerFrozenBanner` bails on a non-finite `frozenUntil`, so corrupt data can never
+render `NaN:NaN` again.
 
 **v806 — copy tweak.** Dropped "Love it?" from the landing-page Nebula-store
 footer link (`Welcome.tsx`, both layout branches) → "Buy the official Hide+Seek

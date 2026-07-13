@@ -35,6 +35,7 @@ import {
     endgameStartedAt,
     endOfRoundDialogOpen,
     gamePausedForLocationAt,
+    gameStartCelebrationAt,
     gameStartFiredFor,
     gameStartPosition,
     hiddenCreditMs,
@@ -45,6 +46,7 @@ import {
     manualPauseWasHiding,
     resetMapOverlays,
     seekersFrozenUntil,
+    seekingStartCelebrationAt,
     seekingStartFiredFor,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState, roundFoundAt } from "@/lib/hiderRole";
@@ -106,6 +108,10 @@ export function resetSharedRoundState(): void {
     gameStartPosition.set(null);
     seekingStartFiredFor.set(null);
     gameStartFiredFor.set(null);
+    // Volatile celebration overlays — a stale GO-GO-GO / SEEK! trigger
+    // left mid-session must not replay itself into the next round/game.
+    gameStartCelebrationAt.set(null);
+    seekingStartCelebrationAt.set(null);
     closingInWarningLevel.set(0);
 
     // Move-powerup freeze + scoring credit/debit + location-pause state.
