@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v804`. Use `git log` for the per-version detail;
+build stamp. Current: `v805`. Use `git log` for the per-version detail;
+
+**v805 — branded curtain over the seeker↔hider shell swap.** Picking a role
+navigates between two SEPARATE full-screen apps (the seeker `/` and hider `/h`
+routes each mount their OWN MapLibre map), so the route change tears one whole
+tree down and builds the other — which reads as a jarring "reload" even though
+it's a soft SPA nav (NOT a `window.location` reload — that was ruled out;
+`appNavigate` + `GameRouteGate` redirect on the `playerRole` change). New
+`RouteTransitionCurtain` (mounted in `App` OUTSIDE the router so it survives
+the navigation, `z-[2000]`) snaps a `bg-background` + wordmark cover in the
+instant the role crosses the seeker↔hider boundary — masking the closing
+RolePicker dialog + the tree swap — then fades it out (~320 ms hold + ~340 ms
+fade) once the new shell has mounted, so the whole thing reads as one smooth
+branded wipe. Triggered purely off `playerRole` crossing `isHiderSide` (so it
+covers the host's `null→hider` pick, the reported case; a coHider↔hider shuffle
+or seeker↔null change stays on the same shell → no curtain). A true CSS
+cross-fade isn't feasible with `createBrowserRouter` (it unmounts the old route
+instantly), so this curtain is the low-risk equivalent — no router restructure,
+no change to the delicate nav path.
 
 **v804 — hider end-timer / zone-callout cleanup.** (1) The just-committed
 on-map **callout** (`HiderMapTimer`): tent icon removed, description simplified

@@ -13,6 +13,7 @@ import { registerAppNavigate } from "@/lib/appNavigate";
 import { BetaGate } from "@/components/BetaGate";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
 import { installGpsSpoof } from "@/lib/debugGpsSpoof";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
@@ -221,6 +222,9 @@ export function App() {
             <BetaGate>
                 <RouterProvider router={router} />
             </BetaGate>
+            {/* Branded curtain over the seeker↔hider shell swap — mounted
+                OUTSIDE the router so it survives the route change. */}
+            <RouteTransitionCurtain />
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to
