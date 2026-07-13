@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v798`. Use `git log` for the per-version detail;
+build stamp. Current: `v799`. Use `git log` for the per-version detail;
+
+**v799 — hider seeking-phase zone drawer polish.** (1) The committed-zone
+read-only map preview swapped from `InlineLocationPicker` to the lighter
+`ZonePreviewMap` (new `padding` prop, tight `padding={10}`) — zooms in more
+while still framing the whole radius circle, and drops the "Preview shows the
+Nm radius from this point" caption (which lived in `InlineLocationPicker`).
+(2) Drawer subheader is phase-aware (`HiderBottomNav`): "Explore your zone and
+find your final hiding spot." once the hiding period is over with a committed
+zone, else "Select a station to hide near." (3) The "Select hiding zone · km
+radius" heading is hidden in the committed/read-only view (reads wrong once
+you've picked). (4) The committed-zone card restyled to match the station-
+picker card idiom (rounded icon block + bold name). (5) SeekerETACard renders
+ONLY when there's a computed arrival time — no more "Waiting for a seeker…" /
+"No transit route — couldn't estimate" empty slots. (6) `ScoutedSpotsPanel`
+pill subheader → normal `h3` heading + a proper empty-state box (dashed border,
+icon, heading + copy).
 
 **v798 — hider zone-commit UX polish.** (1) The `HiderZoneHint` on-map header
 ("Select a station to hide near") was a stray notification-style pill (thin red

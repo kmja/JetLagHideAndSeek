@@ -93,6 +93,7 @@ import { SeekerETACard } from "./SeekerETACard";
 
 // Lazy-load the inline picker — leaflet must stay out of the SSR graph.
 const InlineLocationPicker = lazy(() => import("./InlineLocationPicker"));
+const ZonePreviewMap = lazy(() => import("./ZonePreviewMap"));
 
 /**
  * Persistent hider home. Visible at `/h` when no `?q=` query param is
@@ -1009,28 +1010,29 @@ function HidingZoneSection({
 
     return (
         <section className="mt-1">
-            <div className="flex items-center gap-2 mb-3">
-                <h2 className="text-sm font-semibold tracking-tight">
-                    Select hiding zone
-                </h2>
-                {zone && !editing && (
-                    <span className="text-[10px] text-muted-foreground tabular-nums ml-1">
-                        {(radiusMeters / 1000).toFixed(
-                            radiusMeters >= 1000 ? 1 : 2,
-                        )}{" "}
-                        km radius
-                    </span>
-                )}
-            </div>
+            {/* The "Select hiding zone" heading only makes sense while
+                PICKING — once a zone is committed (read-only view) it reads
+                wrong (you've already selected), so it's hidden then (v799). */}
+            {!(zone && !editing) && (
+                <div className="flex items-center gap-2 mb-3">
+                    <h2 className="text-sm font-semibold tracking-tight">
+                        Select hiding zone
+                    </h2>
+                </div>
+            )}
             {zone && !editing ? (
                 <div className="space-y-2">
-                    <div className="rounded-sm border border-border bg-secondary/40 p-3 flex items-start gap-3">
-                        <Lock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                    {/* Committed-zone card — matches the station-picker card
+                        style (icon block + bold name), not a plain box (v799). */}
+                    <div className="rounded-md border border-border bg-secondary/40 p-3 flex items-center gap-3">
+                        <span className="inline-flex items-center justify-center w-11 h-11 rounded-md shrink-0 bg-primary/20">
+                            <Lock className="w-5 h-5 text-primary" />
+                        </span>
                         <div className="min-w-0 flex-1">
-                            <div className="font-inter-tight font-bold uppercase tracking-wide text-sm">
+                            <div className="text-base font-inter-tight font-bold leading-tight truncate">
                                 {zone.stationName}
                             </div>
-                            <div className="text-xs text-muted-foreground tabular-nums">
+                            <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
                                 {zone.stationLat.toFixed(5)},{" "}
                                 {zone.stationLng.toFixed(5)}
                             </div>
@@ -1040,17 +1042,15 @@ function HidingZoneSection({
                             size="sm"
                             onClick={() => setEditing(true)}
                             disabled={disabled}
+                            className="shrink-0"
                         >
                             Change
                         </Button>
                     </div>
-                    {/* Read-only preview of the committed zone with
-                        its radius drawn — gives the hider a real
-                        map to look at instead of just lat/lng
-                        coordinates, so they can see at a glance
-                        where their boundary runs. The picker stays
-                        draggable underneath but onChange is a no-op
-                        so the zone can't be edited from here. */}
+                    {/* Read-only preview of the committed zone with its radius
+                        drawn — a lightweight non-interactive map (ZonePreviewMap)
+                        framed tight on the zone so the hider can see at a glance
+                        where their boundary runs. */}
                     <Suspense
                         fallback={
                             <div className="w-full h-[30vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
@@ -1058,14 +1058,12 @@ function HidingZoneSection({
                             </div>
                         }
                     >
-                        <InlineLocationPicker
-                            latitude={zone.stationLat}
-                            longitude={zone.stationLng}
-                            onChange={() => {
-                                /* read-only preview */
-                            }}
+                        <ZonePreviewMap
+                            lat={zone.stationLat}
+                            lng={zone.stationLng}
                             radiusMeters={radiusMeters}
-                            height="h-[30vh]"
+                            padding={10}
+                            className="h-[30vh] w-full"
                         />
                     </Suspense>
                 </div>

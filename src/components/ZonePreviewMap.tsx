@@ -25,11 +25,14 @@ export function ZonePreviewMap({
     lng,
     radiusMeters,
     className,
+    padding = 22,
 }: {
     lat: number;
     lng: number;
     radiusMeters: number;
     className?: string;
+    /** fitBounds padding in px — smaller = tighter zoom on the zone. */
+    padding?: number;
 }) {
     const $theme = useStore(resolvedTheme);
     const $tileKey = useStore(baseTileLayer);
@@ -69,7 +72,7 @@ export function ZonePreviewMap({
                     [bb[0], bb[1]],
                     [bb[2], bb[3]],
                 ],
-                { padding: 22, animate: false },
+                { padding, animate: false },
             );
         } catch {
             /* degenerate bbox — leave the initial view */

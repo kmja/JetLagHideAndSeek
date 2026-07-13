@@ -13,8 +13,6 @@ import {
 } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 
-import { SectionPill } from "./JetLagLogo";
-
 /**
  * "Scouted spots" — a notebook for the hider to drop pins on
  * potential hiding locations while walking around their zone, so
@@ -80,11 +78,14 @@ export function ScoutedSpotsPanel() {
     return (
         <section className="mt-4 space-y-2">
             <div className="flex items-center gap-2">
-                <Bookmark className="w-4 h-4 text-muted-foreground" />
-                <SectionPill>Scouted spots</SectionPill>
-                <span className="text-[10px] text-muted-foreground tabular-nums ml-1">
-                    {$spots.length}
-                </span>
+                <h3 className="text-sm font-semibold tracking-tight">
+                    Scouted spots
+                </h3>
+                {$spots.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground tabular-nums ml-0.5">
+                        {$spots.length}
+                    </span>
+                )}
             </div>
 
             {/* Save-here form */}
@@ -109,10 +110,16 @@ export function ScoutedSpotsPanel() {
             </div>
 
             {$spots.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground italic px-1 leading-snug">
-                    Pin potential hiding spots as you walk around. Stored
-                    locally — only you see them.
-                </p>
+                <div className="rounded-md border border-dashed border-border bg-secondary/20 px-4 py-6 text-center">
+                    <Bookmark className="mx-auto mb-2 h-6 w-6 text-muted-foreground/50" />
+                    <p className="text-sm font-medium text-foreground">
+                        No scouted spots yet
+                    </p>
+                    <p className="mx-auto mt-1 max-w-[15rem] text-xs leading-snug text-muted-foreground">
+                        Pin potential hiding spots as you explore your zone.
+                        Stored locally — only you see them.
+                    </p>
+                </div>
             ) : (
                 <ul className="flex flex-col gap-1.5">
                     {[...$spots]

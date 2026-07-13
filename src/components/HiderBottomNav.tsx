@@ -11,8 +11,8 @@ import {
     useHiderMapOptionsActiveCount,
 } from "@/components/HiderMapDisplayControls";
 import { HiderQuestionLog } from "@/components/HiderQuestionLog";
-import { mapOptionsDrawerOpen } from "@/lib/gameSetup";
-import { hiderInbox } from "@/lib/hiderRole";
+import { hidingPeriodEndsAt, mapOptionsDrawerOpen } from "@/lib/gameSetup";
+import { hiderInbox, hidingZone, roundFoundAt } from "@/lib/hiderRole";
 import {
     lobbyManualOpen,
     participants,
@@ -66,6 +66,19 @@ function targetInNestedModal(target: EventTarget | null | undefined): boolean {
 export function HiderBottomNav() {
     const $inbox = useStore(hiderInbox);
     const $participants = useStore(participants);
+    const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const $hidingZone = useStore(hidingZone);
+    const $foundAt = useStore(roundFoundAt);
+    // Once the hiding period is over with a committed zone (seeking /
+    // endgame), the drawer is for exploring your zone, not picking one — so
+    // the subheader changes to match. Render-time check is enough: the
+    // hiding→seeking transition is store-driven (end-early / auto-commit),
+    // and the drawer re-renders when opened.
+    const inZoneStage =
+        $hidingZone !== null &&
+        $hidingEndsAt !== null &&
+        Date.now() >= $hidingEndsAt &&
+        $foundAt === null;
     const [questionsOpen, setQuestionsOpen] = useState(false);
     const [zoneOpen, setZoneOpen] = useState(false);
     const mapActiveCount = useHiderMapOptionsActiveCount();
@@ -269,7 +282,9 @@ export function HiderBottomNav() {
                                     Hiding zone
                                 </VaulDrawer.Title>
                                 <VaulDrawer.Description className="text-xs text-muted-foreground leading-snug">
-                                    Select a station to hide near.
+                                    {inZoneStage
+                                        ? "Explore your zone and find your final hiding spot."
+                                        : "Select a station to hide near."}
                                 </VaulDrawer.Description>
                             </div>
                             {/* Compact golden countdown next to the header —
