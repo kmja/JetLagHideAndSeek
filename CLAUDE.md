@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v809`. Use `git log` for the per-version detail;
+build stamp. Current: `v810`. Use `git log` for the per-version detail;
+
+**v810 — pre-game lobby is NON-MODAL (fixes the frozen role-picker).** With v808
+correctly landing the user on the lobby + RolePicker after the wizard, a NEW freeze
+surfaced: the role-picker's name input was focused and the keyboard opened, but
+typing didn't land and the whole UI was unresponsive. Root cause is a FOCUS-TRAP
+FIGHT: the pre-game lobby (`GameLobbyDialog`) is a **modal** vaul drawer (focus trap
++ body scroll-lock by default), and the `RolePicker` Dialog that layers OVER it
+(host, role-not-yet-picked, z-[1060]) portals its autofocused input to
+`document.body` — OUTSIDE the drawer's DOM subtree. vaul's focus guard then yanks
+focus back into the drawer on every focus attempt, so the input can't hold focus
+and the focus-bounce pegs the main thread (distinct from the earlier z-index /
+body-pointer-events freezes — this is focus, not pointer-events). Fix:
+`VaulDrawer.Root` now passes **`modal={isMidGame}`** — pre-game the lobby is
+NON-modal (there's no seeker/hider shell mounted behind it pre-game, so nothing
+needs the trap; the RolePicker is a proper Radix modal with its own overlay and
+owns focus cleanly). Mid-game manual reopen stays modal (it sits over the live game
+shell). Bonus: a non-modal pre-game drawer no longer renders body-portaled popovers
+inert, so the in-lobby Popovers/Dialogs are robust regardless of the `drawerEl`
+portal.
 
 **v809 — transit-overlay toggles: label BESIDE the icon, wrap when they don't
 fit.** Follow-up to v808's stacked icon-over-label: the map-options

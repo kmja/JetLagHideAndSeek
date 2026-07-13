@@ -490,6 +490,20 @@ export function GameLobbyDialog() {
     return (
         <VaulDrawer.Root
             open={open}
+            // v810: pre-game the lobby is NON-MODAL. It's a modal vaul
+            // drawer by default (focus trap + body scroll-lock), but the
+            // RolePicker Dialog that layers OVER it (host, role-not-yet-
+            // picked) portals its autofocused name input to document.body —
+            // OUTSIDE the drawer's DOM subtree. vaul's focus trap then yanks
+            // focus back into the drawer on every focus attempt, so the
+            // input can't hold focus (you type but nothing lands) and the
+            // focus-bounce pegs the UI — the "role picker freezes, keyboard
+            // opens but the field won't change" bug. Pre-game there is no
+            // seeker/hider shell mounted behind the lobby, so nothing needs
+            // the focus trap; the RolePicker (a proper Radix modal with its
+            // own z-[1060] overlay) owns focus cleanly. Mid-game manual
+            // reopen stays modal (it sits over the live game shell).
+            modal={isMidGame}
             // Pre-game the lobby is non-dismissible (forward path is
             // Start / Leave); mid-game manual reopen is dismissible by
             // swipe / handle.
