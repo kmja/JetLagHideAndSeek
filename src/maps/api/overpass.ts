@@ -664,6 +664,47 @@ export const findAdminBoundary = async (
     longitude: number,
     adminLevel: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10,
 ) => {
+    // v826: AREA-keyed, not position-keyed. The old `is_in(lat,lng)` query
+    // embedded the raw coordinates, so EVERY position was a unique Overpass
+    // query string → guaranteed R2 cache MISS → live Overpass every time
+    // (the rate-limit errors the user hit on the admin-division / "admin
+    // border" question, even in a fully-prewarmed city — same one-producer
+    // lesson as v640's `around:GPS`). Instead fetch ALL admin_level=N
+    // boundaries in the PLAY AREA once via `findPlacesInZone` (a poly-scoped
+    // query the worker caches in R2 and can prewarm — reused across every
+    // position in the game, for BOTH the seeker's reference point and the
+    // hider's live GPS) and find the one CONTAINING the point client-side.
+    // Falls back to the position-keyed `is_in` query only if the area fetch
+    // fails or finds no containing area (edge cases near the boundary).
+    const pt = turf.point([longitude, latitude]);
+    try {
+        const areaData = await findPlacesInZone(
+            `["boundary"="administrative"]["admin_level"="${adminLevel}"]`,
+            undefined,
+            "relation",
+            "geom",
+            [],
+            0,
+            true, // silent — the is_in fallback below owns the failure toast
+        );
+        const areaGeo = osmtogeojson(areaData);
+        const containing = areaGeo.features?.find((f) => {
+            const g = f.geometry;
+            if (g?.type !== "Polygon" && g?.type !== "MultiPolygon") {
+                return false;
+            }
+            try {
+                return turf.booleanPointInPolygon(pt, f as any);
+            } catch {
+                return false;
+            }
+        });
+        if (containing) return containing;
+    } catch {
+        /* fall through to the position-keyed query below */
+    }
+
+    // Fallback: the exact containing area via is_in (position-keyed, live).
     const query = `
 [out:json];
 is_in(${latitude}, ${longitude})->.a;

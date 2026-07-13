@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v825`. Use `git log` for the per-version detail;
+build stamp. Current: `v826`. Use `git log` for the per-version detail;
+
+**v826 — matching admin-division question is AREA-keyed, not position-keyed
+(the real "admin border" Overpass-error source).** `findAdminBoundary`
+(`overpass.ts`, used by the matching admin-division / zone / letter-zone
+questions for BOTH the seeker's reference point and the hider's live-GPS
+auto-grade) built an `is_in(lat,lng); rel(pivot.a)[admin_level=N]; out geom;`
+query with the RAW COORDINATES embedded — so every position was a unique query
+string → guaranteed R2 cache MISS → live Overpass every time (the rate-limit
+errors on the admin-division question even in a fully-prewarmed city; same
+one-producer lesson as v640's `around:GPS`). Now it fetches ALL admin_level=N
+boundaries in the PLAY AREA once via `findPlacesInZone(...,"relation","geom")`
+— a poly-scoped query the worker caches in R2 (reused across every position in
+the game, both roles) — and finds the CONTAINING boundary client-side
+(`turf.booleanPointInPolygon`), falling back to the old position-keyed `is_in`
+only if the area fetch fails or finds no containing area. (measuring
+`admin2-border` already went through `findPlacesInZone`, so it was already
+area-keyed; measuring `admin1-border`/`international-border` are bundled Natural
+Earth, no Overpass.) NOTE: this makes the admin query CACHEABLE + reused (one
+live fetch per game at most); a cron/laptop pass to prewarm it ahead-of-time
+(zero live even on first use) is a further worker-side step, not done here.
 
 **v825 — hider auto-compute correctness pass (from a full per-type audit).**
 Three subtypes where the hider's auto-computed answer was wrong or missing:
