@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v818`. Use `git log` for the per-version detail;
+build stamp. Current: `v819`. Use `git log` for the per-version detail;
+
+**v819 — pre-game lobby runs ONE map, not two (role-picker freeze on the Chrome
+PWA).** Firefox-for-Android handled Dalarna County + England fine while the
+installed Chrome PWA froze on the role picker — and the freeze got WORSE per game
+started in a session (fresh load = sluggish; one new game later = frozen). That
+signature is a WebGL-context accumulation, not the v818 boundary/mask cost (a
+capable browser chews through England's mask). Root cause: SeekerPage's PRE-GAME
+lobby branch mounted a hidden full-screen warmup `<Map>` (v338, to warm the basemap
+HTTP cache during lobby time) — a SECOND live MapLibre GL context ON TOP of the
+lobby's own `PlayAreaPreviewMap`, which already warms the same basemap. So the
+pre-game screen ran two GL contexts + a full seeker Map's effects; across several
+new-games a constrained Chrome PWA hit its live-context cap and the role picker
+locked up (Firefox tolerated it as the ~0.5 s selection lag). v819 REMOVES the
+warmup Map — the preview map is enough to warm the HTTP cache, and the in-game map
+still initialises against it. NOTE: v818's in-game mask guard is KEPT (it's a real
+defence for a slow device per the v759 note), but it is NOT the role-picker freeze.
 
 **v818 — huge-boundary main-thread freeze (the "PC heats up, map stuck on
 Loading" bug).** The seeker `Map`'s elimination effect computes `holedMask` — a

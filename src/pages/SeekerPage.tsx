@@ -165,29 +165,19 @@ export function SeekerPage() {
     if (!gameStarted) {
         return (
             <div className="fixed inset-0 bg-jetlag overflow-hidden">
-                {/* v338: pre-mount the Map underneath the lobby so its
-                    PMTiles header read, style fetch, and (if the
-                    play area is set in the wizard) basemap tile
-                    fetches all finish during the time the player
-                    spends in the lobby. The lobby dialog uses a vaul
-                    drawer with its own full-screen overlay
-                    (z-[1050]+) and an opaque content panel, so the
-                    Map is hidden visually — only the network warmup
-                    runs.
-
-                    Caveat: the Map's MapLibre instance is re-created
-                    when this branch unmounts and the main branch
-                    mounts (component identity differs). The HTTP
-                    cache for tile range requests survives that
-                    transition though, which is where the bulk of
-                    perceived latency lives — so the second instance
-                    initialises against an already-warm cache and
-                    renders near-instantly. */}
-                <div className="absolute inset-0 pointer-events-none opacity-0">
-                    <MapErrorBoundary>
-                        <Map className="w-full h-full" />
-                    </MapErrorBoundary>
-                </div>
+                {/* v819: the hidden full-screen warmup `<Map>` that used to
+                    sit here (v338, to pre-warm the basemap HTTP cache during
+                    lobby time) was REMOVED. It was a SECOND live MapLibre
+                    WebGL context — on top of the lobby's own
+                    `PlayAreaPreviewMap`, which already warms the SAME
+                    basemap (PMTiles header + style + tiles) — so the pre-game
+                    lobby ran TWO GL contexts + a full seeker Map's worth of
+                    effects. On a constrained Chrome PWA, starting several
+                    games in a session leaked/accumulated contexts until the
+                    role picker FROZE (Chrome caps live WebGL contexts;
+                    Firefox tolerated it as mere sluggishness). One map
+                    pre-game (the preview) is enough for the warm; the in-game
+                    map still initialises against the warmed HTTP cache. */}
                 <Suspense fallback={null}>
                     <GameLobbyDialog />
                     <RolePicker />
