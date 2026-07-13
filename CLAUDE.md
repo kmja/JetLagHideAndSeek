@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v827`. Use `git log` for the per-version detail;
+build stamp. Current: `v828`. Use `git log` for the per-version detail;
+
+**v828 — game view loads DURING the countdown (not after the GO-GO-GO card is
+closed).** v822 claimed the in-game shell mounted+loaded beneath the flourish,
+but the gate (`gameStarted = clockArmed && !(overLobby && celebration)`) kept
+the pre-game branch during the flourish, so the shell — and its map (GL init +
+basemap tiles + the slow play-area boundary/Overpass fetch) — only mounted on
+DISMISS → the "choppy unloaded map after closing GO-GO-GO" the user reported.
+Now (SeekerPage + HiderPage) the shell MOUNTS as soon as the clock is armed
+(`clockArmed`), INCLUDING during the flourish, held VISUALLY hidden
+(`opacity:0` + `pointer-events-none`, `transition-opacity duration-500`) behind
+the App-level GoGoGo overlay via a new `flourishActive = clockArmed &&
+overLobby && celebration` flag that gates ONLY the shell's opacity, not whether
+it mounts. So the map loads through the 3-2-1 countdown and is (hopefully) ready
+when the card is dismissed — `flourishActive` flips false, the shell fades 0→1
+as the overlay's opaque cover fades out. A normal mid-game reload has
+`flourishActive` false → renders at opacity 1 with no spurious fade. Trade-off:
+the lobby no longer shows behind the countdown (the pre-game branch unmounts the
+instant Start is pressed) — the countdown plays over the dark shell base, which
+still reads as "faded to black". v820 self-healing carries over (flourishActive
+tied to the celebration being live, so a stuck `gameStartOverLobby` can't hide
+the map). Bonus: only ONE MapLibre context now during the flourish (the lobby's
+preview map unmounts), not two.
 
 **v827 — "New round does nothing" fix + multi-hider rotation + round-end
 sizing.** (1) **BUG: New round button did nothing.** `EndOfRoundDialog` is a

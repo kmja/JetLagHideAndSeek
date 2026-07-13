@@ -23,6 +23,7 @@ import {
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
+import { cn } from "@/lib/utils";
 
 // Same lazy-dialog pattern SeekerPage uses — these are all
 // state-gated and only render once the hider triggers them
@@ -84,19 +85,19 @@ export function HiderPage() {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $overLobby = useStore(gameStartOverLobby);
     const $celebrationAt = useStore(gameStartCelebrationAt);
-    // v814: keep the pre-game branch mounted while the game-start flourish
-    // plays over the lobby (see SeekerPage for the full rationale).
-    // v820: SELF-HEALING — the hold is tied to the celebration actually being
-    // live, so a stuck `gameStartOverLobby` can't strand the user on the
-    // lobby (see SeekerPage for the full rationale).
-    const gameStarted =
-        Number.isFinite($hidingEndsAt) &&
-        !($overLobby && $celebrationAt !== null);
+    // v828: the in-game shell MOUNTS as soon as the clock is armed (even
+    // during the flourish) so the hider map loads during the countdown; it's
+    // held opacity-0 behind the GoGoGo overlay and revealed on dismiss (see
+    // SeekerPage for the full rationale). v820 SELF-HEALING carries over:
+    // `flourishActive` is tied to the celebration actually being live.
+    const clockArmed = Number.isFinite($hidingEndsAt);
+    const flourishActive =
+        clockArmed && $overLobby && $celebrationAt !== null;
 
     // (Lobby→in-game swap body-lock leftover is cleared globally by
     // installBodyPointerEventsGuard — see main.tsx.)
 
-    if (!gameStarted) {
+    if (!clockArmed) {
         return (
             <div className="fixed inset-0 bg-jetlag overflow-hidden">
                 <Suspense fallback={null}>
@@ -116,9 +117,18 @@ export function HiderPage() {
     }
 
     return (
-        // v822: fade the in-game shell in as the App-level GoGoGoOverlay fades
-        // its cover out (smooth lobby→game reveal — see SeekerPage).
-        <div className="bg-background min-h-screen animate-in fade-in duration-500">
+        // v828: mounted as soon as the clock is armed so the hider map loads
+        // DURING the countdown; held opacity-0 (pointer-events off) behind the
+        // GoGoGo overlay while the flourish plays, revealed as the overlay
+        // fades (see SeekerPage). Normal reload = flourishActive false =
+        // opacity 1, no spurious fade.
+        <div
+            className={cn(
+                "bg-background min-h-screen transition-opacity duration-500 ease-out",
+                flourishActive && "pointer-events-none",
+            )}
+            style={{ opacity: flourishActive ? 0 : 1 }}
+        >
             <HiderView />
             <MultiplayerBoot />
             <GameStartWatcher />
