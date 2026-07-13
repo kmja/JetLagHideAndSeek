@@ -3,7 +3,6 @@ import { Flag, Footprints, Timer } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
-import { shareFoundLink } from "@/lib/foundShare";
 import {
     effectiveHiddenDebitMs,
     endgameConfirmedAt,
@@ -68,7 +67,12 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         endOfRoundDialogOpen.set(true);
         // Mirror through multiplayer; no-op when offline.
         seekerMarkFound(ts);
-        void shareFoundLink(ts);
+        // v824: NO auto OS-share sheet here anymore. It was a pre-multiplayer
+        // remnant (the hider used to tap a shared link to end their timer);
+        // now `seekerMarkFound` syncs the found state over the wire and the
+        // EndOfRoundDialog fires on both devices. A share sheet popping open
+        // on "Mark found" reads as a bug. (Manual "Share again" still lives
+        // in the post-game FoundSummary for anyone who wants a link.)
     };
 
     // Tick every second whenever the timer is meaningful, but

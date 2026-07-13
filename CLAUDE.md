@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v823`. Use `git log` for the per-version detail;
+build stamp. Current: `v824`. Use `git log` for the per-version detail;
+
+**v824 — no OS share sheet on "Mark hider found."** `HiderTimer.handleMarkFound`
+auto-called `shareFoundLink` (OS share sheet / clipboard) — a pre-multiplayer
+remnant from when the hider tapped a shared link to end their timer. Now
+`seekerMarkFound` syncs the found state over the wire and `EndOfRoundDialog`
+fires on both devices, so the share sheet popping open read as a bug. Removed
+the auto-call (+ the now-unused import); the manual "Share again" in the
+post-game `FoundSummary`/`RoundEndSection` stays for anyone who wants a link.
 
 **v823 — three map/overlay bug fixes.** (1) **Transit overlays now get dimmed
 by the elimination mask.** The seeker map's `TransitRouteLayers` load
