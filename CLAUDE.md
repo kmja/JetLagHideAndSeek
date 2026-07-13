@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v800`. Use `git log` for the per-version detail;
+build stamp. Current: `v801`. Use `git log` for the per-version detail;
+
+**v801 — CI build hotfix: restore `workbox-window` direct dep.** v795 dropped
+`workbox-window` from `package.json` believing it was only transitive. It is
+NOT safely removable: `vite-plugin-pwa`'s injected `virtual:pwa-register`
+module imports `workbox-window` and is resolved in the APP's module graph, so
+under pnpm's strict (non-hoisted) linking a fresh `pnpm install --frozen-
+lockfile` on CI can't resolve it → `Rollup failed to resolve import
+"workbox-window"`. Local builds kept passing ONLY because `pnpm install
+--lockfile-only` never re-linked `node_modules` (the old hoisted copy lingered)
+— so `vite build` alone doesn't catch a strict-resolution regression; a full
+`pnpm install` + build does. Restored as a direct dep + lockfile refreshed. The
+v795 `react-icons` removal was fine (nothing imports it); only `workbox-window`
+was the mistake. **Lesson: after any dependency REMOVAL, run a full `pnpm
+install` (re-link) before trusting a local `vite build`.**
 
 **v800 — hider questions drawer polish.** (1) Empty state now mirrors the
 seeker's dashed "No questions yet" box. (2) Removed the inbox icon in the
