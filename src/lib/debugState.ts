@@ -15,3 +15,22 @@ export const debugLauncherHidden = persistentAtom<boolean>(
     false,
     { encode: JSON.stringify, decode: JSON.parse },
 );
+
+/**
+ * Max characters for a hiding-zone station LABEL on the map before it's
+ * abbreviated + truncated (v835). Names are first suffix-abbreviated
+ * (Street → St, …); if still longer than this they're cut with an ellipsis.
+ * 0 disables truncation (abbreviation only). Default 12; exposed as a debug
+ * slider so the value can be tuned live. Persisted.
+ */
+export const stationLabelMaxChars = persistentAtom<number>(
+    "jlhs:stationLabelMaxChars",
+    12,
+    {
+        encode: String,
+        decode: (v) => {
+            const n = parseInt(v, 10);
+            return Number.isFinite(n) ? n : 12;
+        },
+    },
+);

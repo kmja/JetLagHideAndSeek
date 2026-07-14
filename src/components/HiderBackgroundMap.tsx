@@ -35,12 +35,14 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import { stationLabelMaxChars } from "@/lib/debugState";
 import {
     allowedTransit,
     hidingPeriodEndsAt,
     satelliteView,
 } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
+import { shortenStationLabel } from "@/lib/stationLabel";
 import {
     hiderReachFC,
     selectedMapStation,
@@ -120,6 +122,27 @@ export function HiderBackgroundMap() {
     const $gps = useStore(lastKnownPosition);
     const $followMe = useStore(followMe);
     const $reach = useStore(hiderReachFC);
+    const $labelMaxChars = useStore(stationLabelMaxChars);
+    // v835: display copy of the reach FC with a shortened `shortName` per
+    // point (abbreviated + truncated to the debug max-chars). Full `name`
+    // stays for taps; this only feeds the labels.
+    const reachDisplay = useMemo(() => {
+        if (!$reach) return $reach;
+        return {
+            ...$reach,
+            features: $reach.features.map((f) => {
+                const name = (f.properties as { name?: unknown } | null)?.name;
+                if (typeof name !== "string" || !name) return f;
+                return {
+                    ...f,
+                    properties: {
+                        ...f.properties,
+                        shortName: shortenStationLabel(name, $labelMaxChars),
+                    },
+                };
+            }),
+        } as typeof $reach;
+    }, [$reach, $labelMaxChars]);
     const $trip = useStore(tripRouteFC);
     // Station-card drawer height, bucketed so the route refit below only
     // re-runs on real open/expand/collapse transitions (not 1px jitters).
@@ -711,7 +734,9 @@ export function HiderBackgroundMap() {
                 <FadeOverlay
                     active={Boolean($reach && $reach.features.length > 0)}
                     data={
-                        $reach && $reach.features.length > 0 ? $reach : null
+                        reachDisplay && reachDisplay.features.length > 0
+                            ? reachDisplay
+                            : null
                     }
                 >
                     {(data, shown) => (
@@ -832,8 +857,11 @@ export function HiderBackgroundMap() {
                                 minzoom={11}
                                 filter={["==", ["geometry-type"], "Point"]}
                                 layout={{
+                                    // v835: shortened label (abbreviated +
+                                    // truncated) from `reachDisplay`.
                                     "text-field": [
                                         "coalesce",
+                                        ["get", "shortName"],
                                         ["get", "name"],
                                         "",
                                     ],

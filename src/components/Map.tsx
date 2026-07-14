@@ -54,8 +54,10 @@ import {
 } from "@/lib/featureFlags";
 import { hidingPeriodEndsAt, playArea } from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
+import { stationLabelMaxChars } from "@/lib/debugState";
 import { playerRole, roundFoundAt } from "@/lib/hiderRole";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
+import { shortenStationLabel } from "@/lib/stationLabel";
 import {
     multiplayerEnabled,
     seekerLocationSharing,
@@ -340,6 +342,7 @@ export function Map({ className }: MapProps) {
     const $followMe = useStore(followMe);
     const $hiderMode = useStore(hiderMode);
     const $hidingZones = useStore(hidingZonesGeoJSON);
+    const $labelMaxChars = useStore(stationLabelMaxChars);
     const $showHidingZones = useStore(displayHidingZones);
     const $selectedStation = useStore(selectedMapStation);
     const $hidingRadius = useStore(hidingRadius);
@@ -353,6 +356,26 @@ export function Map({ className }: MapProps) {
     const $foundAt = useStore(roundFoundAt);
     const showGpsShare =
         $mpEnabled && $role === "seeker" && $foundAt === null;
+    // v835: display copy of the hiding-zones FC with a `shortName` on each
+    // point (abbreviated + truncated to the debug `stationLabelMaxChars`).
+    // The full `name` is kept for taps/selection — this only feeds labels.
+    const hidingZonesDisplay = useMemo(() => {
+        if (!$hidingZones) return $hidingZones;
+        return {
+            ...$hidingZones,
+            features: $hidingZones.features.map((f) => {
+                const name = (f.properties as { name?: unknown } | null)?.name;
+                if (typeof name !== "string" || !name) return f;
+                return {
+                    ...f,
+                    properties: {
+                        ...f.properties,
+                        shortName: shortenStationLabel(name, $labelMaxChars),
+                    },
+                };
+            }),
+        } as typeof $hidingZones;
+    }, [$hidingZones, $labelMaxChars]);
     // The selected station's hiding-zone circle, for the prominent
     // "selected" highlight layer. Recomputed only when the selection or
     // radius changes.
@@ -1971,8 +1994,9 @@ export function Map({ className }: MapProps) {
                 <FadeOverlay
                     active={$showHidingZones}
                     data={
-                        $hidingZones && $hidingZones.features.length > 0
-                            ? $hidingZones
+                        hidingZonesDisplay &&
+                        hidingZonesDisplay.features.length > 0
+                            ? hidingZonesDisplay
                             : null
                     }
                 >
@@ -2106,8 +2130,13 @@ export function Map({ className }: MapProps) {
                                 filter={["==", ["geometry-type"], "Point"]}
                                 minzoom={11}
                                 layout={{
+                                    // v835: prefer the shortened label
+                                    // (abbreviated + truncated) computed in
+                                    // `hidingZonesDisplay`; fall back to the
+                                    // full name.
                                     "text-field": [
                                         "coalesce",
+                                        ["get", "shortName"],
                                         ["get", "name"],
                                         "",
                                     ],

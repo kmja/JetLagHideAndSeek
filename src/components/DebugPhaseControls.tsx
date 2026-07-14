@@ -19,7 +19,11 @@ import {
     spoofPickMode,
 } from "@/lib/debugGpsSpoof";
 import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
-import { debugLauncherHidden, debugPanelOpen } from "@/lib/debugState";
+import {
+    debugLauncherHidden,
+    debugPanelOpen,
+    stationLabelMaxChars,
+} from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
 import { type Card, shuffledDeck } from "@/lib/hiderDeck";
 import {
@@ -116,6 +120,7 @@ export function DebugPhaseControls({
 } = {}) {
     const open = useStore(debugPanelOpen);
     const $launcherHidden = useStore(debugLauncherHidden);
+    const $labelMaxChars = useStore(stationLabelMaxChars);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
@@ -747,6 +752,30 @@ export function DebugPhaseControls({
                         screenshots)
                     </span>
                 </label>
+
+                {/* Hiding-zone label length. Names are abbreviated
+                    (Street → St, …) then truncated to this many chars.
+                    0 = abbreviate only, no truncation. */}
+                <div className="flex items-center gap-2 text-[11px] rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+                    <span className="shrink-0">
+                        Zone label max chars:{" "}
+                        <span className="tabular-nums font-semibold">
+                            {$labelMaxChars === 0 ? "off" : $labelMaxChars}
+                        </span>
+                    </span>
+                    <input
+                        type="range"
+                        min={0}
+                        max={30}
+                        step={1}
+                        value={$labelMaxChars}
+                        onChange={(e) =>
+                            stationLabelMaxChars.set(Number(e.target.value))
+                        }
+                        className="flex-1 accent-amber-500"
+                        aria-label="Hiding-zone label max characters"
+                    />
+                </div>
 
                 <Section
                     title={`GPS spoof · ${$spoof ? "ON" : "off (real GPS)"}`}

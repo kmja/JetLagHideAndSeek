@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v834`. Use `git log` for the per-version detail;
+build stamp. Current: `v835`. Use `git log` for the per-version detail;
+
+**v835 — hiding-zone label shortening (calmer overlay).** A dense metro's
+overlay was a wall of long station names. `src/lib/stationLabel.ts` (unit-tested)
+adds two display-only steps: `abbreviateStationName` collapses the common
+street-type SUFFIXES (Street → St, Avenue → Ave, Boulevard → Blvd, Square → Sq,
+Station → Stn, Parkway → Pkwy, …) by whole-word replace, and
+`shortenStationLabel(name, maxChars)` then truncates with an ellipsis (trimming a
+trailing space/hyphen first). The max is a **debug-adjustable** persistent atom
+`stationLabelMaxChars` (`debugState.ts`, **default 12**; 0 = abbreviate only) with
+a slider in `DebugPhaseControls` so it can be tuned live. Applied at map-render
+time: both the seeker (`Map.tsx` `hidingZonesDisplay`) and hider
+(`HiderBackgroundMap` `reachDisplay`) memoize a copy of their hiding-zone FC with
+a `shortName` per point (keyed on the FC + max-chars), and the label layers read
+`["coalesce", ["get","shortName"], ["get","name"]]`. The full `name` is untouched,
+so taps / zone selection still use the real name — only the on-map label is
+shortened.
 
 **v834 — station card is a plain map overlay (fixes the frozen map) + lobby
 polish.** (1) **`StationTransitCard` is no longer a vaul drawer — it's a plain
