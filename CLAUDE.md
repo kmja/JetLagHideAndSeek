@@ -430,6 +430,18 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v848 — seeking-timer leaderboard: live clock stays big + always visible + a
+climb flourish.** Follow-up to v847: the LIVE current-round row is back to its
+full prominent size (`text-3xl` + the wider red accent, was shrunk to
+`text-2xl`), and it's ALWAYS rendered with its TRUE rank even when it ranks below
+3rd — the board shows the top 3, then appends the current entry if it isn't
+already among them (so the live clock never drops off the map). Past entries stay
+the smaller gold pills. Added a **one-shot climb flourish**: whenever the live
+row's rank decreases (it passes a past time), it plays a lift + scale pop with a
+warm golden ring (`jlRankClimb` keyframe in `globals.css`); the rank is tracked
+via a pre-early-return `useMemo`/`useRef` so drops and the initial mount don't
+fire it.
+
 **v847 — seeking-timer "time to beat" is now a ranked top-3 leaderboard.** The
 seeker map's bottom-right timer used to show the live "Hidden for" clock ALWAYS
 on top + a single gold "1st" best-past-time pill below it — so a longer past

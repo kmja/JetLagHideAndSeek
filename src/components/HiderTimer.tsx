@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Flag, Footprints, Timer } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
@@ -85,6 +85,41 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         Boolean($endsAt && $setupCompleted),
     );
 
+    // v848: the live current-round rank on the seeking leaderboard, for the
+    // climb flourish. Null while not seeking. Computed before the early
+    // return so the climb-detection effect below runs unconditionally.
+    const currentRankForAnim = useMemo(() => {
+        if (!$setupCompleted || !$endsAt) return null;
+        if (now < $endsAt) return null; // hiding period — no seeking board
+        const cur = Math.max(
+            0,
+            now - $endsAt + hiddenCreditMs.get() - effectiveHiddenDebitMs(now),
+        );
+        const times = [cur, ...$roundLog.map((r) => r.hidingMs)].sort(
+            (a, b) => b - a,
+        );
+        return times.indexOf(cur) + 1;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [now, $endsAt, $setupCompleted, $roundLog]);
+
+    // Fire a one-shot flourish on the live row whenever it climbs a spot
+    // (rank decreases). Ignores drops and the initial mount.
+    const prevRankRef = useRef<number | null>(null);
+    const [climbing, setClimbing] = useState(false);
+    useEffect(() => {
+        const prev = prevRankRef.current;
+        prevRankRef.current = currentRankForAnim;
+        if (
+            currentRankForAnim != null &&
+            prev != null &&
+            currentRankForAnim < prev
+        ) {
+            setClimbing(true);
+            const t = window.setTimeout(() => setClimbing(false), 700);
+            return () => window.clearTimeout(t);
+        }
+    }, [currentRankForAnim]);
+
     if (!$setupCompleted || !$endsAt) return null;
 
     const inHidingPeriod = now < $endsAt;
@@ -117,22 +152,30 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     }
 
     // Seeking leaderboard: the LIVE current-round time ranked against the
-    // top past-round times, longest-first, capped at 3. The current entry
+    // past-round times, longest-first (v847). Shows the top 3 — but the
+    // current entry is ALWAYS included with its TRUE rank even when it ranks
+    // below 3rd (v848), so the live clock never disappears. The current entry
     // climbs as it grows and takes the "1st" spot once it passes the best
-    // past hide (v847). Only meaningful while seeking (currentElapsedMs set).
+    // past hide. Only meaningful while seeking (currentElapsedMs set).
     const rankSuffix = (n: number) => (n === 1 ? "st" : n === 2 ? "nd" : "rd");
     const leaderboard =
         currentElapsedMs === null
             ? []
-            : [
-                  { current: true, ms: currentElapsedMs },
-                  ...$roundLog.map((r) => ({
-                      current: false,
-                      ms: r.hidingMs,
-                  })),
-              ]
-                  .sort((a, b) => b.ms - a.ms)
-                  .slice(0, 3);
+            : (() => {
+                  const ranked = [
+                      { current: true, ms: currentElapsedMs },
+                      ...$roundLog.map((r) => ({
+                          current: false,
+                          ms: r.hidingMs,
+                      })),
+                  ]
+                      .sort((a, b) => b.ms - a.ms)
+                      .map((e, i) => ({ ...e, rank: i + 1 }));
+                  const top3 = ranked.slice(0, 3);
+                  if (top3.some((e) => e.current)) return top3;
+                  const cur = ranked.find((e) => e.current);
+                  return cur ? [...top3, cur] : top3;
+              })();
 
     return (
         // v457: Jet-Lag-show styling. The card positions ITSELF (the
@@ -269,10 +312,15 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                    (gold). Re-sorts every tick, so the live time climbs and
                    takes 1st once it passes the best hide. */
                 <div className="flex flex-col items-end gap-1.5">
-                    {leaderboard.map((e, i) => (
+                    {leaderboard.map((e) => (
                         <div
-                            key={e.current ? "current" : `past-${i}`}
-                            className="flex items-stretch rounded-xl overflow-hidden shadow-lg"
+                            key={e.current ? "current" : `past-${e.rank}`}
+                            className={cn(
+                                "flex items-stretch rounded-xl overflow-hidden shadow-lg",
+                                e.current &&
+                                    climbing &&
+                                    "animate-[jlRankClimb_700ms_cubic-bezier(0.16,1,0.3,1)] relative z-[1]",
+                            )}
                             title={
                                 e.current
                                     ? `${phaseLabel}: ${formatTtb(e.ms)}`
@@ -281,22 +329,24 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                         >
                             <div className="flex items-center px-2 bg-[#D6A92B]">
                                 <span className="font-inter-tight font-black text-sm leading-none text-[#1F2F3F]">
-                                    {i + 1}
+                                    {e.rank}
                                     <span className="text-[9px] align-super">
-                                        {rankSuffix(i + 1)}
+                                        {rankSuffix(e.rank)}
                                     </span>
                                 </span>
                             </div>
                             {e.current ? (
-                                <div className="relative flex flex-col justify-center bg-white pl-3 pr-6 py-1 leading-none">
-                                    <span className="block text-[8px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none">
+                                // The LIVE clock — kept at its full prominent
+                                // size (text-3xl, red accent), always shown.
+                                <div className="relative flex flex-col justify-center bg-white pl-3 pr-7 py-2 leading-none">
+                                    <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
                                         Hidden for
                                     </span>
-                                    <span className="font-inter-tight font-black tabular-nums text-2xl leading-none text-jetlag">
+                                    <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
                                         {formatTtb(e.ms)}
                                     </span>
                                     <span
-                                        className="absolute inset-y-0 right-0 w-2 bg-primary"
+                                        className="absolute inset-y-0 right-0 w-2.5 bg-primary"
                                         aria-hidden
                                     />
                                 </div>

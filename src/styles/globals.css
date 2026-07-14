@@ -199,6 +199,27 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
+/* One-shot flourish on the seeking timer's LIVE row when it climbs a spot
+ * on the hide-time leaderboard (v848): a quick lift + scale pop with a warm
+ * golden ring, so passing a past-round time reads as the beat it is. Fires
+ * only on a rank decrease (see HiderTimer). */
+@keyframes jlRankClimb {
+    0% {
+        transform: translateY(0) scale(1);
+        box-shadow: 0 0 0 0 hsl(45 88% 55% / 0);
+    }
+    35% {
+        transform: translateY(-4px) scale(1.06);
+        box-shadow:
+            0 0 0 3px hsl(45 88% 55% / 0.65),
+            0 10px 22px hsl(0 0% 0% / 0.28);
+    }
+    100% {
+        transform: translateY(0) scale(1);
+        box-shadow: 0 0 0 0 hsl(45 88% 55% / 0);
+    }
+}
+
 /* Newly-eliminated area flash on the main map — when an answer narrows
  * the search region, the slice that was just ruled out flashes a soft
  * brand-red wash and fades, so the elimination reads as a deliberate
