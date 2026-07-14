@@ -430,6 +430,20 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v850 — show-inspired leaderboards + in-hand bonus-time tally (`EndOfRoundDialog`
++ `HiderTimer`).** Taking cues from the Jet Lag show's standings screen (solid
+placement colours instead of metal textures; player NAMES instead of photos):
+(1) **`EndOfRoundDialog` "Hider found!" bonus tally** — the round's hidden time
+is split into a BASE clock + the hider's in-hand time-bonus cards
+(`tallyTimeBonusMinutes`). The big readout starts at the base and, ~550 ms after
+the reveal, the bonus **counts UP** onto it over 1.5 s (rAF ease-out, `tallyMs`
+state), with a "+N min hand bonus" chip fading in — like the show's tally. No
+bonus → no animation. The final total still drives the ranking. (2) **Leaderboard
+rows restyled** — a solid **placement block (1st gold / 2nd silver / 3rd bronze /
+neutral)** + the time + the hider's name, ranked longest-first (replaced the
+Crown+number rows). (3) **`HiderTimer` seeking leaderboard** rank badges got the
+same gold/silver/bronze placement colours (were all one gold).
+
 **v849 — "Loading hiding zones…" pill stays up until the zones actually paint.**
 The seeker overlay's `isLoading` flag clears once the candidate CIRCLES are
 computed (compute effect), but the zones don't appear until a SEPARATE render

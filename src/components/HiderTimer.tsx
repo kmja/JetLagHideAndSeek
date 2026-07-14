@@ -327,8 +327,27 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                     : `Time to beat: ${formatTtb(e.ms)}`
                             }
                         >
-                            <div className="flex items-center px-2 bg-[#D6A92B]">
-                                <span className="font-inter-tight font-black text-sm leading-none text-[#1F2F3F]">
+                            <div
+                                className="flex items-center px-2"
+                                style={{
+                                    background:
+                                        e.rank === 1
+                                            ? "#D6A92B" // gold
+                                            : e.rank === 2
+                                              ? "#B8BDC7" // silver
+                                              : e.rank === 3
+                                                ? "#CF8B4B" // bronze
+                                                : "#9AA1AD",
+                                }}
+                            >
+                                <span
+                                    className={cn(
+                                        "font-inter-tight font-black text-sm leading-none",
+                                        e.rank === 3
+                                            ? "text-white"
+                                            : "text-[#1F2F3F]",
+                                    )}
+                                >
                                     {e.rank}
                                     <span className="text-[9px] align-super">
                                         {rankSuffix(e.rank)}

@@ -1,7 +1,13 @@
 import { useStore } from "@nanostores/react";
-import { Crown, LogOut, PartyPopper, Settings2, Sparkles } from "lucide-react";
+import {
+    Hourglass,
+    LogOut,
+    PartyPopper,
+    Settings2,
+    Sparkles,
+} from "lucide-react";
 import type { CSSProperties } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
@@ -106,24 +112,62 @@ export function EndOfRoundDialog() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible]);
 
+    // This round's hidden time (same formula as the lobby recap / score),
+    // split into the BASE clock and the hider's in-hand time-BONUS cards
+    // (rulebook p79 — bonuses add to the hiding time). Split so the bonus can
+    // tally UP onto the base after the reveal, like the show. Read from the
+    // local hand, still intact until the next round resets it; on the hider's
+    // own device + solo this matches the persisted roundLog entry.
+    const baseMs =
+        $foundAt != null && $endsAt != null
+            ? Math.max(
+                  0,
+                  Math.max(0, $foundAt - $endsAt) +
+                      $credit -
+                      effectiveHiddenDebitMs($foundAt),
+              )
+            : 0;
+    const bonusMs = tallyTimeBonusMinutes($hand, $gameSize) * 60_000;
+
+    // Count the in-hand bonus UP onto the base clock a beat after the dialog
+    // opens (the show's tally). `tallyMs` climbs 0 → bonusMs; the big readout
+    // shows base + tally. No bonus → no animation.
+    const [tallyMs, setTallyMs] = useState(0);
+    const rafRef = useRef<number | null>(null);
+    useEffect(() => {
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        if (!visible || bonusMs <= 0) {
+            setTallyMs(bonusMs > 0 ? 0 : 0);
+            return;
+        }
+        setTallyMs(0);
+        const DELAY = 550;
+        const DUR = 1500;
+        let start: number | null = null;
+        const step = (t: number) => {
+            if (start === null) start = t;
+            const e = t - start - DELAY;
+            if (e <= 0) {
+                rafRef.current = requestAnimationFrame(step);
+                return;
+            }
+            const p = Math.min(1, e / DUR);
+            const eased = 1 - Math.pow(1 - p, 3);
+            setTallyMs(bonusMs * eased);
+            if (p < 1) rafRef.current = requestAnimationFrame(step);
+        };
+        rafRef.current = requestAnimationFrame(step);
+        return () => {
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        };
+    }, [visible, bonusMs]);
+
     if (!visible) return null;
 
-    const foundAt = $foundAt as number;
-    const endsAt = $endsAt as number;
-
-    // This round's hidden time (same formula as the lobby recap / score),
-    // PLUS the hider's time-bonus cards (rulebook p79 — bonuses add to the
-    // hiding time). Read from the local hand, still intact until the next
-    // round resets it; on the hider's own device + solo this matches the
-    // persisted roundLog entry startNewRound appends.
-    const currentHidingMs =
-        Math.max(
-            0,
-            Math.max(0, foundAt - endsAt) +
-                $credit -
-                effectiveHiddenDebitMs(foundAt),
-        ) +
-        tallyTimeBonusMinutes($hand, $gameSize) * 60_000;
+    // Final total (used for ranking); the big readout animates up to it.
+    const currentHidingMs = baseMs + bonusMs;
+    const displayedMs = baseMs + tallyMs;
+    const bonusMinutes = Math.round(bonusMs / 60_000);
     const currentHiderName =
         $participants.find((p) => p.role === "hider")?.displayName?.trim() ||
         displayNameAtom.get()?.trim() ||
@@ -263,60 +307,112 @@ export function EndOfRoundDialog() {
                     </h2>
                 </div>
 
-                {/* This round's hidden time. */}
-                <div className="space-y-1">
+                {/* This round's hidden time — the in-hand bonus tallies UP
+                    onto the base clock a beat after the reveal (the show). */}
+                <div className="space-y-1.5">
                     <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                         {currentHiderName} stayed hidden for
                     </div>
                     <div className="font-inter-tight italic font-black tabular-nums text-5xl leading-none text-foreground">
-                        {formatDuration(currentHidingMs)}
+                        {formatDuration(displayedMs)}
                     </div>
+                    {bonusMinutes > 0 && (
+                        <div
+                            className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full px-3 py-1",
+                                "bg-[hsl(var(--accent-yellow))]/15 border border-[hsl(var(--accent-yellow))]/40",
+                                "text-xs font-poppins font-bold text-[hsl(var(--accent-yellow))]",
+                                "animate-in fade-in slide-in-from-bottom-1 duration-300",
+                            )}
+                            style={{ animationDelay: "550ms" }}
+                        >
+                            <Hourglass className="w-3.5 h-3.5" />+{bonusMinutes}{" "}
+                            min hand bonus
+                        </div>
+                    )}
                 </div>
 
-                {/* Leaderboard recap (2+ rounds). */}
+                {/* Leaderboard recap (2+ rounds). Show-inspired: a solid
+                    placement block (gold / silver / bronze) + the time + the
+                    hider's name, ranked longest-first. */}
                 {showLeaderboard && (
-                    <div className="space-y-1.5 text-left">
+                    <div className="space-y-2 text-left">
                         <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground text-center">
                             Leaderboard
                         </div>
-                        <div className="rounded-lg border border-border overflow-hidden">
-                            {board.map((row, idx) => (
-                                <div
-                                    key={`${row.roundNumber}-${idx}`}
-                                    className={cn(
-                                        "flex items-center gap-2 px-3 py-2 text-sm",
-                                        idx > 0 && "border-t border-border",
-                                        row.current
-                                            ? "bg-primary/10"
-                                            : "bg-background/40",
-                                    )}
-                                >
-                                    <span className="w-5 shrink-0 text-center">
-                                        {idx === 0 ? (
-                                            <Crown className="w-4 h-4 text-[hsl(var(--accent-yellow))] inline" />
-                                        ) : (
-                                            <span className="text-xs font-mono text-muted-foreground">
-                                                {idx + 1}
-                                            </span>
+                        <div className="flex flex-col gap-1.5">
+                            {board.map((row, idx) => {
+                                const rank = idx + 1;
+                                const place =
+                                    idx === 0
+                                        ? {
+                                              bg: "hsl(var(--accent-yellow))",
+                                              fg: "#1F2F3F",
+                                          }
+                                        : idx === 1
+                                          ? { bg: "#C2C7D0", fg: "#1F2F3F" }
+                                          : idx === 2
+                                            ? { bg: "#CF8B4B", fg: "#FFFFFF" }
+                                            : {
+                                                  bg: "hsl(var(--muted))",
+                                                  fg: "hsl(var(--muted-foreground))",
+                                              };
+                                const suffix =
+                                    rank === 1
+                                        ? "st"
+                                        : rank === 2
+                                          ? "nd"
+                                          : rank === 3
+                                            ? "rd"
+                                            : "th";
+                                return (
+                                    <div
+                                        key={`${row.roundNumber}-${idx}`}
+                                        className={cn(
+                                            "flex items-stretch overflow-hidden rounded-md border",
+                                            row.current
+                                                ? "border-primary"
+                                                : "border-border",
                                         )}
-                                    </span>
-                                    <span className="flex-1 min-w-0 truncate font-inter-tight font-bold">
-                                        {row.hiderName}
-                                        {row.current && (
-                                            <span className="ml-1.5 text-[10px] font-poppins font-semibold text-primary uppercase tracking-wider">
-                                                this round
+                                    >
+                                        <div
+                                            className="flex items-center justify-center px-2.5 shrink-0"
+                                            style={{
+                                                background: place.bg,
+                                                color: place.fg,
+                                            }}
+                                        >
+                                            <span className="font-inter-tight font-black text-base leading-none">
+                                                {rank}
+                                                <span className="text-[9px] align-super">
+                                                    {suffix}
+                                                </span>
                                             </span>
-                                        )}
-                                    </span>
-                                    <span className="shrink-0 tabular-nums font-inter-tight font-black text-muted-foreground">
-                                        {formatDuration(row.hidingMs)}
-                                    </span>
-                                </div>
-                            ))}
+                                        </div>
+                                        <div
+                                            className={cn(
+                                                "flex-1 flex items-center gap-2 px-3 py-2 min-w-0",
+                                                row.current
+                                                    ? "bg-primary/10"
+                                                    : "bg-secondary/40",
+                                            )}
+                                        >
+                                            <span className="font-inter-tight font-black tabular-nums text-lg leading-none">
+                                                {formatDuration(row.hidingMs)}
+                                            </span>
+                                            <span className="ml-auto min-w-0 truncate text-sm font-medium text-muted-foreground">
+                                                {row.hiderName}
+                                                {row.current && (
+                                                    <span className="ml-1 text-[10px] font-poppins font-bold text-primary uppercase tracking-wider">
+                                                        now
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
-                        <p className="text-xs text-muted-foreground text-center pt-0.5">
-                            Ranked by time hidden — longest hide wins.
-                        </p>
                     </div>
                 )}
 
