@@ -3,6 +3,7 @@ import { Flag, Footprints, Timer } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { appConfirm } from "@/lib/confirm";
 import {
     effectiveHiddenDebitMs,
     endgameConfirmedAt,
@@ -60,7 +61,20 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         $roundLog = preview.roundLog ?? [];
     }
 
-    const handleMarkFound = () => {
+    const handleMarkFound = async () => {
+        // Ending the round is irreversible (freezes the score, fires the
+        // end-of-round dialog on both devices). Confirm first, and reinforce
+        // the rulebook requirement that the seeker is physically WITH the
+        // hider — the app can't measure the seeker↔hider distance locally (the
+        // hider's exact position is the game's secret and never reaches the
+        // seeker's device), so this is a self-declared check.
+        const ok = await appConfirm({
+            title: "Mark the hider found?",
+            description:
+                "Only do this once you've physically reached the hider and are standing with them. This freezes the score and ends the round.",
+            confirmLabel: "Mark found",
+        });
+        if (!ok) return;
         const ts = Date.now();
         roundFoundAt.set(ts);
         // Fire the celebratory end-of-round dialog (v631).

@@ -15,7 +15,11 @@ import { toast } from "react-toastify";
 
 import { JourneyCard } from "@/components/JourneyCard";
 import { appConfirm } from "@/lib/confirm";
-import { lastKnownPosition } from "@/lib/context";
+import {
+    hidingRadius,
+    hidingRadiusUnits,
+    lastKnownPosition,
+} from "@/lib/context";
 import { haversineMeters } from "@/lib/geo";
 import {
     allowedTransit,
@@ -84,6 +88,8 @@ export function StationTransitCard({
 } = {}) {
     const station = useStore(selectedMapStation);
     const $gps = useStore(lastKnownPosition);
+    const $radius = useStore(hidingRadius);
+    const $radiusUnits = useStore(hidingRadiusUnits);
     const $allowed = useStore(allowedTransit);
     const $endsAt = useStore(hidingPeriodEndsAt);
     const $endgame = useStore(endgameStartedAt);
@@ -282,11 +288,45 @@ export function StationTransitCard({
         $found === null;
 
     const handleStartEndgame = async () => {
+        // Rulebook p43: the endgame begins only once the seekers physically
+        // REACH the hider's zone. Guard against declaring it from a zone the
+        // seeker isn't actually standing in — check the seeker's live GPS
+        // against the tapped zone's hiding-radius circle. GPS is noisy in the
+        // dense cores this game is played in, so a generous margin keeps a
+        // face-to-face declaration from being falsely blocked; only a clearly
+        // outside position gets a warning (still overridable — the hider can
+        // refute a wrong claim anyway).
+        const zoneName = station?.name ? ` — ${station.name}` : "";
+        const radiusM =
+            $radius * ($radiusUnits === "miles" ? 1609.34 : 1000);
+        const GPS_MARGIN_M = 100;
+        if ($gps && station) {
+            const distM = haversineMeters(
+                $gps.lat,
+                $gps.lng,
+                station.lat,
+                station.lng,
+            );
+            if (distM > radiusM + GPS_MARGIN_M) {
+                const overshoot = Math.round(distM - radiusM);
+                const ok = await appConfirm({
+                    title: "You don't seem to be in this zone",
+                    description: `Your GPS puts you about ${overshoot} m outside${zoneName}'s zone. The endgame should only start once you've actually reached the hider's zone and are off transit. Start anyway?`,
+                    confirmLabel: "Start anyway",
+                    destructive: true,
+                });
+                if (!ok) return;
+                seekerStartEndgame();
+                toast.success("Endgame declared — hider notified.", {
+                    autoClose: 2500,
+                });
+                close();
+                return;
+            }
+        }
         const ok = await appConfirm({
             title: "Start the endgame here?",
-            description: `Tells the hider you've reached their zone${
-                station?.name ? ` — ${station.name}` : ""
-            }, so they must lock to a final spot. If you've got the wrong zone, the hider can refute it and you keep searching. Only declare it once you're actually inside the hider's zone and off transit.`,
+            description: `Tells the hider you've reached their zone${zoneName}, so they must lock to a final spot. If you've got the wrong zone, the hider can refute it and you keep searching. Only declare it once you're actually inside the hider's zone and off transit.`,
             confirmLabel: "Start endgame",
         });
         if (!ok) return;

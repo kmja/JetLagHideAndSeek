@@ -430,6 +430,29 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v852 — endgame/found proximity guards (Track 1: the seeker-local, no-wire
+half).** Two rulebook-p43 anti-cheat/anti-mistake checks around the endgame. (1)
+**Start-endgame-in-zone geometric gate** (`StationTransitCard.handleStartEndgame`):
+the endgame begins only once the seekers physically REACH the hider's zone, so
+declaring it now checks the seeker's live GPS (`lastKnownPosition`) against the
+TAPPED zone's hiding-radius circle (`hidingRadius`/`hidingRadiusUnits` → metres +
+`haversineMeters`). GPS is noisy in the dense cores this game is played in, so a
+generous **100 m margin** keeps a genuine in-zone declaration from being falsely
+blocked; only a CLEARLY-outside position (>radius+100 m) gets a warning confirm
+("Your GPS puts you about N m outside … Start anyway?", destructive, still
+overridable — the hider can refute a wrong claim regardless). No GPS → no block
+(can't verify). (2) **Mark-found confirmation** (`HiderTimer.handleMarkFound`):
+ending the round was a single instant tap; it now `appConfirm`s first
+("…physically reached the hider … This freezes the score and ends the round.").
+"Mark hider found" already only appears AFTER the endgame is declared, so found
+inherits the zone-level proximity guarantee from check (1). **A tighter
+"within-50 m-of-the-hider" enforcement on found is deliberately NOT here** — the
+seeker's device never holds the hider's coordinate (it's the game's secret;
+`hideZone`/`hidingSpot` fan to other hiders only, seekers get `loc` from seekers
+only), so a real distance check needs a wire-level flow (hider-side validation or
+server-authoritative). Deferred pending a design decision; the mark-found
+self-confirm is the interim guard.
+
 **v851 — bonus tally synced over the wire + individual floating bonus chips.**
 Follow-up to v850's `EndOfRoundDialog` in-hand bonus tally, which read the LOCAL
 hider hand — correct on the hider's own device / solo, but a REMOTE seeker sees
