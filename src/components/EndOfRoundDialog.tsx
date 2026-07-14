@@ -19,9 +19,11 @@ import {
     hiddenCreditMs,
     hiddenDebitMs,
     hidingPeriodEndsAt,
+    roundEndBaseMs,
+    roundEndBonusPieces,
     setupDialogOpen,
 } from "@/lib/gameSetup";
-import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
+import { timeBonusPieces } from "@/lib/hiderDeck";
 import { hiderHand, roundFoundAt, roundLog } from "@/lib/hiderRole";
 import {
     currentGameCode,
@@ -86,6 +88,12 @@ export function EndOfRoundDialog() {
     useStore(gamePausedForLocationAt);
     const $hand = useStore(hiderHand);
     const $gameSize = useStore(gameSize);
+    // v851: the hider's authoritative round result, synced over the wire so
+    // a REMOTE seeker device (which can't compute Move credit / late-answer
+    // debit / the in-hand bonus) shows the same total + tally. Falls back to
+    // the local computation on the hider's own device + all solo play.
+    const $syncedBase = useStore(roundEndBaseMs);
+    const $syncedPieces = useStore(roundEndBonusPieces);
 
     const [rotateOpen, setRotateOpen] = useState(false);
 
@@ -113,12 +121,12 @@ export function EndOfRoundDialog() {
     }, [visible]);
 
     // This round's hidden time (same formula as the lobby recap / score),
-    // split into the BASE clock and the hider's in-hand time-BONUS cards
+    // split into the BASE clock and the hider's in-hand time-BONUS pieces
     // (rulebook p79 — bonuses add to the hiding time). Split so the bonus can
-    // tally UP onto the base after the reveal, like the show. Read from the
-    // local hand, still intact until the next round resets it; on the hider's
-    // own device + solo this matches the persisted roundLog entry.
-    const baseMs =
+    // tally UP onto the base after the reveal, like the show. Prefer the
+    // synced values (so a remote seeker matches the hider); fall back to the
+    // local hand, still intact until the next round resets it.
+    const localBaseMs =
         $foundAt != null && $endsAt != null
             ? Math.max(
                   0,
@@ -127,7 +135,13 @@ export function EndOfRoundDialog() {
                       effectiveHiddenDebitMs($foundAt),
               )
             : 0;
-    const bonusMs = tallyTimeBonusMinutes($hand, $gameSize) * 60_000;
+    const baseMs = $syncedBase !== null ? $syncedBase : localBaseMs;
+    // Individual bonus contributions, in minutes — one chip per piece.
+    const bonusPieces =
+        $syncedPieces !== null
+            ? $syncedPieces
+            : timeBonusPieces($hand, $gameSize);
+    const bonusMs = bonusPieces.reduce((a, b) => a + b, 0) * 60_000;
 
     // Count the in-hand bonus UP onto the base clock a beat after the dialog
     // opens (the show's tally). `tallyMs` climbs 0 → bonusMs; the big readout
@@ -308,13 +322,40 @@ export function EndOfRoundDialog() {
                 </div>
 
                 {/* This round's hidden time — the in-hand bonus tallies UP
-                    onto the base clock a beat after the reveal (the show). */}
+                    onto the base clock a beat after the reveal (the show).
+                    Each bonus PIECE also pops in as its own chip above the
+                    clock, overshooting then floating up and fading. */}
                 <div className="space-y-1.5">
                     <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                         {currentHiderName} stayed hidden for
                     </div>
-                    <div className="font-inter-tight italic font-black tabular-nums text-5xl leading-none text-foreground">
-                        {formatDuration(displayedMs)}
+                    <div className="relative">
+                        {bonusPieces.length > 0 && (
+                            <div
+                                className="pointer-events-none absolute inset-x-0 bottom-full mb-1 flex justify-center gap-2 flex-wrap"
+                                aria-hidden="true"
+                            >
+                                {bonusPieces.map((min, i) => (
+                                    <span
+                                        key={i}
+                                        className={cn(
+                                            "rounded-full px-2.5 py-0.5 shadow-lg",
+                                            "font-inter-tight font-black tabular-nums text-sm",
+                                            "bg-[hsl(var(--accent-yellow))] text-[#1F2F3F]",
+                                        )}
+                                        style={{
+                                            opacity: 0,
+                                            animation: `jlBonusChip 1400ms cubic-bezier(0.22, 1, 0.36, 1) ${550 + i * Math.min(360, 1400 / Math.max(1, bonusPieces.length))}ms forwards`,
+                                        }}
+                                    >
+                                        +{min}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        <div className="font-inter-tight italic font-black tabular-nums text-5xl leading-none text-foreground">
+                            {formatDuration(displayedMs)}
+                        </div>
                     </div>
                     {bonusMinutes > 0 && (
                         <div

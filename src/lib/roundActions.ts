@@ -15,6 +15,8 @@ import {
     MOVE_PERIOD_MINUTES,
     pendingHidingDurationMin,
     preloadBucketTimestamps,
+    roundEndBaseMs,
+    roundEndBonusPieces,
     seekersFrozenUntil,
     seekingStartFiredFor,
     setupCompleted,
@@ -66,7 +68,7 @@ export function startNewRound() {
         // the clock was paused for overdue answers (rulebook p61), so
         // re-anchors pause rather than discard time and stalls don't
         // pay out.
-        const baseMs = Math.max(
+        const localBaseMs = Math.max(
             0,
             Math.max(0, prevFoundAt - prevEndsAt) +
                 hiddenCreditMs.get() -
@@ -74,13 +76,21 @@ export function startNewRound() {
         );
         // v670: ADD the hider's time-bonus cards (rulebook p79 — bonuses
         // held at round end are added to the hiding time; longest hide
-        // wins). Read from the LOCAL hider hand, which is still intact
-        // here (the append runs BEFORE resetSharedRoundState). Correct on
-        // the hider's own device + all solo play; a seeker-initiated
-        // new-round on a remote device sees an empty local hand → 0 bonus
-        // (a multiplayer sync limitation, tracked separately).
+        // wins). v851: the base time AND the in-hand bonus are both hider-
+        // local (Move credit, late-answer debit, and the hand all live on
+        // the hider's device). A seeker-initiated new-round on a remote
+        // device therefore can't compute them — so the hider PUBLISHES its
+        // authoritative round result over the wire (`roundSummary`), and
+        // both sides prefer the synced values here. Falls back to the local
+        // computation for the hider's own device + all solo play.
+        const syncedBase = roundEndBaseMs.get();
+        const syncedPieces = roundEndBonusPieces.get();
+        const baseMs = syncedBase !== null ? syncedBase : localBaseMs;
         const bonusMs =
-            tallyTimeBonusMinutes(hiderHand.get(), gameSize.get()) * 60_000;
+            syncedPieces !== null
+                ? syncedPieces.reduce((a, b) => a + b, 0) * 60_000
+                : tallyTimeBonusMinutes(hiderHand.get(), gameSize.get()) *
+                  60_000;
         const hidingMs = baseMs + bonusMs;
         // Resolve the hider's name: multiplayer participant if we
         // have one, otherwise the local display-name (solo plays

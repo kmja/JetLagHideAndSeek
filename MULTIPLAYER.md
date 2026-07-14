@@ -357,6 +357,20 @@ bundled into ONE out-of-band secret blob (`DeckStateShare`, `protocol/state.ts`
   accepts `setDeck` as a store-only no-op (single hider). Round-trip contract
   unit-tested (`tests/deckSync.test.ts`).
 
+### Round summary (v851)
+
+The end-of-round hiding time is HIDER-LOCAL: the base clock folds in the Move
+powerup credit and the late-answer debit, and the rulebook time bonus reads the
+hider's in-hand cards. A remote seeker device has none of that, so it can't
+compute the total or the show-style tally. On the `ended` broadcast the hider
+therefore computes `{baseMs, bonusPieces}` (bonus pieces = each time-bonus card's
+minutes, plus one per held Duplicate) and sends a `roundSummary` message; the
+server relays it to every OTHER client (hider-authored only), and seekers adopt
+it into `roundEndBaseMs` / `roundEndBonusPieces`. Both the `EndOfRoundDialog`
+tally and `startNewRound`'s leaderboard append prefer the synced values, falling
+back to the local computation for the hider's own device + solo. Store-only
+no-op in the demo broker (single hider).
+
 ## Quick sanity test
 
 After deploying:

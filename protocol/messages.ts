@@ -107,6 +107,23 @@ export interface CMsgMarkFound {
 }
 
 /**
+ * The hider publishes its AUTHORITATIVE round result the instant the round
+ * ends (received the `ended` broadcast). The seeker can't compute this — the
+ * base clock's Move-credit / late-answer-debit and the in-hand time-bonus
+ * cards are all hider-local. Relayed to the rest of the room so every
+ * device's end-of-round dialog + leaderboard shows the same time, and the
+ * seeker sees the bonus tally up. Milliseconds. `bonusMs` is the in-hand
+ * time-bonus portion (for the tally); `baseMs` is the rest.
+ */
+export interface CMsgRoundSummary {
+    t: "roundSummary";
+    baseMs: number;
+    /** Individual in-hand time-bonus contributions, in MINUTES (one per
+     *  bonus card / duplicate) — so the seeker can pop a chip per piece. */
+    bonusPieces: number[];
+}
+
+/**
  * Update a previously-asked question's data (in-place edit). Used
  * for thermometer finishing flow and any other "mutate existing
  * question" path that the seeker triggers locally.
@@ -278,6 +295,7 @@ export type ClientMessage =
     | CMsgAnswerQuestion
     | CMsgUpdateQuestion
     | CMsgMarkFound
+    | CMsgRoundSummary
     | CMsgRotateHider
     | CMsgSetHideZone
     | CMsgSetDeck
@@ -336,6 +354,15 @@ export interface SMsgQuestionAnswered {
 export interface SMsgRoundEnded {
     t: "ended";
     foundAt: number;
+}
+
+/** Relay of the hider's authoritative round result (see CMsgRoundSummary),
+ *  fanned to the rest of the room so the seeker's end-of-round dialog +
+ *  leaderboard match and the bonus tallies up. */
+export interface SMsgRoundSummary {
+    t: "roundSummary";
+    baseMs: number;
+    bonusPieces: number[];
 }
 
 /**
@@ -442,6 +469,7 @@ export type ServerMessage =
     | SMsgQuestionUpdated
     | SMsgQuestionAnswered
     | SMsgRoundEnded
+    | SMsgRoundSummary
     | SMsgRoundStarted
     | SMsgPresence
     | SMsgSetupChanged

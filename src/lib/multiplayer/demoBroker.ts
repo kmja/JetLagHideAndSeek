@@ -421,6 +421,14 @@ function handleClientMessage(msg: ClientMessage) {
             return;
         }
 
+        case "roundSummary": {
+            // v851: the hider's authoritative base+bonus round result. In the
+            // demo the user is the only hider, so there's no seeker to relay
+            // it to — the local device already set its own atoms. Store-only
+            // no-op, matching the real worker's "fan to others" behaviour.
+            return;
+        }
+
         case "setName": {
             // The local player renamed themselves. Update the demo roster
             // + echo presence so the lobby reflects the new name.

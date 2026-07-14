@@ -220,6 +220,30 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
+/* In-hand time-bonus chip (v851) — during the EndOfRoundDialog tally,
+ * each individual bonus piece pops in above the clock with a slight
+ * overshoot, then floats up and fades away (the show's bonus reveal). */
+@keyframes jlBonusChip {
+    0% {
+        opacity: 0;
+        transform: translateY(8px) scale(0.4);
+    }
+    18% {
+        opacity: 1;
+        transform: translateY(0) scale(1.18);
+    }
+    32% {
+        transform: translateY(-2px) scale(1);
+    }
+    70% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-46px) scale(1);
+    }
+}
+
 /* Newly-eliminated area flash on the main map — when an answer narrows
  * the search region, the slice that was just ruled out flashes a soft
  * brand-red wash and fades, so the elimination reads as a deliberate

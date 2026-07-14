@@ -37,15 +37,20 @@ import {
 import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
+    effectiveHiddenDebitMs,
     gameSize,
     gameStartCelebrationAt,
     gameStartOverLobby,
     endgameConfirmedAt,
     endgameStartedAt,
     endOfRoundDialogOpen,
+    hiddenCreditMs,
     hidingPeriodEndsAt,
     playArea,
+    roundEndBaseMs,
+    roundEndBonusPieces,
 } from "@/lib/gameSetup";
+import { timeBonusPieces } from "@/lib/hiderDeck";
 import {
     applySharedDeckState,
     chaliceDrawsRemaining,
@@ -932,6 +937,36 @@ function handleServerMessage(msg: ServerMessage) {
         case "ended":
             if (roundFoundAt.get() === null) {
                 roundFoundAt.set(msg.foundAt);
+                // v851: the base hiding time (Move credit / late-answer
+                // debit) AND the in-hand time bonus are BOTH hider-local, so
+                // a seeker can't compute the true final time or the tally.
+                // The hider therefore computes its authoritative result here
+                // and PUBLISHES it over the wire (`roundSummary`); both sides
+                // set the synced atoms the EndOfRoundDialog + leaderboard
+                // read.
+                if (playerRole.get() === "hider") {
+                    const endsAt = hidingPeriodEndsAt.get();
+                    const baseMs =
+                        endsAt !== null
+                            ? Math.max(
+                                  0,
+                                  Math.max(0, msg.foundAt - endsAt) +
+                                      hiddenCreditMs.get() -
+                                      effectiveHiddenDebitMs(msg.foundAt),
+                              )
+                            : 0;
+                    const pieces = timeBonusPieces(
+                        hiderHand.get(),
+                        gameSize.get(),
+                    );
+                    roundEndBaseMs.set(baseMs);
+                    roundEndBonusPieces.set(pieces);
+                    getTransport()?.send({
+                        t: "roundSummary",
+                        baseMs,
+                        bonusPieces: pieces,
+                    });
+                }
                 // Fire the celebratory end-of-round dialog on this device
                 // too (v631).
                 endOfRoundDialogOpen.set(true);
@@ -944,6 +979,13 @@ function handleServerMessage(msg: ServerMessage) {
                     tag: "round-ended",
                 });
             }
+            return;
+        case "roundSummary":
+            // v851: the hider's authoritative round result (base hiding time
+            // + individual in-hand time-bonus pieces, in minutes). Both the
+            // EndOfRoundDialog tally and the leaderboard append read these.
+            roundEndBaseMs.set(msg.baseMs);
+            roundEndBonusPieces.set(msg.bonusPieces);
             return;
         case "roundStarted":
             applyRoundStarted(msg.participants);

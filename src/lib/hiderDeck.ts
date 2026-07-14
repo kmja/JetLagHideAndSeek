@@ -584,17 +584,31 @@ export function tallyTimeBonusMinutes(
     hand: Card[],
     size: GameSize,
 ): number {
-    let total = 0;
+    return timeBonusPieces(hand, size).reduce((a, b) => a + b, 0);
+}
+
+/**
+ * The INDIVIDUAL time-bonus contributions in the hand, in minutes — one
+ * entry per time-bonus card, plus one entry (= the max held bonus) per
+ * Duplicate powerup (rulebook: Duplicate copies your best bonus). Their sum
+ * equals `tallyTimeBonusMinutes`. Used by the end-of-round dialog to pop a
+ * chip per piece as the total tallies up (v851).
+ */
+export function timeBonusPieces(hand: Card[], size: GameSize): number[] {
+    const pieces: number[] = [];
     let maxBonus = 0;
     let heldDuplicates = 0;
     for (const card of hand) {
         if (card.kind === "time-bonus") {
             const m = card.minutes[size] ?? 0;
-            total += m;
+            if (m > 0) pieces.push(m);
             if (m > maxBonus) maxBonus = m;
         } else if (card.kind === "powerup" && card.powerup === "duplicate") {
             heldDuplicates++;
         }
     }
-    return total + heldDuplicates * maxBonus;
+    for (let i = 0; i < heldDuplicates && maxBonus > 0; i++) {
+        pieces.push(maxBonus);
+    }
+    return pieces;
 }

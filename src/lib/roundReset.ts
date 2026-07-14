@@ -46,6 +46,8 @@ import {
     manualPausedAt,
     manualPauseWasHiding,
     resetMapOverlays,
+    roundEndBaseMs,
+    roundEndBonusPieces,
     seekersFrozenUntil,
     seekingStartCelebrationAt,
     seekingStartFiredFor,
@@ -132,6 +134,10 @@ export function resetSharedRoundState(): void {
     endgameStartedAt.set(null);
     endgameConfirmedAt.set(null);
 
-    // Close the end-of-round celebration if it was up.
+    // Close the end-of-round celebration if it was up, and clear the
+    // synced round-summary (v851 — the hider's authoritative base+bonus,
+    // consumed by the leaderboard append + EndOfRoundDialog tally).
     endOfRoundDialogOpen.set(false);
+    roundEndBaseMs.set(null);
+    roundEndBonusPieces.set(null);
 }

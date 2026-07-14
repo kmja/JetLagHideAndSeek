@@ -390,6 +390,18 @@ export const mapOptionsDrawerOpen = atom<boolean>(false);
 export const endOfRoundDialogOpen = atom<boolean>(false);
 
 /**
+ * Volatile: the HIDER's authoritative round result, synced to the room over
+ * the wire on round-end (v851). The seeker can't compute the hider's Move
+ * credit, late-answer debit, or in-hand time bonuses locally, so the hider
+ * publishes them: `roundEndBaseMs` is the base clock and
+ * `roundEndBonusPieces` is the per-card time-bonus contributions (minutes).
+ * The end-of-round dialog prefers these when set (seeker); the hider's own
+ * device + solo fall back to the local hand. Cleared per round.
+ */
+export const roundEndBaseMs = atom<number | null>(null);
+export const roundEndBonusPieces = atom<number[] | null>(null);
+
+/**
  * Volatile: show the on-map "zone locked in" callout near the hider's
  * timer (v798)? Set true by `confirmAndCommitZone` right after a zone is
  * committed DURING the hiding period — it replaces the old second modal

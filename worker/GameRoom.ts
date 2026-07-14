@@ -333,6 +333,12 @@ export class GameRoom {
                 return this.handleUpdateQuestion(socket, msg.key, msg.data);
             case "found":
                 return this.handleMarkFound(socket, msg.foundAt);
+            case "roundSummary":
+                return this.handleRoundSummary(
+                    socket,
+                    msg.baseMs,
+                    msg.bonusPieces,
+                );
             case "rotateHider":
                 return this.handleRotateHider(socket, msg.to, msg.coHiders);
             case "setHideZone":
@@ -805,6 +811,38 @@ export class GameRoom {
         if (this.game.roundFoundAt !== null) return;
         this.game.roundFoundAt = foundAt;
         this.broadcast({ t: "ended", foundAt });
+    }
+
+    /**
+     * A hider published its authoritative round result (base + in-hand
+     * bonus). Fan it to everyone ELSE so the seeker's end-of-round dialog +
+     * leaderboard match and the bonus tallies up. Hider-only (the value is
+     * meaningless from a seeker); not persisted — it's a per-round display
+     * relay, cleared implicitly on the next round.
+     */
+    private handleRoundSummary(
+        socket: WebSocket,
+        baseMs: number,
+        bonusPieces: number[],
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find(
+            (q) => q.id === conn.participantId,
+        );
+        if (!p || p.role !== "hider") return;
+        if (!Number.isFinite(baseMs) || !Array.isArray(bonusPieces)) return;
+        const pieces = bonusPieces
+            .filter((n) => Number.isFinite(n) && n > 0)
+            .slice(0, 32);
+        for (const [pid, c] of this.conns.entries()) {
+            if (pid === conn.participantId) continue;
+            this.sendTo(c.socket, {
+                t: "roundSummary",
+                baseMs,
+                bonusPieces: pieces,
+            });
+        }
     }
 
     /**

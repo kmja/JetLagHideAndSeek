@@ -430,6 +430,30 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v851 — bonus tally synced over the wire + individual floating bonus chips.**
+Follow-up to v850's `EndOfRoundDialog` in-hand bonus tally, which read the LOCAL
+hider hand — correct on the hider's own device / solo, but a REMOTE seeker sees
+an empty hand → 0 bonus AND can't compute the base hiding time either (Move
+credit + late-answer debit are hider-local). (1) **The hider now PUBLISHES its
+authoritative round result over the wire.** New `roundSummary` message
+(`protocol/messages.ts` `CMsgRoundSummary`/`SMsgRoundSummary`, carrying
+`{baseMs, bonusPieces:number[]}` — pieces are the individual bonus contributions
+in MINUTES). On the `ended` broadcast the hider (`multiplayer/store.ts` `case
+"ended"`) computes `baseMs` (Move credit − late debit) + `timeBonusPieces(hand,
+size)`, sets the new volatile atoms `roundEndBaseMs`/`roundEndBonusPieces`
+(`gameSetup.ts`), and sends `roundSummary`; the server (`GameRoom.handleRoundSummary`)
+relays it to every OTHER client (hider-authored only, validated + clamped);
+seekers adopt it via the new `case "roundSummary"`. `EndOfRoundDialog` +
+`roundActions.startNewRound`'s leaderboard append both PREFER the synced values,
+falling back to the local computation. `resetSharedRoundState` clears the atoms;
+`demoBroker` accepts `roundSummary` as a store-only no-op. (2) **`hiderDeck.ts`
+`timeBonusPieces(hand, size)`** — the per-card bonus list (one entry per
+time-bonus card + one per held Duplicate = the max bonus); `tallyTimeBonusMinutes`
+is now its sum. (3) **Individual floating chips** — during the tally, each bonus
+PIECE pops in as its own chip above the clock (new `jlBonusChip` keyframe:
+overshoot in, then float up + fade), staggered across the count-up. So one 10-min
++ two 15-min bonuses show three separate chips popping in sequence.
+
 **v850 — show-inspired leaderboards + in-hand bonus-time tally (`EndOfRoundDialog`
 + `HiderTimer`).** Taking cues from the Jet Lag show's standings screen (solid
 placement colours instead of metal textures; player NAMES instead of photos):
