@@ -7,12 +7,10 @@ import {
     Loader2,
     MapPin,
     Route,
-    X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
-import { Drawer as VaulDrawer } from "vaul";
 
 import { JourneyCard } from "@/components/JourneyCard";
 import { appConfirm } from "@/lib/confirm";
@@ -49,6 +47,17 @@ const MODE_LABELS: Record<string, string> = {
 };
 const modeLabel = (m: string) =>
     MODE_LABELS[m] ?? m.charAt(0).toUpperCase() + m.slice(1);
+
+/** Pick the station's headline transit-mode icon (v834 — replaces the
+ *  generic teardrop pin). Prefers the "biggest" mode when a stop serves
+ *  several; falls back to the map-pin when the modes are unknown. */
+const MODE_ICON_PRIORITY = ["train", "subway", "tram", "ferry", "bus"];
+function modeIconFor(modes?: string[]): LucideIcon {
+    const primary = MODE_ICON_PRIORITY.find((m) => modes?.includes(m));
+    return primary
+        ? (TRANSIT_ICONS[primary as keyof typeof TRANSIT_ICONS] ?? MapPin)
+        : MapPin;
+}
 
 /**
  * Map-first trip info. Opens when the user taps a station / candidate
@@ -218,11 +227,13 @@ export function StationTransitCard({
         };
     }, [cardOpen]);
 
-    // Swipe-UP on the compact card expands it (the requested drag
-    // gesture) — a plain touch-delta check, deliberately NOT vaul snap
-    // points (those hard-froze the UI on some devices, v651). Downward
-    // drags stay vaul's own dismiss gesture; when expanded, touches
-    // belong to the scrollable content so the handler stands down.
+    const close = () => selectedMapStation.set(null);
+
+    // Card is now a plain bottom map OVERLAY (v834 — not a vaul drawer, so
+    // the map + app header stay fully interactive behind it). The compact
+    // card responds to vertical swipes on its own: swipe UP expands to the
+    // route/departures detail, swipe DOWN dismisses. When expanded, touches
+    // belong to the scrollable content, so the gesture stands down.
     const touchStartY = useRef<number | null>(null);
     const onCardTouchStart = (e: React.TouchEvent) => {
         touchStartY.current = e.touches[0]?.clientY ?? null;
@@ -233,9 +244,8 @@ export function StationTransitCard({
         if (startY == null || expanded) return;
         const endY = e.changedTouches[0]?.clientY ?? startY;
         if (startY - endY > 40) setExpanded(true);
+        else if (endY - startY > 40) close();
     };
-
-    const close = () => selectedMapStation.set(null);
 
     // Reachability check (v643) — on-demand, one zone at a time. While the
     // hiding period is still running, compare the planned arrival at this
@@ -284,83 +294,52 @@ export function StationTransitCard({
         close();
     };
 
+    if (station === null) return null;
+    const StationIcon = modeIconFor(station.modes);
+
     return (
-        <VaulDrawer.Root
-            open={station !== null}
-            onOpenChange={(o) => {
-                if (!o) close();
-            }}
-            shouldScaleBackground={false}
-            // Non-modal so the map behind stays interactive: you can tap
-            // another zone to switch the selection without closing the
-            // card first. No dark scrim for the same reason.
-            modal={false}
+        // v834: a plain fixed bottom OVERLAY, not a vaul drawer — a drawer
+        // (even non-modal) put `body { pointer-events: none }` up via its
+        // Radix dismissable layer, freezing the map AND the app header. As a
+        // bare positioned div there's zero body manipulation, so the map
+        // stays fully interactive: pan / zoom / tap another zone to switch.
+        // Dismiss by swiping the card down or tapping the top handle.
+        <div
+            ref={contentRef}
+            role="dialog"
+            aria-label={station.name ?? "Selected station"}
+            onTouchStart={onCardTouchStart}
+            onTouchEnd={onCardTouchEnd}
+            className="fixed inset-x-0 bottom-0 z-[1045] mx-auto flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground shadow-2xl pb-[env(safe-area-inset-bottom)] sm:max-w-md animate-in slide-in-from-bottom-4 duration-200"
         >
-            <VaulDrawer.Portal>
-                <VaulDrawer.Content
-                    ref={contentRef}
-                    // Keep the card OPEN when the user taps the map behind
-                    // it (non-modal, so the map still receives the tap and
-                    // switches the selected zone in place — the reported
-                    // "can't click other zones while the drawer is open").
-                    // Radix would otherwise dismiss on any outside press.
-                    onPointerDownOutside={(e) => e.preventDefault()}
-                    onInteractOutside={(e) => e.preventDefault()}
-                    onTouchStart={onCardTouchStart}
-                    onTouchEnd={onCardTouchEnd}
-                    className="fixed inset-x-0 bottom-0 z-[1045] mt-24 flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground pb-[env(safe-area-inset-bottom)]"
-                >
-                    <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
-                    <div className="overflow-y-auto px-5 pt-3 pb-6">
+            <button
+                type="button"
+                onClick={close}
+                aria-label="Close"
+                title="Close"
+                className="mx-auto mt-2 mb-1 flex h-6 w-full shrink-0 items-center justify-center focus-visible:outline-none"
+            >
+                <span className="h-1.5 w-12 rounded-full bg-foreground/25" />
+            </button>
+            <div className="overflow-y-auto px-5 pt-2 pb-6">
                         <div className="flex items-start gap-2.5">
                             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15">
-                                <MapPin className="h-4.5 w-4.5 text-primary" />
+                                <StationIcon className="h-4.5 w-4.5 text-primary" />
                             </span>
                             <div className="min-w-0 flex-1">
-                                <VaulDrawer.Title className="font-inter-tight text-lg font-black uppercase leading-tight tracking-tight">
-                                    {station?.name ?? "Selected station"}
-                                </VaulDrawer.Title>
-                                <VaulDrawer.Description className="mt-0.5 text-xs text-muted-foreground">
-                                    Your route from where you are now
-                                </VaulDrawer.Description>
-                                {station?.modes && station.modes.length > 0 && (
-                                    <div className="mt-1.5 flex flex-wrap gap-1">
-                                        {station.modes.map((m) => (
-                                            <span
-                                                key={m}
-                                                className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-poppins font-semibold uppercase tracking-wide bg-primary/15 text-primary"
-                                            >
-                                                {modeLabel(m)}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
+                                <h2 className="font-inter-tight text-lg font-bold leading-tight">
+                                    {station.name ?? "Selected station"}
+                                </h2>
                             </div>
-                            <button
-                                type="button"
-                                onClick={close}
-                                aria-label="Close"
-                                className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
                         </div>
 
-                        {/* The reachability verdict doubles as the affordance
-                            to open the route + departures detail — "here's the
-                            outcome, tap to see how you'd get there" (v833). A
-                            chevron on the right signals it expands. */}
                         {reachability && (
-                            <button
-                                type="button"
-                                onClick={() => setExpanded((e) => !e)}
-                                aria-expanded={expanded}
+                            <div
                                 className={cn(
-                                    "mt-3 flex w-full items-start gap-2.5 rounded-lg border-2 px-3 py-2.5 text-left transition-colors",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    "mt-3 flex items-start gap-2.5 rounded-lg border-2 px-3 py-2.5",
                                     reachability.reachable
-                                        ? "border-success/40 bg-success/10 text-success hover:bg-success/15"
-                                        : "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
+                                        ? "border-success/40 bg-success/10 text-success"
+                                        : "border-destructive/40 bg-destructive/10 text-destructive",
                                 )}
                             >
                                 {reachability.reachable ? (
@@ -374,7 +353,7 @@ export function StationTransitCard({
                                         strokeWidth={2.5}
                                     />
                                 )}
-                                <div className="min-w-0 flex-1">
+                                <div className="min-w-0">
                                     <div className="font-poppins text-xs font-bold uppercase tracking-wider">
                                         {reachability.reachable
                                             ? "Reachable in time"
@@ -391,19 +370,8 @@ export function StationTransitCard({
                                                   reachability.marginMin,
                                               )} min after the whistle.`}
                                     </p>
-                                    <p className="mt-1 text-[11px] font-semibold opacity-80">
-                                        {expanded
-                                            ? "Hide route & departures"
-                                            : "Route & departures"}
-                                    </p>
                                 </div>
-                                <ChevronDown
-                                    className={cn(
-                                        "mt-0.5 h-4 w-4 shrink-0 transition-transform duration-200",
-                                        expanded && "rotate-180",
-                                    )}
-                                />
-                            </button>
+                            </div>
                         )}
 
                         {canTriggerEndgame && (
@@ -436,29 +404,25 @@ export function StationTransitCard({
 
                         {/* Progressive disclosure — the route + departures
                             detail is behind this expander so the card opens
-                            compact. When a reachability banner is shown, THAT
-                            is the expander (v833); this standalone toggle is
-                            the fallback for the no-hiding-clock case. */}
-                        {!reachability && (
-                            <button
-                                type="button"
-                                onClick={() => setExpanded((e) => !e)}
-                                aria-expanded={expanded}
-                                className="mt-3 flex w-full items-center justify-between rounded-lg border border-border/70 bg-sidebar-accent/40 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <span className="text-sm font-semibold">
-                                    {expanded
-                                        ? "Hide details"
-                                        : "Route & departures"}
-                                </span>
-                                <ChevronDown
-                                    className={cn(
-                                        "h-4 w-4 text-muted-foreground transition-transform duration-200",
-                                        expanded && "rotate-180",
-                                    )}
-                                />
-                            </button>
-                        )}
+                            compact (just the title + reachability). */}
+                        <button
+                            type="button"
+                            onClick={() => setExpanded((e) => !e)}
+                            aria-expanded={expanded}
+                            className="mt-3 flex w-full items-center justify-between rounded-lg border border-border/70 bg-sidebar-accent/40 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                            <span className="text-sm font-semibold">
+                                {expanded
+                                    ? "Hide details"
+                                    : "Route & departures"}
+                            </span>
+                            <ChevronDown
+                                className={cn(
+                                    "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                                    expanded && "rotate-180",
+                                )}
+                            />
+                        </button>
 
                         {expanded && (
                             <div className="mt-3">
@@ -495,10 +459,8 @@ export function StationTransitCard({
                                 </div>
                             </div>
                         )}
-                    </div>
-                </VaulDrawer.Content>
-            </VaulDrawer.Portal>
-        </VaulDrawer.Root>
+            </div>
+        </div>
     );
 }
 

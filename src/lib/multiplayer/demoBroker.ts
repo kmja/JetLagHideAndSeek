@@ -421,6 +421,20 @@ function handleClientMessage(msg: ClientMessage) {
             return;
         }
 
+        case "setName": {
+            // The local player renamed themselves. Update the demo roster
+            // + echo presence so the lobby reflects the new name.
+            const trimmed = (msg.displayName ?? "").trim();
+            if (trimmed) {
+                const me = s.state.participants.find(
+                    (p) => p.id === s.userId,
+                );
+                if (me) me.displayName = trimmed;
+                broadcastPresence();
+            }
+            return;
+        }
+
         case "castCurse": {
             // Hider cast a curse from the local app — echo it as the
             // broker would (every seeker would receive it). The user

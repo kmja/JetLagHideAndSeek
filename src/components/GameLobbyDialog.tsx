@@ -1,18 +1,15 @@
 import { useStore } from "@nanostores/react";
 import {
+    ArrowLeftRight,
     Check,
     ChevronDown,
     Copy,
-    Footprints,
     Loader2,
     LogOut,
     Pencil,
     Plus,
     QrCode,
-    Radio,
-    RadioReceiver,
     Share2,
-    VenetianMask,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
@@ -22,6 +19,7 @@ import { Drawer as VaulDrawer } from "vaul";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
     Popover,
     PopoverContent,
@@ -48,11 +46,7 @@ import {
     welcomeSeen,
 } from "@/lib/gameSetup";
 import { appNavigate } from "@/lib/appNavigate";
-import {
-    playerRole,
-    roundFoundAt,
-    roundLog,
-} from "@/lib/hiderRole";
+import { playerRole, roundLog } from "@/lib/hiderRole";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -61,7 +55,6 @@ import {
     multiplayerEnabled,
     multiplayerError,
     participants,
-    seekerLocationSharing,
     selfParticipantId,
     transportStatus,
 } from "@/lib/multiplayer/session";
@@ -70,6 +63,7 @@ import {
     hostPushSetup,
     joinAsHost,
     leaveGame,
+    setOnlineName,
     setOnlineRole,
 } from "@/lib/multiplayer/store";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
@@ -126,8 +120,6 @@ export function GameLobbyDialog() {
     const $size = useStore(gameSize);
     const $manualOpen = useStore(lobbyManualOpen);
     const $overLobby = useStore(gameStartOverLobby);
-    const $foundAt = useStore(roundFoundAt);
-    const $seekerSharing = useStore(seekerLocationSharing);
     // v442: the setup/area editor is a Radix Dialog that would otherwise
     // open BEHIND this drawer (the drawer content sits at z-[1055], above
     // the dialog's z-[1050]). So whenever the editor is open we close the
@@ -427,6 +419,18 @@ export function GameLobbyDialog() {
     // Transit-mode editor (host). Opens the wizard's transit step in a
     // dialog; changes apply live via commitTransit (and push to peers).
     const [transitEditOpen, setTransitEditOpen] = useState(false);
+    // Change-display-name dialog (v834), opened from the roster row's inline
+    // pencil next to "(you)". Seeds from the current name on open.
+    const [nameEditOpen, setNameEditOpen] = useState(false);
+    const [draftName, setDraftName] = useState("");
+    useEffect(() => {
+        if (nameEditOpen) setDraftName(displayNameAtom.get() || "");
+    }, [nameEditOpen]);
+    const commitName = () => {
+        const trimmed = draftName.trim();
+        if (trimmed) setOnlineName(trimmed);
+        setNameEditOpen(false);
+    };
     // v455: the lobby is a MODAL vaul drawer (Radix Dialog under the
     // hood), so anything portaled to document.body — like the size /
     // add-transit Popovers — renders inert (pointer-events: none).
@@ -602,7 +606,7 @@ export function GameLobbyDialog() {
                                 the header and the Share button sit on one
                                 line. */}
                             <div className="flex items-center gap-3">
-                                <VaulDrawer.Title className="flex-1 min-w-0 text-3xl font-black leading-tight tracking-tight truncate">
+                                <VaulDrawer.Title className="flex-1 min-w-0 text-3xl font-bold leading-tight truncate">
                                     {cityLabel || "Lobby"}
                                 </VaulDrawer.Title>
                                 <VaulDrawer.Description className="sr-only">
@@ -661,17 +665,20 @@ export function GameLobbyDialog() {
                                                         onClick={() =>
                                                             setSize(o.value)
                                                         }
+                                                        aria-label={o.label}
                                                         className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent transition-colors"
                                                     >
+                                                        {/* The coloured pill
+                                                            already reads
+                                                            SMALL/MEDIUM/LARGE,
+                                                            so no extra text
+                                                            label is needed. */}
                                                         <SizeBadge
                                                             size={o.value}
                                                             className="text-sm px-2.5 py-1"
                                                         />
-                                                        <span className="flex-1">
-                                                            {o.label}
-                                                        </span>
                                                         {o.value === $size && (
-                                                            <Check className="w-4 h-4 text-primary" />
+                                                            <Check className="w-4 h-4 text-primary ml-auto" />
                                                         )}
                                                     </button>
                                                 ))}
@@ -712,21 +719,34 @@ export function GameLobbyDialog() {
 
                                     {/* Edit transit — opens the wizard's
                                         transit selection step in a dialog.
-                                        Replaces the per-chip x / + controls. */}
-                                    {isHost && (
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setTransitEditOpen(true)
-                                            }
-                                            aria-label="Edit transit modes"
-                                            title="Edit transit modes"
-                                            className="inline-flex h-9 px-2.5 items-center gap-1.5 rounded-md border-2 border-dashed border-border text-xs font-poppins font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                        >
-                                            <Pencil className="w-3.5 h-3.5" />
-                                            Edit
-                                        </button>
-                                    )}
+                                        When ALL modes are on the row is full,
+                                        so drop the "Edit" label to icon-only
+                                        so the pencil still fits on one row. */}
+                                    {isHost &&
+                                        (() => {
+                                            const allTransitOn =
+                                                $allowedTransit.length ===
+                                                ALL_TRANSIT_MODES.length;
+                                            return (
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setTransitEditOpen(true)
+                                                    }
+                                                    aria-label="Edit transit modes"
+                                                    title="Edit transit modes"
+                                                    className={cn(
+                                                        "inline-flex h-9 items-center gap-1.5 rounded-md border-2 border-dashed border-border text-xs font-poppins font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                        allTransitOn
+                                                            ? "w-9 justify-center px-0"
+                                                            : "px-2.5",
+                                                    )}
+                                                >
+                                                    <Pencil className="w-3.5 h-3.5" />
+                                                    {!allTransitOn && "Edit"}
+                                                </button>
+                                            );
+                                        })()}
                                 </div>
                             )}
                         </div>
@@ -828,9 +848,53 @@ export function GameLobbyDialog() {
                                     value={$allowedTransit}
                                     onChange={commitTransit}
                                 />
+                                {/* Changes apply live (commitTransit pushes to
+                                    peers); Save just closes the editor. */}
+                                <Button
+                                    onClick={() => setTransitEditOpen(false)}
+                                    className="w-full mt-2"
+                                >
+                                    <Check className="w-4 h-4 mr-1.5" />
+                                    Save
+                                </Button>
                             </DialogContent>
                         </Dialog>
                     )}
+
+                    {/* Change display name (v834) — opened from the roster
+                        row's pencil next to "(you)". Applies to the local
+                        player + syncs to the room via setOnlineName. */}
+                    <Dialog open={nameEditOpen} onOpenChange={setNameEditOpen}>
+                        <DialogContent
+                            className={cn(
+                                "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
+                                "sm:max-w-xs z-[1060]",
+                            )}
+                            overlayClassName="z-[1060]"
+                        >
+                            <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em]">
+                                Your display name
+                            </DialogTitle>
+                            <Input
+                                autoFocus
+                                value={draftName}
+                                onChange={(e) => setDraftName(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") commitName();
+                                }}
+                                placeholder="What others see"
+                                maxLength={24}
+                            />
+                            <Button
+                                onClick={commitName}
+                                disabled={!draftName.trim()}
+                                className="w-full"
+                            >
+                                <Check className="w-4 h-4 mr-1.5" />
+                                Save
+                            </Button>
+                        </DialogContent>
+                    </Dialog>
 
                     {/* Pre-game play-area map. Restored in v260; v275
                         moved BELOW the room-code card so the share
@@ -896,7 +960,7 @@ export function GameLobbyDialog() {
                         a role happens here instead of a popup. Hidden
                         mid-game (no role-swapping once the clock runs). */}
                     {$mp && ($participants.length > 0 || !isMidGame) && (
-                        <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
+                        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
                             <RosterCard
                                 label={`Seekers · ${seekers.length}`}
                                 tone="seeker"
@@ -904,11 +968,21 @@ export function GameLobbyDialog() {
                                 selfId={$self}
                                 hostId={hostId}
                                 onJoin={
-                                    !isMidGame && $playerRole !== "seeker"
+                                    !isMidGame && $playerRole === null
                                         ? () => joinTeam("seeker")
                                         : undefined
                                 }
                                 joinLabel="Join seekers"
+                                onSwitchTeam={
+                                    !isMidGame && $playerRole === "seeker"
+                                        ? () => joinTeam("hider")
+                                        : undefined
+                                }
+                                onEditName={
+                                    !isMidGame
+                                        ? () => setNameEditOpen(true)
+                                        : undefined
+                                }
                             />
                             <RosterCard
                                 label={`Hiders · ${hiders.length}`}
@@ -917,11 +991,21 @@ export function GameLobbyDialog() {
                                 selfId={$self}
                                 hostId={hostId}
                                 onJoin={
-                                    !isMidGame && $playerRole !== "hider"
+                                    !isMidGame && $playerRole === null
                                         ? () => joinTeam("hider")
                                         : undefined
                                 }
                                 joinLabel="Join hiders"
+                                onSwitchTeam={
+                                    !isMidGame && $playerRole === "hider"
+                                        ? () => joinTeam("seeker")
+                                        : undefined
+                                }
+                                onEditName={
+                                    !isMidGame
+                                        ? () => setNameEditOpen(true)
+                                        : undefined
+                                }
                             />
                         </div>
                     )}
@@ -1065,22 +1149,12 @@ export function GameLobbyDialog() {
                         to beat" before pressing Start round. */}
                     <LeaderboardSection />
 
-                    {/* Mid-game info section — shown only when
-                        manually reopened during an active game. */}
-                    {isMidGame && (
-                        <>
-                            <RoundEndSection />
-                            <MidGameInfoSection
-                                isHiderRole={isHiderRole}
-                                mp={$mp}
-                                sharing={$seekerSharing}
-                                foundAt={$foundAt}
-                                onToggleSharing={() =>
-                                    seekerLocationSharing.set(!$seekerSharing)
-                                }
-                            />
-                        </>
-                    )}
+                    {/* Mid-game round-end section — shown only when
+                        manually reopened during an active game. v834: the
+                        GPS-sharing toggle moved to the map (a small status
+                        chip by the follow-me control), so it's no longer
+                        buried in the manually-reopened lobby. */}
+                    {isMidGame && <RoundEndSection />}
                 </div>
 
                 {/* Footer — Start for pre-game host, then a Leave
@@ -1203,6 +1277,8 @@ function RosterCard({
     hostId,
     onJoin,
     joinLabel,
+    onSwitchTeam,
+    onEditName,
 }: {
     label: string;
     tone: "seeker" | "hider";
@@ -1214,59 +1290,41 @@ function RosterCard({
     }[];
     selfId: string | null;
     hostId: string | null;
-    /** When set, render a "join this team" button (zero-state pick +
-     *  inline switch). The parent decides whether to pass it based on
-     *  the local player's current role. v829: any number of hiders. */
+    /** When set, render a "join this team" button — only in the zero-state
+     *  (the local player hasn't picked a role yet). */
     onJoin?: () => void;
     joinLabel?: string;
+    /** When set (on the card that holds the local player), the "(you)" row
+     *  gets a switch-teams button. */
+    onSwitchTeam?: () => void;
+    /** When set, the "(you)" row gets a change-name button. */
+    onEditName?: () => void;
 }) {
-    // Identity is carried by icon + (for hiders) a subtle dim,
-    // not a brand-coloured dot — the role colors were colliding
-    // with the question-category palette downstream. Seeker gets
-    // footprints (tracking the hider's trail through transit
-    // stations — the original Search/magnifying glass read as a
-    // generic "search field" icon, too confusing); hider gets a
-    // venetian half-mask, dimmer to read as 'in the shadows'.
-    const RoleIcon = tone === "seeker" ? Footprints : VenetianMask;
     const cardCls =
         tone === "seeker"
             ? "bg-secondary/40 border-border"
             : "bg-secondary/20 border-border/70";
-    const iconCls =
-        tone === "seeker"
-            ? "text-muted-foreground"
-            : "text-muted-foreground/60";
     return (
-        <div
-            className={cn(
-                "rounded-md border px-3.5 py-3 space-y-2",
-                cardCls,
-            )}
-        >
-            <div className="flex items-center gap-2">
-                <RoleIcon
-                    className={cn("w-4 h-4 shrink-0", iconCls)}
-                    aria-hidden
-                />
-                <span
-                    className={cn(
-                        "text-xs uppercase tracking-[0.12em] font-display font-extrabold",
-                        tone === "seeker"
-                            ? "text-muted-foreground"
-                            : "text-muted-foreground/80",
-                    )}
-                >
-                    {label}
-                </span>
-            </div>
+        <div className={cn("rounded-md border px-3.5 py-3 space-y-2", cardCls)}>
+            {/* v834: header label is bigger and carries no role icon. */}
+            <span
+                className={cn(
+                    "text-sm uppercase tracking-[0.12em] font-display font-extrabold",
+                    tone === "seeker"
+                        ? "text-muted-foreground"
+                        : "text-muted-foreground/80",
+                )}
+            >
+                {label}
+            </span>
             {rows.length === 0 ? (
-                <div className="text-sm text-muted-foreground italic leading-snug pl-6">
+                <div className="text-sm text-muted-foreground italic leading-snug">
                     {tone === "seeker"
                         ? "No seekers yet."
                         : "No hiders yet — the seat is open."}
                 </div>
             ) : (
-                <ul className="space-y-1.5 pl-6">
+                <ul className="space-y-1.5">
                     {rows.map((p) => {
                         const isMe = p.id === selfId;
                         const isHost = p.id === hostId;
@@ -1277,24 +1335,51 @@ function RosterCard({
                             >
                                 <span
                                     className={cn(
-                                        "flex-1 truncate flex items-center gap-1.5 font-medium",
+                                        "min-w-0 flex-1 truncate flex items-center gap-1.5 font-medium",
                                         !p.online && "opacity-50",
                                     )}
                                 >
-                                    <span>
+                                    <span className="truncate">
                                         {p.displayName || "Anonymous"}
                                     </span>
                                     {isHost && (
-                                        <span className="text-xs uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground">
+                                        <span className="text-xs uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground shrink-0">
                                             Host
                                         </span>
                                     )}
                                     {isMe && (
-                                        <span className="text-sm text-muted-foreground">
+                                        <span className="text-sm text-muted-foreground shrink-0">
                                             (you)
                                         </span>
                                     )}
                                 </span>
+                                {/* My own row: inline switch-teams + rename. */}
+                                {isMe && (onSwitchTeam || onEditName) && (
+                                    <span className="flex items-center gap-1 shrink-0">
+                                        {onSwitchTeam && (
+                                            <button
+                                                type="button"
+                                                onClick={onSwitchTeam}
+                                                aria-label="Switch teams"
+                                                title="Switch teams"
+                                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            >
+                                                <ArrowLeftRight className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                        {onEditName && (
+                                            <button
+                                                type="button"
+                                                onClick={onEditName}
+                                                aria-label="Change your name"
+                                                title="Change your name"
+                                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </span>
+                                )}
                             </li>
                         );
                     })}
@@ -1418,63 +1503,6 @@ const SIZE_OPTIONS: { value: GameSize; label: string }[] = [
     { value: "medium", label: "Medium" },
     { value: "large", label: "Large" },
 ];
-
-function MidGameInfoSection({
-    isHiderRole,
-    mp,
-    sharing,
-    foundAt,
-    onToggleSharing,
-}: {
-    isHiderRole: boolean;
-    mp: boolean;
-    sharing: boolean;
-    foundAt: number | null;
-    onToggleSharing: () => void;
-}) {
-    return (
-        <div className="border-t border-border pt-3 space-y-3 animate-in fade-in duration-200">
-            {/* v308: dropped the Play area / Size / Transit summary
-                block — the lobby header now carries the same
-                information ("Medium game in Stockholm" + the transit
-                icon pills) so duplicating it here was redundant.
-                v296 had already moved the Edit Settings button out;
-                this completes the cleanup so the mid-game section is
-                purely the GPS-sharing toggle. */}
-
-            {/* GPS sharing toggle (seeker only, multiplayer, not found) */}
-            {!isHiderRole && mp && foundAt === null && (
-                <button
-                    type="button"
-                    onClick={onToggleSharing}
-                    className={cn(
-                        "w-full flex items-center gap-2.5",
-                        "rounded-md border-2 px-3 py-2.5 text-left transition-colors",
-                        sharing
-                            ? "border-success/60 bg-success/10 text-success"
-                            : "border-border bg-secondary/40 text-muted-foreground",
-                    )}
-                >
-                    {sharing ? (
-                        <Radio className="w-4 h-4 shrink-0 text-success" />
-                    ) : (
-                        <RadioReceiver className="w-4 h-4 shrink-0" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                        <div className="text-[9px] uppercase tracking-[0.18em] font-poppins font-bold">
-                            {sharing ? "Sharing GPS with hider" : "GPS sharing off"}
-                        </div>
-                        <div className="text-[11px] leading-snug text-muted-foreground">
-                            {sharing
-                                ? "The hider sees your live position. Tap to pause."
-                                : "Tap to resume sharing your position."}
-                        </div>
-                    </div>
-                </button>
-            )}
-        </div>
-    );
-}
 
 /**
  * v318: leaderboard of completed rounds in the current game. Each

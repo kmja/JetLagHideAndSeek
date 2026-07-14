@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Compass, Locate, LocateOff } from "lucide-react";
+import { Compass, Locate, LocateOff, Radio, RadioReceiver } from "lucide-react";
 import type { MutableRefObject } from "react";
 import type { MapRef } from "react-map-gl/maplibre";
 
@@ -27,12 +27,20 @@ import { cn } from "@/lib/utils";
 export function MapNavControls({
     mapRef,
     showFollowMe = true,
+    gpsSharing,
+    onToggleGpsShare,
     className,
 }: {
     mapRef: MutableRefObject<MapRef | null>;
     /** Hide the follow-me toggle on maps that don't track live GPS
      *  (e.g. the inline question picker — it has its own pin). */
     showFollowMe?: boolean;
+    /** Seeker map only: when `onToggleGpsShare` is provided, a small
+     *  GPS-sharing status button renders above follow-me (green while
+     *  sharing live position with the hider, muted when paused). v834:
+     *  moved here from the manually-reopened lobby. */
+    gpsSharing?: boolean;
+    onToggleGpsShare?: () => void;
     className?: string;
 }) {
     const $follow = useStore(followMe);
@@ -50,6 +58,37 @@ export function MapNavControls({
                 className,
             )}
         >
+            {onToggleGpsShare && (
+                <button
+                    type="button"
+                    onClick={onToggleGpsShare}
+                    aria-label={
+                        gpsSharing
+                            ? "Sharing your location with the hider — tap to pause"
+                            : "Location sharing paused — tap to resume"
+                    }
+                    aria-pressed={gpsSharing}
+                    title={
+                        gpsSharing
+                            ? "Sharing your location with the hider — tap to pause"
+                            : "Location sharing paused — tap to resume"
+                    }
+                    className={cn(
+                        "pointer-events-auto h-10 w-10 rounded-md border-2 shadow-md transition-colors",
+                        "flex items-center justify-center",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        gpsSharing
+                            ? "bg-success border-success text-success-foreground hover:bg-success/90"
+                            : "bg-background border-border text-muted-foreground hover:bg-accent",
+                    )}
+                >
+                    {gpsSharing ? (
+                        <Radio className="h-5 w-5" />
+                    ) : (
+                        <RadioReceiver className="h-5 w-5" />
+                    )}
+                </button>
+            )}
             {showFollowMe && (
                 <button
                     type="button"

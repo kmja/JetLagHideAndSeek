@@ -105,14 +105,13 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
 
     return (
         <div className={sectionGap}>
-            {/* Map / Satellite */}
+            {/* Map / Satellite — two wizard-style tiles (v834: selected =
+                tinted bg + primary border + primary text, matching the
+                setup wizard's transit/size tiles, not a solid fill). */}
             <div className="space-y-2">
                 <div className={label}>Basemap</div>
                 <div
-                    className={cn(
-                        "rounded-lg border-2 border-border bg-background overflow-hidden flex",
-                        rowH,
-                    )}
+                    className="grid grid-cols-2 gap-2"
                     role="group"
                     aria-label="Map style"
                 >
@@ -121,11 +120,12 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                         onClick={() => satelliteView.set(false)}
                         aria-pressed={!$satellite}
                         className={cn(
-                            "flex-1 px-2 gap-1.5 flex items-center justify-center transition-colors",
+                            "px-2 gap-1.5 flex items-center justify-center rounded-lg border-2 transition-all",
+                            rowH,
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             !$satellite
-                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                : "hover:bg-accent",
+                                ? "bg-primary/10 border-primary text-primary"
+                                : "bg-secondary border-border text-muted-foreground hover:bg-accent",
                         )}
                     >
                         <MapIcon className={rowIcon} />
@@ -143,11 +143,12 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                         onClick={() => satelliteView.set(true)}
                         aria-pressed={$satellite}
                         className={cn(
-                            "flex-1 px-2 gap-1.5 flex items-center justify-center border-l-2 border-border transition-colors",
+                            "px-2 gap-1.5 flex items-center justify-center rounded-lg border-2 transition-all",
+                            rowH,
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             $satellite
-                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                : "hover:bg-accent",
+                                ? "bg-primary/10 border-primary text-primary"
+                                : "bg-secondary border-border text-muted-foreground hover:bg-accent",
                         )}
                     >
                         <Satellite className={rowIcon} />
@@ -171,12 +172,12 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                     onClick={() => displayHidingZones.set(!$hidingZones)}
                     aria-pressed={$hidingZones}
                     className={cn(
-                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",
+                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-all",
                         rowH,
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         $hidingZones
-                            ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
-                            : "bg-background border-border hover:bg-accent",
+                            ? "bg-primary/10 border-primary text-primary"
+                            : "bg-secondary border-border text-muted-foreground hover:bg-accent",
                     )}
                     title="Toggle hiding zones overlay"
                 >
@@ -395,15 +396,16 @@ function TransitIconToggle({
             aria-label={loading ? `${label} (loading routes)` : label}
             className={cn(
                 // Each toggle is a self-contained pill filling its grid
-                // cell, so four modes lay out as a tidy 2+2 (v833).
+                // cell, so four modes lay out as a tidy 2+2 (v833). Selected
+                // = wizard style (tinted bg + primary border/text, v834).
                 "w-full flex items-center justify-center gap-1.5 py-2 px-2.5",
-                "rounded-lg border-2 border-border transition-colors",
+                "rounded-lg border-2 transition-all",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 loading
-                    ? "bg-primary/20 text-primary hover:bg-primary/30"
+                    ? "bg-primary/10 border-primary/40 text-primary"
                     : on
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                      : "bg-background hover:bg-accent",
+                      ? "bg-primary/10 border-primary text-primary"
+                      : "bg-secondary border-border text-muted-foreground hover:bg-accent",
             )}
         >
             {loading ? (

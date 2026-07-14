@@ -54,7 +54,12 @@ import {
 } from "@/lib/featureFlags";
 import { hidingPeriodEndsAt, playArea } from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
+import { playerRole, roundFoundAt } from "@/lib/hiderRole";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
+import {
+    multiplayerEnabled,
+    seekerLocationSharing,
+} from "@/lib/multiplayer/session";
 import { fadePaint } from "@/lib/mapPaint";
 import { createMapShim } from "@/lib/mapShim";
 import { buildStyle } from "@/lib/mapStyle";
@@ -340,6 +345,14 @@ export function Map({ className }: MapProps) {
     const $hidingRadius = useStore(hidingRadius);
     const $hidingRadiusUnits = useStore(hidingRadiusUnits);
     const $travelTimes = useStore(travelTimesFC);
+    // GPS-sharing status chip (v834): seeker only, multiplayer, not yet
+    // found — moved off the manually-reopened lobby onto the map.
+    const $mpEnabled = useStore(multiplayerEnabled);
+    const $role = useStore(playerRole);
+    const $seekerSharing = useStore(seekerLocationSharing);
+    const $foundAt = useStore(roundFoundAt);
+    const showGpsShare =
+        $mpEnabled && $role === "seeker" && $foundAt === null;
     // The selected station's hiding-zone circle, for the prominent
     // "selected" highlight layer. Recomputed only when the selection or
     // radius changes.
@@ -2589,6 +2602,13 @@ export function Map({ className }: MapProps) {
                 (the clock owns the bottom-right). */}
             <MapNavControls
                 mapRef={mapRef}
+                gpsSharing={$seekerSharing}
+                onToggleGpsShare={
+                    showGpsShare
+                        ? () =>
+                              seekerLocationSharing.set(!$seekerSharing)
+                        : undefined
+                }
                 className={
                     // v622: on mobile the bottom-left Map-options chip moved
                     // to the bottom nav, so these drop to the bottom edge.

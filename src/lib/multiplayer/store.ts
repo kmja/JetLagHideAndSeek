@@ -512,6 +512,16 @@ export function setOnlineRole(role: "seeker" | "hider" | null) {
     getTransport().send({ t: "role", role });
 }
 
+/** Rename the local player. Writes the persistent display-name atom and,
+ *  in a multiplayer room, tells the server so it re-broadcasts presence
+ *  (the server de-dupes; the presence echo updates every roster). */
+export function setOnlineName(name: string) {
+    const trimmed = name.trim();
+    displayName.set(trimmed);
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "setName", displayName: trimmed });
+}
+
 /**
  * Round-rotation: tell the server who the new hider should be. The
  * server clears the current hider's role and assigns hider to the

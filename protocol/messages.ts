@@ -174,6 +174,16 @@ export interface CMsgSetDeck {
 }
 
 /**
+ * A participant renames themselves in the lobby. The server updates their
+ * `displayName` (de-duped against the roster) and broadcasts presence so
+ * every device sees the new name. Trimmed empty is ignored server-side.
+ */
+export interface CMsgSetName {
+    t: "setName";
+    displayName: string;
+}
+
+/**
  * Seeker triggers the endgame phase ("I'm close — lock your spot
  * down"). The server stamps `setup.endgameStartedAt` and broadcasts
  * a setupChanged so every client surfaces the transition. Idempotent:
@@ -271,6 +281,7 @@ export type ClientMessage =
     | CMsgRotateHider
     | CMsgSetHideZone
     | CMsgSetDeck
+    | CMsgSetName
     | CMsgStartEndgame
     | CMsgCancelEndgame
     | CMsgConfirmEndgame

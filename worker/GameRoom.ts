@@ -339,6 +339,8 @@ export class GameRoom {
                 return this.handleSetHideZone(socket, msg.zone);
             case "setDeck":
                 return this.handleSetDeck(socket, msg.deck);
+            case "setName":
+                return this.handleSetName(socket, msg.displayName);
             case "startEndgame":
                 return this.handleStartEndgame(socket, msg.at);
             case "cancelEndgame":
@@ -661,6 +663,21 @@ export class GameRoom {
                 this.sendTo(c.socket, { t: "deck", deck });
             }
         }
+    }
+
+    /** A participant renamed themselves. De-dupe against the roster and
+     *  broadcast presence so every device shows the new name. */
+    private handleSetName(socket: WebSocket, displayName: string) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find(
+            (q) => q.id === conn.participantId,
+        );
+        if (!p) return;
+        const trimmed = (displayName ?? "").trim();
+        if (!trimmed) return;
+        p.displayName = this.uniqueDisplayName(trimmed, p.id);
+        this.broadcastPresence();
     }
 
     /**

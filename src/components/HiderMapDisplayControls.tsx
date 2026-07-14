@@ -107,10 +107,7 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
             <div className="space-y-2">
                 <div className={label}>Basemap</div>
                 <div
-                    className={cn(
-                        "rounded-lg border-2 border-border bg-background overflow-hidden flex",
-                        rowH,
-                    )}
+                    className="grid grid-cols-2 gap-2"
                     role="group"
                     aria-label="Map style"
                 >
@@ -119,11 +116,12 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                         onClick={() => satelliteView.set(false)}
                         aria-pressed={!$satellite}
                         className={cn(
-                            "flex-1 px-2 gap-1.5 flex items-center justify-center transition-colors",
+                            "px-2 gap-1.5 flex items-center justify-center rounded-lg border-2 transition-all",
+                            rowH,
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             !$satellite
-                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                : "hover:bg-accent",
+                                ? "bg-primary/10 border-primary text-primary"
+                                : "bg-secondary border-border text-muted-foreground hover:bg-accent",
                         )}
                     >
                         <MapIcon className={rowIcon} />
@@ -138,11 +136,12 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                         onClick={() => satelliteView.set(true)}
                         aria-pressed={$satellite}
                         className={cn(
-                            "flex-1 px-2 gap-1.5 flex items-center justify-center border-l-2 border-border transition-colors",
+                            "px-2 gap-1.5 flex items-center justify-center rounded-lg border-2 transition-all",
+                            rowH,
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             $satellite
-                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                : "hover:bg-accent",
+                                ? "bg-primary/10 border-primary text-primary"
+                                : "bg-secondary border-border text-muted-foreground hover:bg-accent",
                         )}
                     >
                         <Satellite className={rowIcon} />
@@ -168,12 +167,12 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                     onClick={() => showHiderReach.set(!$reach)}
                     aria-pressed={$reach}
                     className={cn(
-                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",
+                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-all",
                         rowH,
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         $reach
-                            ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
-                            : "bg-background border-border hover:bg-accent",
+                            ? "bg-primary/10 border-primary text-primary"
+                            : "bg-secondary border-border text-muted-foreground hover:bg-accent",
                     )}
                     title="Show candidate hiding zones — tap one to plan a route and check reachability"
                 >
@@ -353,14 +352,14 @@ function TransitIconToggle({
             title={loading ? `${label} — loading routes…` : label}
             aria-label={loading ? `${label} (loading routes)` : label}
             className={cn(
-                "flex-1 flex items-center justify-center transition-colors",
+                "flex-1 flex items-center justify-center transition-all",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 borderLeft && "border-l-2 border-border",
                 loading
-                    ? "bg-primary/20 text-primary hover:bg-primary/30"
+                    ? "bg-primary/10 text-primary"
                     : on
-                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                      : "hover:bg-accent",
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent",
             )}
         >
             {loading ? (

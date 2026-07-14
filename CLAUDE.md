@@ -428,7 +428,41 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v833`. Use `git log` for the per-version detail;
+build stamp. Current: `v834`. Use `git log` for the per-version detail;
+
+**v834 — station card is a plain map overlay (fixes the frozen map) + lobby
+polish.** (1) **`StationTransitCard` is no longer a vaul drawer — it's a plain
+fixed bottom map overlay.** A vaul drawer (even `modal={false}`) puts
+`body{pointer-events:none}` up via its Radix dismissable layer, which froze the
+WHOLE map AND the app header while the card was open (the reported "can't zoom/
+pan/tap anything, can't even hit Settings"). As a bare positioned `<div>` there's
+zero body manipulation, so the map stays fully interactive — pan / zoom / tap
+another zone to switch. Dismiss by swiping the card down or tapping the top
+handle (the X was removed). Also: the station icon is now the **transit-mode
+glyph** (`modeIconFor` — train/subway/tram/ferry/bus priority, MapPin fallback)
+instead of the generic teardrop; the mode-pills row + the "Your route from where
+you are now" description were dropped; the title is calmer (`font-bold`, no
+uppercase/tracking-tight). The earlier v833 "reachability banner IS the expander"
+merge was reverted per feedback — separate banner + "Route & departures"
+expander again. (2) **GPS-sharing moved off the lobby onto the map** — a small
+status chip above the follow-me control (`MapNavControls` `gpsSharing`/
+`onToggleGpsShare`, seeker-only via `Map.tsx`; green while sharing, muted when
+paused). The `MidGameInfoSection` in the lobby is gone. (3) **Lobby polish**
+(`GameLobbyDialog`): city header `font-bold` (was `font-black tracking-tight`);
+the transit **Edit** button drops its label to icon-only when all modes are on
+(fits one row); the transit-mode editor got a **Save** button; the size dropdown
+shows just the coloured pills (no redundant text label); the **roster is a single
+column** (was 2-up), with **no role icons** and a bigger section header; the
+"(you)" row gained inline **switch-teams** + **change-name** buttons. (4)
+**Live rename** — new `CMsgSetName`/`handleSetName` (server de-dupes +
+re-broadcasts presence) + client `setOnlineName` + demo-broker handling, so the
+change-name dialog syncs to the room. (5) **Map-options selected style matches
+the wizard** — tinted `bg-primary/10` + `border-primary` + `text-primary`
+(basemap is now two wizard-style tiles; hiding-zones + transit toggles too), not
+a solid `bg-primary` fill — on both the seeker (`MapDisplayControls`) and hider
+(`HiderMapDisplayControls`) panels. House-rules visibility was already correct
+(guests see only active rules, and nothing when none are active; only the host
+sees the editor).
 
 **v833 — map-options declutter + the "walking-only in NYC" root cause.** A
 batch of demo-feedback fixes. (1) **The trip planner no longer falls to a
