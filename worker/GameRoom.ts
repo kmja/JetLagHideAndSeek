@@ -39,6 +39,36 @@ import { parseVapidKeys, sendWebPush } from "./webpush";
 
 /* ────────────────── Helpers ────────────────── */
 
+/**
+ * `found` proximity soft-check tuning. The seeker must be physically with the
+ * hider (rulebook p43). GPS is noisy in the dense cores this game is played
+ * in, so the threshold is generous — it stops an across-the-block/city
+ * declaration, not a face-to-face one. A soft warning, not a hard block:
+ * past this, the server asks the seeker "are you sure?" and they can force it.
+ */
+const FOUND_PROXIMITY_METERS = 50;
+/** Only trust a position fresher than this for the check (else can't verify). */
+const FOUND_POS_STALE_MS = 3 * 60_000;
+
+/** Great-circle distance in metres (server-side; no turf dependency). */
+function haversineMetersServer(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+): number {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 /** Cryptographically-random session token. Hex-encoded, 24 bytes. */
 function makeSessionToken(): string {
     const bytes = new Uint8Array(24);
@@ -332,7 +362,7 @@ export class GameRoom {
             case "updateQ":
                 return this.handleUpdateQuestion(socket, msg.key, msg.data);
             case "found":
-                return this.handleMarkFound(socket, msg.foundAt);
+                return this.handleMarkFound(socket, msg.foundAt, msg.force);
             case "roundSummary":
                 return this.handleRoundSummary(
                     socket,
@@ -359,6 +389,13 @@ export class GameRoom {
                     msg.lat,
                     msg.lng,
                     msg.accuracy,
+                    msg.ts,
+                );
+            case "hiderLoc":
+                return this.handleHiderLocation(
+                    socket,
+                    msg.lat,
+                    msg.lng,
                     msg.ts,
                 );
             case "castCurse":
@@ -803,14 +840,91 @@ export class GameRoom {
         this.broadcast({ t: "qUpdated", key, question: merged });
     }
 
-    private handleMarkFound(socket: WebSocket, foundAt: number) {
+    private handleMarkFound(
+        socket: WebSocket,
+        foundAt: number,
+        force?: boolean,
+    ) {
         const conn = this.lookupConn(socket);
         if (!conn) return;
         // First-write-wins: don't allow the seeker to move the
         // round-end timestamp after the hider has acknowledged it.
         if (this.game.roundFoundAt !== null) return;
+        // Proximity soft-check (rulebook p43 — the seeker must physically be
+        // with the hider). Unless forced (the seeker already dismissed the
+        // "are you sure?" warning), if the marker's last GPS is well away from
+        // the NEAREST hider's last GPS, don't end — reply `foundFar` so the
+        // seeker gets a soft warning and re-sends with force. Degrades to
+        // "allow" whenever either side's position is missing/stale (can't
+        // verify → don't block; friends game). The hider's coordinate never
+        // leaves the server, so no distance is leaked to the seeker.
+        if (!force && this.markFoundIsTooFar(conn.participantId)) {
+            return this.sendTo(socket, { t: "foundFar", foundAt });
+        }
         this.game.roundFoundAt = foundAt;
         this.broadcast({ t: "ended", foundAt });
+    }
+
+    /**
+     * True only when we can AFFIRMATIVELY tell the marking seeker is far from
+     * every hider: the seeker has a fresh position, at least one hider has a
+     * fresh position, and the seeker is farther than the threshold from the
+     * nearest hider. Missing/stale data on either side returns false (allow).
+     */
+    private markFoundIsTooFar(seekerId: string): boolean {
+        const now = Date.now();
+        const seeker = this.lastPos.get(seekerId);
+        if (!seeker || now - seeker.ts > FOUND_POS_STALE_MS) return false;
+        let sawFreshHider = false;
+        let nearest = Infinity;
+        for (const p of this.game.participants) {
+            if (p.role !== "hider") continue;
+            const hp = this.lastPos.get(p.id);
+            if (!hp || now - hp.ts > FOUND_POS_STALE_MS) continue;
+            sawFreshHider = true;
+            const d = haversineMetersServer(
+                seeker.lat,
+                seeker.lng,
+                hp.lat,
+                hp.lng,
+            );
+            if (d < nearest) nearest = d;
+        }
+        if (!sawFreshHider) return false; // can't verify → allow
+        return nearest > FOUND_PROXIMITY_METERS;
+    }
+
+    /**
+     * Hider → server ONLY: store the hider's live GPS for the `found`
+     * proximity check. NEVER fanned to anyone (the position is the game's
+     * secret); it only feeds `markFoundIsTooFar`.
+     */
+    private handleHiderLocation(
+        socket: WebSocket,
+        lat: number,
+        lng: number,
+        ts: number,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find(
+            (q) => q.id === conn.participantId,
+        );
+        if (!p || p.role !== "hider") return;
+        if (
+            typeof lat !== "number" ||
+            typeof lng !== "number" ||
+            typeof ts !== "number" ||
+            !Number.isFinite(lat) ||
+            !Number.isFinite(lng) ||
+            !Number.isFinite(ts)
+        ) {
+            return;
+        }
+        const prev = this.lastLocTs.get(conn.participantId) ?? 0;
+        if (ts <= prev) return;
+        this.lastLocTs.set(conn.participantId, ts);
+        this.lastPos.set(conn.participantId, { lat, lng, ts });
     }
 
     /**
@@ -964,6 +1078,14 @@ export class GameRoom {
      * client-side throttle this caps fan-out at ~1 msg / 5 s / seeker.
      */
     private lastLocTs: Map<string, number> = new Map();
+
+    /**
+     * Last known position per participant (seekers via `loc`, hiders via the
+     * private `hiderLoc`). Feeds ONLY the `found` proximity soft-check
+     * (`markFoundIsTooFar`); hider entries are never fanned anywhere.
+     */
+    private lastPos: Map<string, { lat: number; lng: number; ts: number }> =
+        new Map();
     private handleSeekerLocation(
         socket: WebSocket,
         lat: number,
@@ -990,6 +1112,9 @@ export class GameRoom {
         const prev = this.lastLocTs.get(conn.participantId) ?? 0;
         if (ts <= prev) return;
         this.lastLocTs.set(conn.participantId, ts);
+        // Remember the position for the `found` proximity check (the seeker's
+        // side of it). Fanned to the hide team below as usual.
+        this.lastPos.set(conn.participantId, { lat, lng, ts });
         const msg: ServerMessage = {
             t: "loc",
             participantId: conn.participantId,
@@ -1077,6 +1202,7 @@ export class GameRoom {
         // stale prev > new ts could swallow the new round's first
         // GPS broadcast.
         this.lastLocTs.clear();
+        this.lastPos.clear();
         // Announce the new round. Clients apply the roster (role
         // swaps) AND wipe round-scoped local state on this event —
         // see SMsgRoundStarted. A plain snapshot wouldn't do: it also

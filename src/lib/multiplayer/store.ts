@@ -67,6 +67,7 @@ import {
     resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
+import { appConfirm } from "@/lib/confirm";
 import {
     alternateQuestionTypes,
     askOncePerQuestion,
@@ -398,10 +399,37 @@ export async function uploadGamePhoto(blob: Blob): Promise<string> {
     return data.url;
 }
 
-/** Seeker marks the hider found. Round-end ping. */
-export function seekerMarkFound(foundAt: number) {
+/**
+ * Seeker marks the hider found. Round-end ping. In multiplayer the server
+ * soft-validates proximity (rulebook p43): it replies `foundFar` if the
+ * seeker's last GPS is well away from the nearest hider, and only broadcasts
+ * `ended` when close (or when it can't verify). Pass `force` to skip the
+ * check after the seeker dismisses the "are you sure?" warning.
+ */
+export function seekerMarkFound(foundAt: number, force = false) {
     if (!multiplayerEnabled.get()) return;
-    getTransport().send({ t: "found", foundAt });
+    getTransport().send({ t: "found", foundAt, force });
+}
+
+/**
+ * Hider → server ONLY: push the hider's live GPS so the server can range-check
+ * a `found` claim. NEVER reaches seekers (unlike the seeker `loc`) — it's the
+ * game's secret. Owned by `useHiderLocationBroadcast`, which gates on role +
+ * multiplayer + a live game.
+ */
+export function hiderPushLocation(
+    lat: number,
+    lng: number,
+    accuracy: number,
+) {
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({
+        t: "hiderLoc",
+        lat,
+        lng,
+        accuracy,
+        ts: Date.now(),
+    });
 }
 
 /**
@@ -987,6 +1015,25 @@ function handleServerMessage(msg: ServerMessage) {
             roundEndBaseMs.set(msg.baseMs);
             roundEndBonusPieces.set(msg.bonusPieces);
             return;
+        case "foundFar": {
+            // v853: the server range-checked our `found` claim and the
+            // seeker's GPS is well away from the nearest hider. Soft warning
+            // (rulebook p43 — be physically WITH the hider); on confirm we
+            // re-send with force to end regardless. No distance is leaked (the
+            // hider's position is secret) — just "GPS says you're pretty far".
+            const foundAt = msg.foundAt;
+            void (async () => {
+                const ok = await appConfirm({
+                    title: "Are you with the hider?",
+                    description:
+                        "Your GPS says you're pretty far from the hider. Only mark them found once you've physically reached them. Mark found anyway?",
+                    confirmLabel: "Mark found",
+                    destructive: true,
+                });
+                if (ok) seekerMarkFound(foundAt, true);
+            })();
+            return;
+        }
         case "roundStarted":
             applyRoundStarted(msg.participants);
             return;

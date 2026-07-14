@@ -469,10 +469,13 @@ function handleClientMessage(msg: ClientMessage) {
         }
 
         case "loc":
+        case "hiderLoc":
         case "ping":
         case "subscribePush":
             // Acknowledged silently. The demo doesn't need any of
-            // these to drive a useful test surface.
+            // these to drive a useful test surface. (`hiderLoc` feeds the
+            // real server's found proximity check; the single-hider demo has
+            // no seeker to range-check, so it's a no-op — `found` just ends.)
             return;
     }
 }

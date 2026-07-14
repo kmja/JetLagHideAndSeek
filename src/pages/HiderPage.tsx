@@ -17,6 +17,7 @@ import { LocationPauseWatcher } from "@/components/LocationPauseWatcher";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { SeekerProximityWatcher } from "@/components/SeekerProximityWatcher";
 import { StationTransitCard } from "@/components/StationTransitCard";
+import { useHiderLocationBroadcast } from "@/hooks/useHiderLocationBroadcast";
 import {
     gameStartCelebrationAt,
     gameStartOverLobby,
@@ -93,6 +94,11 @@ export function HiderPage() {
     const clockArmed = Number.isFinite($hidingEndsAt);
     const flourishActive =
         clockArmed && $overLobby && $celebrationAt !== null;
+
+    // v853: push the hider's live GPS to the SERVER (never to seekers) so it
+    // can range-check a `found` claim. Self-gates on role + multiplayer + a
+    // live game; safe to call unconditionally (before the pre-game return).
+    useHiderLocationBroadcast();
 
     // (Lobby→in-game swap body-lock leftover is cleared globally by
     // installBodyPointerEventsGuard — see main.tsx.)

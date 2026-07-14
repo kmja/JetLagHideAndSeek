@@ -15,6 +15,7 @@ import {
     setupCompleted,
 } from "@/lib/gameSetup";
 import { roundFoundAt, roundLog } from "@/lib/hiderRole";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { seekerMarkFound } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
@@ -76,11 +77,18 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         });
         if (!ok) return;
         const ts = Date.now();
-        roundFoundAt.set(ts);
-        // Fire the celebratory end-of-round dialog (v631).
-        endOfRoundDialogOpen.set(true);
-        // Mirror through multiplayer; no-op when offline.
-        seekerMarkFound(ts);
+        if (multiplayerEnabled.get()) {
+            // v853: DON'T end optimistically online. The server soft-validates
+            // proximity and either broadcasts `ended` (→ our `ended` handler
+            // sets roundFoundAt + opens the dialog, on this device too) or
+            // replies `foundFar` for the "are you sure?" warning. Ending here
+            // would skip the check.
+            seekerMarkFound(ts);
+        } else {
+            roundFoundAt.set(ts);
+            // Fire the celebratory end-of-round dialog (v631).
+            endOfRoundDialogOpen.set(true);
+        }
         // v824: NO auto OS-share sheet here anymore. It was a pre-multiplayer
         // remnant (the hider used to tap a shared link to end their timer);
         // now `seekerMarkFound` syncs the found state over the wire and the

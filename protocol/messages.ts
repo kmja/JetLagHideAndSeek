@@ -100,10 +100,32 @@ export interface CMsgAnswerQuestion {
 
 /**
  * Seeker marks the hider as found. Round-end ping.
+ *
+ * The server soft-validates proximity (rulebook p43 — the seeker must be
+ * physically with the hider): if the seeker's last shared GPS is well away
+ * from the nearest hider's last shared GPS, the server replies `foundFar`
+ * instead of ending, and the seeker re-sends with `force:true` after the
+ * soft "are you sure?" warning. When it can't verify (either side's position
+ * is missing/stale), it ends normally. `force` skips the check.
  */
 export interface CMsgMarkFound {
     t: "found";
     foundAt: number;
+    force?: boolean;
+}
+
+/**
+ * Hider → server ONLY: the hider's live GPS. Never fanned to anyone (unlike
+ * the seeker `loc`, which the hide team sees) — it exists purely so the
+ * server can range-check a `found` claim without ever revealing the hider's
+ * position to seekers. Same shape as `loc`.
+ */
+export interface CMsgHiderLoc {
+    t: "hiderLoc";
+    lat: number;
+    lng: number;
+    accuracy: number;
+    ts: number;
 }
 
 /**
@@ -304,6 +326,7 @@ export type ClientMessage =
     | CMsgCancelEndgame
     | CMsgConfirmEndgame
     | CMsgSeekerLocation
+    | CMsgHiderLoc
     | CMsgPing
     | CMsgCastCurse
     | CMsgSubscribePush;
@@ -353,6 +376,20 @@ export interface SMsgQuestionAnswered {
 /** Broadcast when the round ends. */
 export interface SMsgRoundEnded {
     t: "ended";
+    foundAt: number;
+}
+
+/**
+ * Sent to the marking seeker ONLY (not a broadcast) when their `found`
+ * claim's proximity check fails — their last GPS is well away from the
+ * nearest hider's. The round does NOT end; the seeker shows a soft "are you
+ * sure?" warning and, on confirm, re-sends `found` with `force:true`.
+ * Carries the original `foundAt` so the forced re-send preserves the
+ * declared moment. Deliberately leaks NO distance (the hider's position is
+ * secret — the warning only says "GPS says you're pretty far").
+ */
+export interface SMsgFoundFar {
+    t: "foundFar";
     foundAt: number;
 }
 
@@ -469,6 +506,7 @@ export type ServerMessage =
     | SMsgQuestionUpdated
     | SMsgQuestionAnswered
     | SMsgRoundEnded
+    | SMsgFoundFar
     | SMsgRoundSummary
     | SMsgRoundStarted
     | SMsgPresence

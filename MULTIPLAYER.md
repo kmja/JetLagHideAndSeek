@@ -273,6 +273,19 @@ These were follow-ups in the original draft of this doc and are now
 - **Live position sharing.** Seeker→hider GPS streams over the
   WebSocket as `loc` messages (`GameRoom.ts` broadcasts them;
   `SeekerLivePositions` renders them on the hider map).
+- **Found proximity soft-check (v853).** Rulebook p43 — the seeker must be
+  physically with the hider to mark them found. The seeker's device can't
+  measure this (it never holds the hider's coordinate — that's the game's
+  secret), so it's server-authoritative: the hider streams its GPS to the
+  server ONLY via `hiderLoc` (never fanned to anyone; `useHiderLocationBroadcast`
+  owns it, server stores it in `lastPos`), and on a `found` claim the server
+  range-checks the marking seeker's last GPS against the nearest hider's
+  (`markFoundIsTooFar`, `FOUND_PROXIMITY_METERS` = 50 m, positions fresh within
+  3 min). Too far → it replies `foundFar` to that seeker only (no distance
+  leaked) instead of ending; the seeker gets a soft "are you with the hider?"
+  confirm and can re-send `found` with `force:true`. Can't verify (either side
+  missing/stale) → allow. The seeker no longer ends optimistically online — it
+  waits for the server's `ended`/`foundFar`.
 - **Curse cast over the wire.** Curses go over the socket
   (`castCurse` → `curseReceived`), and `webpush.ts` even delivers
   them to **offline** seekers as Web Push notifications.

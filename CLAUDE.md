@@ -430,6 +430,34 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v853 — server-authoritative "with the hider" range-check on Mark Found
+(Track 2 of the v852 proximity guards).** The tighter within-distance check
+v852 deferred (the seeker's device never holds the hider's coordinate — it's the
+game's secret). Done server-side so the secret never leaks: (1) **The hider
+pushes its live GPS to the SERVER ONLY** — new `hiderLoc` message
+(`protocol/messages.ts` `CMsgHiderLoc`, `worker/GameRoom.ts handleHiderLocation`
+stores it in `lastPos`, **never fanned to anyone**, unlike the seeker `loc`).
+Owned by the new `useHiderLocationBroadcast` hook (mirrors
+`useSeekerLocationBroadcast` — watchPosition + 30 s heartbeat, gated on role
+hider + multiplayer + a live game; no user toggle since it's server-only +
+ephemeral). (2) **`found` gains an optional `force` + a soft proximity check.**
+The server also stores every seeker's `loc` in `lastPos`; on a `found` claim
+(`handleMarkFound`), `markFoundIsTooFar` computes the distance from the marking
+seeker's last GPS to the NEAREST hider's last GPS and, if it exceeds
+**`FOUND_PROXIMITY_METERS` = 50 m** (both positions fresh within
+`FOUND_POS_STALE_MS` = 3 min), replies `SMsgFoundFar` to that seeker ONLY
+instead of broadcasting `ended`. Missing/stale data on either side → allow
+(can't verify; friends game). (3) **Seeker side** (`HiderTimer.handleMarkFound`)
+no longer ends optimistically in multiplayer — it sends the claim and waits for
+the server's `ended` (→ the normal `ended` handler ends on this device too) or
+`foundFar`; on `foundFar` (`multiplayer/store.ts`) it shows a **soft "Are you
+with the hider? … GPS says you're pretty far …" `appConfirm`** (NO distance
+leaked — the hider's position stays secret) and, on confirm, re-sends
+`found` with `force:true`. Offline/solo still ends locally. `lastPos` clears on
+round reset; demo broker no-ops `hiderLoc` (single-hider demo has no seeker to
+range-check). **`FOUND_PROXIMITY_METERS` is the one knob** to loosen if urban
+GPS proves too tight in play.
+
 **v852 — endgame/found proximity guards (Track 1: the seeker-local, no-wire
 half).** Two rulebook-p43 anti-cheat/anti-mistake checks around the endgame. (1)
 **Start-endgame-in-zone geometric gate** (`StationTransitCard.handleStartEndgame`):
@@ -450,8 +478,9 @@ inherits the zone-level proximity guarantee from check (1). **A tighter
 seeker's device never holds the hider's coordinate (it's the game's secret;
 `hideZone`/`hidingSpot` fan to other hiders only, seekers get `loc` from seekers
 only), so a real distance check needs a wire-level flow (hider-side validation or
-server-authoritative). Deferred pending a design decision; the mark-found
-self-confirm is the interim guard.
+server-authoritative). **Shipped in v853** (server-authoritative, 50 m soft
+warning); the mark-found self-confirm here stays as the always-present first
+gate.
 
 **v851 — bonus tally synced over the wire + individual floating bonus chips.**
 Follow-up to v850's `EndOfRoundDialog` in-hand bonus tally, which read the LOCAL
