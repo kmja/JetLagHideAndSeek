@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v837`. Use `git log` for the per-version detail;
+build stamp. Current: `v838`. Use `git log` for the per-version detail;
+
+**v838 — dedicated "Edit play area" dialog in the lobby.** The lobby's play-area
+Edit button used to close the lobby and open the whole tabbed Game-Settings
+wizard (PLAY AREA / TRANSIT / SIZE) — inconsistent with the compact inline
+transit + size editors right next to it. Now it opens a focused **"Edit play
+area" `Dialog`** (host only, pre-game) embedding the reusable `PlayAreaStep`
+(search + map picker + adjacent-area folding) with Cancel / Save, layered over
+the lobby at `z-[1060]` like the transit editor. The live-commit side effects
+(set `playArea` + `mapGeoLocation`, pre-build the boundary polygon, WIPE
+questions + zone/overlay caches, fly the map, toast) were extracted from
+`GameSetupDialog.handleSaveEdits` into a shared **`src/lib/playAreaCommit.ts`
+`commitPlayAreaChange(feature)`** used by BOTH the wizard and the lobby dialog;
+the lobby's Save only commits (+ `hostPushSetup`) when the osm_id actually
+changed. `additionalMapGeoLocations` is deliberately NOT cleared here (the same
+as the wizard — `PlayAreaExtensions` manages it).
 
 **v837 — display-name-doesn't-register fix + adaptive lobby header + Host
 icon.** (1) **BUG: a typed display name sometimes didn't register** (esp. the

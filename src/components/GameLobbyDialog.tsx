@@ -29,6 +29,8 @@ import {
 import { appConfirm } from "@/lib/confirm";
 import { useFitFontSize } from "@/hooks/useFitFontSize";
 import { additionalMapGeoLocations, mapGeoLocation } from "@/lib/context";
+import { commitPlayAreaChange } from "@/lib/playAreaCommit";
+import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
     type GameSize,
@@ -73,7 +75,7 @@ import { returnToLandingPage } from "@/lib/roundActions";
 import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
-import { TransitStep } from "./GameSetupDialog";
+import { PlayAreaStep, TransitStep } from "./GameSetupDialog";
 import { HouseRulesSection } from "./HouseRulesSection";
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
@@ -277,11 +279,25 @@ export function GameLobbyDialog() {
         gameSize.set(s);
         hostPushSetup();
     };
+    // v838: the play area gets its OWN focused "Edit play area" dialog
+    // (matching the compact transit/size editors), instead of opening the
+    // whole tabbed Game-Settings wizard. Draft is seeded from the current
+    // area on open; Save commits it live (+ pushes to peers) only when it
+    // actually changed.
     const openAreaEditor = () => {
-        // Changing the play area needs the search + map picker, so it
-        // opens the setup dialog focused on the area step (edit mode).
-        lobbyManualOpen.set(false);
-        setupDialogOpen.set(true);
+        setPlayAreaEditOpen(true);
+    };
+    const handleSavePlayArea = () => {
+        const current = mapGeoLocation.get();
+        const changed =
+            draftArea != null &&
+            draftArea.properties.osm_id !==
+                (current?.properties.osm_id ?? null);
+        if (changed) {
+            commitPlayAreaChange(draftArea);
+            hostPushSetup();
+        }
+        setPlayAreaEditOpen(false);
     };
 
     // v447: pick / switch team from the lobby roster zero-state. Mirrors
@@ -421,6 +437,13 @@ export function GameLobbyDialog() {
     // Transit-mode editor (host). Opens the wizard's transit step in a
     // dialog; changes apply live via commitTransit (and push to peers).
     const [transitEditOpen, setTransitEditOpen] = useState(false);
+    // v838: dedicated "Edit play area" dialog (draft seeded from the current
+    // area on open). Kept out of the whole Game-Settings wizard.
+    const [playAreaEditOpen, setPlayAreaEditOpen] = useState(false);
+    const [draftArea, setDraftArea] = useState<OpenStreetMap | null>(null);
+    useEffect(() => {
+        if (playAreaEditOpen) setDraftArea(mapGeoLocation.get());
+    }, [playAreaEditOpen]);
     // Change-display-name dialog (v834), opened from the roster row's inline
     // pencil next to "(you)". Seeds from the current name on open.
     const [nameEditOpen, setNameEditOpen] = useState(false);
@@ -868,6 +891,55 @@ export function GameLobbyDialog() {
                                     <Check className="w-4 h-4 mr-1.5" />
                                     Save
                                 </Button>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+
+                    {/* Edit play area (v838) — a focused dialog (search + map
+                        picker + adjacent areas), matching the compact transit/
+                        size editors instead of the whole tabbed Game-Settings
+                        wizard. Host only; only reachable pre-game (the preview
+                        Edit button lives in the !isMidGame block). */}
+                    {isHost && (
+                        <Dialog
+                            open={playAreaEditOpen}
+                            onOpenChange={setPlayAreaEditOpen}
+                        >
+                            <DialogContent
+                                className={cn(
+                                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
+                                    "sm:max-w-lg z-[1060] flex max-h-[88vh] flex-col",
+                                )}
+                                overlayClassName="z-[1060]"
+                            >
+                                <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em] shrink-0">
+                                    Edit play area
+                                </DialogTitle>
+                                <div className="flex-1 overflow-y-auto -mx-1 px-1">
+                                    <PlayAreaStep
+                                        value={draftArea}
+                                        onChange={setDraftArea}
+                                    />
+                                </div>
+                                <div className="shrink-0 flex gap-2 pt-1">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                            setPlayAreaEditOpen(false)
+                                        }
+                                        className="flex-1"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={handleSavePlayArea}
+                                        disabled={!draftArea}
+                                        className="flex-1"
+                                    >
+                                        <Check className="w-4 h-4 mr-1.5" />
+                                        Save
+                                    </Button>
+                                </div>
                             </DialogContent>
                         </Dialog>
                     )}

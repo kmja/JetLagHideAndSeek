@@ -72,6 +72,7 @@ import {
     sameModes,
     sizeForAreaKm2,
 } from "@/lib/playAreaSize";
+import { commitPlayAreaChange } from "@/lib/playAreaCommit";
 import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
 import {
     ensureWarmCitiesLoaded,
@@ -376,40 +377,13 @@ export function GameSetupDialog() {
             draftFeature != null &&
             draftFeature.properties.osm_id !== initialPlayAreaIdRef.current;
         if (playAreaChanged) {
-            const coords = draftFeature.geometry.coordinates as number[];
-            const [lat, lng] = coords;
-            playArea.set({
-                displayName: determineName(draftFeature),
-                lat,
-                lng,
-            });
-            mapGeoLocation.set(draftFeature);
-            // Pre-build the polygons.osm.fr polygon for this relation
-            // so that by the time the seeker hits the lobby and the
-            // boundary fetch kicks in, the fast-path racer already
-            // has a built polygon ready instead of returning "None"
-            // and falling back to the public Overpass mirrors. The
-            // call is fire-and-forget and idempotent per relation,
-            // so re-picks are free.
-            if (draftFeature.properties.osm_type === "R") {
-                triggerPolygonsOsmFrBuild(draftFeature.properties.osm_id);
-            }
-            questions.set([]);
-            // NOTE: don't clear `additionalMapGeoLocations` here —
-            // `PlayAreaExtensions` already manages it (it clears
-            // stale entries when the primary changes and sets the
-            // user's tick selections). Wiping it post-finish was
-            // the bug where adjacent areas (e.g. Lund alongside
-            // Malmö) silently dropped off the play-area boundary.
-            mapGeoJSON.set(null);
-            polyGeoJSON.set(null);
-            disabledStations.set([]);
-            permanentOverlay.set(null);
-            const map = mapContext.get();
-            map?.flyTo([lat, lng], 11, { duration: 0.6 });
-            toast.info("Play area updated — questions cleared.", {
-                autoClose: 3000,
-            });
+            // Shared side effects (also used by the lobby's Edit-play-area
+            // dialog, v838). NOTE: this does NOT clear
+            // `additionalMapGeoLocations` — `PlayAreaExtensions` already
+            // manages it (clearing stale entries when the primary changes),
+            // and wiping it here was the bug where adjacent areas (Lund
+            // alongside Malmö) silently dropped off the boundary.
+            commitPlayAreaChange(draftFeature);
         } else {
             toast.success("Settings saved.", { autoClose: 2000 });
         }
