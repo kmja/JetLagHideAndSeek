@@ -63,7 +63,6 @@ export function HouseRulesSection({
         checked: boolean;
         label: string;
         description: string;
-        rulebookDefault: string;
     }[] = [
         {
             atom: alternateQuestionTypes,
@@ -71,23 +70,19 @@ export function HouseRulesSection({
             label: "Alternate question categories",
             description:
                 "You can't ask two questions of the same category in a row.",
-            rulebookDefault: "No alternation (rulebook)",
         },
         {
             atom: askOncePerQuestion,
             checked: $askOnce,
             label: "Ask once per question",
-            description:
-                "Each subtype / preset can only be asked once per game. Hard block instead of paying the rulebook's repeat cost.",
-            rulebookDefault: "Repeats allowed at N× cost (p65)",
+            description: "Each question can only be asked once per game.",
         },
         {
             atom: zoneRadiusBuffer,
             checked: $zoneBuffer,
             label: "Buffer eliminations by zone radius",
             description:
-                "Radar, thermometer and measuring eliminate at the zone level, widened by your hiding-zone radius — so a moving hider can never get their true zone carved away by unlucky question timing.",
-            rulebookDefault: "Exact-point cuts (rulebook p234)",
+                "Add a little extra margin when eliminating areas of the map. This will ensure a hiding zone is never falsely eliminated.",
         },
     ];
 
@@ -112,8 +107,7 @@ export function HouseRulesSection({
 
             {visible.length > 0 && (
                 <p className="text-sm text-muted-foreground mb-3 leading-snug">
-                    Deviations from the printed rulebook. Defaults follow the
-                    rulebook.
+                    Deviations from the printed rulebook.
                     {readOnly && " The host sets these for the whole table."}
                 </p>
             )}
@@ -125,7 +119,6 @@ export function HouseRulesSection({
                             key={r.label}
                             label={r.label}
                             description={r.description}
-                            rulebookDefault={r.rulebookDefault}
                             checked={r.checked}
                             readOnly={readOnly}
                             onChange={(v) => set(r.atom, v)}
@@ -166,14 +159,12 @@ export function HouseRulesSection({
 function Row({
     label,
     description,
-    rulebookDefault,
     checked,
     onChange,
     readOnly = false,
 }: {
     label: string;
     description: string;
-    rulebookDefault: string;
     checked: boolean;
     onChange: (next: boolean) => void;
     readOnly?: boolean;
@@ -201,11 +192,6 @@ function Row({
                 <span className="block text-sm text-muted-foreground leading-snug mt-0.5">
                     {description}
                 </span>
-                {!checked && (
-                    <span className="block text-[10px] uppercase tracking-[0.12em] font-poppins font-bold text-muted-foreground/80 mt-1">
-                        Currently: {rulebookDefault}
-                    </span>
-                )}
                 {checked && (
                     <span className="block text-[10px] uppercase tracking-[0.12em] font-poppins font-bold text-yellow-500 mt-1">
                         House rule active

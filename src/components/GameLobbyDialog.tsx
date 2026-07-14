@@ -1288,15 +1288,6 @@ export function GameLobbyDialog() {
                                     </span>
                                 )}
                             </Button>
-                            {/* v839: only render the hint when it's actually
-                                meaningful (hider, ready) — the old
-                                always-rendered transparent placeholder wasted
-                                a whole line above "Leave game". */}
-                            {isHiderRole && startReady && (
-                                <p className="text-[11px] leading-snug text-center text-muted-foreground">
-                                    Pick your hiding spot in the meantime.
-                                </p>
-                            )}
                         </>
                     ) : (
                         <div className="text-center py-3 space-y-1">
@@ -1304,11 +1295,6 @@ export function GameLobbyDialog() {
                             <div className="text-sm text-current/80">
                                 Waiting for the host to start the game…
                             </div>
-                            {isHiderRole && (
-                                <div className="text-xs text-muted-foreground">
-                                    Pick your hiding spot in the meantime.
-                                </div>
-                            )}
                         </div>
                     )}
                     {/* Leave game — below Start (v453). Switch role

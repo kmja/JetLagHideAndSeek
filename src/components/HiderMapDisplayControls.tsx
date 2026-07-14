@@ -190,10 +190,7 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                 <div className="space-y-2">
                     <div className={label}>Transit overlays</div>
                     <div
-                        className={cn(
-                            "rounded-lg border-2 border-border bg-background overflow-hidden flex",
-                            rowH,
-                        )}
+                        className="grid grid-cols-2 gap-2"
                         role="group"
                         aria-label="Transit overlays"
                     >
@@ -210,7 +207,6 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                         onToggle={() =>
                                             showSubwayRoutes.set(!$subway)
                                         }
-                                        borderLeft={buttons.length > 0}
                                         iconClass={rowIcon}
                                     />,
                                 );
@@ -226,7 +222,6 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                         onToggle={() =>
                                             showBusRoutes.set(!$bus)
                                         }
-                                        borderLeft={buttons.length > 0}
                                         iconClass={rowIcon}
                                     />,
                                 );
@@ -242,7 +237,6 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                         onToggle={() =>
                                             showFerryRoutes.set(!$ferry)
                                         }
-                                        borderLeft={buttons.length > 0}
                                         iconClass={rowIcon}
                                     />,
                                 );
@@ -255,13 +249,12 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                     <TransitIconToggle
                                         key="train"
                                         icon={TRANSIT_ICONS.train}
-                                        label="Train (lines)"
+                                        label="Train"
                                         on={$train}
                                         loading={$transitLoading.train}
                                         onToggle={() =>
                                             showTrainRoutes.set(!$train)
                                         }
-                                        borderLeft={buttons.length > 0}
                                         iconClass={rowIcon}
                                     />,
                                 );
@@ -271,13 +264,12 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                                     <TransitIconToggle
                                         key="tram"
                                         icon={TRANSIT_ICONS.tram}
-                                        label="Tram (lines)"
+                                        label="Tram"
                                         on={$tram}
                                         loading={$transitLoading.tram}
                                         onToggle={() =>
                                             showTramRoutes.set(!$tram)
                                         }
-                                        borderLeft={buttons.length > 0}
                                         iconClass={rowIcon}
                                     />,
                                 );
@@ -332,7 +324,6 @@ function TransitIconToggle({
     on,
     loading,
     onToggle,
-    borderLeft,
     iconClass = "w-4 h-4",
 }: {
     icon: LucideIcon;
@@ -340,7 +331,6 @@ function TransitIconToggle({
     on: boolean;
     loading?: boolean;
     onToggle: () => void;
-    borderLeft?: boolean;
     iconClass?: string;
 }) {
     return (
@@ -352,21 +342,26 @@ function TransitIconToggle({
             title={loading ? `${label} — loading routes…` : label}
             aria-label={loading ? `${label} (loading routes)` : label}
             className={cn(
-                "flex-1 flex items-center justify-center transition-all",
+                // Self-contained pill filling its grid cell, label beside the
+                // icon — matches the seeker's MapDisplayControls (v809/v834).
+                "w-full flex items-center justify-center gap-1.5 py-2 px-2.5",
+                "rounded-lg border-2 transition-all",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                borderLeft && "border-l-2 border-border",
                 loading
-                    ? "bg-primary/10 text-primary"
+                    ? "bg-primary/10 border-primary/40 text-primary"
                     : on
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-accent",
+                      ? "bg-primary/10 border-primary text-primary"
+                      : "bg-secondary border-border text-muted-foreground hover:bg-accent",
             )}
         >
             {loading ? (
-                <Loader2 className={cn(iconClass, "animate-spin")} />
+                <Loader2 className={cn(iconClass, "shrink-0 animate-spin")} />
             ) : (
-                <Icon className={iconClass} />
+                <Icon className={cn(iconClass, "shrink-0")} />
             )}
+            <span className="text-xs font-poppins font-semibold leading-none text-center">
+                {label}
+            </span>
         </button>
     );
 }

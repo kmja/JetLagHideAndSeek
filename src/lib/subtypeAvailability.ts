@@ -8,6 +8,7 @@ import { adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
 import { fetchPrewarmedAreaAdmin } from "@/maps/api/adminBoundary";
+import { fetchAreaCoastlineLines } from "@/maps/api/coast";
 import {
     countInPlayArea,
     type FamilyKey,
@@ -182,6 +183,35 @@ async function computeAdminSpan(level: number): Promise<number | null> {
     return seen.size > 0 ? seen.size : regions.length;
 }
 
+/* ────────────────── Coast-presence gating (v842) ──────────────────── *
+ *
+ * Two more "can't cut the play area" cases, both keyed on ONE signal — is
+ * there any coastline within the play area?
+ *   - `coastline` (measuring "closer/further to the coast"): with NO coast
+ *     in the area there's nothing to measure distance to → useless.
+ *   - `same-landmass` (matching): the landmass split is built from the SEA
+ *     (coastline); with no coast the whole area is one landmass → "same"
+ *     is always true → useless. (A coastal-but-single-landmass area like LA
+ *     stays available — we only disable the unambiguous inland case, never
+ *     over-hiding.)
+ * Uses the SAME per-city coastline fetch the elimination uses; a null
+ * (fetch failed / not warmed) result stays AVAILABLE so we never wrongly
+ * hide a coastal city's question. Keyed by play-area signature.
+ */
+const coastPresentCache = new Map<string, boolean>();
+let coastPresentPending: string | null = null;
+const COAST_GATED = new Set(["coastline", "same-landmass"]);
+
+async function computeCoastPresent(): Promise<boolean | null> {
+    try {
+        const lines = await fetchAreaCoastlineLines();
+        if (lines === null) return null; // fetch failed → unknown (available)
+        return lines.length > 0;
+    } catch {
+        return null;
+    }
+}
+
 export interface SubtypeAvailability {
     /** false ⇒ too few instances in the play area to be worth asking. */
     available: boolean;
@@ -274,9 +304,41 @@ export function useSubtypeAvailability(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key, $poly]);
 
+    // Coast presence: for the coastline / same-landmass tiles, check once
+    // per play area whether any coastline exists in it (prewarm/live, with a
+    // safe null=unknown). Inland → both disabled.
+    useEffect(() => {
+        if (!values.some((v) => COAST_GATED.has(v))) return;
+        if (!playAreaPolygon()) return;
+        const sig = areaSignature();
+        if (coastPresentCache.has(sig) || coastPresentPending === sig) return;
+        let cancelled = false;
+        coastPresentPending = sig;
+        computeCoastPresent().then((present) => {
+            if (coastPresentPending === sig) coastPresentPending = null;
+            if (present != null) coastPresentCache.set(sig, present);
+            if (!cancelled) setTick((t) => t + 1);
+        });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key, $poly]);
+
     return useMemo(() => {
         const out: Record<string, SubtypeAvailability> = {};
         for (const v of values) {
+            // Coastline / same-landmass: disabled only when we KNOW the play
+            // area has no coast (inland). Unknown → available.
+            if (COAST_GATED.has(v)) {
+                const present = coastPresentCache.get(areaSignature());
+                out[v] = {
+                    available: present === undefined ? true : present,
+                    count: null,
+                    min: 0,
+                };
+                continue;
+            }
             // Admin divisions: gated on region SPAN (>= 2 to be useful),
             // not on an instance count. Unknown span → available.
             const adminLvl = adminOsmLevel(v);

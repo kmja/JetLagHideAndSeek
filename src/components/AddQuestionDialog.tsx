@@ -1137,9 +1137,15 @@ export const AddQuestionDialog = ({
                                                               $mapGeo?.properties
                                                                   ?.countrycode,
                                                           ).label.toLowerCase()} — this can't narrow the map.`
-                                                        : avail!.count === 0
-                                                          ? `No ${subtype.label.toLowerCase()} in the play area to ask about.`
-                                                          : `Only one ${subtype.label.toLowerCase()} in the play area — not enough to ask this.`
+                                                        : subtype.value ===
+                                                            "coastline"
+                                                          ? "No coastline in the play area — this can't narrow the map."
+                                                          : subtype.value ===
+                                                              "same-landmass"
+                                                            ? "The play area is a single landmass — this can't narrow the map."
+                                                            : avail!.count === 0
+                                                              ? `No ${subtype.label.toLowerCase()} in the play area to ask about.`
+                                                              : `Only one ${subtype.label.toLowerCase()} in the play area — not enough to ask this.`
                                                     : undefined;
                                                 return (
                                                     <SubtypeTile

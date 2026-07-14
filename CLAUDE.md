@@ -430,6 +430,28 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v842 — more "can't cut the area" gating + hider transit labels + copy trims.**
+(1) **Coastline / same-landmass availability gating** (`subtypeAvailability.ts`):
+both are disabled when the play area has NO coastline (measuring "distance to
+coast" is meaningless inland; the matching landmass split is built from the SEA,
+so an inland area is one landmass → "same" always true). One signal —
+`fetchAreaCoastlineLines()` (the same per-city coast the elimination uses), keyed
+by play-area signature; a null/failed fetch stays AVAILABLE so a coastal city is
+never wrongly hidden (a coastal-but-single-landmass area like LA also stays
+available — we only disable the unambiguous inland case). Disabled tiles show a
+clear reason. High-speed / body-of-water gating still deferred (needs their own
+reference-presence checks). (2) **Hider transit-overlay buttons show their
+labels again** — the hider's map-options panel had its OWN `TransitIconToggle`
+copy that only rendered the icon (the v808/v809 label work updated only the
+SEEKER's copy); it's now the same labelled pill in a 2-col grid, matching the
+seeker. (3) **House-rules copy simplified** (`HouseRulesSection`): dropped
+"Defaults follow the rulebook." from the intro and the per-rule "Currently: …"
+lines (the `rulebookDefault` field removed); "Ask once per question" → "Each
+question can only be asked once per game."; "Buffer eliminations by zone radius"
+→ "Add a little extra margin when eliminating areas of the map. This will ensure
+a hiding zone is never falsely eliminated." (4) Removed the lobby "Pick your
+hiding spot in the meantime." hint.
+
 **v841 — disable admin "Same X" questions that can't narrow the play area.**
 `useSubtypeAvailability` (`subtypeAvailability.ts`) already greyed out POI
 subtypes with too few in-area instances; it now ALSO gates the matching
