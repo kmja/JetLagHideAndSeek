@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check, Crown, EyeOff, Rocket, User, UserX } from "lucide-react";
+import { Check, Crown, EyeOff, User, UserX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -35,10 +35,10 @@ export interface RotateHiderDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     /**
-     * Called when the user taps "Start round" with the PRIMARY hider id and
-     * the additional hide-team member ids (co-hiders; empty for a classic
-     * single-hider round). The parent sends `seekerRotateHider(primary,
-     * coHiders)` then `startNewRound`.
+     * Called when the user taps "Start round" with the selected hide team.
+     * Every hider is equal (v829), so the first id + the rest are just the
+     * wire shape the parent forwards to `seekerRotateHider` — all become
+     * `hider`. Then the parent runs `startNewRound`.
      */
     onConfirm: (primaryHiderId: string, coHiderIds: string[]) => void;
 }
@@ -84,48 +84,40 @@ export function RotateHiderDialog({
         return online[(curIdx + 1) % online.length].id;
     }, [$participants]);
 
-    // v826: MULTI-select hide team. `selectedIds` = everyone hiding this
-    // round; `primaryId` = the one who answers questions + plays the hand
-    // (the rest join as co-hiders). Everyone not selected becomes a seeker.
-    // Default: the suggested single hider, selected + primary. Re-derived on
-    // every (re-)open so a long-running app never keeps a stale selection.
+    // MULTI-select hide team (v829: every hider is equal — no main/co
+    // distinction). `selectedIds` = everyone hiding this round; everyone not
+    // selected becomes a seeker. Default: the suggested single hider. Re-
+    // derived on every (re-)open so a long-running app never keeps a stale
+    // selection.
     const [selectedIds, setSelectedIds] = useState<Set<string>>(
         () => new Set(),
     );
-    const [primaryId, setPrimaryId] = useState<string | null>(null);
     useEffect(() => {
         if (!open) return;
         const def =
             suggestedId ?? currentHiderId ?? $self ?? ordered[0]?.id ?? null;
         setSelectedIds(def ? new Set([def]) : new Set());
-        setPrimaryId(def);
     }, [open, suggestedId, currentHiderId, $self, ordered]);
 
     const canSelect = (online: boolean) => online;
 
-    // Toggle a participant in/out of the hide team, keeping `primaryId`
-    // valid: a newly-added member becomes primary if there wasn't one;
-    // removing the current primary promotes the next remaining member.
     const toggleMember = (id: string) => {
         const next = new Set(selectedIds);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         setSelectedIds(next);
-        if (next.has(id)) {
-            if (primaryId === null || !next.has(primaryId)) setPrimaryId(id);
-        } else if (primaryId === id) {
-            setPrimaryId([...next][0] ?? null);
-        }
-    };
-    const makePrimary = (id: string) => {
-        if (selectedIds.has(id)) setPrimaryId(id);
     };
 
     const handleConfirm = () => {
-        if (!primaryId) return;
-        const coHiders = [...selectedIds].filter((id) => id !== primaryId);
-        onConfirm(primaryId, coHiders);
+        const ids = [...selectedIds];
+        if (ids.length === 0) return;
+        // All become equal hiders; the (first, rest) split is just the wire
+        // shape the parent forwards.
+        onConfirm(ids[0], ids.slice(1));
     };
+
+    const firstSelectedName =
+        ordered.find((p) => selectedIds.has(p.id))?.displayName || "This player";
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -140,15 +132,14 @@ export function RotateHiderDialog({
                 overlayClassName="z-[1080]"
             >
                 <DialogHeader>
-                    <DialogTitle className="font-inter-tight text-lg font-semibold">
-                        Start new round
+                    <DialogTitle className="font-inter-tight text-2xl font-bold">
+                        Rotate hider
                     </DialogTitle>
                     <DialogDescription className="text-sm">
-                        Pick who hides next — select one or more. The main
-                        hider answers questions and plays the hand; anyone else
-                        you pick joins as a co-hider. Everyone else becomes a
-                        seeker. Question log, hand and zone all reset; play
-                        area, transit and game size stay the same.
+                        Pick who hides next — select one or more. Everyone you
+                        pick hides together; everyone else becomes a seeker.
+                        Question log, hand and zone all reset; play area,
+                        transit and game size stay the same.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -158,7 +149,6 @@ export function RotateHiderDialog({
                         const isSelf = p.id === $self;
                         const selectable = canSelect(p.online);
                         const isMember = selectedIds.has(p.id);
-                        const isPrimary = primaryId === p.id;
                         const isSuggested =
                             p.id === suggestedId && p.id !== currentHiderId;
                         return (
@@ -216,31 +206,10 @@ export function RotateHiderDialog({
                                             )}
                                         </span>
                                         <span className="text-sm text-muted-foreground flex items-center gap-1.5">
-                                            {isMember && isPrimary ? (
+                                            {isMember ? (
                                                 <span className="inline-flex items-center gap-1 text-primary font-semibold">
                                                     <EyeOff className="w-3.5 h-3.5" />
-                                                    Main hider — answers
-                                                </span>
-                                            ) : isMember ? (
-                                                <span
-                                                    role="button"
-                                                    tabIndex={0}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        makePrimary(p.id);
-                                                    }}
-                                                    onKeyDown={(e) => {
-                                                        if (
-                                                            e.key === "Enter" ||
-                                                            e.key === " "
-                                                        ) {
-                                                            e.stopPropagation();
-                                                            makePrimary(p.id);
-                                                        }
-                                                    }}
-                                                    className="underline hover:text-foreground"
-                                                >
-                                                    Co-hider · make main
+                                                    Hiding this round
                                                 </span>
                                             ) : isCurrentHider ? (
                                                 <>
@@ -280,26 +249,19 @@ export function RotateHiderDialog({
                 </ul>
 
                 {/* Helper note: summarise the hide team about to be set. */}
-                {primaryId ? (
+                {selectedIds.size > 0 ? (
                     <p className="text-sm text-muted-foreground leading-snug">
                         {selectedIds.size > 1 ? (
                             <>
                                 <span className="font-medium">
                                     {selectedIds.size} players
                                 </span>{" "}
-                                will hide this round —{" "}
-                                <span className="font-medium">
-                                    {ordered.find((p) => p.id === primaryId)
-                                        ?.displayName || "the main hider"}
-                                </span>{" "}
-                                answers; the rest join as co-hiders. Everyone
-                                else becomes a seeker.
+                                hide this round; everyone else becomes a seeker.
                             </>
                         ) : (
                             <>
                                 <span className="font-medium">
-                                    {ordered.find((p) => p.id === primaryId)
-                                        ?.displayName || "This player"}
+                                    {firstSelectedName}
                                 </span>{" "}
                                 hides this round; everyone else becomes a
                                 seeker.
@@ -321,10 +283,8 @@ export function RotateHiderDialog({
                     </Button>
                     <Button
                         onClick={handleConfirm}
-                        disabled={!primaryId}
-                        className="gap-2"
+                        disabled={selectedIds.size === 0}
                     >
-                        <Rocket className="w-4 h-4" />
                         Start round
                     </Button>
                 </DialogFooter>

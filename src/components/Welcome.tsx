@@ -308,9 +308,8 @@ export function Welcome() {
                                 <span className="font-semibold text-white">
                                     {$code ?? trimmedCode}
                                 </span>{" "}
-                                — pick the role you want. The Hider seat
-                                only holds one player; everyone else
-                                joins as a Seeker or Co-hider.
+                                — pick the role you want. Seek, or hide;
+                                multiple players can hide together.
                             </p>
                         </div>
 

@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Loader2, Locate, Rocket, Thermometer } from "lucide-react";
+import { Loader2, Locate, Thermometer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -277,10 +277,7 @@ export function ThermometerConfigureDialog({
                                 Getting GPS fix…
                             </>
                         ) : (
-                            <>
-                                <Rocket className="w-4 h-4" />
-                                Start and notify hider
-                            </>
+                            "Start and notify hider"
                         )}
                     </Button>
                     <Button

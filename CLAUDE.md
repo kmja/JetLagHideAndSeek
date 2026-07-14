@@ -430,6 +430,20 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v846 — `RotateHiderDialog` de-co-hidered + rocket icons removed.** Now that
+every hider is equal (v829), the rotate dialog dropped ALL main-hider / co-hider
+language: title "Start new round"→**"Rotate hider"** (bigger, `text-lg`→
+`text-2xl font-bold`); the description + footer note no longer mention a "main
+hider" or "co-hiders"; the per-row "Main hider — answers" / "Co-hider · make
+main" (with its make-primary affordance) collapsed to a single **"Hiding this
+round"**; the internal `primaryId`/`makePrimary` state was removed (the
+`onConfirm(first, rest)` wire shape stays — all become equal `hider`). Also
+removed the **rocket icon** from the RotateHider "Start round" button AND the
+ThermometerConfigureDialog "Start and notify hider" button (the GoGoGo overlay's
+rocket is the decorative celebration card, left as-is). Updated the last stray
+user-facing "Seeker or Co-hider" line on `Welcome.tsx` to "multiple players can
+hide together."
+
 **v845 — end-of-round dialog copy/layout polish (`EndOfRoundDialog`).** Title is
 now **"Hider found!"** (or **"Hiders found!"** when the hide team has >1 member,
 counted from `participants` with role `hider`; solo defaults to 1) for BOTH
