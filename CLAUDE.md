@@ -430,6 +430,18 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v849 — "Loading hiding zones…" pill stays up until the zones actually paint.**
+The seeker overlay's `isLoading` flag clears once the candidate CIRCLES are
+computed (compute effect), but the zones don't appear until a SEPARATE render
+effect runs the heavy `styleZoneStationsAsync` union → `showGeoJSON` (the paint)
+— so the pill vanished seconds before the zones showed. New toaster-only atom
+`hidingZonesRendering` (`context.ts`) spans compute-start through paint: set true
+alongside `isLoading` at compute start, cleared in the render effect's `finally`
+after `showGeoJSON` (and on the selection / remove / failure paths). The toaster
+reads `(isLoading || hidingZonesRendering) && displayHidingZones`. Deliberately
+NOT used to gate any control (so a stuck-true value can't disable anything, the
+`isLoading` v276 trap).
+
 **v848 — seeking-timer leaderboard: live clock stays big + always visible + a
 climb flourish.** Follow-up to v847: the LIVE current-round row is back to its
 full prominent size (`text-3xl` + the wider red accent, was shrunk to

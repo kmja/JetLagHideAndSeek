@@ -611,6 +611,18 @@ export const autoZoom = persistentAtom<boolean>("autoZoom", true, {
 export const isLoading = atom<boolean>(false);
 
 /**
+ * True while the seeker hiding-zones overlay is still being STYLED + PAINTED
+ * onto the map — i.e. from the compute start through the render effect's
+ * heavy `styleZoneStationsAsync` union until `showGeoJSON` sets the layer
+ * data (v848). Distinct from `isLoading` (which clears once the candidate
+ * CIRCLES are computed, before the paint) so the "Loading hiding zones…"
+ * pill stays up until the zones actually appear on the map. Read ONLY by
+ * `MapOverlayLoadingToasts` — never gate a control on it, so a stuck-true
+ * value can't disable anything (unlike the `isLoading` v276 trap).
+ */
+export const hidingZonesRendering = atom<boolean>(false);
+
+/**
  * True while the seeker's pending-answer overlay is occupying the TOP of
  * the map view (a question is awaiting an answer, or the brief "answered"
  * celebration is playing). The top-right map controls (`MapDisplayControls`

@@ -33,6 +33,7 @@ import {
     hidingZonesAutoFromTransit,
     hidingZonesGeoJSON,
     includeDefaultStations as includeDefaultStationsAtom,
+    hidingZonesRendering,
     isLoading,
     mapContext,
     mergeDuplicates as mergeDuplicatesAtom,
@@ -213,6 +214,11 @@ export const ZoneSidebar = () => {
         const initializeHidingZones = async () => {
             zoneComputingRef.current = true;
             isLoading.set(true);
+            // v848: keep the "Loading hiding zones…" pill up through the
+            // paint. `isLoading` clears once the circles are computed, but the
+            // render effect below still has to STYLE + paint them; this flag
+            // bridges that gap and the render effect clears it after paint.
+            hidingZonesRendering.set(true);
 
             const needsDefault = !useCustomStations || includeDefaultStations;
             // v822: never hard-error on an empty option list. These options
@@ -528,6 +534,7 @@ export const ZoneSidebar = () => {
                 // anything" symptoms after an Overpass timeout.
                 zoneComputingRef.current = false;
                 isLoading.set(false);
+                hidingZonesRendering.set(false);
             });
         }
     }, [
@@ -562,6 +569,7 @@ export const ZoneSidebar = () => {
             );
 
             if (hiderStation !== undefined) {
+                hidingZonesRendering.set(true);
                 selectionProcess(
                     hiderStation,
                     map,
@@ -569,14 +577,17 @@ export const ZoneSidebar = () => {
                     showGeoJSON,
                     $questionFinishedMapData,
                     $hidingRadius,
-                ).catch((error) => {
-                    console.warn("Hiding zone selection failed:", error);
-                    toast.error(
-                        "An error occurred during hiding zone selection",
-                        { toastId: "hiding-zone-selection-error" },
-                    );
-                });
+                )
+                    .catch((error) => {
+                        console.warn("Hiding zone selection failed:", error);
+                        toast.error(
+                            "An error occurred during hiding zone selection",
+                            { toastId: "hiding-zone-selection-error" },
+                        );
+                    })
+                    .finally(() => hidingZonesRendering.set(false));
             } else {
+                hidingZonesRendering.set(false);
                 toast.error("Invalid hiding zone selected", {
                     toastId: "hiding-zone-selection-error",
                 });
@@ -591,6 +602,7 @@ export const ZoneSidebar = () => {
             // cancellation guard: a re-run (style/disabled-set change)
             // invalidates the in-flight result instead of racing it.
             let cancelled = false;
+            hidingZonesRendering.set(true);
             void (async () => {
                 try {
                     const styled = await styleZoneStationsAsync(
@@ -611,6 +623,11 @@ export const ZoneSidebar = () => {
                             { toastId: "hiding-zone-style-error" },
                         );
                     }
+                } finally {
+                    // Clear the paint pill once the layer is drawn (or on
+                    // error). A superseding re-run set `cancelled` and will
+                    // have re-set the flag true, so only the live run clears.
+                    if (!cancelled) hidingZonesRendering.set(false);
                 }
             })();
             return () => {
@@ -618,6 +635,7 @@ export const ZoneSidebar = () => {
             };
         } else {
             removeHidingZones();
+            hidingZonesRendering.set(false);
         }
     }, [
         map,

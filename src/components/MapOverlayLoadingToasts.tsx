@@ -1,7 +1,11 @@
 import { useStore } from "@nanostores/react";
 import { Loader2 } from "lucide-react";
 
-import { displayHidingZones, isLoading } from "@/lib/context";
+import {
+    displayHidingZones,
+    hidingZonesRendering,
+    isLoading,
+} from "@/lib/context";
 import { transitRoutesLoading } from "@/lib/gameSetup";
 import { hiderReachLoading, travelTimesLoading } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
@@ -26,6 +30,7 @@ export function MapOverlayLoadingToasts() {
     // useStore(b)` skips the second hook when `a` is falsy and trips React
     // error #310 (fewer hooks than the previous render), crashing the map.
     const $isLoading = useStore(isLoading);
+    const $rendering = useStore(hidingZonesRendering);
     const $displayHidingZones = useStore(displayHidingZones);
     const hiderZones = useStore(hiderReachLoading);
     const travel = useStore(travelTimesLoading);
@@ -33,7 +38,10 @@ export function MapOverlayLoadingToasts() {
 
     // Gate the seeker flag on the toggle: its compute isn't abortable, so
     // `isLoading` can linger for a beat after the overlay is switched off.
-    const seekerZones = $isLoading && $displayHidingZones;
+    // v848: also stay up through the PAINT phase (`hidingZonesRendering`) —
+    // `isLoading` clears once the circles are computed, well before the
+    // heavy styling union actually draws them on the map.
+    const seekerZones = ($isLoading || $rendering) && $displayHidingZones;
     const anyTransit = Object.values(transit).some(Boolean);
     const items: string[] = [];
     if (seekerZones || hiderZones) items.push("Loading hiding zones…");
