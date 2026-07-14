@@ -1126,10 +1126,20 @@ export const AddQuestionDialog = ({
                                                 const tooFew = Boolean(
                                                     avail && !avail.available,
                                                 );
+                                                const isAdminTile =
+                                                    /^admin-[1-4]$/.test(
+                                                        subtype.value,
+                                                    );
                                                 const tooFewReason = tooFew
-                                                    ? avail!.count === 0
-                                                        ? `No ${subtype.label.toLowerCase()} in the play area to ask about.`
-                                                        : `Only one ${subtype.label.toLowerCase()} in the play area — not enough to ask this.`
+                                                    ? isAdminTile
+                                                        ? `The whole play area is in one ${localizeAdminSubtype(
+                                                              subtype,
+                                                              $mapGeo?.properties
+                                                                  ?.countrycode,
+                                                          ).label.toLowerCase()} — this can't narrow the map.`
+                                                        : avail!.count === 0
+                                                          ? `No ${subtype.label.toLowerCase()} in the play area to ask about.`
+                                                          : `Only one ${subtype.label.toLowerCase()} in the play area — not enough to ask this.`
                                                     : undefined;
                                                 return (
                                                     <SubtypeTile

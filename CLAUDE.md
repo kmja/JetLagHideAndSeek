@@ -430,6 +430,29 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v841 — disable admin "Same X" questions that can't narrow the play area.**
+`useSubtypeAvailability` (`subtypeAvailability.ts`) already greyed out POI
+subtypes with too few in-area instances; it now ALSO gates the matching
+**admin-division** tiles (`admin-1..4`) on how many DISTINCT admin regions the
+play area actually SPANS at that level. A "Same state" question in NYC narrows
+nothing (all of NYC is inside New York State) → disabled; "Same county" (5
+boroughs) splits the area → kept. Span is measured by sampling interior points
+of the play polygon and counting how many distinct admin regions contain them,
+reading ONLY the PREWARMED admin geometry (`fetchPrewarmedAreaAdmin`, no live
+Overpass) — a cold/unknown span always stays AVAILABLE, so we never wrongly
+hide a question (it only disables once the admin data is warm). The cache is
+keyed by `${playArea}:${level}` so switching cities can't serve a stale span.
+The disabled tile shows a clear reason ("The whole play area is in one state —
+this can't narrow the map."). NOTE: the same "can't cut the area" principle
+applies to other types (same-landmass with one landmass; measuring coastline /
+high-speed / body-of-water with no nearby reference — e.g. the Shinkansen
+question in NYC, nearest line 5000+ km away, buffers the whole area as
+"closer") — those need their own reference-span checks and are a follow-up.
+Also: the matching **zone / train-line / street** IMPACT overlays (v840) draw
+nothing when their underlying live Overpass fetch is rate-limited in an
+un-warmed city (bundled-data types like international-border are unaffected);
+they paint once the city's admin/stations are warmed or Overpass recovers.
+
 **v840 — configure-dialog impact overlay now auto-computes EVERY spatially-
 deterministic question type (audit).** The configure-question map preview
 (`InlineLocationPicker` ← `useQuestionImpact`, `questionImpact.ts`) drew the
