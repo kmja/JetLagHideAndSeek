@@ -430,6 +430,17 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v845 — end-of-round dialog copy/layout polish (`EndOfRoundDialog`).** Title is
+now **"Hider found!"** (or **"Hiders found!"** when the hide team has >1 member,
+counted from `participants` with role `hider`; solo defaults to 1) for BOTH
+roles, replacing the role-split "You found them!" / "You were found!". Removed
+the explanatory paragraph under the timer. The two eyebrow headers ("Round N ·
+Complete", "{name} stayed hidden for") + the Leaderboard header bumped
+`text-[10px]`→`text-sm`. The big hidden-time readout is now the standard
+`text-foreground` (was `--accent-yellow`). Buttons: "Settings"→"Edit settings",
+"Leave"→"Leave game". The leaderboard recap was already included when >1 round
+exists — unchanged.
+
 **v844 — selected-zone `StationTransitCard` moved to the TOP of the map.** It
 was a bottom-anchored floating card (`fixed bottom-3`); now it's `fixed
 top-[calc(env(safe-area-inset-top)+4.25rem)]` (clears the app top bar's

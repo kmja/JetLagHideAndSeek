@@ -16,12 +16,7 @@ import {
     setupDialogOpen,
 } from "@/lib/gameSetup";
 import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
-import {
-    hiderHand,
-    playerRole,
-    roundFoundAt,
-    roundLog,
-} from "@/lib/hiderRole";
+import { hiderHand, roundFoundAt, roundLog } from "@/lib/hiderRole";
 import {
     currentGameCode,
     displayName as displayNameAtom,
@@ -75,7 +70,6 @@ export function EndOfRoundDialog() {
     const $open = useStore(endOfRoundDialogOpen);
     const $foundAt = useStore(roundFoundAt);
     const $endsAt = useStore(hidingPeriodEndsAt);
-    const $role = useStore(playerRole);
     const $log = useStore(roundLog);
     const $participants = useStore(participants);
     const $mp = useStore(multiplayerEnabled);
@@ -155,10 +149,14 @@ export function EndOfRoundDialog() {
     ].sort((a, b) => b.hidingMs - a.hidingMs);
     const showLeaderboard = board.length > 1;
 
-    const roleTitle =
-        $role === "hider"
-            ? "You were found!"
-            : "You found them!";
+    // "Hider found!" — or "Hiders found!" when the hide team has more than
+    // one member. Solo / non-multiplayer has an empty participant list, so
+    // default to a single hider.
+    const hiderCount = Math.max(
+        1,
+        $participants.filter((p) => p.role === "hider").length,
+    );
+    const roleTitle = hiderCount > 1 ? "Hiders found!" : "Hider found!";
 
     const canRotateHider = $mp && $code !== null && $participants.length >= 2;
 
@@ -254,7 +252,7 @@ export function EndOfRoundDialog() {
                     <span className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/15">
                         <PartyPopper className="w-7 h-7 text-primary" />
                     </span>
-                    <div className="text-[10px] uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
+                    <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                         Round {currentRoundNumber} · Complete
                     </div>
                     <h2
@@ -267,26 +265,18 @@ export function EndOfRoundDialog() {
 
                 {/* This round's hidden time. */}
                 <div className="space-y-1">
-                    <div className="text-[10px] uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
+                    <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                         {currentHiderName} stayed hidden for
                     </div>
-                    <div
-                        className="font-inter-tight italic font-black tabular-nums text-5xl leading-none"
-                        style={{ color: "hsl(var(--accent-yellow))" }}
-                    >
+                    <div className="font-inter-tight italic font-black tabular-nums text-5xl leading-none text-foreground">
                         {formatDuration(currentHidingMs)}
                     </div>
-                    <p className="text-xs text-muted-foreground leading-snug pt-1">
-                        Time hidden from the end of the hiding period, including
-                        any time-bonus cards in the hider&apos;s hand. Longest
-                        single hide wins.
-                    </p>
                 </div>
 
                 {/* Leaderboard recap (2+ rounds). */}
                 {showLeaderboard && (
                     <div className="space-y-1.5 text-left">
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-display font-extrabold text-muted-foreground text-center">
+                        <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground text-center">
                             Leaderboard
                         </div>
                         <div className="rounded-lg border border-border overflow-hidden">
@@ -347,7 +337,7 @@ export function EndOfRoundDialog() {
                             className="gap-1.5"
                         >
                             <Settings2 className="w-4 h-4" />
-                            Settings
+                            Edit settings
                         </Button>
                         <Button
                             variant="outline"
@@ -355,7 +345,7 @@ export function EndOfRoundDialog() {
                             className="gap-1.5"
                         >
                             <LogOut className="w-4 h-4" />
-                            Leave
+                            Leave game
                         </Button>
                     </div>
                     <button
