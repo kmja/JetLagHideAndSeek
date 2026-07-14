@@ -258,6 +258,14 @@ async function matchingStationBoundary(
 export const determineMatchingBoundary = memoize(
     async (question: MatchingQuestion) => {
         let boundary;
+        // v840: when called for the CONFIGURE-dialog draft preview
+        // (`matchingDraftRegion`), suppress the user-facing error toasts +
+        // throws and return `undefined` instead, so a cold/failed lookup
+        // silently draws no overlay rather than spamming toasts while the
+        // seeker is still positioning the pin. The real elimination call
+        // (silent unset) keeps its error feedback. `silent` is in the memo
+        // key below, so the two are separate cache entries.
+        const silent = (question as { silent?: boolean }).silent === true;
 
         switch (question.type) {
             // Legacy home-game POI matching types (not in the subtype
@@ -310,6 +318,7 @@ export const determineMatchingBoundary = memoize(
                 );
 
                 if (!boundary) {
+                    if (silent) return undefined;
                     toast.error("No boundary found for this zone");
                     throw new Error("No boundary found");
                 }
@@ -323,6 +332,7 @@ export const determineMatchingBoundary = memoize(
                 );
 
                 if (!zone) {
+                    if (silent) return undefined;
                     toast.error("No boundary found for this zone");
                     throw new Error("No boundary found");
                 }
@@ -335,6 +345,7 @@ export const determineMatchingBoundary = memoize(
                     if (/^[a-zA-Z]$/.test(name[0])) {
                         englishName = name;
                     } else {
+                        if (silent) return undefined;
                         toast.error("No English name found for this zone");
                         throw new Error("No English name");
                     }
@@ -441,6 +452,7 @@ export const determineMatchingBoundary = memoize(
                     }
                 }
                 if (!boundary) {
+                    if (silent) return undefined;
                     toast.error(
                         "Couldn't determine your landmass — are you in a body of water?",
                     );
@@ -504,6 +516,7 @@ out geom;
                     }
                 }
                 if (!streetName) {
+                    if (silent) return undefined;
                     toast.error(
                         "No named street within 500 m of your location.",
                     );
@@ -523,6 +536,7 @@ out geom;
                         f.geometry?.type === "MultiLineString",
                 );
                 if (wayFeatures.length === 0) {
+                    if (silent) return undefined;
                     toast.error(
                         `No "${streetName}" segments found in the play area.`,
                     );
@@ -590,11 +604,70 @@ out geom;
             // answer (equal / shorter / longer), so it must invalidate the
             // memo when the answer lands.
             lengthComparison: question.lengthComparison,
+            // v840: the silent draft-preview call is a SEPARATE memo entry
+            // from the real elimination call (which must keep its toast/throw
+            // on failure), so they can't share a cached undefined.
+            silent: (question as { silent?: boolean }).silent === true,
             entirety: polyGeoJSON.get()
                 ? playAreaSignature(polyGeoJSON.get())
                 : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as string | number),
         }),
 );
+
+/**
+ * v840: the "same/yes" region for a DRAFT matching question — the exact
+ * polygon the elimination KEEPS when the hider matches — exposed so the
+ * configure-dialog impact overlay (`questionImpact.ts`) draws the SAME
+ * region the answer will carve out, for the AREA/line matching types that
+ * aren't a plain point set (admin zone / letter-zone, same-landmass,
+ * same-length/-train-line/-street). Runs `determineMatchingBoundary` in
+ * `silent` mode so a cold/failed lookup draws nothing instead of toasting.
+ * Returns null on any failure OR for the point/POI types (`false`), whose
+ * overlay is the Voronoi cell drawn by the point path. Normalises a
+ * FeatureCollection result (letter-zone) to one polygon.
+ */
+export async function matchingDraftRegion(
+    question: MatchingQuestion,
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    try {
+        const boundary = await determineMatchingBoundary({
+            ...question,
+            drag: false,
+            silent: true,
+        } as unknown as MatchingQuestion);
+        if (!boundary || boundary === true) return null;
+        if ((boundary as Feature).type === "Feature") {
+            const g = (boundary as Feature).geometry;
+            if (g && (g.type === "Polygon" || g.type === "MultiPolygon")) {
+                return boundary as Feature<Polygon | MultiPolygon>;
+            }
+            return null;
+        }
+        // FeatureCollection (letter-zone) → union to one polygon.
+        if ((boundary as FeatureCollection).type === "FeatureCollection") {
+            const polys = (boundary as FeatureCollection).features.filter(
+                (f): f is Feature<Polygon | MultiPolygon> =>
+                    !!f.geometry &&
+                    (f.geometry.type === "Polygon" ||
+                        f.geometry.type === "MultiPolygon"),
+            );
+            if (polys.length === 0) return null;
+            if (polys.length === 1) return polys[0];
+            try {
+                return (
+                    (safeUnion(
+                        turf.featureCollection(polys),
+                    ) as Feature<Polygon | MultiPolygon>) ?? polys[0]
+                );
+            } catch {
+                return polys[0];
+            }
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
 
 export const adjustPerMatching = async (
     question: MatchingQuestion,

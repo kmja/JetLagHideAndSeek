@@ -430,6 +430,41 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v840 — configure-dialog impact overlay now auto-computes EVERY spatially-
+deterministic question type (audit).** The configure-question map preview
+(`InlineLocationPicker` ← `useQuestionImpact`, `questionImpact.ts`) drew the
+closer/further (measuring) or same/different (matching) region only for the
+POINT-set subtypes (POIs, airport, city, rail-station, water). Every AREA/line
+type resolved to `null` in `resolveFamily` and drew NOTHING. Now they all
+delegate to the SAME elimination geometry the answer uses, so preview == cut:
+- **Measuring line/contour types** — `coastline`, `international-border`,
+  `admin1-border`, `admin2-border`, `highspeed-measure-shinkansen` — route
+  through `measuringDraftBuffer(type, lat, lng)` (→ `determineMeasuringBoundary`
+  → `arcBufferToPoint`), exactly like `body-of-water` already did. New
+  `resolveFamily` kind `measuring-geom`; a new effect fills yes/no from the
+  full-geometry buffer (no point candidates, no half-plane). `sea-level` stays
+  null (it's an elevation contour, not a distance buffer).
+- **Matching area/line types** — `zone`/`letter-zone` (admin division),
+  `same-landmass`, `same-length-station`, `same-train-line`,
+  `same-street-or-path` — route through a new
+  `matchingDraftRegion(question)` (`matching.ts`) → `determineMatchingBoundary`
+  run in a new **`silent`** mode (suppresses the "No boundary found" /
+  "Couldn't determine your landmass" / "No named street" toasts+throws and
+  returns `undefined` so a cold/failed lookup draws nothing instead of spamming
+  toasts while the seeker positions the pin; `silent` is in the memo key so the
+  REAL elimination call keeps its error feedback). New `resolveFamily` kind
+  `matching-region` + effect; the "same" region is the boundary polygon,
+  `no` = play area minus it. The **admin `zone` overlay needs the admin level**,
+  threaded as a new `impactAdminLevel` prop `cards/matching.tsx` → `LatLngPicker`
+  → `InlineLocationPicker` → `useQuestionImpact`. Guarded: `InlineLocationPicker`
+  passes an empty subtype to the hook unless the overlay is actually active
+  (`impactMode` set = configure dialog), so a locked/display card never triggers
+  the new Overpass-touching compute. **Remaining gap:** the `metro` tentacle
+  subtype still draws no reach overlay (needs the representative-point metro
+  fetch) — noted for a follow-up. The `radius` category already overlays its
+  circle; `thermometer` uses its own dialog; `photo` narrows nothing (no
+  overlay by design).
+
 **v839 — one icon per question everywhere + compact configure header +
 ward/borough admin prewarm + lobby footer spacing.** (1) **Every question
 subtype now has EXACTLY ONE icon, shown on both the header card and the map

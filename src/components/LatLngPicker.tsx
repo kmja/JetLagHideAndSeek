@@ -400,6 +400,7 @@ export const LatitudeLongitude = ({
     impactMode,
     impactType,
     tentacleRadiusKm,
+    impactAdminLevel,
 }: {
     latitude: number;
     longitude: number;
@@ -443,6 +444,7 @@ export const LatitudeLongitude = ({
     impactMode?: ImpactMode;
     impactType?: string;
     tentacleRadiusKm?: number;
+    impactAdminLevel?: number;
 }) => {
     const $isLoading = useStore(isLoading);
 
@@ -490,6 +492,7 @@ export const LatitudeLongitude = ({
                                     impactMode={impactMode}
                                     impactType={impactType}
                                     tentacleRadiusKm={tentacleRadiusKm}
+                                    impactAdminLevel={impactAdminLevel}
                                 />
                             </Suspense>
                         ) : (

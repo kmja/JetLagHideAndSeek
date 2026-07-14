@@ -79,6 +79,7 @@ export function InlineLocationPicker({
     impactMode,
     impactType,
     tentacleRadiusKm,
+    impactAdminLevel,
 }: {
     latitude: number;
     longitude: number;
@@ -101,6 +102,8 @@ export function InlineLocationPicker({
     impactType?: string;
     /** Tentacle reach in km (tentacles impactMode only). */
     tentacleRadiusKm?: number;
+    /** Admin level for the matching zone/letter-zone overlay (v840). */
+    impactAdminLevel?: number;
     /**
      * When true, the picker becomes a display-only map: map clicks don't
      * move the pin, the pin isn't draggable, and the pin only renders
@@ -150,9 +153,15 @@ export function InlineLocationPicker({
     const impact = useQuestionImpact(
         latitude,
         longitude,
-        impactType ?? "",
+        // Only feed a real subtype when the overlay is actually active
+        // (impactMode set = configure dialog). Otherwise pass "" so the
+        // hook resolves to no family and runs NO geometry work — the
+        // v840 region/line families fetch from Overpass on compute, and
+        // a locked/display card must never trigger that.
+        impactMode ? (impactType ?? "") : "",
         impactMode ?? "matching",
         tentacleRadiusKm,
+        impactAdminLevel,
     );
     // v371: the candidate icon for this question's subtype (e.g.
     // museum → Landmark). Falls back to the matching-category neutral

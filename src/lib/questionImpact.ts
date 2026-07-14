@@ -4,20 +4,28 @@
  * plain GeoJSON. Rendered onto the EXISTING question-dialog map
  * (InlineLocationPicker), not a separate mini-map.
  *
- *   - Matching: Voronoi cell of the seeker's nearest X = the "yes,
- *     same nearest" region; the rest of the play area = "no". Plus
- *     every other instance of X so the seeker can read density.
- *   - Measuring: the real elimination geometry — a geodesic union of
- *     circles (radius = seeker's distance to nearest X) around every
- *     candidate, i.e. "everywhere whose nearest X is no further than
- *     mine" = the "closer" region; the rest of the play area = "further".
- *     A perpendicular-bisector half-plane is used only as an instant
- *     fallback while that async buffer resolves.
- *   - Tentacles: the reach circle + every candidate inside it.
+ *   - Matching (POINT subtypes — POIs, airport, city): Voronoi cell of
+ *     the seeker's nearest X = the "yes, same nearest" region; the rest
+ *     of the play area = "no". Plus every other instance of X for density.
+ *   - Matching (AREA/line subtypes — admin zone / letter-zone, landmass,
+ *     station name-length / train-line, street): the REAL "same" boundary
+ *     polygon the elimination keeps (v840, via matchingDraftRegion →
+ *     determineMatchingBoundary, run silently), so the preview == answer.
+ *   - Measuring (POINT subtypes): the real elimination geometry — a
+ *     geodesic union of circles (radius = seeker's distance to nearest X)
+ *     around every candidate = the "closer" region; rest = "further". A
+ *     perpendicular-bisector half-plane is the instant fallback.
+ *   - Measuring (LINE/contour subtypes — coast, the three border types,
+ *     high-speed rail, body-of-water): the SAME full-geometry buffer the
+ *     elimination uses (v840, via measuringDraftBuffer →
+ *     determineMeasuringBoundary). (sea-level is elevation, no overlay.)
+ *   - Tentacles: the reach circle + every candidate inside it, partitioned
+ *     into per-candidate Voronoi cells. (metro tentacles: no overlay yet.)
  *
- * Pure geometry on the prefetched feature cache (playAreaPrefetch) —
- * no extra Overpass round-trips beyond the nearest-reference text
- * preview that's already on screen.
+ * Point subtypes read the prefetched feature cache (playAreaPrefetch) with
+ * no extra Overpass; the area/line subtypes reuse the elimination's own
+ * (cached/prewarmed) fetches, so they add at most the query the answer
+ * would run anyway, once per seeker position.
  */
 
 import { useStore } from "@nanostores/react";
@@ -36,6 +44,7 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
+import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
 import { arcBufferToPoint } from "@/maps/geo-utils";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
@@ -77,16 +86,38 @@ type ResolvedFamily =
     | { kind: "airport"; family: FamilyKey }
     | { kind: "rail-station"; family: FamilyKey }
     | { kind: "water"; family: FamilyKey }
+    // Line/contour measuring families (coast, the three border types,
+    // high-speed rail) — no point set, so the overlay comes entirely from
+    // the SAME full-geometry buffer the elimination uses
+    // (measuringDraftBuffer → determineMeasuringBoundary), exactly like
+    // body-of-water.
+    | { kind: "measuring-geom"; type: string }
+    // Area/line MATCHING families whose "same" region is a real boundary
+    // polygon (admin zone, letter-zone, landmass, station name-length /
+    // train-line, street) rather than a Voronoi cell over a point set.
+    // The overlay comes from the SAME determineMatchingBoundary the
+    // elimination uses (via matchingDraftRegion).
+    | { kind: "matching-region"; type: string }
     | { kind: "city" }
-    | { kind: "coastline" }
     | null;
 
 function resolveFamily(typeRaw: string): ResolvedFamily {
     const stripped = typeRaw.replace(/-full$/, "");
     if (stripped === "airport") return { kind: "airport", family: "airport" };
-    if (stripped === "coastline") return { kind: "coastline" };
     if (stripped === "major-city" || stripped === "city")
         return { kind: "city" };
+    // v840: matching AREA/line types now auto-compute their "same" region
+    // from the real elimination geometry instead of drawing nothing.
+    if (
+        stripped === "zone" ||
+        stripped === "letter-zone" ||
+        stripped === "same-landmass" ||
+        stripped === "same-length-station" ||
+        stripped === "same-first-letter-station" ||
+        stripped === "same-train-line" ||
+        stripped === "same-street-or-path"
+    )
+        return { kind: "matching-region", type: stripped };
     // v824: rail-measure-ordinary (the shipped measuring rail subtype) uses
     // the nearest rail STATION as its reference, so its impact overlay should
     // draw the closer/further region around rail stations — without this it
@@ -98,6 +129,19 @@ function resolveFamily(typeRaw: string): ResolvedFamily {
     // full geometry (measuring.ts), so this is an approximation.
     if (stripped === "body-of-water")
         return { kind: "water", family: "body-of-water" };
+    // v840: coast + borders + high-speed rail now auto-compute their
+    // closer/further overlay from the real elimination geometry
+    // (measuringDraftBuffer keys on the type string alone), so they no
+    // longer draw nothing. (sea-level stays null — it's an elevation
+    // contour, not a distance buffer.)
+    if (
+        stripped === "coastline" ||
+        stripped === "international-border" ||
+        stripped === "admin1-border" ||
+        stripped === "admin2-border" ||
+        stripped === "highspeed-measure-shinkansen"
+    )
+        return { kind: "measuring-geom", type: stripped };
     if (stripped in LOCATION_FIRST_TAG) {
         const loc = stripped as APILocations;
         return { kind: "api", family: `api:${loc}`, location: loc };
@@ -280,20 +324,99 @@ export function useQuestionImpact(
     type: string,
     mode: ImpactMode,
     tentacleRadiusKm?: number,
+    /** Admin level for the matching `zone`/`letter-zone` overlay — ignored
+     *  by every other type. */
+    adminLevel?: number,
 ): QuestionImpact | null {
     const family = useMemo(() => resolveFamily(type), [type]);
     const playArea = usePlayAreaPolygon();
     const [tick, setTick] = useState(0);
 
     // Warm the family cache if it isn't already (point families only;
-    // city + coastline are bundled / line-shaped).
+    // city / measuring-geom / matching-region are bundled / line- or
+    // boundary-shaped, not point caches).
     useEffect(() => {
-        if (!family || family.kind === "city" || family.kind === "coastline") {
+        if (
+            !family ||
+            family.kind === "city" ||
+            family.kind === "measuring-geom" ||
+            family.kind === "matching-region"
+        ) {
             return;
         }
         if (getCachedCategory(family.family) !== null) return;
         void prefetchCategory(family.family).then(() => setTick((t) => t + 1));
     }, [family?.kind, (family as any)?.family]);
+
+    // v840: real "same" region for the matching AREA/line types (admin
+    // zone, landmass, station-length/-line, street) — the SAME polygon the
+    // elimination keeps, computed silently (no toasts) via
+    // matchingDraftRegion. Mirrors the measuring effect below.
+    const [matchingRegion, setMatchingRegion] = useState<{
+        key: string;
+        lat: number;
+        lng: number;
+        yes: Feature<Polygon | MultiPolygon> | null;
+        no: Feature<Polygon | MultiPolygon> | null;
+    } | null>(null);
+    useEffect(() => {
+        if (mode !== "matching") return;
+        if (!family || family.kind !== "matching-region") return;
+        if (!playArea) return;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        let cancelled = false;
+        matchingDraftRegion({
+            type: family.type,
+            lat,
+            lng,
+            cat: { adminLevel: (adminLevel ?? 3) as 2 },
+            color: "gold",
+            drag: false,
+            collapsed: false,
+            same: true,
+        } as unknown as import("@/maps/schema").MatchingQuestion)
+            .then((region) => {
+                if (cancelled) return;
+                let yes: Feature<Polygon | MultiPolygon> | null = null;
+                let no: Feature<Polygon | MultiPolygon> | null = null;
+                if (region) {
+                    try {
+                        yes = turf.intersect(
+                            turf.featureCollection([
+                                region as any,
+                                playArea as any,
+                            ]),
+                        ) as Feature<Polygon | MultiPolygon> | null;
+                    } catch {
+                        /* keep null */
+                    }
+                    try {
+                        no = turf.difference(
+                            turf.featureCollection([
+                                playArea as any,
+                                region as any,
+                            ]),
+                        ) as Feature<Polygon | MultiPolygon> | null;
+                    } catch {
+                        /* keep null */
+                    }
+                }
+                setMatchingRegion({
+                    key: `${family.type}:${adminLevel ?? ""}`,
+                    lat,
+                    lng,
+                    yes,
+                    no,
+                });
+            })
+            .catch(() => {
+                /* draw nothing on failure */
+            });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, family?.kind, type, adminLevel, playArea, lat, lng, tick]);
 
     // Real measuring-elimination preview. The measuring cut is NOT a flat
     // perpendicular-bisector half-plane — that was only ever correct for a
@@ -311,7 +434,7 @@ export function useQuestionImpact(
     // path. Only ever active while configuring a draft (impactMode is unset
     // on answered cards), so at most one of these runs at a time.
     const [measuring, setMeasuring] = useState<{
-        family: string;
+        key: string;
         lat: number;
         lng: number;
         yes: Feature<Polygon | MultiPolygon> | null;
@@ -319,32 +442,33 @@ export function useQuestionImpact(
     } | null>(null);
     useEffect(() => {
         if (mode !== "measuring") return;
-        if (!family || family.kind === "city" || family.kind === "coastline") {
-            return;
-        }
+        if (!family || family.kind === "city") return;
         if (!playArea) return;
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
         let cancelled = false;
-        // v688: body-of-water is NOT a point family — its references are
-        // lake/reservoir shores AND river/canal lines. Buffering the
-        // `natural=water` CENTROID cache (as the point path below does)
-        // ignored rivers and measured lakes from their middle, so the
-        // overlay marked areas far from any shore as "closer" and
-        // disagreed with the real cut. For water we compute the SAME buffer
-        // the elimination uses (full `out geom` geometry); every other
-        // measuring family is a genuine point set, so the centroid buffer
-        // is exact there.
-        const bufferPromise =
-            family.kind === "water"
-                ? measuringDraftBuffer("body-of-water", lat, lng)
-                : (() => {
-                      const cached = getCachedCategory(family.family);
-                      if (!cached || cached.length === 0) return null;
-                      const pts = turf.featureCollection(
-                          cached.map((f) => turf.point([f.lng, f.lat])),
-                      );
-                      return arcBufferToPoint(pts, lat, lng);
-                  })();
+        // v688/v840: for families whose reference is NOT a plain point set
+        // — body-of-water (lake shores + river/canal lines), and the
+        // `measuring-geom` line/contour families (coast, borders,
+        // high-speed rail) — compute the SAME buffer the elimination uses
+        // (full `out geom` geometry via measuringDraftBuffer →
+        // determineMeasuringBoundary), keyed on the type string. Every
+        // other measuring family is a genuine point set, so the centroid
+        // buffer (arcBufferToPoint) is exact there and stays on the cheap
+        // point path.
+        const useFullGeom =
+            family.kind === "water" || family.kind === "measuring-geom";
+        const bufferPromise = useFullGeom
+            ? measuringDraftBuffer(type, lat, lng)
+            : (() => {
+                  const cached = getCachedCategory(
+                      (family as { family: FamilyKey }).family,
+                  );
+                  if (!cached || cached.length === 0) return null;
+                  const pts = turf.featureCollection(
+                      cached.map((f) => turf.point([f.lng, f.lat])),
+                  );
+                  return arcBufferToPoint(pts, lat, lng);
+              })();
         if (!bufferPromise) return;
         Promise.resolve(bufferPromise)
             .then((buffer) => {
@@ -371,7 +495,7 @@ export function useQuestionImpact(
                 } catch {
                     /* keep null */
                 }
-                setMeasuring({ family: family.family, lat, lng, yes, no });
+                setMeasuring({ key: type, lat, lng, yes, no });
             })
             .catch(() => {
                 /* leave the half-plane fallback in place */
@@ -380,15 +504,39 @@ export function useQuestionImpact(
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, family?.kind, (family as any)?.family, playArea, lat, lng, tick]);
+    }, [mode, family?.kind, type, playArea, lat, lng, tick]);
+
+    // The real full-geometry region for the current (type, position) is
+    // ready (measuring-geom / water). Drives both `loading` and the
+    // measuring `real` gate below so they never disagree.
+    const measuringReady = Boolean(
+        measuring &&
+            measuring.key === type &&
+            measuring.lat === lat &&
+            measuring.lng === lng &&
+            (measuring.yes || measuring.no),
+    );
+    // Same, for the matching-region boundary (keyed on type + adminLevel).
+    const matchingRegionReady = Boolean(
+        matchingRegion &&
+            matchingRegion.key === `${type}:${adminLevel ?? ""}` &&
+            matchingRegion.lat === lat &&
+            matchingRegion.lng === lng &&
+            (matchingRegion.yes || matchingRegion.no),
+    );
 
     return useMemo(() => {
         if (!family || !playArea) return null;
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-        // Coastline / line-shaped references aren't a point set — the
-        // impact regions need a different (contour) approach we haven't
-        // built yet, so bail and let the text preview carry it.
-        if (family.kind === "coastline") return null;
+
+        // Line/contour measuring families (coast, borders, high-speed rail)
+        // AND the matching AREA/line families (zone, landmass, …) have NO
+        // point set — no candidate dots and no nearest point. Their whole
+        // overlay is the full-geometry region from the effects above, so we
+        // skip the point-cache path entirely.
+        const noPointSet =
+            family.kind === "measuring-geom" ||
+            family.kind === "matching-region";
 
         const rawCandidates: Array<{ lat: number; lng: number; name: string }> =
             family.kind === "city"
@@ -397,11 +545,15 @@ export function useQuestionImpact(
                       lat: la,
                       lng: ln,
                   }))
-                : (getCachedCategory(family.family) ?? []).map((f) => ({
-                      lat: f.lat,
-                      lng: f.lng,
-                      name: f.name,
-                  }));
+                : noPointSet
+                  ? []
+                  : (getCachedCategory(
+                        (family as { family: FamilyKey }).family,
+                    ) ?? []).map((f) => ({
+                        lat: f.lat,
+                        lng: f.lng,
+                        name: f.name,
+                    }));
         // v371: rulebook p17 — restrict candidates to features inside
         // the play-area polygon. The reference cache is keyed on a
         // 50 km PADDED bbox so feature warming is reusable across edits;
@@ -419,8 +571,16 @@ export function useQuestionImpact(
                   )
                 : rawCandidates;
         const loading =
-            family.kind !== "city" &&
-            getCachedCategory(family.family) === null;
+            family.kind === "measuring-geom"
+                ? // line families have no point cache — "loading" until the
+                  // full-geometry buffer resolves for this position
+                  !measuringReady
+                : family.kind === "matching-region"
+                  ? !matchingRegionReady
+                  : family.kind !== "city" &&
+                    getCachedCategory(
+                        (family as { family: FamilyKey }).family,
+                    ) === null;
 
         // Nearest candidate (matching / measuring).
         let nearest: { lat: number; lng: number; name: string } | null = null;
@@ -440,7 +600,14 @@ export function useQuestionImpact(
 
         const out: QuestionImpact = { candidates, nearest, loading };
 
-        if (mode === "matching" && nearest) {
+        if (mode === "matching" && family.kind === "matching-region") {
+            // Admin zone / landmass / station-length-or-line / street: the
+            // "same" region is the real boundary polygon from the effect.
+            if (matchingRegionReady && matchingRegion) {
+                out.yes = matchingRegion.yes ?? undefined;
+                out.no = matchingRegion.no ?? undefined;
+            }
+        } else if (mode === "matching" && nearest) {
             const cell = voronoiCellAroundMe(
                 { lat, lng },
                 nearest,
@@ -470,12 +637,7 @@ export function useQuestionImpact(
             // the real full-geometry buffer (its "nearest" is a line/shore,
             // not a centroid — v688).
             const real =
-                measuring &&
-                family.kind !== "city" &&
-                measuring.family === (family as { family?: string }).family &&
-                measuring.lat === lat &&
-                measuring.lng === lng &&
-                (measuring.yes || measuring.no)
+                measuring && family.kind !== "city" && measuringReady
                     ? measuring
                     : null;
             if (real) {
@@ -602,6 +764,8 @@ export function useQuestionImpact(
     }, [
         family?.kind,
         (family as any)?.family,
+        type,
+        adminLevel,
         playArea,
         lat,
         lng,
@@ -609,5 +773,8 @@ export function useQuestionImpact(
         tentacleRadiusKm,
         tick,
         measuring,
+        measuringReady,
+        matchingRegion,
+        matchingRegionReady,
     ]);
 }

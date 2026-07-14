@@ -321,6 +321,10 @@ export const MatchingQuestionComponent = ({
                     lng={data.lng}
                     color={data.color}
                     type={data.type}
+                    adminLevel={
+                        (data as { cat?: { adminLevel?: number } }).cat
+                            ?.adminLevel
+                    }
                     disabled={!isQuestionEditable(data) || $isLoading}
                     forceExpanded={forceExpanded}
                     dragLive={data.drag}
@@ -448,6 +452,7 @@ function MatchingMeasuringLocation({
     lng,
     color,
     type,
+    adminLevel,
     disabled,
     forceExpanded,
     dragLive,
@@ -458,6 +463,8 @@ function MatchingMeasuringLocation({
     lng: number;
     color: string;
     type: string;
+    /** Admin level for the zone/letter-zone impact overlay (v840). */
+    adminLevel?: number;
     disabled?: boolean;
     forceExpanded?: boolean;
     dragLive?: boolean;
@@ -543,6 +550,7 @@ function MatchingMeasuringLocation({
             // picker map, only while configuring a draft question.
             impactMode={forceExpanded ? "matching" : undefined}
             impactType={type}
+            impactAdminLevel={adminLevel}
         />
     );
 }
