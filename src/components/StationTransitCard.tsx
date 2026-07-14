@@ -7,6 +7,7 @@ import {
     Loader2,
     MapPin,
     Route,
+    X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -298,30 +299,22 @@ export function StationTransitCard({
     const StationIcon = modeIconFor(station.modes);
 
     return (
-        // v834: a plain fixed bottom OVERLAY, not a vaul drawer — a drawer
-        // (even non-modal) put `body { pointer-events: none }` up via its
-        // Radix dismissable layer, freezing the map AND the app header. As a
-        // bare positioned div there's zero body manipulation, so the map
-        // stays fully interactive: pan / zoom / tap another zone to switch.
-        // Dismiss by swiping the card down or tapping the top handle.
+        // v835: a FLOATING map-overlay card (not a full-bleed bottom drawer)
+        // — centred, inset off every edge, fully rounded + shadowed, matching
+        // the other on-map overlay cards (PendingAnswerOverlay etc.). It's a
+        // plain positioned div (NOT a vaul drawer), so there's zero
+        // body-pointer-events manipulation and the map + app header stay
+        // fully interactive: pan / zoom / tap another zone to switch. Dismiss
+        // with the top-right X (or a downward swipe on touch).
         <div
             ref={contentRef}
             role="dialog"
             aria-label={station.name ?? "Selected station"}
             onTouchStart={onCardTouchStart}
             onTouchEnd={onCardTouchEnd}
-            className="fixed inset-x-0 bottom-0 z-[1045] mx-auto flex max-h-[80vh] flex-col rounded-t-[10px] border bg-background text-foreground shadow-2xl pb-[env(safe-area-inset-bottom)] sm:max-w-md animate-in slide-in-from-bottom-4 duration-200"
+            className="fixed bottom-3 left-1/2 z-[1045] flex max-h-[70vh] w-[min(94vw,460px)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
         >
-            <button
-                type="button"
-                onClick={close}
-                aria-label="Close"
-                title="Close"
-                className="mx-auto mt-2 mb-1 flex h-6 w-full shrink-0 items-center justify-center focus-visible:outline-none"
-            >
-                <span className="h-1.5 w-12 rounded-full bg-foreground/25" />
-            </button>
-            <div className="overflow-y-auto px-5 pt-2 pb-6">
+            <div className="overflow-y-auto px-5 pt-4 pb-5">
                         <div className="flex items-start gap-2.5">
                             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15">
                                 <StationIcon className="h-4.5 w-4.5 text-primary" />
@@ -331,6 +324,15 @@ export function StationTransitCard({
                                     {station.name ?? "Selected station"}
                                 </h2>
                             </div>
+                            <button
+                                type="button"
+                                onClick={close}
+                                aria-label="Close"
+                                title="Close"
+                                className="-mr-1 -mt-1 shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
                         </div>
 
                         {reachability && (

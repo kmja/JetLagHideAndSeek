@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v835`. Use `git log` for the per-version detail;
+build stamp. Current: `v836`. Use `git log` for the per-version detail;
+
+**v836 — station card looks like a floating map-overlay card.** Follow-up to
+v834 (which made `StationTransitCard` a plain positioned div to fix the frozen
+map): it still *read* as a full-bleed bottom drawer (edge-to-edge, top-only
+rounding, a drag handle). Restyled to match the other on-map overlay cards
+(`PendingAnswerOverlay` etc.): **centred, inset off every edge**
+(`bottom-3 left-1/2 -translate-x-1/2 w-[min(94vw,460px)]`), **fully rounded**
+(`rounded-2xl`) + `shadow-2xl`, `overflow-hidden`. The drawer drag-handle bar was
+removed; dismissal is a small **top-right X** (consistent with the other overlay
+cards) plus the existing downward-swipe on touch. Still a plain div (no vaul), so
+the map + app header stay fully interactive behind it.
 
 **v835 — hiding-zone label shortening (calmer overlay).** A dense metro's
 overlay was a wall of long station names. `src/lib/stationLabel.ts` (unit-tested)
