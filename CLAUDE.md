@@ -233,7 +233,7 @@ The seeker route is a React component (`src/pages/SeekerPage.tsx`), gated on `hi
 - **Mobile** — the bottom-nav **"Map"** slot opens **`MapOptionsDrawer`** (a vaul bottom sheet, `mapOptionsDrawerOpen` atom) with the roomy panel.
 - **Desktop** — the floating **"Map options" chip** (`Layers`, `h-14/w-14`, active-count badge) opens a `Popover` (`side="top" align="start"`) with the compact panel. `SeekerPage` wraps it `hidden md:block` (mobile uses the nav).
 
-Panel sections: **Basemap** (Map/Satellite), **Overlays** (Hiding zones + Travel times), **Export** (Save image), **Transit overlays** (per-mode rail/subway/bus/ferry/train/tram, gated on `allowedTransit`). The active-overlay count comes from the exported `useMapOptionsActiveCount()` hook (used by both the desktop chip badge and the nav "Map" badge).
+Panel sections (v833 trimmed): **Basemap** (Map/Satellite), **Overlays** (Hiding zones — the Travel-times toggle was removed), **Transit overlays** (per-mode rail/subway/bus/ferry/train/tram, gated on `allowedTransit`, laid out as a `grid grid-cols-2` so four modes read as 2+2). The Save-image **Export** section was also removed. The active-overlay count comes from the exported `useMapOptionsActiveCount()` hook (used by both the desktop chip badge and the nav "Map" badge).
 
 **Loading affordances (v654):** every async map overlay surfaces its load in TWO places — a `Loader2` spinner on its map-options toggle button AND a small "Loading …" pill at the top of the map (`MapOverlayLoadingToasts`, mounted on both the seeker `Map` and hider `HiderBackgroundMap`). Per-overlay loading flags: seeker hiding zones = `isLoading` (`context.ts`, `ZoneSidebar`, gated on `displayHidingZones` for the toaster since its compute isn't abortable), hider hiding zones = `hiderReachLoading`, travel times = `travelTimesLoading` (both `journey/state.ts`), transit lines = `transitRoutesLoading` (per-mode, `gameSetup.ts`). The toaster reads them all and shows one pill per active overlay; the two hiding-zones producers (seeker/hider) both map to "Loading hiding zones…" and only one is ever live (one map mounted at a time). Basemap/satellite tile loads aren't tracked (effectively instant toggles).
 
@@ -428,7 +428,44 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v832`. Use `git log` for the per-version detail;
+build stamp. Current: `v833`. Use `git log` for the per-version detail;
+
+**v833 — map-options declutter + the "walking-only in NYC" root cause.** A
+batch of demo-feedback fixes. (1) **The trip planner no longer falls to a
+walking-only estimate when transit exists** (the reported "72nd Street shows an
+80-min walk even though the departures board lists the Q"). Root cause:
+`planViaMotis` (`transitous.ts`) never told MOTIS which modes the game allows,
+so MOTIS ranked a bus-inclusive itinerary first; since NYC medium/large games
+DON'T allow bus (`inferTransitModes`), `dispatchPlan`'s mode filter
+(`journeyModesAllowed`, `router.ts`) rejected EVERY returned itinerary and fell
+through to the walking backstop — even though a subway itinerary existed.
+`planViaMotis` now passes `transitModes` (new `motisTransitModes` maps our
+allow-set → MOTIS vehicle enums + WALK, unit-tested) so MOTIS surfaces a
+compliant subway/rail itinerary directly; an older MOTIS instance ignores the
+unknown param (no regression). (2) **`?debug=1` on `/api/travel/plan` now
+explains a walking fall-through** — each adapter row gained `legModes`,
+`modesAllowed`, `wouldDispatch`, and the response echoes the client `modes`, so
+a "returned a journey but the plan is still walking" case is visible (the old
+diagnostic reported the raw adapter result BEFORE the mode-rejection filter, so
+it looked like transitous succeeded). (3) **Map options trimmed**: the
+**Travel-times** overlay + its toggle were removed (the red/green reachability
+dots didn't pull their weight; `TravelTimesOverlay` unmounted from `SeekerPage`,
+the toggle + its imports dropped from `MapDisplayControls`), and the
+**Save-image** export button was removed. (4) **Transit-overlay toggles are a
+2-column grid** (`grid grid-cols-2`) so four modes read as a tidy 2+2 instead of
+3+1 (`MapDisplayControls`). (5) **Hider hiding-zone dots are light-grey** on
+dark/satellite (`hider-reach-dots`, `HiderBackgroundMap`) — byte-for-byte the
+seeker's `hiding-zones-points`; they used to be brand red, which read as a loud
+field. (6) **Questions drawer shows a hiding-period notice** (`QuestionSidebar`)
+— a warning banner + a "Waiting on the hider / Questions unlock when the hiding
+period ends" empty state, so a seeker isn't left wondering why they can't ask.
+(7) **`StationTransitCard`: the reachability banner IS the expander** — the
+"Reachable in time / Out of reach" verdict is now the tap target that opens
+Route & departures (with a chevron + "Route & departures" hint), since the
+verdict naturally invites "here's how to get there"; the standalone expander row
+remains only when there's no reachability banner (no hiding clock). (The map
+already stays interactive behind the non-modal card and re-selects zones on any
+tap — v665/v666; a stale PWA cache can mask it, cleared by a reload.)
 
 **v832 — the hide team SHARES one hand/deck (Track 2 of the hider-role rework).**
 Completes v829: the whole hide team now draws / keeps / discards / plays from

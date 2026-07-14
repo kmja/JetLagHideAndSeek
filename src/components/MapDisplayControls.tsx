@@ -1,8 +1,6 @@
 import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
-    Camera,
-    Clock,
     Layers,
     Loader2,
     Map as MapIcon,
@@ -29,12 +27,12 @@ import {
     TRANSIT_ICONS,
     transitRoutesLoading,
 } from "@/lib/gameSetup";
-import { showTravelTimes, travelTimesLoading } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
- * Map display controls — basemap toggle, overlay toggles, image export,
- * and per-mode transit overlays.
+ * Map display controls — basemap toggle, the hiding-zones overlay, and
+ * per-mode transit overlays. (v833 removed the Travel-times overlay and the
+ * Save-image export — neither pulled its weight in play.)
  *
  * v622: two surfaces share ONE roomy `MapOptionsPanel`:
  *   • Desktop — a floating "Map options" chip (bottom-left) whose
@@ -84,8 +82,6 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
     const $isLoading = useStore(isLoading);
     const $allowedTransit = useStore(allowedTransit);
     const $transitLoading = useStore(transitRoutesLoading);
-    const $showTravelTimes = useStore(showTravelTimes);
-    const $travelTimesLoading = useStore(travelTimesLoading);
 
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
@@ -194,73 +190,15 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
                         <Loader2 className="w-4 h-4 animate-spin ml-auto" />
                     )}
                 </button>
-                {/* Travel times — earliest arrival at each station for the
-                    hider, given they departed from the game-start location
-                    when the hiding period began. Requires hiding zones +
-                    GPS at game start (overpass-cache /api/journey/arrivals). */}
-                <button
-                    type="button"
-                    onClick={() => {
-                        const next = !$showTravelTimes;
-                        showTravelTimes.set(next);
-                        // Travel times label the hiding-zone stations, so
-                        // they need that overlay on — enable it too (v630).
-                        if (next) displayHidingZones.set(true);
-                    }}
-                    aria-pressed={$showTravelTimes}
-                    className={cn(
-                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",
-                        rowH,
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        $showTravelTimes
-                            ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"
-                            : "bg-background border-border hover:bg-accent",
-                    )}
-                    title="Stations reachable within the hiding period (requires Hiding zones + GPS at game start)"
-                >
-                    <Clock className={cn(rowIcon, "shrink-0")} />
-                    <span
-                        className={cn("font-poppins font-semibold", rowText)}
-                    >
-                        Travel times
-                    </span>
-                    {$travelTimesLoading && (
-                        <Loader2 className="w-4 h-4 animate-spin ml-auto" />
-                    )}
-                </button>
             </div>
 
-            {/* Export */}
-            <div className="space-y-2">
-                <div className={label}>Export</div>
-                <button
-                    type="button"
-                    onClick={() => {
-                        window.dispatchEvent(
-                            new CustomEvent("jlhs:save-map-image"),
-                        );
-                    }}
-                    className={cn(
-                        "w-full rounded-lg border-2 px-3 gap-2.5 flex items-center transition-colors",
-                        rowH,
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        "bg-background border-border hover:bg-accent",
-                    )}
-                    title="Save current map view as a PNG image"
-                >
-                    <Camera className={cn(rowIcon, "shrink-0")} />
-                    <span className={cn("font-poppins font-semibold", rowText)}>
-                        Save image
-                    </span>
-                </button>
-            </div>
-
-            {/* Per-mode transit toggles */}
+            {/* Per-mode transit toggles. A 2-column grid so four modes read
+                as a tidy 2+2 (not 3+1) when they don't fit one row (v833). */}
             {hasAnyTransitBtn && (
                 <div className="space-y-2">
                     <div className={label}>Transit overlays</div>
                     <div
-                        className="flex flex-wrap gap-2"
+                        className="grid grid-cols-2 gap-2"
                         role="group"
                         aria-label="Transit overlays"
                     >
@@ -456,11 +394,9 @@ function TransitIconToggle({
             title={loading ? `${label} — loading routes…` : label}
             aria-label={loading ? `${label} (loading routes)` : label}
             className={cn(
-                // Each toggle is a self-contained pill so the row can
-                // wrap (flex-wrap on the parent) when the icon+label
-                // buttons no longer fit; flex-1 + basis lets them share
-                // the available width and line-break as a group.
-                "flex-1 basis-24 flex items-center justify-center gap-1.5 py-2 px-2.5",
+                // Each toggle is a self-contained pill filling its grid
+                // cell, so four modes lay out as a tidy 2+2 (v833).
+                "w-full flex items-center justify-center gap-1.5 py-2 px-2.5",
                 "rounded-lg border-2 border-border transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 loading

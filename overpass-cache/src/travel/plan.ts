@@ -23,7 +23,12 @@
  */
 
 import type { Env } from "../envTypes";
-import { ADAPTERS, dispatchPlan, selectAdapters } from "./router";
+import {
+    ADAPTERS,
+    dispatchPlan,
+    journeyModesAllowed,
+    selectAdapters,
+} from "./router";
 import type { Journey, PlanRequest, PlanResponse, TravelMode } from "./types";
 
 const DEPART_BUCKET_MS = 5 * 60 * 1000;
@@ -177,6 +182,17 @@ interface AdapterDiagnosis {
     result?: string;
     durationMin?: number;
     transfers?: number;
+    /** Distinct leg modes of the returned journey, e.g. ["walk","bus","subway"]. */
+    legModes?: string[];
+    /** Whether the returned journey passes the game's mode allow-set. When
+     *  FALSE, the dispatcher REJECTS this journey (router.ts) and falls
+     *  through — this is the usual reason a real transit adapter's result
+     *  still ends up as a walking plan (a banned mode like bus in the
+     *  route). The single most useful field for the "walking-only" report. */
+    modesAllowed?: boolean;
+    /** True only when the journey both exists AND is mode-allowed — i.e.
+     *  the dispatcher would actually return this adapter's result. */
+    wouldDispatch?: boolean;
     ms?: number;
 }
 
@@ -212,6 +228,12 @@ async function diagnose(
                 if (j) {
                     row.durationMin = j.durationMin;
                     row.transfers = j.transfers;
+                    row.legModes = [...new Set(j.legs.map((l) => l.mode))];
+                    // The dispatcher rejects a journey that rides a banned
+                    // mode (router.ts) — surface that so a "journey" that
+                    // nonetheless falls to walking is explained.
+                    row.modesAllowed = journeyModesAllowed(j, req.modes);
+                    row.wouldDispatch = row.modesAllowed;
                 }
             } catch (e) {
                 row.result = `threw: ${e instanceof Error ? e.message : String(e)}`;
@@ -225,6 +247,12 @@ async function diagnose(
         origin: req.origin,
         destination: req.destination,
         departAt,
+        // The mode allow-set the client sent (empty client modes → all
+        // modes). If this EXCLUDES a mode the transit route needs (e.g. no
+        // "bus" but the only route uses a bus leg), every adapter's journey
+        // is mode-rejected and the plan falls to walking — check each row's
+        // `modesAllowed` / `legModes`.
+        modes: req.modes,
         adapterIdsInBuild: ADAPTERS.map((a) => a.id),
         adapters: rows,
     };

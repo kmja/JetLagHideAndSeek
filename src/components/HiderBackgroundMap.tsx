@@ -792,11 +792,14 @@ export function HiderBackgroundMap() {
                                         16,
                                         4,
                                     ],
-                                    // Light basemap: neutral very-dark-grey
-                                    // dots; dark/satellite: brand red. Matches
-                                    // hiding-zones-points.
+                                    // Light-grey dots on dark/satellite,
+                                    // neutral very-dark-grey on the light
+                                    // basemap — byte-for-byte the seeker's
+                                    // hiding-zones-points (v833: the hider's
+                                    // used to be brand red, which read as a
+                                    // loud field; grey matches the seeker).
                                     "circle-color": darkBasemap
-                                        ? "hsl(2, 70%, 54%)"
+                                        ? "hsl(0, 0%, 80%)"
                                         : "hsl(0, 0%, 20%)",
                                     // No stroke — the white outline read as a
                                     // halo on the light basemap.

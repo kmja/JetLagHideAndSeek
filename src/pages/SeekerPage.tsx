@@ -37,7 +37,6 @@ import { SeekerTopBar } from "@/components/SeekerTopBar";
 import { SeekerTripPlannerSheet } from "@/components/SeekerTripPlannerSheet";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
-import { TravelTimesOverlay } from "@/components/TravelTimesOverlay";
 import {
     SidebarProvider as SidebarProviderL,
     SidebarTrigger as SidebarTriggerL,
@@ -290,7 +289,6 @@ export function SeekerPage() {
                         <ThermometerOverlay />
                         <PendingAnswerOverlay />
                         <MapOverlayLoadingToasts />
-                        <TravelTimesOverlay />
                         {/* Error boundary catches any render-time error the
                             map might raise (style parse, WebGL init, etc.)
                             and surfaces a recover-and-reload card. The

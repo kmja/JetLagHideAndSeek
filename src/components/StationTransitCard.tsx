@@ -346,13 +346,21 @@ export function StationTransitCard({
                             </button>
                         </div>
 
+                        {/* The reachability verdict doubles as the affordance
+                            to open the route + departures detail — "here's the
+                            outcome, tap to see how you'd get there" (v833). A
+                            chevron on the right signals it expands. */}
                         {reachability && (
-                            <div
+                            <button
+                                type="button"
+                                onClick={() => setExpanded((e) => !e)}
+                                aria-expanded={expanded}
                                 className={cn(
-                                    "mt-3 flex items-start gap-2.5 rounded-lg border-2 px-3 py-2.5",
+                                    "mt-3 flex w-full items-start gap-2.5 rounded-lg border-2 px-3 py-2.5 text-left transition-colors",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                     reachability.reachable
-                                        ? "border-success/40 bg-success/10 text-success"
-                                        : "border-destructive/40 bg-destructive/10 text-destructive",
+                                        ? "border-success/40 bg-success/10 text-success hover:bg-success/15"
+                                        : "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
                                 )}
                             >
                                 {reachability.reachable ? (
@@ -366,7 +374,7 @@ export function StationTransitCard({
                                         strokeWidth={2.5}
                                     />
                                 )}
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1">
                                     <div className="font-poppins text-xs font-bold uppercase tracking-wider">
                                         {reachability.reachable
                                             ? "Reachable in time"
@@ -383,8 +391,19 @@ export function StationTransitCard({
                                                   reachability.marginMin,
                                               )} min after the whistle.`}
                                     </p>
+                                    <p className="mt-1 text-[11px] font-semibold opacity-80">
+                                        {expanded
+                                            ? "Hide route & departures"
+                                            : "Route & departures"}
+                                    </p>
                                 </div>
-                            </div>
+                                <ChevronDown
+                                    className={cn(
+                                        "mt-0.5 h-4 w-4 shrink-0 transition-transform duration-200",
+                                        expanded && "rotate-180",
+                                    )}
+                                />
+                            </button>
                         )}
 
                         {canTriggerEndgame && (
@@ -417,25 +436,29 @@ export function StationTransitCard({
 
                         {/* Progressive disclosure — the route + departures
                             detail is behind this expander so the card opens
-                            compact (just the title + reachability). */}
-                        <button
-                            type="button"
-                            onClick={() => setExpanded((e) => !e)}
-                            aria-expanded={expanded}
-                            className="mt-3 flex w-full items-center justify-between rounded-lg border border-border/70 bg-sidebar-accent/40 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                            <span className="text-sm font-semibold">
-                                {expanded
-                                    ? "Hide details"
-                                    : "Route & departures"}
-                            </span>
-                            <ChevronDown
-                                className={cn(
-                                    "h-4 w-4 text-muted-foreground transition-transform duration-200",
-                                    expanded && "rotate-180",
-                                )}
-                            />
-                        </button>
+                            compact. When a reachability banner is shown, THAT
+                            is the expander (v833); this standalone toggle is
+                            the fallback for the no-hiding-clock case. */}
+                        {!reachability && (
+                            <button
+                                type="button"
+                                onClick={() => setExpanded((e) => !e)}
+                                aria-expanded={expanded}
+                                className="mt-3 flex w-full items-center justify-between rounded-lg border border-border/70 bg-sidebar-accent/40 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <span className="text-sm font-semibold">
+                                    {expanded
+                                        ? "Hide details"
+                                        : "Route & departures"}
+                                </span>
+                                <ChevronDown
+                                    className={cn(
+                                        "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                                        expanded && "rotate-180",
+                                    )}
+                                />
+                            </button>
+                        )}
 
                         {expanded && (
                             <div className="mt-3">

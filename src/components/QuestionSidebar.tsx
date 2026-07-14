@@ -160,9 +160,26 @@ export const QuestionSidebar = () => {
                         </p>
                     </div>
                     {questionsNewestFirst.length > 0 &&
+                        !hidingRunning &&
                         newQuestionButton("New")}
                 </div>
             </div>
+            {/* Hiding-period notice: questions are locked until the hider's
+                timer runs out (rulebook — seekers can't ask during hiding). */}
+            {hidingRunning && (
+                <div className="px-6 pt-3">
+                    <div className="rounded-md border-2 border-warning/40 bg-warning/10 px-3 py-2.5 text-xs leading-snug text-foreground">
+                        <span className="font-poppins font-bold uppercase tracking-[0.12em] text-[11px] text-warning">
+                            Hiding period
+                        </span>
+                        <p className="mt-1 text-muted-foreground">
+                            You can&apos;t ask questions yet — the hider is on
+                            their way to a hiding spot. Asking unlocks the
+                            moment their timer runs out (or they end it early).
+                        </p>
+                    </div>
+                </div>
+            )}
             {/* The cards own no margin; the list insets them (px-6, matching
                 the header) so their left edge lines up, and spaces them
                 (gap-5) with a clear gap below the header (pt-4). */}
@@ -182,14 +199,18 @@ export const QuestionSidebar = () => {
                             >
                                 <div className="space-y-1.5">
                                     <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
-                                        No questions yet
+                                        {hidingRunning
+                                            ? "Waiting on the hider"
+                                            : "No questions yet"}
                                     </div>
                                     <p className="text-xs text-muted-foreground leading-snug max-w-[24ch]">
-                                        Ask your first question to start
-                                        narrowing down where the hider is.
+                                        {hidingRunning
+                                            ? "Questions unlock when the hiding period ends. Sit tight."
+                                            : "Ask your first question to start narrowing down where the hider is."}
                                     </p>
                                 </div>
-                                {newQuestionButton("Ask first question")}
+                                {!hidingRunning &&
+                                    newQuestionButton("Ask first question")}
                             </div>
                         </SidebarGroupContent>
                     </SidebarGroup>

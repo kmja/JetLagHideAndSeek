@@ -18,7 +18,10 @@ import { parseFptfJourneys } from "../overpass-cache/src/travel/adapters/germany
 import { parseNavitiaJourneys } from "../overpass-cache/src/travel/adapters/navitia";
 import { parseRejseplanenTrip } from "../overpass-cache/src/travel/adapters/denmark";
 import { parseEfaTrip } from "../overpass-cache/src/travel/adapters/nsw";
-import { parseMotisPlan } from "../overpass-cache/src/travel/adapters/transitous";
+import {
+    motisTransitModes,
+    parseMotisPlan,
+} from "../overpass-cache/src/travel/adapters/transitous";
 import { parseOtpPlan } from "../overpass-cache/src/travel/adapters/otp";
 import { parseOdsayPath } from "../overpass-cache/src/travel/adapters/korea";
 import { parseNsTrip } from "../overpass-cache/src/travel/adapters/netherlands";
@@ -1517,5 +1520,31 @@ describe("MOTIS/OTP leg geometry pass-through", () => {
         const j = parseOtpPlan(json, dest);
         expect(j).not.toBeNull();
         expect(j!.legs[0].geometry?.length).toBe(3);
+    });
+});
+
+describe("motisTransitModes (MOTIS mode restriction)", () => {
+    test("returns null for empty / all-mode (no restriction)", () => {
+        expect(motisTransitModes(undefined)).toBeNull();
+        expect(motisTransitModes([])).toBeNull();
+    });
+
+    test("maps a bus-free allow-set to MOTIS vehicle types + WALK", () => {
+        const v = motisTransitModes(["subway", "train", "tram", "ferry"]);
+        expect(v).not.toBeNull();
+        const set = new Set(v!.split(","));
+        expect(set.has("WALK")).toBe(true);
+        expect(set.has("SUBWAY")).toBe(true);
+        expect(set.has("RAIL")).toBe(true);
+        expect(set.has("TRAM")).toBe(true);
+        expect(set.has("FERRY")).toBe(true);
+        // Bus was NOT allowed → MOTIS won't board a bus.
+        expect(set.has("BUS")).toBe(false);
+    });
+
+    test("includes BUS when bus is allowed", () => {
+        const set = new Set(motisTransitModes(["bus", "subway"])!.split(","));
+        expect(set.has("BUS")).toBe(true);
+        expect(set.has("SUBWAY")).toBe(true);
     });
 });

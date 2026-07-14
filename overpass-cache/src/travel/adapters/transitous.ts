@@ -103,6 +103,18 @@ export async function planViaMotis(
         "maxPostTransitTime",
         String(MAX_ACCESS_EGRESS_SECS),
     );
+    // Tell MOTIS which transit vehicle types the player is allowed to use,
+    // so it returns COMPLIANT itineraries directly (v833). Without this,
+    // MOTIS ranks e.g. a bus-inclusive trip first in a game where bus isn't
+    // allowed; every returned itinerary then rides a banned mode, so the
+    // client-side filter rejects them ALL and the dispatcher falls through
+    // to the walking backstop — the reported "walking-only in NYC even
+    // though the departures board shows the Q" bug. Passing `transitModes`
+    // makes MOTIS surface the subway/rail itinerary instead. Only set it
+    // when the game restricts modes; an unknown param is ignored by older
+    // MOTIS instances (safe — same behaviour as before).
+    const motisModes = motisTransitModes(req.modes);
+    if (motisModes) url.searchParams.set("transitModes", motisModes);
 
     const ctrl = new AbortController();
     const onAbort = () => ctrl.abort();
@@ -269,6 +281,37 @@ function place(p: MotisPlace | undefined, fallback?: TravelPlace): TravelPlace {
         lng: typeof p?.lon === "number" ? p.lon : (fallback?.lng ?? 0),
         name: p?.name ?? fallback?.name,
     };
+}
+
+/** Our allowed transit modes → the MOTIS `transitModes` param value (the
+ *  inverse of `classifyMode`). Returns null when no restriction applies
+ *  (empty/undefined `modes` = "any mode", so we don't constrain MOTIS).
+ *  `WALK` is always included so MOTIS can still use access/egress walking
+ *  legs; the vehicle types gate which transit it may board. */
+const MOTIS_MODE_MAP: Record<TravelMode, string[]> = {
+    bus: ["BUS", "COACH"],
+    tram: ["TRAM"],
+    subway: ["SUBWAY", "METRO"],
+    train: [
+        "RAIL",
+        "REGIONAL_RAIL",
+        "REGIONAL_FAST_RAIL",
+        "LONG_DISTANCE",
+        "HIGHSPEED_RAIL",
+        "NIGHT_RAIL",
+    ],
+    ferry: ["FERRY"],
+};
+
+export function motisTransitModes(modes?: TravelMode[]): string | null {
+    if (!modes || modes.length === 0) return null;
+    const out = new Set<string>(["WALK"]);
+    for (const m of modes) {
+        for (const v of MOTIS_MODE_MAP[m] ?? []) out.add(v);
+    }
+    // WALK alone isn't a transit restriction — bail so MOTIS stays
+    // unconstrained rather than being told "no transit at all".
+    return out.size > 1 ? [...out].join(",") : null;
 }
 
 /** MOTIS/OTP `mode` → our mode. */
