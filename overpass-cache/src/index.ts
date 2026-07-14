@@ -685,6 +685,37 @@ export default {
             }
         }
 
+        // Phase 2e: ADMIN-boundary geometry, per-city per-level (v830). The
+        // matching zone / letter-zone / admin-division question reads
+        // `/api/admin/<id>/<level>` so a warm city serves the containing
+        // boundary Overpass-free (the reported "1st admin border" error even
+        // in a prewarmed NYC). A family of queries — one per configured
+        // level (default 4/6/7/8); rarer levels warm on-demand. Isolated,
+        // paced, skip-if-fresh; opt-out via ADMIN_PREWARM_ENABLED="false".
+        if (env.ADMIN_PREWARM_ENABLED !== "false") {
+            const adminLevels = adminPrewarmLevels(env);
+            for (const city of refCities) {
+                const slotOk = await waitForOverpassSlot(`admin ${city.name}`);
+                if (!slotOk) {
+                    console.warn(
+                        `[prewarm] admin ${city.name} skipped — slot wait exceeded cap`,
+                    );
+                    continue;
+                }
+                try {
+                    const r = await prewarmAdminForCity(
+                        env,
+                        city,
+                        adminLevels,
+                        ttlMs,
+                    );
+                    console.log(`[prewarm] admin ${city.name}: ${r.status}`);
+                } catch (e) {
+                    console.warn(`[prewarm] admin ${city.name} threw:`, e);
+                }
+            }
+        }
+
         // Phase 3: HSR, per-COUNTRY (v214). HSR is an inter-city
         // network, so one `area["ISO3166-1"=XX]` query per country is
         // complete and gap-free where per-city bboxes overlapped and
@@ -1209,6 +1240,46 @@ async function handleRequest(
                 );
             }
             return handleCoastByRelation(request, env, cors, relId);
+        }
+        if (url.pathname.startsWith("/api/admin/")) {
+            // /api/admin/<relationId>/<level>[?warm=1] (v830) — the
+            // prewarmed admin-boundary geometry at one OSM admin_level for
+            // a play area. The matching zone / letter-zone / admin-division
+            // question reads this so a warm city serves the containing
+            // boundary Overpass-free (the reported "1st admin border" error
+            // even in a prewarmed NYC).
+            const rest = url.pathname.slice("/api/admin/".length);
+            const [relStr, levelStr] = rest.split("/");
+            const relId = parseInt(relStr, 10);
+            const level = parseInt(levelStr, 10);
+            if (
+                !Number.isFinite(relId) ||
+                relId <= 0 ||
+                !Number.isFinite(level) ||
+                level < 2 ||
+                level > 10
+            ) {
+                return new Response("bad relation id / admin level", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationAdmin(env, relId, level).catch((e) =>
+                        console.warn(
+                            `warm admin r${relId} L${level} threw:`,
+                            e,
+                        ),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId, level },
+                    202,
+                    cors,
+                );
+            }
+            return handleAdminByRelation(request, env, cors, relId, level);
         }
         if (url.pathname.startsWith("/api/relation-extent/")) {
             const relId = parseInt(
@@ -2497,6 +2568,7 @@ function handleReferenceFilters(cors: HeadersInit): Response {
             waterPadKm: WATER_PAD_KM,
             coastFilters: COAST_FILTERS,
             coastPadKm: COAST_PAD_KM,
+            adminPadKm: ADMIN_PAD_KM,
         },
         200,
         {
@@ -3097,6 +3169,173 @@ async function prewarmWaterForCity(
         ttlMs,
         "water",
     );
+}
+
+/**
+ * GET /api/admin/<relationId>/<level> — the prewarmed admin-boundary
+ * geometry at one OSM `admin_level` for a play area, served Overpass-free
+ * from R2 (v830). Mirrors `handleWaterByRelation`: canonical extent → the
+ * one bbox query → edge/R2 hit or a `miss` marker (read-only, never live).
+ * The client (`findAdminBoundary`) filters the served boundaries to the
+ * one containing the point client-side.
+ */
+async function handleAdminByRelation(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+    level: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = buildAdminBboxQuery(ext, level);
+    const cacheKey = await r2KeyForQuery(query);
+
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
+
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("admin-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        // Admin borders change very slowly; serve present-but-stale.
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/** Background warm of one relation's admin-boundary geometry at one level,
+ *  keyed canonically so a later GET /api/admin/<id>/<level> hits it.
+ *  Mirrors `warmRelationWater` — boundary-ensure → extent → the bbox query,
+ *  buffered + abort-guarded so a soft-timeout body is never stored. */
+async function warmRelationAdmin(
+    env: Env,
+    relationId: number,
+    level: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+
+    // 1. Ensure the boundary geometry is cached — it's the bbox source.
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary(ad) r${relationId}`))) {
+            return;
+        }
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-admin",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+
+    // 2. Derive the canonical extent (identical walk to the read path).
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+
+    // 3. Warm the admin set under the canonical key, skip-if-fresh.
+    const adminQuery = buildAdminBboxQuery(ext, level);
+    const adminKey = await r2KeyForQuery(adminQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${adminKey}`);
+        if (head) {
+            const cachedAt = parseInt(
+                head.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-admin r${relationId} L${level}`)))
+        return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(adminQuery),
+    );
+    if (!up) return;
+    const body = await up.text();
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, adminKey, body, {
+            kind: "admin",
+            warmedBy: "on-add",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm admin r${relationId} L${level} store failed:`, e);
+    }
+}
+
+/** Per-city admin-boundary geometry — warms each configured level's bbox
+ *  query, keyed identically to the read endpoint. Isolated per level (a
+ *  family of queries, not batched). */
+async function prewarmAdminForCity(
+    env: Env,
+    city: CityEntry,
+    levels: number[],
+    ttlMs: number,
+): Promise<{ status: string }> {
+    const ext = await canonicalReferenceExtent(env, city);
+    if (!ext) return { status: "skipped-no-extent" };
+    let warmed = 0;
+    for (const level of levels) {
+        const res = await prewarmQuery(
+            env,
+            buildAdminBboxQuery(ext, level),
+            city,
+            ttlMs,
+            "admin",
+        );
+        if (res.status === "stored" || res.status === "fresh") warmed++;
+    }
+    return { status: `admin:${warmed}/${levels.length}` };
 }
 
 /**
@@ -4605,6 +4844,52 @@ ${body}
 );
 out geom;
 `;
+}
+
+/**
+ * Administrative-boundary geometry for the matching zone / letter-zone /
+ * admin-division questions (`findAdminBoundary`, v826 → v830 prewarm).
+ * The client fetches ALL boundaries at one `admin_level` in the play area
+ * and finds the containing one client-side; that live poly query is
+ * cacheable per game but STILL hits Overpass once per game per level used
+ * (the reported "1st admin border" error even in a warm NYC). This bbox
+ * query bridges the un-reproducible poly key to a relation-id-keyed R2
+ * entry, so `GET /api/admin/<id>/<level>` serves it Overpass-free.
+ *
+ * `relation` (admin boundaries are relations) + `out geom` (full polygon
+ * geometry for the point-in-polygon test). `admin_level` is a per-query
+ * parameter, so this is a FAMILY of queries — one per level. Keep
+ * byte-identical to `adminQuery` in laptop-prewarm.mjs and the level-N
+ * filter the client's poly query uses. */
+const ADMIN_PAD_KM = 2;
+
+function buildAdminBboxQuery(
+    extent: [number, number, number, number],
+    level: number,
+): string {
+    const bboxFilter = buildBboxFilter(extent, ADMIN_PAD_KM);
+    return `
+[out:json][timeout:180]${bboxFilter};
+(
+relation["boundary"="administrative"]["admin_level"="${level}"];
+);
+out geom;
+`;
+}
+
+/** The admin levels warmed ahead-of-time by the cron/laptop, from
+ *  `ADMIN_PREWARM_LEVELS` (comma-separated). Default 4/6/7/8 — the common
+ *  `adminTierToOsmLevel` outputs (1st-order region, county/district,
+ *  sub-district, municipality) across the US/EU/Nordics/UK/JP. The rarer
+ *  levels (2/3/5/9/10) fall to on-demand `?warm=1` on first use. */
+function adminPrewarmLevels(env: Env): number[] {
+    const raw = (env.ADMIN_PREWARM_LEVELS ?? "").trim();
+    if (!raw) return [4, 6, 7, 8];
+    const parsed = raw
+        .split(",")
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n >= 2 && n <= 10);
+    return parsed.length > 0 ? parsed : [4, 6, 7, 8];
 }
 
 /**

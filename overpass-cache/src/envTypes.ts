@@ -61,6 +61,13 @@ export interface Env {
      *  Set to "false" to skip; the client then falls back to the bundled
      *  1:50m coastline for the sea, as before. */
     COAST_PREWARM_ENABLED?: string;
+    /** Feature flag for the per-city ADMIN-boundary prewarm (v830, Phase
+     *  2e). Set to "false" to skip; the matching admin-division question
+     *  then warms its levels on-demand via `?warm=1` on first use. */
+    ADMIN_PREWARM_ENABLED?: string;
+    /** Comma-separated OSM admin_levels the cron/laptop warm ahead of time
+     *  (default "4,6,7,8"). The rarer levels fall to on-demand warming. */
+    ADMIN_PREWARM_LEVELS?: string;
     /** Feature flag for the ADJACENT-AREA full curation (v676). When a
      *  curated city's adjacent municipalities are warmed (Phase 4), the
      *  cron now warms each neighbour's boundary *plus* its references and

@@ -17,6 +17,7 @@
  *     [--cold-only] [--skip-starred] [--adjacents] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
+ *     [--skip-water] [--skip-admin] \
  *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
  *     [--skip-tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
  *     [--audit-encoding [--repair]] [--force] [--delay-ms 2000]
@@ -228,6 +229,10 @@ let DO_TRANSIT = !args["skip-transit"];
 // boundary-geometry extent as refs; on by default whenever refs run.
 // --skip-water to drop (the client falls back to its live poly query).
 let DO_WATER = !args["skip-water"];
+// v830: warm the admin-boundary geometry per level for the matching
+// admin-division question (served by /api/admin/<id>/<level>). Rides the
+// refs gate; --skip-admin to drop (the client warms levels on-demand).
+let DO_ADMIN = !args["skip-admin"];
 let DO_PHOTON = !args["skip-photon"];
 // v440: warm the wizard's "extend play area" adjacent-search queries
 // per city (topological adjacency, admin-level, adjacent band, transit
@@ -703,6 +708,21 @@ function coastQuery(extent) {
     const bb = bboxFilter(extent, PAD_KM_COAST);
     const body = COAST_FILTERS.map((f) => `way${f};`).join("\n");
     return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout geom;\n`;
+}
+
+// EXACT byte-for-byte mirror of buildAdminBboxQuery in
+// overpass-cache/src/index.ts (v830 — admin-boundary geometry per OSM
+// admin_level, 2 km pad, timeout:180, `out geom`). The matching
+// zone / letter-zone / admin-division question reads /api/admin/<id>/<level>;
+// the R2 key hashes this exact string, and the worker read endpoint rebuilds
+// it from the boundary extent — so this MUST match the worker builder.
+let PAD_KM_ADMIN = 2;
+// Common tier outputs of adminTierToOsmLevel (region / county / sub-district
+// / municipality). Rarer levels warm on-demand in the app.
+let ADMIN_LEVELS = [4, 6, 7, 8];
+function adminQuery(extent, level) {
+    const bb = bboxFilter(extent, PAD_KM_ADMIN);
+    return `\n[out:json][timeout:180]${bb};\n(\nrelation["boundary"="administrative"]["admin_level"="${level}"];\n);\nout geom;\n`;
 }
 
 // Byte-identical to buildHsrCountryQuery in overpass-cache/src/index.ts
@@ -1371,6 +1391,7 @@ async function repairCity(city, poisonTypes) {
         DO_BOUNDARIES,
         DO_REFS,
         DO_WATER,
+        DO_ADMIN,
         DO_TRANSIT,
         DO_HSR,
         DO_PHOTON,
@@ -1379,8 +1400,9 @@ async function repairCity(city, poisonTypes) {
         tp: tilePacksEnabled,
     };
     DO_BOUNDARIES = true; // needed to derive the boundary-geometry extent
-    DO_REFS = needRef; // gates refs + stations + water blocks
+    DO_REFS = needRef; // gates refs + stations + water + admin blocks
     DO_WATER = needRef;
+    DO_ADMIN = needRef;
     DO_TRANSIT = needTransit; // gates transit modes + metro
     DO_HSR = false;
     DO_PHOTON = false;
@@ -1395,6 +1417,7 @@ async function repairCity(city, poisonTypes) {
         DO_BOUNDARIES = save.DO_BOUNDARIES;
         DO_REFS = save.DO_REFS;
         DO_WATER = save.DO_WATER;
+        DO_ADMIN = save.DO_ADMIN;
         DO_TRANSIT = save.DO_TRANSIT;
         DO_HSR = save.DO_HSR;
         DO_PHOTON = save.DO_PHOTON;
@@ -2078,6 +2101,43 @@ async function processCity(city) {
                         );
                     } catch (e) {
                         console.warn(`  ✗ coast upload: ${e.message}`);
+                    }
+                }
+                await sleep(DELAY_MS);
+            }
+        }
+    }
+
+    // Per-city ADMIN-boundary geometry, one query per level (v830). The
+    // matching zone / letter-zone / admin-division question reads
+    // /api/admin/<id>/<level>; warming the common tier levels (4/6/7/8)
+    // means a warm city serves the containing boundary Overpass-free (the
+    // reported "1st admin border" error even in a prewarmed NYC). Rarer
+    // levels warm on-demand in the app. Rides the DO_ADMIN gate.
+    if (refExtent && DO_REFS && DO_ADMIN) {
+        for (const level of ADMIN_LEVELS) {
+            const q = adminQuery(refExtent, level);
+            if (await isFresh(q, `admin-L${level}`)) {
+                console.log(`  ⤼ admin L${level} already cached — skipping`);
+                continue;
+            }
+            const res = await fetchOverpass(q, `admin-L${level}`);
+            if (res) {
+                const parsed = safeJSON(res.text);
+                if (parsed) {
+                    try {
+                        const r = await uploadToWorker({
+                            query: q,
+                            bodyText: res.text,
+                            kind: "admin",
+                            sourceName: city.name,
+                            sourceRelationId: String(city.relationId),
+                        });
+                        console.log(
+                            `  ✓ admin L${level} stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms, ${parsed.elements?.length ?? 0} elements)`,
+                        );
+                    } catch (e) {
+                        console.warn(`  ✗ admin L${level} upload: ${e.message}`);
                     }
                 }
                 await sleep(DELAY_MS);
@@ -3278,6 +3338,9 @@ async function syncReferenceFilters() {
     });
     applyPad("coast", data.coastPadKm, PAD_KM_COAST, (v) => {
         PAD_KM_COAST = v;
+    });
+    applyPad("admin", data.adminPadKm, PAD_KM_ADMIN, (v) => {
+        PAD_KM_ADMIN = v;
     });
 }
 

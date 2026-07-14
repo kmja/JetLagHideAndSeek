@@ -428,7 +428,37 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v830`. Use `git log` for the per-version detail;
+build stamp. Current: `v831`. Use `git log` for the per-version detail;
+
+**v831 — admin-boundary prewarm (the matching admin-division question goes
+Overpass-free, closing the "1st admin border" error).** v826 made the matching
+zone / letter-zone / admin-division fetch (`findAdminBoundary`, `overpass.ts`)
+AREA-keyed (all `admin_level=N` boundaries in the play area via a cacheable poly
+query, containing one found client-side), but a warm city STILL ran it live
+ONCE per game per level — the reported Overpass error on the admin question even
+in a prewarmed NYC. Now it's prewarmed by the SAME relation-id pattern as
+`/api/water` etc.: **`GET /api/admin/<relationId>/<level>`**
+(`handleAdminByRelation`, `overpass-cache/src/index.ts`) derives the canonical
+boundary extent, rebuilds the one per-level bbox query (`buildAdminBboxQuery`,
+`relation["boundary"="administrative"]["admin_level"="N"]`, 2 km pad,
+`[timeout:180]`, `out geom`) and serves the R2 entry. Warmed per-city by the
+cron (**Phase 2e**, `prewarmAdminForCity`, opt-out `ADMIN_PREWARM_ENABLED="false"`)
+and the laptop (`adminQuery`, byte-identical builder, `--skip-admin`), across a
+BOUNDED, configurable level set — **default 4/6/7/8** (`ADMIN_PREWARM_LEVELS`;
+the common `adminTierToOsmLevel` outputs: region / county / sub-district /
+municipality). Rarer levels (2/3/5/9/10) warm on-demand via `?warm=1`
+(`warmRelationAdmin`) on first use, so the next game is warm. Client:
+`fetchPrewarmedAreaAdmin(level)` (`src/maps/api/adminBoundary.ts`) fans the
+endpoint over EVERY play-area relation (primary + added adjacent) and unions;
+`findAdminBoundary` tries it FIRST (point-in-polygon on the served boundaries),
+falling back to the v826 live poly query on a cold miss (which background-warms
+the cold ids). `adminPadKm` is exposed in `/api/reference-filters` for laptop
+sync. **Deliberately NOT in the star gate** (like water/coast) — a starred city
+still self-warms admin on first use until the cron/laptop catches up; per-level
+admin geometry is a family of queries, so bulk warming is bounded to the common
+levels to avoid over-warming whole-state polygons across every city. (measuring
+`admin2-border` was already area-keyed via `findPlacesInZone`;
+`admin1-border`/`international-border` are bundled Natural Earth, no Overpass.)
 
 **v830 — trip route draws the REAL street/track path + endgame-trigger size
 sweep.** Two demo-polish items. (1) **Walking (and transit) legs now follow the

@@ -188,6 +188,13 @@ export const WATER_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/water`;
  *  like NYC). `?warm=1` triggers a background warm. See handleCoastByRelation
  *  in overpass-cache/src/index.ts. */
 export const COAST_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/coast`;
+/** Base URL for the relation-id-keyed prewarmed admin-boundary geometry
+ *  (v830), per OSM admin_level: `${ADMIN_BY_RELATION_BASE}/<relationId>/<level>`.
+ *  The matching zone / letter-zone / admin-division question reads it so a
+ *  warm city serves the containing boundary Overpass-free. `?warm=1`
+ *  triggers a background warm. See handleAdminByRelation in
+ *  overpass-cache/src/index.ts. */
+export const ADMIN_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/admin`;
 /** Base URL for self-hosted map glyphs + sprites (v349), proxied +
  *  R2-cached by the worker from protomaps.github.io/basemaps-assets.
  *  The MapLibre style's `glyphs` and `sprite` URLs point here so the

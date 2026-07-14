@@ -18,6 +18,7 @@ import {
     startLoading,
 } from "@/lib/loadingProgress";
 
+import { fetchPrewarmedAreaAdmin } from "./adminBoundary";
 import {
     cacheFetch,
     determineCache,
@@ -677,6 +678,36 @@ export const findAdminBoundary = async (
     // Falls back to the position-keyed `is_in` query only if the area fetch
     // fails or finds no containing area (edge cases near the boundary).
     const pt = turf.point([longitude, latitude]);
+
+    // v830 fast path: a warm city serves this level's boundaries from R2 via
+    // `/api/admin/<id>/<level>` (fanned over every play-area relation), so
+    // the admin question never touches Overpass — the reported "1st admin
+    // border" error even in a prewarmed city. Cold areas return null (and
+    // background-warm themselves), so we fall through to the live poly query.
+    try {
+        const prewarmed = await fetchPrewarmedAreaAdmin(adminLevel);
+        if (prewarmed) {
+            const geo = osmtogeojson({ elements: prewarmed.elements });
+            const hit = geo.features?.find((f) => {
+                const g = f.geometry;
+                if (g?.type !== "Polygon" && g?.type !== "MultiPolygon") {
+                    return false;
+                }
+                try {
+                    return turf.booleanPointInPolygon(pt, f as any);
+                } catch {
+                    return false;
+                }
+            });
+            if (hit) return hit;
+            // Warm-but-no-containing-boundary: fall through to the live poly
+            // query (the bbox superset can miss a boundary that only clips
+            // the play area at its edge).
+        }
+    } catch {
+        /* fall through to the live poly query below */
+    }
+
     try {
         const areaData = await findPlacesInZone(
             `["boundary"="administrative"]["admin_level"="${adminLevel}"]`,
