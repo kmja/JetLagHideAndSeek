@@ -321,22 +321,41 @@ commit AND the server fans the zone back, `store.ts` has a module-level
 try/finally toggling it, and the outbound push subscription early-returns while
 set, so a received commit doesn't loop back out.
 
-**Track 2 — server-authoritative SHARED hand/deck (DEFERRED).** Still the real
-work. Deck order, hand, discard, hand-limit, pending draw, Chalice charges, and
-time-bonus live ONLY in device-local persistent atoms (`src/lib/hiderRole.ts`)
-— there are NO wire messages for them, so **today each hider holds their own
-independent hand** (the shared surface is the zone + answers, not the deck).
-Snapshot-sync (last-write-wins) is NOT viable here: the deck is order-dependent
-and has a blocking pending-draw modal, so a naive mirror would corrupt draw
-order and double-resolve the modal. To truly share the hand this state must
-become **server-authoritative** in the Durable Object, with draw / keep /
-discard / play as wire actions the server serializes + broadcasts; the client
-atoms become mirrors, and the demo broker must model the deck too.
-Implementation sketch when picked up: (1) move the hider economy into
-`GameState` (new `hideTeam` sub-object); (2) add `CMsg` actions for
-draw/keep/discard/playCard; (3) `GameRoom` applies + broadcasts, serializing
-concurrent actions; (4) client `hiderRole.ts` reads from the synced state;
-(5) demo broker mirrors. A focused multiplayer-state refactor.
+**Track 2 — SHARED hand/deck (SHIPPED v832).** The whole hide team now draws /
+keeps / discards / plays from ONE shared card economy. Rather than the
+originally-sketched full server-authoritative rewrite (economy in `GameState`,
+per-verb `CMsg` actions), it ships as the **`hideZone` model applied to the
+deck**: the seven deck atoms (`hiderHand`/`hiderDeck`/`hiderDiscard`,
+`hiderHandLimit`, `chaliceDrawsRemaining`, `pendingDraw`, `pendingDrawQueue`) are
+bundled into ONE out-of-band secret blob (`DeckStateShare`, `protocol/state.ts`
+— opaque cards, NOT in `GameState`) synced via `CMsgSetDeck`/`SMsgDeck`.
+- **Transparent to the economy code:** the mutation functions
+  (`presentDraw`/`resolvePendingDraw`/`drawCards`/`discardCard`/
+  `activateOverflowingChalice`) are UNCHANGED. `installMultiplayerBridge`
+  (`store.ts`) subscribes to all seven atoms; after any local mutation it
+  microtask-batches ONE `setDeck` push (`readSharedDeckState`). Inbound `deck`
+  is adopted via `applySharedDeckState` under an `applyingRemoteDeck` echo guard.
+- **Server** (`GameRoom.handleSetDeck`): stores `deckState` outside `GameState`,
+  fans to every OTHER hider (never seekers, not the sender — same shape as
+  `handleSetHideZone`, so no loop), delivers the current deck on
+  join/resume/role-claim, nulls it on `rotateHider` (new round → team reshuffles
+  locally, re-pushes as they draw).
+- **Why NOT snapshot-sync (the original concern):** this is EVENT-driven
+  per-mutation relay (the `questions` model), not GameState timer-snapshot. The
+  initiator's local deck IS the shared deck (kept in sync), so draws stay
+  deterministic (no server-side dealing) and the order is preserved. Concurrent
+  edits degrade to last-write-wins, exactly like `questions`.
+- **Known multi-hider edges** (acceptable for a friends game): a `pendingDraw`
+  pops the blocking picker on EVERY hider's device (collaborative — any one
+  commits, the rest close via the synced `pending: null`); two devices'
+  `HandLimitEnforcer` firing in the same tick can each discard a different card
+  (last-write-wins keeps the hand at the limit — never corrupt, just
+  non-deterministic which card leaves). A future full server-authoritative deck
+  (serialized per-verb actions) would remove these edges but isn't needed for
+  the intended small-group play.
+- Solo/offline unchanged (push gated on `multiplayerEnabled`); demo broker
+  accepts `setDeck` as a store-only no-op (single hider). Round-trip contract
+  unit-tested (`tests/deckSync.test.ts`).
 
 ## Quick sanity test
 

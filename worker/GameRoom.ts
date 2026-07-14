@@ -26,6 +26,7 @@ import {
     resolveUniqueDisplayName,
     type ClientMessage,
     type CursePayload,
+    type DeckStateShare,
     type GameState,
     type HidingZoneShare,
     type Participant,
@@ -107,6 +108,15 @@ export class GameRoom {
      * (the hider + co-hiders). Cleared on each new round.
      */
     private hidingZone: HidingZoneShare | null = null;
+
+    /**
+     * The hide team's SHARED card economy (v831 Track 2). Like `hidingZone`,
+     * held OUTSIDE `this.game` — it's a secret from seekers, delivered only
+     * to hide-team connections and never in the wholesale snapshot. Any
+     * hider may push a new state (they all share one deck); the server
+     * relays it to the other hiders. Cleared on each new round.
+     */
+    private deckState: DeckStateShare | null = null;
 
     /** Per-participant Web Push subscriptions. Keyed by participant id. */
     private pushSubscriptions: Map<string, PushSubscriptionData> = new Map();
@@ -327,6 +337,8 @@ export class GameRoom {
                 return this.handleRotateHider(socket, msg.to, msg.coHiders);
             case "setHideZone":
                 return this.handleSetHideZone(socket, msg.zone);
+            case "setDeck":
+                return this.handleSetDeck(socket, msg.deck);
             case "startEndgame":
                 return this.handleStartEndgame(socket, msg.at);
             case "cancelEndgame":
@@ -578,6 +590,7 @@ export class GameRoom {
         // only otherwise pushed on a fresh role claim / commit).
         if (existing && existing.role === "hider") {
             this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
+            this.sendTo(socket, { t: "deck", deck: this.deckState });
         }
         this.broadcastPresence();
     }
@@ -599,6 +612,7 @@ export class GameRoom {
         // (the inbox rebuilds from the snapshot they already got).
         if (effRole === "hider") {
             this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
+            this.sendTo(socket, { t: "deck", deck: this.deckState });
         }
     }
 
@@ -622,6 +636,29 @@ export class GameRoom {
             const cp = this.game.participants.find((q) => q.id === pid);
             if (cp?.role === "hider") {
                 this.sendTo(c.socket, { t: "hideZone", zone });
+            }
+        }
+    }
+
+    /**
+     * A hider pushed the shared card economy (v831 Track 2). Store it and
+     * fan it to every OTHER hider — never to seekers (the hand is secret),
+     * and not back to the sender (they already hold it locally; echoing
+     * would risk a client sync loop). Mirrors `handleSetHideZone`.
+     */
+    private handleSetDeck(socket: WebSocket, deck: DeckStateShare) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find(
+            (q) => q.id === conn.participantId,
+        );
+        if (!p || p.role !== "hider") return;
+        this.deckState = deck;
+        for (const [pid, c] of this.conns.entries()) {
+            if (pid === conn.participantId) continue;
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role === "hider") {
+                this.sendTo(c.socket, { t: "deck", deck });
             }
         }
     }
@@ -977,6 +1014,9 @@ export class GameRoom {
         // New round, new hide — drop the old zone secret. The new
         // hider will push a fresh one once they commit it.
         this.hidingZone = null;
+        // New round → fresh shared deck; the hide team reshuffles locally
+        // (roundStarted → resetHiderRoundState) and pushes it as they draw.
+        this.deckState = null;
         // Per-participant location-update timestamps are per-round
         // (the next round's clocks restart). Without clearing, a
         // stale prev > new ts could swallow the new round's first

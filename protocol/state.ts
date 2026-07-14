@@ -33,6 +33,29 @@ export interface HidingZoneShare {
     committedAt: number;
 }
 
+/**
+ * The hide team's SHARED card economy (v831 Track 2). Every `hider`
+ * draws / keeps / discards / plays from ONE deck, so the deck, hand,
+ * discard pile, hand limit, Overflowing-Chalice charges, and any in-flight
+ * draw-and-keep pick are held here as one blob. Like `HidingZoneShare`
+ * it's a hide-team SECRET — NOT part of `GameState` (the seekers must
+ * never see the hand), so the server keeps it out of the wholesale
+ * snapshot and delivers it only to hide-team connections.
+ *
+ * The card shapes are opaque JSON to the wire (`unknown[]` / `unknown`):
+ * the client owns the `Card` / `PendingDraw` types and the server just
+ * relays the blob between hiders (the same treatment as `questions`).
+ */
+export interface DeckStateShare {
+    hand: unknown[];
+    deck: unknown[];
+    discard: unknown[];
+    handLimit: number;
+    chalice: number;
+    pending: unknown | null;
+    pendingQueue: unknown[];
+}
+
 export type TransitMode = "bus" | "tram" | "train" | "subway" | "ferry";
 export type GameSize = "small" | "medium" | "large";
 

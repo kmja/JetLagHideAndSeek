@@ -16,6 +16,7 @@
  */
 
 import type {
+    DeckStateShare,
     GameSize,
     GameState,
     HidingZoneShare,
@@ -160,6 +161,19 @@ export interface CMsgSetHideZone {
 }
 
 /**
+ * A hider pushes the whole hide team's shared card economy (v831 Track 2)
+ * after a local mutation (draw / keep / discard / play / chalice). The
+ * server stores it and fans it to every OTHER hider — never to seekers
+ * (the hand is secret). The initiator's local deck IS the shared deck
+ * (kept in sync), so it carries the authoritative post-mutation state;
+ * concurrent edits degrade to last-write-wins, the same as `questions`.
+ */
+export interface CMsgSetDeck {
+    t: "setDeck";
+    deck: DeckStateShare;
+}
+
+/**
  * Seeker triggers the endgame phase ("I'm close — lock your spot
  * down"). The server stamps `setup.endgameStartedAt` and broadcasts
  * a setupChanged so every client surfaces the transition. Idempotent:
@@ -256,6 +270,7 @@ export type ClientMessage =
     | CMsgMarkFound
     | CMsgRotateHider
     | CMsgSetHideZone
+    | CMsgSetDeck
     | CMsgStartEndgame
     | CMsgCancelEndgame
     | CMsgConfirmEndgame
@@ -372,6 +387,17 @@ export interface SMsgHideZone {
 }
 
 /**
+ * Delivered to hide-team connections when ANY hider mutates the shared
+ * card economy, and to a hider on join/resume/role-claim so they adopt
+ * the current shared deck. Never sent to seekers (the hand is secret).
+ * `null` means "no shared deck yet this round" (nobody has drawn).
+ */
+export interface SMsgDeck {
+    t: "deck";
+    deck: DeckStateShare | null;
+}
+
+/**
  * Server → hide team: a seeker's live location. Forwarded only to
  * participants whose role is hider or coHider — other seekers don't
  * see their teammates this way. The `participantId` lets the hider
@@ -409,6 +435,7 @@ export type ServerMessage =
     | SMsgPresence
     | SMsgSetupChanged
     | SMsgHideZone
+    | SMsgDeck
     | SMsgSeekerLocation
     | SMsgError
     | SMsgPong

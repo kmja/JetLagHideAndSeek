@@ -412,6 +412,15 @@ function handleClientMessage(msg: ClientMessage) {
             return;
         }
 
+        case "setDeck": {
+            // v831 Track 2: the shared hider deck. In the demo the user is
+            // the only hider, so there's no teammate to fan it to — nothing
+            // to echo. Accepting the message keeps the broker from logging
+            // an "unknown message" and mirrors the real worker's store-only
+            // behaviour for a single-hider room.
+            return;
+        }
+
         case "castCurse": {
             // Hider cast a curse from the local app — echo it as the
             // broker would (every seeker would receive it). The user

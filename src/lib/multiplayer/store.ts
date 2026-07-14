@@ -47,9 +47,18 @@ import {
     playArea,
 } from "@/lib/gameSetup";
 import {
+    applySharedDeckState,
+    chaliceDrawsRemaining,
+    hiderDeck,
+    hiderDiscard,
+    hiderHand,
+    hiderHandLimit,
     hiderInbox,
     hidingZone,
+    pendingDraw,
+    pendingDrawQueue,
     playerRole,
+    readSharedDeckState,
     resetHiderRoundState,
     roundFoundAt,
 } from "@/lib/hiderRole";
@@ -950,6 +959,19 @@ function handleServerMessage(msg: ServerMessage) {
                 applyingRemoteZone = false;
             }
             return;
+        case "deck":
+            // Shared hide-team card economy (v831 Track 2): a teammate
+            // mutated the deck (or the server is delivering the current
+            // shared deck on our join/role-claim). Adopt it into the seven
+            // deck atoms under `applyingRemoteDeck` so the writes don't
+            // re-trigger the outbound push → server → back → loop.
+            applyingRemoteDeck = true;
+            try {
+                applySharedDeckState(msg.deck);
+            } finally {
+                applyingRemoteDeck = false;
+            }
+            return;
         case "setupChanged": {
             if (msg.setup.playArea) playArea.set(msg.setup.playArea);
             allowedTransit.set(msg.setup.allowedTransit);
@@ -1158,6 +1180,9 @@ let _installed = false;
  *  atom, so the zone-push subscription doesn't echo a wire-driven set back
  *  to the server (which would loop across the now-multiple equal hiders). */
 let applyingRemoteZone = false;
+/** v831 Track 2: set while adopting an inbound shared deck, so the outbound
+ *  deck subscription doesn't echo a wire-driven set back to the server. */
+let applyingRemoteDeck = false;
 export function installMultiplayerBridge() {
     if (_installed) return;
     _installed = true;
@@ -1221,4 +1246,44 @@ export function installMultiplayerBridge() {
         if (playerRole.get() !== "hider") return;
         getTransport().send({ t: "setHideZone", zone: zone ?? null });
     });
+
+    // v831 Track 2: forward the shared card economy. Every hider draws /
+    // keeps / discards / plays from ONE deck, so any local mutation of the
+    // seven deck atoms is pushed to the server, which fans it to the other
+    // hiders. One logical mutation touches several atoms (e.g. a draw sets
+    // both deck and hand), so batch a microtask so it sends ONCE, and skip
+    // wire-driven sets (`applyingRemoteDeck`) so an adopted teammate state
+    // doesn't loop back out. Skip the initial nanostores fire per atom.
+    let deckPushQueued = false;
+    // nanostores fires a subscriber synchronously with the current value the
+    // moment you subscribe; we swallow ALL seven of those initial fires
+    // (stale localStorage values from a prior session) — the server delivers
+    // the authoritative shared deck on our join/role-claim.
+    let installingDeckSubs = true;
+    const scheduleDeckPush = () => {
+        if (installingDeckSubs) return;
+        if (applyingRemoteDeck) return;
+        if (deckPushQueued) return;
+        deckPushQueued = true;
+        queueMicrotask(() => {
+            deckPushQueued = false;
+            if (applyingRemoteDeck) return;
+            if (!multiplayerEnabled.get()) return;
+            if (!currentGameCode.get()) return;
+            if (transportStatus.get() !== "open") return;
+            if (playerRole.get() !== "hider") return;
+            getTransport().send({
+                t: "setDeck",
+                deck: readSharedDeckState(),
+            });
+        });
+    };
+    hiderHand.subscribe(scheduleDeckPush);
+    hiderDeck.subscribe(scheduleDeckPush);
+    hiderDiscard.subscribe(scheduleDeckPush);
+    hiderHandLimit.subscribe(scheduleDeckPush);
+    chaliceDrawsRemaining.subscribe(scheduleDeckPush);
+    pendingDraw.subscribe(scheduleDeckPush);
+    pendingDrawQueue.subscribe(scheduleDeckPush);
+    installingDeckSubs = false;
 }

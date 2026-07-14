@@ -1,6 +1,8 @@
 import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
 
+import type { DeckStateShare } from "@protocol/index";
+
 import type { Question } from "@/maps/schema";
 
 import {
@@ -534,6 +536,45 @@ export function resetHiderRoundState() {
     roundFoundAt.set(null);
     hiderForfeited.set(false);
     chaliceDrawsRemaining.set(0);
+}
+
+/* ────────────────── Shared hide-team deck sync (v831 Track 2) ──────────── *
+ *
+ * The whole hide team shares ONE card economy. The multiplayer bridge
+ * (store.ts) syncs it as one out-of-band secret blob — like the hiding
+ * zone — by reading the seven deck atoms into a `DeckStateShare` after any
+ * local mutation and applying an inbound one from a teammate. Keeping the
+ * bundle read/write here co-locates it with the atoms so the atom set stays
+ * the single source of truth (add a field → touch it in both functions). */
+
+/** Snapshot the seven deck atoms into a `DeckStateShare` for the wire. */
+export function readSharedDeckState(): DeckStateShare {
+    return {
+        hand: hiderHand.get(),
+        deck: hiderDeck.get(),
+        discard: hiderDiscard.get(),
+        handLimit: hiderHandLimit.get(),
+        chalice: chaliceDrawsRemaining.get(),
+        pending: pendingDraw.get(),
+        pendingQueue: pendingDrawQueue.get(),
+    };
+}
+
+/** Adopt a teammate's shared deck state into the seven atoms. `null` means
+ *  "no shared deck yet this round" — keep the local (freshly-reset) state.
+ *  The caller (store.ts) wraps this in an echo guard so the atom writes
+ *  don't bounce straight back out to the server. */
+export function applySharedDeckState(s: DeckStateShare | null): void {
+    if (!s) return;
+    hiderHand.set(Array.isArray(s.hand) ? (s.hand as Card[]) : []);
+    hiderDeck.set(Array.isArray(s.deck) ? (s.deck as Card[]) : []);
+    hiderDiscard.set(Array.isArray(s.discard) ? (s.discard as Card[]) : []);
+    hiderHandLimit.set(Number.isFinite(s.handLimit) ? s.handLimit : 6);
+    chaliceDrawsRemaining.set(Number.isFinite(s.chalice) ? s.chalice : 0);
+    pendingDraw.set((s.pending as PendingDraw | null) ?? null);
+    pendingDrawQueue.set(
+        Array.isArray(s.pendingQueue) ? (s.pendingQueue as PendingDraw[]) : [],
+    );
 }
 
 /**

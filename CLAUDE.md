@@ -428,7 +428,36 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v831`. Use `git log` for the per-version detail;
+build stamp. Current: `v832`. Use `git log` for the per-version detail;
+
+**v832 — the hide team SHARES one hand/deck (Track 2 of the hider-role rework).**
+Completes v829: the whole hide team now draws / keeps / discards / plays from
+ONE shared card economy instead of each hider holding an independent local hand.
+The seven deck atoms (`hiderHand`/`hiderDeck`/`hiderDiscard`, `hiderHandLimit`,
+`chaliceDrawsRemaining`, `pendingDraw`, `pendingDrawQueue`, `hiderRole.ts`) are
+synced as ONE out-of-band secret blob — the SAME model as the hiding zone (NOT
+in `GameState`, so seekers never see the hand). `DeckStateShare`
+(`protocol/state.ts`, opaque `unknown[]` cards, relayed like `questions`) rides
+new `CMsgSetDeck`/`SMsgDeck` messages. The economy FUNCTIONS are untouched — the
+sync is transparent: `installMultiplayerBridge` subscribes to all seven atoms
+and, after any local mutation, microtask-batches ONE `setDeck` push
+(`readSharedDeckState`); the server (`GameRoom.handleSetDeck`) fans it to every
+OTHER hider (never seekers, not the sender) and delivers the current deck to a
+hider on join/resume/role-claim; inbound `deck` is adopted via
+`applySharedDeckState` under an `applyingRemoteDeck` echo guard (the same
+guard-and-fan-excluding-sender shape as `hidingZone`, so no ping-pong loop). The
+server holds `deckState` outside `GameState` and nulls it on `rotateHider` (new
+round → the team reshuffles locally via `resetHiderRoundState` and re-pushes as
+they draw). Because the initiator's local deck IS the shared deck (kept in
+sync), draws stay deterministic (no server-side card dealing) and concurrent
+edits degrade to last-write-wins, exactly like `questions`. Solo/offline is
+unchanged (the push is gated on `multiplayerEnabled`); demo broker accepts
+`setDeck` as a store-only no-op (single hider). Round-trip contract unit-tested
+(`tests/deckSync.test.ts`). **Known multi-hider edges (acceptable for a friends
+game, documented in MULTIPLAYER.md):** a `pendingDraw` pops the blocking picker
+on EVERY hider's device (collaborative resolve — any one commits, the rest
+close), and two devices' `HandLimitEnforcer` firing in the same tick can discard
+two different cards (last-write-wins keeps the hand at the limit, never corrupt).
 
 **v831 — admin-boundary prewarm (the matching admin-division question goes
 Overpass-free, closing the "1st admin border" error).** v826 made the matching
