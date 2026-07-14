@@ -430,6 +430,18 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v847 — seeking-timer "time to beat" is now a ranked top-3 leaderboard.** The
+seeker map's bottom-right timer used to show the live "Hidden for" clock ALWAYS
+on top + a single gold "1st" best-past-time pill below it — so a longer past
+time sat visually BELOW the shorter live time. `HiderTimer` now merges the LIVE
+current-round time with the past-round times (`roundLog`), sorts longest-first,
+and renders the **top 3** as ranked rows (`1st`/`2nd`/`3rd`): the live entry
+(white box, red accent, "Hidden for") climbs as it grows and takes the 1st spot
+the moment it passes the best past hide; past entries are the gold pills. Round 1
+(no past times) still shows just the big live clock. Removed the now-unused
+`timeToBeatMs` memo. `currentElapsedMs` is exposed from the display calc so the
+live time can be ranked.
+
 **v846 — `RotateHiderDialog` de-co-hidered + rocket icons removed.** Now that
 every hider is equal (v829), the rotate dialog dropped ALL main-hider / co-hider
 language: title "Start new round"→**"Rotate hider"** (bigger, `text-lg`→

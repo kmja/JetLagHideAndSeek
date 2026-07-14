@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Flag, Footprints, Timer } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
@@ -85,14 +85,6 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         Boolean($endsAt && $setupCompleted),
     );
 
-    // v318: best previous hiding time across logged rounds, surfaced
-    // as a "Time to beat" reference once at least one round has been
-    // completed in this game.
-    const timeToBeatMs = useMemo(() => {
-        if ($roundLog.length === 0) return null;
-        return Math.max(...$roundLog.map((r) => r.hidingMs));
-    }, [$roundLog]);
-
     if (!$setupCompleted || !$endsAt) return null;
 
     const inHidingPeriod = now < $endsAt;
@@ -108,23 +100,39 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     };
 
     let display: string;
+    // Raw current-round hidden time (ms) while seeking, else null. Exposed
+    // so the seeking leaderboard can rank the LIVE time against past rounds.
+    let currentElapsedMs: number | null = null;
     if (inHidingPeriod) {
         display = formatTimeRemaining($endsAt - now);
     } else {
         // Elapsed since hiding period ended, plus time banked by a Move
         // powerup, minus time paused for overdue answers (rulebook p61)
         // — so the live tally matches the final score.
-        const elapsedMs = Math.max(
+        currentElapsedMs = Math.max(
             0,
             now - $endsAt + hiddenCreditMs.get() - effectiveHiddenDebitMs(now),
         );
-        const total = Math.floor(elapsedMs / 1000);
-        const h = Math.floor(total / 3600);
-        const m = Math.floor((total % 3600) / 60);
-        const s = total % 60;
-        const pad = (n: number) => String(n).padStart(2, "0");
-        display = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+        display = formatTtb(currentElapsedMs);
     }
+
+    // Seeking leaderboard: the LIVE current-round time ranked against the
+    // top past-round times, longest-first, capped at 3. The current entry
+    // climbs as it grows and takes the "1st" spot once it passes the best
+    // past hide (v847). Only meaningful while seeking (currentElapsedMs set).
+    const rankSuffix = (n: number) => (n === 1 ? "st" : n === 2 ? "nd" : "rd");
+    const leaderboard =
+        currentElapsedMs === null
+            ? []
+            : [
+                  { current: true, ms: currentElapsedMs },
+                  ...$roundLog.map((r) => ({
+                      current: false,
+                      ms: r.hidingMs,
+                  })),
+              ]
+                  .sort((a, b) => b.ms - a.ms)
+                  .slice(0, 3);
 
     return (
         // v457: Jet-Lag-show styling. The card positions ITSELF (the
@@ -233,52 +241,75 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                         </span>
                     </div>
                 </div>
+            ) : $roundLog.length === 0 ? (
+                /* Round 1 — no past times to rank against, so just the live
+                   clock: white round-timer box with a red accent down the
+                   right edge (the show's running clock). */
+                <div
+                    role="status"
+                    aria-live="polite"
+                    aria-label={`${phaseLabel}: ${display}`}
+                    title={`${phaseLabel}: ${display}`}
+                    className="relative overflow-hidden rounded-xl shadow-lg bg-white pl-4 pr-7 py-2"
+                >
+                    <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
+                        Hidden for
+                    </span>
+                    <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
+                        {display}
+                    </span>
+                    <span
+                        className="absolute inset-y-0 right-0 w-2.5 bg-primary"
+                        aria-hidden
+                    />
+                </div>
             ) : (
-                <>
-                    {/* White round-timer box with a red accent down the
-                        right edge — the show's running clock. */}
-                    <div
-                        role="status"
-                        aria-live="polite"
-                        aria-label={`${phaseLabel}: ${display}`}
-                        title={`${phaseLabel}: ${display}`}
-                        className="relative overflow-hidden rounded-xl shadow-lg bg-white pl-4 pr-7 py-2"
-                    >
-                        <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
-                            Hidden for
-                        </span>
-                        <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
-                            {display}
-                        </span>
-                        <span
-                            className="absolute inset-y-0 right-0 w-2.5 bg-primary"
-                            aria-hidden
-                        />
-                    </div>
-
-                    {/* Gold "1st / time to beat" leaderboard row — the
-                        show's best-time strip under the clock. */}
-                    {timeToBeatMs !== null && (
+                /* Top-3 leaderboard, longest-first: the LIVE current time
+                   (white, red accent) ranked among the best past-round times
+                   (gold). Re-sorts every tick, so the live time climbs and
+                   takes 1st once it passes the best hide. */
+                <div className="flex flex-col items-end gap-1.5">
+                    {leaderboard.map((e, i) => (
                         <div
+                            key={e.current ? "current" : `past-${i}`}
                             className="flex items-stretch rounded-xl overflow-hidden shadow-lg"
-                            title={`Time to beat: ${formatTtb(timeToBeatMs)}`}
+                            title={
+                                e.current
+                                    ? `${phaseLabel}: ${formatTtb(e.ms)}`
+                                    : `Time to beat: ${formatTtb(e.ms)}`
+                            }
                         >
-                            <div className="flex items-center px-2.5 bg-[#D6A92B]">
+                            <div className="flex items-center px-2 bg-[#D6A92B]">
                                 <span className="font-inter-tight font-black text-sm leading-none text-[#1F2F3F]">
-                                    1
+                                    {i + 1}
                                     <span className="text-[9px] align-super">
-                                        st
+                                        {rankSuffix(i + 1)}
                                     </span>
                                 </span>
                             </div>
-                            <div className="flex items-center px-3 py-1.5 bg-[#F2C63C]">
-                                <span className="font-inter-tight font-black tabular-nums text-xl leading-none text-[#1F2F3F]">
-                                    {formatTtb(timeToBeatMs)}
-                                </span>
-                            </div>
+                            {e.current ? (
+                                <div className="relative flex flex-col justify-center bg-white pl-3 pr-6 py-1 leading-none">
+                                    <span className="block text-[8px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none">
+                                        Hidden for
+                                    </span>
+                                    <span className="font-inter-tight font-black tabular-nums text-2xl leading-none text-jetlag">
+                                        {formatTtb(e.ms)}
+                                    </span>
+                                    <span
+                                        className="absolute inset-y-0 right-0 w-2 bg-primary"
+                                        aria-hidden
+                                    />
+                                </div>
+                            ) : (
+                                <div className="flex items-center px-3 py-1.5 bg-[#F2C63C]">
+                                    <span className="font-inter-tight font-black tabular-nums text-xl leading-none text-[#1F2F3F]">
+                                        {formatTtb(e.ms)}
+                                    </span>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </>
+                    ))}
+                </div>
             )}
         </div>
     );
