@@ -430,6 +430,16 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v844 — selected-zone `StationTransitCard` moved to the TOP of the map.** It
+was a bottom-anchored floating card (`fixed bottom-3`); now it's `fixed
+top-[calc(env(safe-area-inset-top)+4.25rem)]` (clears the app top bar's
+safe-area + content height, aligning with the pending-answer overlay), with a
+`slide-in-from-top` entrance. Follow-ons: the touch gesture flipped for the top
+anchor (swipe DOWN → expand into route/departures, swipe UP → dismiss), and the
+trip-route map fit (`HiderBackgroundMap`) now pads the TOP by the card's live
+measured height (was bottom) so the GPS dot + tapped zone stay in the visible
+strip BELOW the card. Dismiss X + tap-another-zone-to-switch unchanged.
+
 **v843 — wizard play-area step stops jumping while GPS locates.** The
 full-page wizard's PLAY AREA step (`PlayAreaStep fillHeight`, `GameSetupDialog`)
 had a two-stage layout jump: while GPS was still resolving a suggested area

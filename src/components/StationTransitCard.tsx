@@ -230,11 +230,13 @@ export function StationTransitCard({
 
     const close = () => selectedMapStation.set(null);
 
-    // Card is now a plain bottom map OVERLAY (v834 — not a vaul drawer, so
-    // the map + app header stay fully interactive behind it). The compact
-    // card responds to vertical swipes on its own: swipe UP expands to the
-    // route/departures detail, swipe DOWN dismisses. When expanded, touches
-    // belong to the scrollable content, so the gesture stands down.
+    // Card is a plain map OVERLAY (v834 — not a vaul drawer, so the map + app
+    // header stay fully interactive behind it). The compact card responds to
+    // vertical swipes on its own. v844: now anchored to the TOP, so the
+    // gestures flip — swipe DOWN (toward the content it reveals) expands to
+    // the route/departures detail, swipe UP (off the top edge) dismisses.
+    // When expanded, touches belong to the scrollable content, so the gesture
+    // stands down.
     const touchStartY = useRef<number | null>(null);
     const onCardTouchStart = (e: React.TouchEvent) => {
         touchStartY.current = e.touches[0]?.clientY ?? null;
@@ -244,8 +246,8 @@ export function StationTransitCard({
         touchStartY.current = null;
         if (startY == null || expanded) return;
         const endY = e.changedTouches[0]?.clientY ?? startY;
-        if (startY - endY > 40) setExpanded(true);
-        else if (endY - startY > 40) close();
+        if (endY - startY > 40) setExpanded(true);
+        else if (startY - endY > 40) close();
     };
 
     // Reachability check (v643) — on-demand, one zone at a time. While the
@@ -299,20 +301,22 @@ export function StationTransitCard({
     const StationIcon = modeIconFor(station.modes);
 
     return (
-        // v835: a FLOATING map-overlay card (not a full-bleed bottom drawer)
-        // — centred, inset off every edge, fully rounded + shadowed, matching
-        // the other on-map overlay cards (PendingAnswerOverlay etc.). It's a
-        // plain positioned div (NOT a vaul drawer), so there's zero
-        // body-pointer-events manipulation and the map + app header stay
-        // fully interactive: pan / zoom / tap another zone to switch. Dismiss
-        // with the top-right X (or a downward swipe on touch).
+        // v835: a FLOATING map-overlay card (not a full-bleed drawer) —
+        // centred, fully rounded + shadowed, matching the other on-map
+        // overlay cards (PendingAnswerOverlay etc.). It's a plain positioned
+        // div (NOT a vaul drawer), so there's zero body-pointer-events
+        // manipulation and the map + app header stay fully interactive:
+        // pan / zoom / tap another zone to switch. v844: anchored to the TOP
+        // of the map (below the app header), like the pending-answer overlay;
+        // the top offset clears the top bar's safe-area + content height.
+        // Dismiss with the top-right X (or an upward swipe on touch).
         <div
             ref={contentRef}
             role="dialog"
             aria-label={station.name ?? "Selected station"}
             onTouchStart={onCardTouchStart}
             onTouchEnd={onCardTouchEnd}
-            className="fixed bottom-3 left-1/2 z-[1045] flex max-h-[70vh] w-[min(94vw,460px)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200"
+            className="fixed top-[calc(env(safe-area-inset-top,0px)+4.25rem)] left-1/2 z-[1045] flex max-h-[70vh] w-[min(94vw,460px)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl animate-in fade-in slide-in-from-top-4 duration-200"
         >
             <div className="overflow-y-auto px-5 pt-4 pb-5">
                         <div className="flex items-start gap-2.5">

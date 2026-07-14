@@ -501,11 +501,13 @@ export function HiderBackgroundMap() {
         const map = mapRef.current?.getMap();
         if (!map) return;
         try {
-            // Bottom inset = the card's height, clamped so the padding
-            // always leaves a usable strip of map (fitBounds THROWS when
-            // padding exceeds the viewport).
+            // v844: the card is anchored to the TOP now, so pad the TOP by
+            // the card's height (was bottom) to keep the GPS dot + zone in the
+            // visible strip BELOW the card. Clamped so the padding always
+            // leaves a usable strip of map (fitBounds THROWS when padding
+            // exceeds the viewport).
             const mapH = map.getContainer()?.clientHeight ?? 800;
-            const bottom = Math.max(
+            const top = Math.max(
                 140,
                 Math.min($cardInset + 40, Math.floor(mapH * 0.75)),
             );
@@ -515,7 +517,7 @@ export function HiderBackgroundMap() {
                     [maxLng, maxLat],
                 ],
                 {
-                    padding: { top: 80, left: 50, right: 50, bottom },
+                    padding: { top, left: 50, right: 50, bottom: 80 },
                     maxZoom: 15,
                     duration: 600,
                 },
