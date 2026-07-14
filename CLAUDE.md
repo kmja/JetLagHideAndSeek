@@ -428,7 +428,35 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v829`. Use `git log` for the per-version detail;
+build stamp. Current: `v830`. Use `git log` for the per-version detail;
+
+**v830 — trip route draws the REAL street/track path + endgame-trigger size
+sweep.** Two demo-polish items. (1) **Walking (and transit) legs now follow the
+real geometry instead of a straight from→to line.** The MOTIS/OTP plan adapters
+return each leg's `legGeometry` (a Google-encoded polyline — the actual
+walking-street route and track shape) which the worker was DISCARDING. New
+`overpass-cache/src/travel/polyline.ts` (`decodePolyline` + `legGeometryPoints`,
+unit-tested) decodes it to `[lng,lat]` points; `JourneyLeg` gained an optional
+`geometry` field (worker `travel/types.ts` ↔ client `src/lib/journey/plan.ts`,
+kept in sync like the rest of the wire shape) that `parseMotisPlan` (transitous
++ self-hosted MOTIS) and `parseOtpPlan` (Estonia/Barcelona/Australia/Hungary)
+populate. **trafiklab** (SE ResRobot, the demo city's provider) shapes its
+TRANSIT legs from the `passlist=1` intermediate stops (`stopsToGeometry`) —
+stop-to-stop, so a Dalarna trip's transit legs follow the line, though its walk
+legs stay straight (ResRobot has no street path). `journeyToRouteFC`
+(`src/lib/journey/route.ts`) draws `leg.geometry` when it has ≥2 finite,
+non-Null-Island points, else falls back to the straight segment — so every
+other adapter degrades gracefully and the map fit still frames the richer line.
+Adapters with no polyline (HAFAS/FPTF, EFA, Navitia, …) remain straight-line —
+a follow-up could add their native shapes. (2) **Endgame-trigger affordances
+sized up** to match comparable flows (the v827 dialogs, the timer's own
+eyebrows): `HiderTimer`'s "Awaiting hider"/"In the zone" badge (`text-[9px]`→
+`text-[10px]`, icon `w-3`→`w-3.5`) + "Mark hider found" button (`text-[10px]`→
+`text-xs`, icon `w-3`→`w-4`, roomier padding; stale "share the link" title
+dropped — v824 removed the share); `StationTransitCard` "Start endgame here"
+(`text-xs`→`text-sm`, helper `text-[11px]`→`text-xs`); `HiderHome` endgame
+confirm/refute buttons (`size="sm"`→default, `flex-1` so they fill the row,
+icons `w-3.5`→`w-4`).
 
 **v829 — hide team is a UNIT of equal hiders (main-hider / co-hider split
 REMOVED); Track 1 of the hider-role rework.** There used to be one privileged

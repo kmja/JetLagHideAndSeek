@@ -379,10 +379,9 @@ export function HiderHomeContent() {
                         their own zone, so a wrong claim doesn't bind
                         them). Once confirmed, the choice is spent. */}
                     {$endgameConfirmedAt == null && (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-col sm:flex-row flex-wrap gap-2">
                             <Button
-                                size="sm"
-                                className="bg-yellow-500 text-black hover:bg-yellow-400"
+                                className="flex-1 bg-yellow-500 text-black hover:bg-yellow-400"
                                 onClick={async () => {
                                     const ok = await appConfirm({
                                         title: "They're in your zone?",
@@ -398,13 +397,12 @@ export function HiderHomeContent() {
                                     );
                                 }}
                             >
-                                <Lock className="w-3.5 h-3.5 mr-1" />
+                                <Lock className="w-4 h-4 mr-1.5" />
                                 They&apos;re here — lock down
                             </Button>
                             <Button
                                 variant="outline"
-                                size="sm"
-                                className="border-yellow-500/60 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15"
+                                className="flex-1 border-yellow-500/60 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15"
                                 onClick={async () => {
                                     const ok = await appConfirm({
                                         title: "They're not in your zone?",
@@ -420,7 +418,7 @@ export function HiderHomeContent() {
                                     );
                                 }}
                             >
-                                <LockOpen className="w-3.5 h-3.5 mr-1" />
+                                <LockOpen className="w-4 h-4 mr-1.5" />
                                 They&apos;re not in my zone
                             </Button>
                         </div>

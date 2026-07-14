@@ -168,7 +168,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                     <div
                         className={cn(
                             "flex items-center gap-1.5",
-                            "px-2 py-1 rounded-md border-2",
+                            "px-2.5 py-1.5 rounded-md border-2",
                             "animate-in fade-in duration-200",
                             $endgameConfirmedAt != null
                                 ? "bg-success/15 border-success/70 text-success"
@@ -180,8 +180,8 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                 : "Waiting for the hider to confirm you've reached their zone."
                         }
                     >
-                        <Flag className="w-3 h-3" strokeWidth={2.5} />
-                        <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.15em]">
+                        <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
+                        <span className="text-[10px] font-poppins font-bold uppercase tracking-[0.15em]">
                             {$endgameConfirmedAt != null
                                 ? "In the zone"
                                 : "Awaiting hider"}
@@ -190,20 +190,20 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                     <button
                         type="button"
                         onClick={handleMarkFound}
-                        title="Mark hider found — freeze the score and share the round-end link"
+                        title="Mark hider found — freeze the score and end the round"
                         className={cn(
-                            "flex items-center justify-center gap-1.5 w-full",
-                            "px-2.5 py-1.5 rounded-md",
+                            "flex items-center justify-center gap-2 w-full",
+                            "px-3 py-2 rounded-md",
                             "bg-primary text-primary-foreground",
                             "hover:bg-primary/90 active:bg-primary/80",
                             "border-2 border-primary shadow-md",
                             "transition-colors",
-                            "text-[10px] font-poppins font-bold uppercase tracking-wider",
+                            "text-xs font-poppins font-bold uppercase tracking-wider",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             "animate-in fade-in slide-in-from-bottom-1 duration-200",
                         )}
                     >
-                        <Footprints className="w-3 h-3" strokeWidth={2.5} />
+                        <Footprints className="w-4 h-4" strokeWidth={2.5} />
                         Mark hider found
                     </button>
                 </div>

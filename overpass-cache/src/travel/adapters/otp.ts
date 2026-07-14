@@ -17,6 +17,7 @@
  * wrong request, so per-instance request tweaks are safe to do live.
  */
 
+import { legGeometryPoints } from "../polyline";
 import type {
     Journey,
     JourneyLeg,
@@ -147,6 +148,7 @@ function parseLeg(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
         routeLongName?: string;
         headsign?: string;
         tripHeadsign?: string;
+        legGeometry?: unknown;
     };
     const departAt = toMs(leg.startTime);
     const arriveAt = toMs(leg.endTime);
@@ -170,6 +172,8 @@ function parseLeg(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
     if (typeof leg.distance === "number") {
         out.distanceMeters = Math.round(leg.distance);
     }
+    const shape = legGeometryPoints(leg.legGeometry);
+    if (shape) out.geometry = shape;
     return out;
 }
 

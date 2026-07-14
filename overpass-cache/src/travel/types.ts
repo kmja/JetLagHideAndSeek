@@ -73,6 +73,13 @@ export interface JourneyLeg {
      *  legs (where it's the headline number) and opportunistically
      *  for transit legs when the upstream reports it. */
     distanceMeters?: number;
+    /** The leg's real shape as `[lng, lat]` points (GeoJSON order),
+     *  decoded from the upstream `legGeometry` polyline when available
+     *  (MOTIS/OTP). Lets the client draw the true walking-street /
+     *  track path instead of a straight from→to segment. Absent when
+     *  the adapter has no shape — the client falls back to the
+     *  straight segment. */
+    geometry?: [number, number][];
 }
 
 /** A fully planned door-to-door journey. Provider-agnostic: the

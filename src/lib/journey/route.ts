@@ -6,11 +6,12 @@ import type { Journey, JourneyLeg } from "@/lib/journey/plan";
  * legs flagged for dashing) plus point "steps" at the origin, each
  * boarding/transfer stop, and the destination.
  *
- * We only have each leg's `from`/`to` endpoints (the worker doesn't
- * return a decoded shape), so the line is a straight segment per leg —
- * a schematic of the route, not the exact street/track geometry. That's
- * still useful: it shows the shape of the trip, where you change, and
- * which line each leg is.
+ * When the adapter supplied a decoded shape (`leg.geometry`, from
+ * MOTIS/OTP `legGeometry`), we draw the leg's REAL path — the actual
+ * walking-street route or track geometry, not a straight from→to line.
+ * Legs without a shape (adapters that don't return one) fall back to a
+ * straight segment: still useful — it shows the shape of the trip, where
+ * you change, and which line each leg is.
  */
 
 const MODE_COLORS: Record<string, string> = {
@@ -67,6 +68,24 @@ export function journeyToRouteFC(
 
     for (const leg of legs) {
         const isWalk = leg.mode === "walk";
+        // Prefer the adapter's real decoded shape (street/track geometry)
+        // when it has one; otherwise fall back to a straight from→to
+        // segment. Guard the shape's points to finite, non-Null-Island
+        // coords so a bad vertex can't drag the line across the globe.
+        const shape = (leg.geometry ?? []).filter(
+            (p) =>
+                Array.isArray(p) &&
+                Number.isFinite(p[0]) &&
+                Number.isFinite(p[1]) &&
+                !(p[0] === 0 && p[1] === 0),
+        );
+        const coordinates: [number, number][] =
+            shape.length >= 2
+                ? shape.map((p) => [p[0], p[1]])
+                : [
+                      [leg.from.lng, leg.from.lat],
+                      [leg.to.lng, leg.to.lat],
+                  ];
         features.push({
             type: "Feature",
             properties: {
@@ -77,10 +96,7 @@ export function journeyToRouteFC(
             },
             geometry: {
                 type: "LineString",
-                coordinates: [
-                    [leg.from.lng, leg.from.lat],
-                    [leg.to.lng, leg.to.lat],
-                ],
+                coordinates,
             },
         });
     }

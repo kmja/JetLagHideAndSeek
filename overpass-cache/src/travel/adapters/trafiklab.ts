@@ -175,6 +175,7 @@ function parseLeg(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
         Origin?: RawEndpoint;
         Destination?: RawEndpoint;
         Product?: unknown;
+        Stops?: { Stop?: unknown };
     };
     const o = leg.Origin;
     const d = leg.Destination;
@@ -199,7 +200,30 @@ function parseLeg(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
     if (leg.direction) out.direction = String(leg.direction);
     const dist = toNum(leg.dist);
     if (dist != null) out.distanceMeters = Math.round(dist);
+    // ResRobot passlist=1 gives each transit leg's intermediate stops —
+    // stringing them into a polyline shapes the leg to the route (stop
+    // to stop) instead of a straight Origin→Destination line. Walk legs
+    // carry no stops, so they stay a straight segment.
+    if (!isWalk) {
+        const shape = stopsToGeometry(leg.Stops?.Stop);
+        if (shape) out.geometry = shape;
+    }
     return out;
+}
+
+/** Build a `[lng, lat][]` shape from a ResRobot leg's passlist stops. */
+function stopsToGeometry(stops: unknown): [number, number][] | undefined {
+    if (!Array.isArray(stops)) return undefined;
+    const pts: [number, number][] = [];
+    for (const s of stops) {
+        const st = s as { lat?: number | string; lon?: number | string };
+        const lat = toNum(st.lat);
+        const lng = toNum(st.lon);
+        if (lat == null || lng == null) continue;
+        if (lat === 0 && lng === 0) continue;
+        pts.push([lng, lat]);
+    }
+    return pts.length >= 2 ? pts : undefined;
 }
 
 function endpointPlace(e: RawEndpoint, fallback?: TravelPlace): TravelPlace {

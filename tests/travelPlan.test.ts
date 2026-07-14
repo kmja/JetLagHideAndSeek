@@ -23,6 +23,10 @@ import { parseOtpPlan } from "../overpass-cache/src/travel/adapters/otp";
 import { parseOdsayPath } from "../overpass-cache/src/travel/adapters/korea";
 import { parseNsTrip } from "../overpass-cache/src/travel/adapters/netherlands";
 import {
+    decodePolyline,
+    legGeometryPoints,
+} from "../overpass-cache/src/travel/polyline";
+import {
     dispatchPlan,
     journeyModesAllowed,
     selectAdapters,
@@ -1419,5 +1423,99 @@ describe("journeyModesAllowed (banned-mode gate)", () => {
         expect(journeyModesAllowed(journey("bus", "tram"), [...all])).toBe(
             true,
         );
+    });
+});
+
+describe("decodePolyline (leg geometry)", () => {
+    test("decodes the canonical Google example to [lng,lat] points", () => {
+        // Classic reference polyline → (38.5,-120.2),(40.7,-120.95),
+        // (43.252,-126.453), emitted as GeoJSON-order [lng,lat].
+        const pts = decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@", 5);
+        expect(pts.length).toBe(3);
+        expect(pts[0][0]).toBeCloseTo(-120.2, 4);
+        expect(pts[0][1]).toBeCloseTo(38.5, 4);
+        expect(pts[2][0]).toBeCloseTo(-126.453, 3);
+        expect(pts[2][1]).toBeCloseTo(43.252, 3);
+    });
+
+    test("empty / malformed input yields an empty array", () => {
+        expect(decodePolyline("", 5)).toEqual([]);
+        expect(decodePolyline(undefined as unknown as string, 5)).toEqual([]);
+    });
+
+    test("legGeometryPoints honours precision and needs >= 2 points", () => {
+        const g6 = legGeometryPoints({
+            points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+            precision: 5,
+        });
+        expect(g6?.length).toBe(3);
+        // No points object → undefined
+        expect(legGeometryPoints({})).toBeUndefined();
+        expect(legGeometryPoints(null)).toBeUndefined();
+    });
+});
+
+describe("MOTIS/OTP leg geometry pass-through", () => {
+    const dest = { lat: 59.92, lng: 10.76, name: "Dest" };
+
+    test("parseMotisPlan surfaces decoded leg geometry", () => {
+        const json = {
+            itineraries: [
+                {
+                    legs: [
+                        {
+                            mode: "WALK",
+                            startTime: "2026-07-14T10:00:00Z",
+                            endTime: "2026-07-14T10:05:00Z",
+                            from: { lat: 59.91, lon: 10.75, name: "A" },
+                            to: { lat: 59.915, lon: 10.755, name: "B" },
+                            legGeometry: {
+                                points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+                                precision: 5,
+                            },
+                        },
+                        {
+                            mode: "SUBWAY",
+                            startTime: "2026-07-14T10:06:00Z",
+                            endTime: "2026-07-14T10:20:00Z",
+                            from: { lat: 59.915, lon: 10.755, name: "B" },
+                            to: { lat: 59.92, lon: 10.76, name: "Dest" },
+                            routeShortName: "T1",
+                        },
+                    ],
+                },
+            ],
+        };
+        const j = parseMotisPlan(json, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs[0].geometry?.length).toBe(3);
+        // Transit leg had no legGeometry → no shape (straight fallback).
+        expect(j!.legs[1].geometry).toBeUndefined();
+    });
+
+    test("parseOtpPlan surfaces decoded leg geometry", () => {
+        const json = {
+            plan: {
+                itineraries: [
+                    {
+                        legs: [
+                            {
+                                mode: "WALK",
+                                startTime: 1_760_000_000_000,
+                                endTime: 1_760_000_300_000,
+                                from: { lat: 59.91, lon: 10.75 },
+                                to: { lat: 59.915, lon: 10.755 },
+                                legGeometry: {
+                                    points: "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+        const j = parseOtpPlan(json, dest);
+        expect(j).not.toBeNull();
+        expect(j!.legs[0].geometry?.length).toBe(3);
     });
 });

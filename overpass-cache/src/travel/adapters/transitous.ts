@@ -33,6 +33,7 @@
  * wrong request degrades to the walking estimate.
  */
 
+import { legGeometryPoints } from "../polyline";
 import type {
     Journey,
     JourneyLeg,
@@ -234,6 +235,7 @@ function parseLeg(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
         routeShortName?: string;
         routeLongName?: string;
         headsign?: string;
+        legGeometry?: unknown;
     };
     const departAt = parseISO(leg.startTime);
     const arriveAt = parseISO(leg.endTime);
@@ -256,6 +258,8 @@ function parseLeg(raw: unknown, destFallback: TravelPlace): JourneyLeg | null {
     if (typeof leg.distance === "number") {
         out.distanceMeters = Math.round(leg.distance);
     }
+    const shape = legGeometryPoints(leg.legGeometry);
+    if (shape) out.geometry = shape;
     return out;
 }
 

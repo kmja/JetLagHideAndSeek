@@ -46,6 +46,11 @@ export interface JourneyLeg {
     departAt: number;
     arriveAt: number;
     distanceMeters?: number;
+    /** The leg's real shape as `[lng, lat]` points (GeoJSON order),
+     *  when the adapter supplied one (MOTIS/OTP `legGeometry`). Used to
+     *  draw the true walking-street / track path; absent legs fall back
+     *  to a straight from→to segment. Mirrors the worker wire type. */
+    geometry?: [number, number][];
 }
 
 export interface Journey {

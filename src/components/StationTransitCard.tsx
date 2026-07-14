@@ -393,11 +393,11 @@ export function StationTransitCard({
                                     type="button"
                                     onClick={handleStartEndgame}
                                     className={cn(
-                                        "flex w-full items-center justify-center gap-2 rounded-md px-3 py-2.5",
+                                        "flex w-full items-center justify-center gap-2 rounded-md px-3 py-3",
                                         "border-2 border-yellow-500/60 bg-yellow-500/15",
                                         "text-yellow-600 dark:text-yellow-300",
                                         "hover:bg-yellow-500/25 active:bg-yellow-500/30 transition-colors",
-                                        "text-xs font-poppins font-bold uppercase tracking-wider",
+                                        "text-sm font-poppins font-bold uppercase tracking-wider",
                                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                     )}
                                 >
@@ -407,7 +407,7 @@ export function StationTransitCard({
                                     />
                                     Start endgame here
                                 </button>
-                                <p className="text-[11px] leading-snug text-muted-foreground text-center px-1">
+                                <p className="text-xs leading-snug text-muted-foreground text-center px-1">
                                     Declare you&apos;ve reached this zone. The
                                     hider locks to a final spot — or refutes it
                                     if you&apos;re at the wrong place.
