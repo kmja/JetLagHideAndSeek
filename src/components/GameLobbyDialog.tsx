@@ -787,7 +787,7 @@ export function GameLobbyDialog() {
                     );
                 })()}
 
-                <div className="px-5 py-3 flex-1 overflow-y-auto space-y-3">
+                <div className="px-5 py-3 flex-1 min-h-0 overflow-y-auto space-y-3">
                     {/* Autohost failure recovery. The "creating" skeleton
                         and the room-code card both moved to the header's
                         compact share cluster (v453); only the failure

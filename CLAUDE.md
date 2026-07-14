@@ -430,6 +430,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v843 — wizard play-area step stops jumping while GPS locates.** The
+full-page wizard's PLAY AREA step (`PlayAreaStep fillHeight`, `GameSetupDialog`)
+had a two-stage layout jump: while GPS was still resolving a suggested area
+(`hideSearchWhileLocating`, `value === null`) it rendered a FIXED `aspect-square`
+map skeleton with NO card; once the area resolved it fell through to a totally
+different shape — the play-area card on top + a `flex-1` full-height map — so the
+card popping in shoved the map down and resized it (the reported "first only the
+map loads, then the card appears and the layout changes"). The locating
+placeholder now MIRRORS the resolved `fillHeight` layout: a card-shaped skeleton
+up top (reserves the real card's height) + a `flex-1 min-h-[12rem]` map skeleton
+that fills, so the real card/map replace the skeletons in place with no reflow.
+Scoped to `fillHeight` (the wizard); the modal edit keeps its near-square
+placeholder. Also added `min-h-0` to the lobby drawer's scroll body (the standard
+flex-column scroll fix, so the `flex-1` region sizes correctly against the footer).
+
 **v842 — more "can't cut the area" gating + hider transit labels + copy trims.**
 (1) **Coastline / same-landmass availability gating** (`subtypeAvailability.ts`):
 both are disabled when the play area has NO coastline (measuring "distance to

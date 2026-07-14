@@ -1098,9 +1098,37 @@ export function PlayAreaStep({
 
     if (hideSearchWhileLocating) {
         return (
-            <div className="space-y-3 animate-in fade-in duration-200">
+            <div
+                className={cn(
+                    "flex flex-col gap-3 animate-in fade-in duration-200",
+                    // Match the resolved fillHeight layout so the play-area
+                    // card sliding in when GPS resolves doesn't reshape the
+                    // page (the reported "map loads, then the card appears
+                    // and the layout jumps" state).
+                    fillHeight && "h-full",
+                )}
+            >
+                {/* Card skeleton — reserves the play-area card's height up
+                    top (fillHeight/wizard only), so the real card replaces
+                    it in place instead of pushing the map down. */}
+                {fillHeight && (
+                    <div className="shrink-0 flex items-stretch gap-2">
+                        <div className="flex-1 min-w-0 rounded-md border-2 border-border bg-secondary/30 p-3 space-y-1.5">
+                            <div className="h-2.5 w-16 rounded-sm bg-foreground/10 animate-pulse" />
+                            <div className="h-4 w-32 rounded-sm bg-foreground/10 animate-pulse" />
+                            <div className="h-2.5 w-24 rounded-sm bg-foreground/10 animate-pulse" />
+                        </div>
+                    </div>
+                )}
                 <div
-                    className="relative w-full aspect-square rounded-md overflow-hidden border border-border"
+                    className={cn(
+                        "relative w-full rounded-md overflow-hidden border border-border",
+                        // Fill the remaining height in the wizard (matches the
+                        // resolved map), or a near-square in the modal.
+                        fillHeight
+                            ? "flex-1 min-h-[12rem]"
+                            : "aspect-square",
+                    )}
                     role="status"
                     aria-live="polite"
                     aria-label="Detecting your location"
