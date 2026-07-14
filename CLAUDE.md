@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v836`. Use `git log` for the per-version detail;
+build stamp. Current: `v837`. Use `git log` for the per-version detail;
+
+**v837 — display-name-doesn't-register fix + adaptive lobby header + Host
+icon.** (1) **BUG: a typed display name sometimes didn't register** (esp. the
+first game / fresh install). `RolePicker.commitName` only wrote the LOCAL
+`displayName` atom — but the lobby AUTO-HOSTS the room BEFORE the picker appears,
+so the server already assigned a cast name from the then-empty atom. Without a
+`setName` push, the typed name stayed local-only and teammates kept seeing the
+cast name. Fixed: `commitName` now calls `setOnlineName(draftName)` (v834's live
+rename), which sets the atom AND sends `setName`; the transport queues + flushes
+it on connect, so it lands even if the socket isn't open yet. (2) **Adaptive
+lobby header** — a long place name now shrinks to fit instead of truncating.
+`src/hooks/useFitFontSize.ts` (ResizeObserver-driven, shrinks font from 30px to
+an 18px floor until `scrollWidth` fits; ellipsis only at the floor) drives the
+`GameLobbyDialog` city title. (3) **Host tag → icon** — the roster "Host" text
+badge is now an amber `Crown` icon (title/aria "Host").
 
 **v836 — station card looks like a floating map-overlay card.** Follow-up to
 v834 (which made `StationTransitCard` a plain positioned div to fix the frozen

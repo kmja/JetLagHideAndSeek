@@ -21,7 +21,7 @@ import {
     pickRandomCastName,
     selfParticipantId,
 } from "@/lib/multiplayer/session";
-import { setOnlineRole } from "@/lib/multiplayer/store";
+import { setOnlineName, setOnlineRole } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 /**
@@ -78,11 +78,18 @@ export function RolePicker() {
     const [draftName, setDraftName] = useState(displayNameAtom.get() || "");
     const [castPlaceholder] = useState(() => pickRandomCastName());
 
-    // Persist the typed name to the displayName atom right before the
-    // role click navigates away. Empty string OK — the server picks a
-    // cast name when it sees `""`.
+    // Persist the typed name AND push it to the server right before the
+    // role click navigates away (v836). Empty string OK — the server picks a
+    // cast name when it sees `""`. Using `setOnlineName` (not just the local
+    // atom) is load-bearing: the lobby auto-hosts the room BEFORE this picker
+    // appears, so the server already assigned a cast name from the (then
+    // empty) display-name atom. Without a `setName` push, the name typed here
+    // stays local-only and teammates keep seeing the cast name — the reported
+    // "my name sometimes doesn't register (esp. the first game)" bug. The
+    // transport queues the message and flushes it on connect, so it lands
+    // even if the socket isn't open yet.
     const commitName = () => {
-        displayNameAtom.set(draftName.trim());
+        setOnlineName(draftName);
     };
 
     // v452: select-then-confirm. Tapping a tile only HIGHLIGHTS it (like

@@ -4,6 +4,7 @@ import {
     Check,
     ChevronDown,
     Copy,
+    Crown,
     Loader2,
     LogOut,
     Pencil,
@@ -26,6 +27,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { appConfirm } from "@/lib/confirm";
+import { useFitFontSize } from "@/hooks/useFitFontSize";
 import { additionalMapGeoLocations, mapGeoLocation } from "@/lib/context";
 import {
     allowedTransit,
@@ -520,6 +522,13 @@ export function GameLobbyDialog() {
         preloadDuringHidingPeriod();
     }, [open, isMidGame, $playArea]);
 
+    // v836: adaptive header size — a long place name shrinks to fit instead
+    // of truncating, down to a floor. Big for short names, smaller for long.
+    const cityLabel = $playArea?.displayName.split(",")[0]?.trim() ?? "";
+    const { ref: titleRef, fontSize: titleFontSize } = useFitFontSize<
+        HTMLHeadingElement
+    >(cityLabel || "Lobby", { maxPx: 30, minPx: 18 });
+
     if (!open) return null;
 
     return (
@@ -598,15 +607,17 @@ export function GameLobbyDialog() {
                     a "Leave" label so the destructive action is
                     spelled out rather than icon-only. */}
                 {(() => {
-                    const cityLabel =
-                        $playArea?.displayName.split(",")[0]?.trim() ?? "";
                     return (
                         <div className="px-5 pt-5 pb-4 shrink-0 border-b border-border space-y-3">
                             {/* Row 1: title + Share, vertically aligned so
                                 the header and the Share button sit on one
                                 line. */}
                             <div className="flex items-center gap-3">
-                                <VaulDrawer.Title className="flex-1 min-w-0 text-3xl font-bold leading-tight truncate">
+                                <VaulDrawer.Title
+                                    ref={titleRef}
+                                    style={{ fontSize: titleFontSize }}
+                                    className="flex-1 min-w-0 font-bold leading-tight truncate"
+                                >
                                     {cityLabel || "Lobby"}
                                 </VaulDrawer.Title>
                                 <VaulDrawer.Description className="sr-only">
@@ -1343,8 +1354,12 @@ function RosterCard({
                                         {p.displayName || "Anonymous"}
                                     </span>
                                     {isHost && (
-                                        <span className="text-xs uppercase tracking-[0.10em] font-display font-extrabold text-muted-foreground shrink-0">
-                                            Host
+                                        <span
+                                            className="shrink-0 inline-flex"
+                                            title="Host"
+                                            aria-label="Host"
+                                        >
+                                            <Crown className="w-3.5 h-3.5 text-amber-500" />
                                         </span>
                                     )}
                                     {isMe && (
