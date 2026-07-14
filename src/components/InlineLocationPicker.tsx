@@ -40,7 +40,7 @@ import {
     protomapsMapLibreStyle,
 } from "@/lib/protomapsStyle";
 import { type ImpactMode, useQuestionImpact } from "@/lib/questionImpact";
-import { findSubtypeMeta } from "@/lib/subtypes";
+import { iconForSubtype } from "@/lib/subtypes";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { holedMask } from "@/maps";
@@ -159,8 +159,7 @@ export function InlineLocationPicker({
     // Equal icon if the subtype isn't tabled — same default the
     // SubtypeTile uses when a meta is missing.
     const candidateIcon = useMemo(() => {
-        const meta = impactType ? findSubtypeMeta(impactType) : null;
-        return meta?.icon ?? null;
+        return impactType ? iconForSubtype(impactType) : null;
     }, [impactType]);
     const candidatePoints = impact?.candidates ?? null;
 

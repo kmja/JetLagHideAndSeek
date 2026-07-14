@@ -66,7 +66,9 @@ export interface Env {
      *  then warms its levels on-demand via `?warm=1` on first use. */
     ADMIN_PREWARM_ENABLED?: string;
     /** Comma-separated OSM admin_levels the cron/laptop warm ahead of time
-     *  (default "4,6,7,8"). The rarer levels fall to on-demand warming. */
+     *  (default "4,6,7,8,9,10" — the full span the picker's four admin
+     *  tiers emit, incl. level 9 "Ward / Borough"). Rarer 2/3/5 fall to
+     *  on-demand warming. */
     ADMIN_PREWARM_LEVELS?: string;
     /** Feature flag for the ADJACENT-AREA full curation (v676). When a
      *  curated city's adjacent municipalities are warmed (Phase 4), the

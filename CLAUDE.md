@@ -430,6 +430,44 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v839 — one icon per question everywhere + compact configure header +
+ward/borough admin prewarm + lobby footer spacing.** (1) **Every question
+subtype now has EXACTLY ONE icon, shown on both the header card and the map
+markers.** There used to be two disagreeing icon tables: `subtypes.ts`'s
+`SUBTYPES` (drives the on-map candidate markers via `InlineLocationPicker`)
+said zoo→`TentTree` / amusement-park→`Rocket`, while
+`questionOverlayCard.tsx`'s private `SUBTYPE_ICONS` (drives the header card)
+said zoo→`PawPrint` / amusement-park→`FerrisWheel` / library→`BookOpen`
+(colliding with consulate) / same-length→`Ruler` / coastline→`Waves` — so a
+"MATCHING · ZOO" card showed a paw print in the header but a tent-tree on the
+map. Fixed by making **`subtypes.ts` the single source**: new
+`iconForSubtype(value)` resolves exact `SUBTYPES` value → `-full`-stripped →
+a small legacy table (city/mcdonalds/seven11/bare-peak/bare-rail-measure), and
+BOTH `QuestionOverlayCard` (its `SUBTYPE_ICONS`/`getSubtypeIcon` deleted) and
+`InlineLocationPicker` now call it. Picked the clearer icon per subtype and set
+it in `SUBTYPES` so the picker tiles get it too: **zoo→`PawPrint`**,
+**amusement-park→`FerrisWheel`** (were `TentTree`/`Rocket`). (2) **Configure-
+dialog header compacted** (`cards/base.tsx`, `forceExpanded`): the
+"CATEGORY · SUBTYPE" big label truncated in the narrow dialog
+("MEASURING · SEA LE…") — the category is now lifted into the small eyebrow
+slot and only the subtype ("SEA LEVEL") is the big label. Scoped to the
+configure dialog; the on-map overlays + collapsed list cards keep the full
+combined label (their eyebrow is the status/time line). (3) **Ward/Borough
+(OSM 9) admin question fixed** — the matching admin-division question's 4th
+tier maps to OSM `admin_level=9` (US "Ward / Borough", JP ward, FR borough),
+but the v831 admin prewarm default `ADMIN_PREWARM_LEVELS` was `4,6,7,8`, so
+level 9 cold-missed the prewarm endpoint and fell to LIVE Overpass →
+"No boundary found" + "all mirrors timed out/rate-limited" even in a warm
+city. Default extended to **`4,6,7,8,9,10`** (worker `adminPrewarmLevels` +
+laptop `ADMIN_LEVELS`, kept in lockstep) so the ward/borough + neighbourhood
+levels prewarm too. Requires a laptop `--admin` re-warm to populate existing
+starred cities; the live poly fallback is area-keyed (v826) so it also
+self-heals after one successful fetch once Overpass isn't rate-limited. (4)
+**Lobby "Leave game" footer spacing reduced** (`GameLobbyDialog`) — the footer
+dropped `pt-3 pb-6`→`pt-2 pb-3`, the always-rendered transparent hint line is
+now conditional (hider+ready only), and the Leave button shrank to `size="sm"
+h-8 text-xs`, reclaiming the wasted vertical space.
+
 **v838 — dedicated "Edit play area" dialog in the lobby.** The lobby's play-area
 Edit button used to close the lobby and open the whole tabbed Game-Settings
 wizard (PLAY AREA / TRANSIT / SIZE) — inconsistent with the compact inline

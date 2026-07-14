@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
     Anchor,
+    Beef,
     BookOpen,
     Building,
     Building2,
@@ -8,6 +9,7 @@ import {
     Church,
     Cloud,
     Compass,
+    FerrisWheel,
     Film,
     Fish,
     Flag,
@@ -20,12 +22,12 @@ import {
     Map as MapLucide,
     Milestone,
     Mountain,
+    PawPrint,
     Plane,
-    Rocket,
     Route,
     Sailboat,
+    ShoppingBag,
     ShoppingBasket,
-    TentTree,
     Train,
     TrainFront,
     TrainTrack,
@@ -101,8 +103,8 @@ export const SUBTYPES: Record<
         { value: "same-landmass", label: "Landmass", icon: Globe, description: "Same contiguous landmass (not broken by waterways).", validSizes: ALL },
         { value: "park-full", label: "Park", icon: Trees, description: "Same park (measured to the map icon).", validSizes: ALL },
         // Places of Interest
-        { value: "theme_park-full", label: "Amusement park", icon: Rocket, description: "Same amusement park.", validSizes: ALL },
-        { value: "zoo-full", label: "Zoo", icon: TentTree, description: "Same zoo.", validSizes: ALL },
+        { value: "theme_park-full", label: "Amusement park", icon: FerrisWheel, description: "Same amusement park.", validSizes: ALL },
+        { value: "zoo-full", label: "Zoo", icon: PawPrint, description: "Same zoo.", validSizes: ALL },
         { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Same aquarium.", validSizes: ALL },
         { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Same outdoor golf course (mini-golf and driving ranges don't count).", validSizes: ALL },
         { value: "museum-full", label: "Museum", icon: Landmark, description: "Same museum.", validSizes: ALL },
@@ -130,8 +132,8 @@ export const SUBTYPES: Record<
         { value: "peak-full", label: "Mountain", icon: Mountain, description: "Closer or further to a mountain?", validSizes: ALL },
         { value: "park-full", label: "Park", icon: Trees, description: "Closer or further to a park (measured to the icon)?", validSizes: ALL },
         // Places of Interest
-        { value: "theme_park-full", label: "Amusement park", icon: Rocket, description: "Closer or further to an amusement park?", validSizes: ALL },
-        { value: "zoo-full", label: "Zoo", icon: TentTree, description: "Closer to a zoo?", validSizes: ALL },
+        { value: "theme_park-full", label: "Amusement park", icon: FerrisWheel, description: "Closer or further to an amusement park?", validSizes: ALL },
+        { value: "zoo-full", label: "Zoo", icon: PawPrint, description: "Closer to a zoo?", validSizes: ALL },
         { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Closer to an aquarium?", validSizes: ALL },
         { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Closer to an outdoor golf course?", validSizes: ALL },
         { value: "museum-full", label: "Museum", icon: Landmark, description: "Closer to a museum?", validSizes: ALL },
@@ -156,9 +158,9 @@ export const SUBTYPES: Record<
         // (representative-point-per-route fed into the Voronoi
         // pipeline), so it's safe to surface here.
         { value: "metro", label: "Metro line", icon: TrainTrack, description: "Closest metro line within 25 km.", validSizes: L },
-        { value: "zoo", label: "Zoo", icon: TentTree, description: "Closest zoo within 25 km.", validSizes: L },
+        { value: "zoo", label: "Zoo", icon: PawPrint, description: "Closest zoo within 25 km.", validSizes: L },
         { value: "aquarium", label: "Aquarium", icon: Fish, description: "Closest aquarium within 25 km.", validSizes: L },
-        { value: "theme_park", label: "Amusement park", icon: Rocket, description: "Closest amusement park within 25 km.", validSizes: L },
+        { value: "theme_park", label: "Amusement park", icon: FerrisWheel, description: "Closest amusement park within 25 km.", validSizes: L },
     ],
     /* Photo subtypes — rulebook pp32–35. Validity scales with game size:
      *   S/M/L  — base set (building visible, widest street, tree, sky, you, tallest in sightline)
@@ -218,6 +220,47 @@ export function findSubtypeMeta(value: string): SubtypeMeta | null {
         if (hit) return hit;
     }
     return null;
+}
+
+/**
+ * Legacy / non-picker subtype values that still appear in saved games,
+ * share links, or the elimination engine but aren't selectable tiles in
+ * `SUBTYPES`. Their icons are kept in agreement with the nearest picker
+ * equivalent so the header card and the map markers never disagree.
+ * Bare forms that DO resolve through `findSubtypeMeta` (e.g. tentacle
+ * `zoo`, photo `selfie`) are intentionally omitted — they resolve there.
+ */
+const LEGACY_SUBTYPE_ICONS: Record<string, LucideIcon> = {
+    city: Building2,
+    "major-city": Building2,
+    mcdonalds: Beef,
+    seven11: ShoppingBag,
+    // bare "rail-measure" predates "rail-measure-ordinary"
+    "rail-measure": TrainTrack,
+    // bare "peak" predates "peak-full"
+    peak: Mountain,
+};
+
+/**
+ * THE single source of truth for a question subtype's icon — used by
+ * BOTH the on-map markers (`InlineLocationPicker`) and the question
+ * header card (`QuestionOverlayCard`) so every question has exactly one
+ * icon shown everywhere. Resolves in order: exact `SUBTYPES` value →
+ * the `-full`-stripped value → the legacy table above. Returns null when
+ * nothing matches (caller falls back to the category icon).
+ */
+export function iconForSubtype(value: string | undefined): LucideIcon | null {
+    if (!value) return null;
+    const direct = findSubtypeMeta(value);
+    if (direct) return direct.icon;
+    const stripped = value.endsWith("-full")
+        ? value.slice(0, -"-full".length)
+        : value;
+    if (stripped !== value) {
+        const strippedMeta = findSubtypeMeta(stripped);
+        if (strippedMeta) return strippedMeta.icon;
+    }
+    return LEGACY_SUBTYPE_ICONS[stripped] ?? null;
 }
 
 /**

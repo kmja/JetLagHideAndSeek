@@ -1246,7 +1246,7 @@ export function GameLobbyDialog() {
                     bottom of the roster block. Mid-game manual reopens
                     still dismiss via swipe-down; the Leave button
                     stays available there too. */}
-                <div className="px-6 pt-3 pb-6 border-t border-border space-y-2">
+                <div className="px-6 pt-2 pb-3 border-t border-border space-y-1.5">
                     {isMidGame ? null : isHost ? (
                         <>
                             {/* v297: subtitle slot is conditionally
@@ -1288,22 +1288,15 @@ export function GameLobbyDialog() {
                                     </span>
                                 )}
                             </Button>
-                            {/* Always-rendered footnote slot. The hint
-                                only reads when actually meaningful
-                                (hider, ready) but the line stays so
-                                the footer height doesn't bounce. */}
-                            <p
-                                className={cn(
-                                    "text-[11px] leading-snug text-center",
-                                    "transition-colors duration-200",
-                                    isHiderRole && startReady
-                                        ? "text-muted-foreground"
-                                        : "text-transparent select-none",
-                                )}
-                                aria-hidden={!(isHiderRole && startReady)}
-                            >
-                                Pick your hiding spot in the meantime.
-                            </p>
+                            {/* v839: only render the hint when it's actually
+                                meaningful (hider, ready) — the old
+                                always-rendered transparent placeholder wasted
+                                a whole line above "Leave game". */}
+                            {isHiderRole && startReady && (
+                                <p className="text-[11px] leading-snug text-center text-muted-foreground">
+                                    Pick your hiding spot in the meantime.
+                                </p>
+                            )}
                         </>
                     ) : (
                         <div className="text-center py-3 space-y-1">
@@ -1323,10 +1316,11 @@ export function GameLobbyDialog() {
                     {$mp && ($code || hostingState === "failed") && (
                         <Button
                             variant="ghost"
+                            size="sm"
                             onClick={handleLeaveGame}
-                            className="w-full gap-2 text-foreground/80 hover:text-foreground hover:bg-accent"
+                            className="w-full h-8 gap-2 text-xs text-foreground/70 hover:text-foreground hover:bg-accent"
                         >
-                            <LogOut className="w-4 h-4" />
+                            <LogOut className="w-3.5 h-3.5" />
                             Leave game
                         </Button>
                     )}

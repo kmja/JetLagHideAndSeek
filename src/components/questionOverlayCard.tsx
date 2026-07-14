@@ -1,33 +1,9 @@
 import type { LucideIcon } from "lucide-react";
-import {
-    AlertTriangle,
-    Beef,
-    BookOpen,
-    Building2,
-    Camera,
-    Check,
-    FerrisWheel,
-    Film,
-    Fish,
-    Flag,
-    Hospital,
-    Hourglass,
-    Landmark,
-    Mountain,
-    PawPrint,
-    Plane,
-    Ruler,
-    ShoppingBag,
-    Train,
-    TrainFront,
-    TrainTrack,
-    TreePine,
-    Trees,
-    Waves,
-} from "lucide-react";
+import { AlertTriangle, Check, Hourglass } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { iconForSubtype } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,39 +21,10 @@ import { cn } from "@/lib/utils";
 
 /* ────────────────── Subtype icons + labels ────────────────── */
 
-const SUBTYPE_ICONS: Record<string, LucideIcon> = {
-    airport: Plane,
-    city: Building2,
-    "major-city": Building2,
-    aquarium: Fish,
-    hospital: Hospital,
-    peak: Mountain,
-    museum: Landmark,
-    theme_park: FerrisWheel,
-    zoo: PawPrint,
-    cinema: Film,
-    library: BookOpen,
-    golf_course: Flag,
-    consulate: Landmark,
-    park: Trees,
-    coastline: Waves,
-    mcdonalds: Beef,
-    seven11: ShoppingBag,
-    "rail-measure": Train,
-    "same-train-line": TrainTrack,
-    "same-length-station": Ruler,
-    "highspeed-measure-shinkansen": TrainFront,
-    tree: TreePine,
-    selfie: Camera,
-};
-
-function getSubtypeIcon(type: string | undefined): LucideIcon | null {
-    if (!type) return null;
-    const stripped = type.endsWith("-full")
-        ? type.slice(0, -"-full".length)
-        : type;
-    return SUBTYPE_ICONS[stripped] ?? null;
-}
+// Subtype icons come from ONE source — `iconForSubtype` in
+// `src/lib/subtypes.ts` — shared with the on-map markers so a question's
+// header card and its map markers always show the SAME icon.
+const getSubtypeIcon = iconForSubtype;
 
 /** Human-readable subtype label (e.g. "Museum", "McDonald's"). */
 function subtypeLabel(type: string | undefined): string | null {

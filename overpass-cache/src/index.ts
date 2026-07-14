@@ -4878,18 +4878,23 @@ out geom;
 }
 
 /** The admin levels warmed ahead-of-time by the cron/laptop, from
- *  `ADMIN_PREWARM_LEVELS` (comma-separated). Default 4/6/7/8 — the common
- *  `adminTierToOsmLevel` outputs (1st-order region, county/district,
- *  sub-district, municipality) across the US/EU/Nordics/UK/JP. The rarer
- *  levels (2/3/5/9/10) fall to on-demand `?warm=1` on first use. */
+ *  `ADMIN_PREWARM_LEVELS` (comma-separated). Default 4/6/7/8/9/10 — the
+ *  full span the picker's four admin tiers (`adminTierToOsmLevel`) emit
+ *  across the US/EU/Nordics/UK/JP: 1st-order region (4), county/district
+ *  (6), sub-district (7), municipality/city (8), AND the 4th tier which
+ *  is level 9 (US "Ward / Borough", JP ward, FR borough) or 10 (US
+ *  neighbourhood, GB ward). 9/10 were previously left to on-demand
+ *  `?warm=1`, so the ward/borough matching question hit LIVE Overpass and
+ *  failed under rate-limiting even in a fully-prewarmed city — now they're
+ *  prewarmed too. The rarer 2/3/5 still fall to on-demand. */
 function adminPrewarmLevels(env: Env): number[] {
     const raw = (env.ADMIN_PREWARM_LEVELS ?? "").trim();
-    if (!raw) return [4, 6, 7, 8];
+    if (!raw) return [4, 6, 7, 8, 9, 10];
     const parsed = raw
         .split(",")
         .map((s) => parseInt(s.trim(), 10))
         .filter((n) => Number.isFinite(n) && n >= 2 && n <= 10);
-    return parsed.length > 0 ? parsed : [4, 6, 7, 8];
+    return parsed.length > 0 ? parsed : [4, 6, 7, 8, 9, 10];
 }
 
 /**

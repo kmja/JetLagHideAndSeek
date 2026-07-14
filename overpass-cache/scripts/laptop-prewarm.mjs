@@ -717,9 +717,13 @@ function coastQuery(extent) {
 // the R2 key hashes this exact string, and the worker read endpoint rebuilds
 // it from the boundary extent — so this MUST match the worker builder.
 let PAD_KM_ADMIN = 2;
-// Common tier outputs of adminTierToOsmLevel (region / county / sub-district
-// / municipality). Rarer levels warm on-demand in the app.
-let ADMIN_LEVELS = [4, 6, 7, 8];
+// The full span the picker's four admin tiers (adminTierToOsmLevel) emit:
+// region (4) / county (6) / sub-district (7) / municipality (8) / 4th-tier
+// ward-borough (9) / neighbourhood-ward (10). 9/10 added in v839 — the US
+// "Ward / Borough" matching question maps to level 9, which was previously
+// left to on-demand warming and so hit LIVE Overpass (rate-limit failures
+// even in a starred city). Rarer 2/3/5 still warm on-demand.
+let ADMIN_LEVELS = [4, 6, 7, 8, 9, 10];
 function adminQuery(extent, level) {
     const bb = bboxFilter(extent, PAD_KM_ADMIN);
     return `\n[out:json][timeout:180]${bb};\n(\nrelation["boundary"="administrative"]["admin_level"="${level}"];\n);\nout geom;\n`;

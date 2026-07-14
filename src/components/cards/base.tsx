@@ -286,13 +286,32 @@ export const QuestionCard = ({
             : resolved ?? baseSummary.detail,
     };
 
+    // v839: compact the header in the CONFIGURE dialog (`forceExpanded`).
+    // `summarizeQuestion` builds a "CATEGORY · SUBTYPE" big label that
+    // truncates in the narrow dialog (e.g. "MEASURING · SEA LE…"). Here we
+    // lift the category ("MEASURING") into the small eyebrow slot and keep
+    // only the subtype ("SEA LEVEL") as the big label, so it fits. (The
+    // on-map overlays + collapsed list cards keep the full combined label —
+    // they have their own eyebrow, the status/time line.)
+    const catSep = cardSummary.bigLabel.indexOf(" · ");
+    const configureEyebrow: React.ReactNode =
+        forceExpanded && catSep !== -1 ? (
+            <span className="text-[color:var(--overlay-card-desc)]">
+                {cardSummary.bigLabel.slice(0, catSep)}
+            </span>
+        ) : undefined;
+    const headerSummary: QuestionSummary =
+        forceExpanded && catSep !== -1
+            ? { ...cardSummary, bigLabel: cardSummary.bigLabel.slice(catSep + 3) }
+            : cardSummary;
+
     // Eyebrow line INSIDE the card, above the big label. Most questions
     // only appear in the list once ANSWERED, so for them the eyebrow is
     // just the relative time ("10m ago"). In-flight states show their
     // status instead (the answer countdown while awaiting, "Not sent",
     // "Vetoed", …). The configure dialog (`forceExpanded`) shows none.
     const eyebrow = forceExpanded
-        ? undefined
+        ? configureEyebrow
         : lifecycle === "answered"
           ? relativeTime || substituteFor
               ? (
@@ -371,7 +390,7 @@ export const QuestionCard = ({
                     configure dialog (`forceExpanded`) keeps it static. */}
                 <QuestionOverlayCard
                     categoryId={category ?? ""}
-                    summary={cardSummary}
+                    summary={headerSummary}
                     eyebrow={eyebrow}
                     error={lifecycle === "not-sent"}
                     right={rightSlot}
