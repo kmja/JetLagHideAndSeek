@@ -430,6 +430,17 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v856 — lobby: map pinned in the header + PLAYERS/SHARE sections + inline row
+actions.** Follow-up to v855. (1) **The play-area map moved OUT of the scrollable
+body INTO the fixed header** (`GameLobbyDialog`, alongside the title + size/transit
+row, `shrink-0` with a `border-b` under it) — so the "game info" block never
+scrolls; only the roster + share scroll beneath it. (2) **Two labelled sections
+replace the single "Invite & players" subheader**: **PLAYERS** (subheader → the
+Seekers/Hiders roster) then **SHARE** (subheader → the room-code/Share/Copy/QR
+card, now BELOW the roster again). (3) **The roster row's switch-teams + rename
+buttons sit right beside the player's name** — the name span dropped `flex-1`, so
+the buttons no longer float to the far right of the card.
+
 **v855 — lobby two-section restructure + host icon.** Pre-game lobby
 (`GameLobbyDialog`) reorganised into two clear sections: (1) **game
 info/settings** — the title, size/transit row, and the map preview now read as

@@ -631,7 +631,7 @@ export function GameLobbyDialog() {
                     spelled out rather than icon-only. */}
                 {(() => {
                     return (
-                        <div className="px-5 pt-5 pb-1 shrink-0 space-y-3">
+                        <div className="px-5 pt-5 pb-4 shrink-0 space-y-3 border-b border-border">
                             {/* Row 1: title. (Share moved out of the header to
                                 the share card just below the map — the header +
                                 map are now one "game info" section, v855.) */}
@@ -772,6 +772,58 @@ export function GameLobbyDialog() {
                                         })()}
                                 </div>
                             )}
+
+                            {/* Play-area map (v856): lives in the header now,
+                                alongside the title + size/transit — one fixed
+                                "game info" section that never scrolls. The
+                                180-px slot is reserved unconditionally so the
+                                content doesn't jump when a guest's host-pushed
+                                setup arrives a beat after the lobby opens; a
+                                skeleton fills the box until the boundary is in.
+                                Deliberately NOT shown mid-game. */}
+                            {!isMidGame &&
+                                (($mapGeoLocation?.properties?.osm_id ?? 0) >
+                                0 ? (
+                                    <div className="relative">
+                                        <PlayAreaPreviewMap
+                                            value={$mapGeoLocation!}
+                                            height="h-[180px]"
+                                            preferCombinedBoundary
+                                            deferReveal
+                                        />
+                                        {isHost && (
+                                            <button
+                                                type="button"
+                                                onClick={openAreaEditor}
+                                                aria-label="Change play area"
+                                                title="Change the play area"
+                                                className={cn(
+                                                    "absolute top-2 right-2 z-[5]",
+                                                    "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md",
+                                                    "bg-background/90 backdrop-blur-sm border border-border shadow-sm",
+                                                    "text-xs font-semibold text-foreground",
+                                                    "hover:bg-background transition-colors",
+                                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                                )}
+                                            >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                                Edit
+                                            </button>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div
+                                        className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground animate-in fade-in duration-200"
+                                        role="status"
+                                        aria-live="polite"
+                                        aria-label="Waiting for play area"
+                                    >
+                                        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                                        <div className="text-xs">
+                                            Waiting for the host's play area…
+                                        </div>
+                                    </div>
+                                ))}
                         </div>
                     );
                 })()}
@@ -968,79 +1020,84 @@ export function GameLobbyDialog() {
                         </DialogContent>
                     </Dialog>
 
-                    {/* Pre-game play-area map. Restored in v260; v275
-                        moved BELOW the room-code card so the share
-                        affordance is the first actionable thing in the
-                        scroll area (per user feedback — getting friends
-                        in is what the lobby is for). Deliberately NOT
-                        shown mid-game.
-
-                        v273: the 180-px slot is reserved unconditionally
-                        so the content below doesn't jump when a guest's
-                        host-pushed setup arrives a beat after the lobby
-                        opens. When mapGeoLocation isn't valid yet, a
-                        skeleton placeholder fills the same box. The
-                        PlayAreaPreviewMap carries its own MapTilesVeil
-                        once it does mount, so the visual handoff is
-                        seamless. */}
-                    {!isMidGame &&
-                        (($mapGeoLocation?.properties?.osm_id ?? 0) > 0 ? (
-                            <div className="relative">
-                                <PlayAreaPreviewMap
-                                    value={$mapGeoLocation!}
-                                    height="h-[180px]"
-                                    preferCombinedBoundary
-                                    deferReveal
-                                />
-                                {isHost && (
-                                    <button
-                                        type="button"
-                                        onClick={openAreaEditor}
-                                        aria-label="Change play area"
-                                        title="Change the play area"
-                                        className={cn(
-                                            "absolute top-2 right-2 z-[5]",
-                                            "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md",
-                                            "bg-background/90 backdrop-blur-sm border border-border shadow-sm",
-                                            "text-xs font-semibold text-foreground",
-                                            "hover:bg-background transition-colors",
-                                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                        )}
-                                    >
-                                        <Pencil className="w-3.5 h-3.5" />
-                                        Edit
-                                    </button>
-                                )}
-                            </div>
-                        ) : (
-                            <div
-                                className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground animate-in fade-in duration-200"
-                                role="status"
-                                aria-live="polite"
-                                aria-label="Waiting for play area"
-                            >
-                                <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                                <div className="text-xs">
-                                    Waiting for the host's play area…
-                                </div>
-                            </div>
-                        ))}
-
-                    {/* Section 2 subheader (v855): everything from here down is
-                        "get people in + who's playing" — the sharing card and
-                        the roster. The header + map above are section 1 (game
-                        info). Shown whenever the share/roster section is. */}
-                    {$mp && !isMidGame && (
-                        <h3 className="pt-1 text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
-                            Invite &amp; players
+                    {/* Section 2 — PLAYERS (v856). The map moved up into the
+                        fixed header, so from here down is the scrollable
+                        roster + share. */}
+                    {$mp && ($participants.length > 0 || !isMidGame) && (
+                        <h3 className="text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
+                            Players
                         </h3>
                     )}
 
-                    {/* Share / room code section (v855: moved to JUST BELOW the
-                        map — it's the first actionable thing in section 2).
-                        Eyebrow label + code on the left, Share / Copy / QR on
-                        the right. A pulsing skeleton holds the slot while the
-                        room is still being created. */}
+                    {/* Players roster + team zero-state. v447: each card
+                        carries a "join this team" button (unless the
+                        local player is already on it) so picking / switching
+                        a role happens here instead of a popup. Hidden
+                        mid-game (no role-swapping once the clock runs). */}
+                    {$mp && ($participants.length > 0 || !isMidGame) && (
+                        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
+                            <RosterCard
+                                label={`Seekers · ${seekers.length}`}
+                                tone="seeker"
+                                participants={seekers}
+                                selfId={$self}
+                                hostId={hostId}
+                                onJoin={
+                                    !isMidGame && $playerRole === null
+                                        ? () => joinTeam("seeker")
+                                        : undefined
+                                }
+                                joinLabel="Join seekers"
+                                onSwitchTeam={
+                                    !isMidGame && $playerRole === "seeker"
+                                        ? () => joinTeam("hider")
+                                        : undefined
+                                }
+                                onEditName={
+                                    !isMidGame
+                                        ? () => setNameEditOpen(true)
+                                        : undefined
+                                }
+                            />
+                            <RosterCard
+                                label={`Hiders · ${hiders.length}`}
+                                tone="hider"
+                                participants={hiders}
+                                selfId={$self}
+                                hostId={hostId}
+                                onJoin={
+                                    !isMidGame && $playerRole === null
+                                        ? () => joinTeam("hider")
+                                        : undefined
+                                }
+                                joinLabel="Join hiders"
+                                onSwitchTeam={
+                                    !isMidGame && $playerRole === "hider"
+                                        ? () => joinTeam("seeker")
+                                        : undefined
+                                }
+                                onEditName={
+                                    !isMidGame
+                                        ? () => setNameEditOpen(true)
+                                        : undefined
+                                }
+                            />
+                        </div>
+                    )}
+                    {$mp && !isMidGame && $playerRole === null && (
+                        <p className="text-sm text-muted-foreground leading-snug animate-in fade-in duration-200">
+                            Pick your team above to continue.
+                        </p>
+                    )}
+
+                    {/* Section 3 — SHARE (v856). Room code + Share / Copy / QR,
+                        below the roster. A pulsing skeleton holds the slot
+                        while the room is still being created. */}
+                    {$mp && !isMidGame && (
+                        <h3 className="pt-1 text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
+                            Share
+                        </h3>
+                    )}
                     {$mp && !isMidGame && hostingState === "creating" && !$code && (
                         <div
                             className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2 min-h-[3.5rem] animate-in fade-in duration-200"
@@ -1118,67 +1175,6 @@ export function GameLobbyDialog() {
                                 )}
                             </div>
                         </div>
-                    )}
-
-                    {/* Players roster + team zero-state. v447: each card
-                        carries a "join this team" button (unless the
-                        local player is already on it) so picking / switching
-                        a role happens here instead of a popup. Hidden
-                        mid-game (no role-swapping once the clock runs). */}
-                    {$mp && ($participants.length > 0 || !isMidGame) && (
-                        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
-                            <RosterCard
-                                label={`Seekers · ${seekers.length}`}
-                                tone="seeker"
-                                participants={seekers}
-                                selfId={$self}
-                                hostId={hostId}
-                                onJoin={
-                                    !isMidGame && $playerRole === null
-                                        ? () => joinTeam("seeker")
-                                        : undefined
-                                }
-                                joinLabel="Join seekers"
-                                onSwitchTeam={
-                                    !isMidGame && $playerRole === "seeker"
-                                        ? () => joinTeam("hider")
-                                        : undefined
-                                }
-                                onEditName={
-                                    !isMidGame
-                                        ? () => setNameEditOpen(true)
-                                        : undefined
-                                }
-                            />
-                            <RosterCard
-                                label={`Hiders · ${hiders.length}`}
-                                tone="hider"
-                                participants={hiders}
-                                selfId={$self}
-                                hostId={hostId}
-                                onJoin={
-                                    !isMidGame && $playerRole === null
-                                        ? () => joinTeam("hider")
-                                        : undefined
-                                }
-                                joinLabel="Join hiders"
-                                onSwitchTeam={
-                                    !isMidGame && $playerRole === "hider"
-                                        ? () => joinTeam("seeker")
-                                        : undefined
-                                }
-                                onEditName={
-                                    !isMidGame
-                                        ? () => setNameEditOpen(true)
-                                        : undefined
-                                }
-                            />
-                        </div>
-                    )}
-                    {$mp && !isMidGame && $playerRole === null && (
-                        <p className="text-sm text-muted-foreground leading-snug animate-in fade-in duration-200">
-                            Pick your team above to continue.
-                        </p>
                     )}
 
                     {/* Preload opt-in — only on a metered link. On wifi
@@ -1396,7 +1392,11 @@ function RosterCard({
                             >
                                 <span
                                     className={cn(
-                                        "min-w-0 flex-1 truncate flex items-center gap-1.5 font-medium",
+                                        // v856: NOT flex-1 — the row stays
+                                        // content-width so the switch/rename
+                                        // buttons sit right beside the name
+                                        // instead of pushed to the far right.
+                                        "min-w-0 truncate flex items-center gap-1.5 font-medium",
                                         !p.online && "opacity-50",
                                     )}
                                 >
@@ -1418,7 +1418,8 @@ function RosterCard({
                                         </span>
                                     )}
                                 </span>
-                                {/* My own row: inline switch-teams + rename. */}
+                                {/* My own row: inline switch-teams + rename,
+                                    right beside the name (v856). */}
                                 {isMe && (onSwitchTeam || onEditName) && (
                                     <span className="flex items-center gap-1 shrink-0">
                                         {onSwitchTeam && (
