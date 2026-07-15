@@ -94,7 +94,7 @@ export interface QuestionSummary {
  * WHITE content — the Jet Lag show's lower-third look. Near-grey inputs
  * (matching) collapse to the brand navy, like the show's train blocks.
  */
-function deepColor(hex: string): string {
+export function deepColor(hex: string): string {
     const h = hex.replace("#", "");
     let r = parseInt(h.slice(0, 2), 16);
     let g = parseInt(h.slice(2, 4), 16);

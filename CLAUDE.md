@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v872`. Use `git log` for the per-version detail;
+build stamp. Current: `v873`. Use `git log` for the per-version detail;
+
+**v873 — Questions-drawer "New" no longer breaks the first question + subtype
+header styling.**
+- **First question from the Questions drawer read "not sent."** The drawer's
+  "New" button hosted an `AddQuestionDialog` whose OWN vaul drawer was nested
+  inside the Questions vaul drawer — a stacking/orphan bug. On MOBILE the New
+  button (drawer header + empty state) now CLOSES the Questions drawer and bumps
+  a shared `addQuestionSignal` (`context.ts`); the always-mounted BottomNav
+  `AddQuestionDialog` (`respondToSignal`) opens in response — never nested.
+  Desktop (sidebar isn't a drawer) keeps the direct `AddQuestionDialog` wrapper.
+- **Subtype-picker drawer header aligned to the tile/overlay chrome** — the
+  small grey icon + plain "Matching" label became the `QuestionOverlayCard`
+  look: a bigger solid category-colour icon block + a big bold UPPERCASE label
+  in the deepened category colour (`deepColor` now exported from
+  `questionOverlayCard`).
 
 **v872 — demo broker: can't mark found on round 2 (fixed).** The demo broker's
 `found` handler only injects `ended` when `s.state.roundFoundAt === null`, but

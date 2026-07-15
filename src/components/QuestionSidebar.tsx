@@ -16,6 +16,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useVisibleInterval } from "@/hooks/useVisibleInterval";
 import {
+    addQuestionSignal,
     autoSave,
     isLoading,
     questions,
@@ -59,6 +60,10 @@ export const QuestionSidebar = () => {
     const hidingRunning =
         $hidingEndsAt !== null && $hidingEndsAt > now;
     useVisibleInterval(() => setNow(Date.now()), 1000, hidingRunning);
+
+    // Mobile hosts the Questions list in a vaul drawer; the New button there
+    // must NOT nest its own vaul drawer (v873) — see `newQuestionButton`.
+    const mobile = useIsMobile();
 
     const renderQuestion = (question: (typeof $questions)[number]) => {
         switch (question.id) {
@@ -121,25 +126,44 @@ export const QuestionSidebar = () => {
     // (Don't block on `$isLoading`: that flag also goes high for ambient
     // station-finder fetches which can take many seconds. Only the
     // in-flight answer rule and the hiding-period gate warrant blocking.)
-    const newQuestionButton = (label: string) => (
-        <AddQuestionDialog>
-            <Button
-                type="button"
-                data-tutorial-id="add-questions-buttons"
-                disabled={hidingRunning || hasPendingAnswer}
-                title={
-                    hidingRunning
-                        ? "Hiding period — wait for the timer or end it manually to start asking"
-                        : hasPendingAnswer
-                          ? "Waiting for the hider to answer your previous question"
-                          : undefined
-                }
-            >
-                <Plus strokeWidth={2.5} />
-                {label}
-            </Button>
-        </AddQuestionDialog>
+    const newButtonInner = (label: string) => (
+        <Button
+            type="button"
+            data-tutorial-id="add-questions-buttons"
+            disabled={hidingRunning || hasPendingAnswer}
+            title={
+                hidingRunning
+                    ? "Hiding period — wait for the timer or end it manually to start asking"
+                    : hasPendingAnswer
+                      ? "Waiting for the hider to answer your previous question"
+                      : undefined
+            }
+            // Mobile: this button lives INSIDE the Questions vaul drawer, so it
+            // can't host its own vaul drawer (nesting orphaned the first
+            // question → "not sent", v873). Close the drawer and delegate to
+            // the always-mounted BottomNav AddQuestionDialog via the signal.
+            // Desktop: the sidebar isn't a drawer, so the AddQuestionDialog
+            // wrapper below opens it directly.
+            onClick={
+                mobile
+                    ? () => {
+                          if (hidingRunning || hasPendingAnswer) return;
+                          questionsDrawerOpen.set(false);
+                          addQuestionSignal.set(addQuestionSignal.get() + 1);
+                      }
+                    : undefined
+            }
+        >
+            <Plus strokeWidth={2.5} />
+            {label}
+        </Button>
     );
+    const newQuestionButton = (label: string) =>
+        mobile ? (
+            newButtonInner(label)
+        ) : (
+            <AddQuestionDialog>{newButtonInner(label)}</AddQuestionDialog>
+        );
 
     const innerContent = (
         <>
@@ -238,12 +262,10 @@ export const QuestionSidebar = () => {
         </>
     );
 
-    const isMobile = useIsMobile();
-
     // Mobile: dedicated drawer controlled by our own atom. The upstream
     // Sidebar's own mobile branch uses an internal atom that doesn't cross
     // Astro island boundaries — see questionsDrawerOpen in src/lib/context.ts.
-    if (isMobile) {
+    if (mobile) {
         return (
             <VaulDrawer.Root
                 open={$mobileOpen}

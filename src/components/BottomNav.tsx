@@ -119,7 +119,7 @@ export const BottomNav = () => {
                     )}
                 </button>
 
-                <AddQuestionDialog>
+                <AddQuestionDialog respondToSignal>
                     <button
                         type="button"
                         className={cn(

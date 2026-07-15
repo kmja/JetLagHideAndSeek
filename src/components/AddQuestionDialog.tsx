@@ -17,7 +17,10 @@ import {
     DrawerTitle,
     DrawerTrigger,
 } from "@/components/ui/drawer";
-import { QuestionOverlayCard } from "@/components/questionOverlayCard";
+import {
+    deepColor,
+    QuestionOverlayCard,
+} from "@/components/questionOverlayCard";
 import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
@@ -28,6 +31,7 @@ import {
 import { receivedCurses } from "@/lib/seekerInbound";
 import {
     addQuestion,
+    addQuestionSignal,
     configuringQuestionKey,
     defaultCustomQuestions,
     defaultUnit,
@@ -298,8 +302,15 @@ const CategoryTile = ({
 
 export const AddQuestionDialog = ({
     children,
+    respondToSignal = false,
 }: {
     children: React.ReactNode;
+    /** v873: when true, this instance opens whenever `addQuestionSignal`
+     *  bumps — used by the always-mounted BottomNav instance so the Questions
+     *  drawer's "New" button can open the dialog WITHOUT nesting its vaul
+     *  drawer inside the drawer (the "first question not sent" bug). Exactly
+     *  ONE mounted instance should set this. */
+    respondToSignal?: boolean;
 }) => {
     const $questions = useStore(questions);
     const $gameSize = useStore(gameSize);
@@ -316,6 +327,17 @@ export const AddQuestionDialog = ({
         spottyCategory: $spottyCategory,
     });
     const [open, setOpen] = React.useState(false);
+    // v873: open in response to the shared signal (BottomNav instance only),
+    // so the Questions drawer can close itself and delegate opening here.
+    const $addSignal = useStore(addQuestionSignal);
+    const lastAddSignal = React.useRef($addSignal);
+    React.useEffect(() => {
+        if (!respondToSignal) return;
+        if ($addSignal !== lastAddSignal.current) {
+            lastAddSignal.current = $addSignal;
+            if ($addSignal > 0) setOpen(true);
+        }
+    }, [$addSignal, respondToSignal]);
     // Step 2 of the add flow: when the user picks a category that has
     // multiple subtypes (matching / measuring / tentacles / photo), we
     // show a subtype picker before opening the configure dialog. Null when
@@ -1101,18 +1123,29 @@ export const AddQuestionDialog = ({
                                                 />
                                             </button>
                                             <span
-                                                className="inline-flex items-center justify-center w-7 h-7 rounded shrink-0"
+                                                className="inline-flex items-center justify-center w-11 h-11 rounded-md shrink-0 shadow-sm"
                                                 style={{
                                                     backgroundColor: meta.color,
                                                 }}
                                             >
                                                 <meta.icon
-                                                    size={16}
+                                                    size={22}
                                                     strokeWidth={2.5}
                                                     className="text-white"
                                                 />
                                             </span>
-                                            {meta.label}
+                                            {/* Match the picker tiles + on-map
+                                                overlays (v873): big bold
+                                                uppercase label in the deepened
+                                                category colour. */}
+                                            <span
+                                                className="font-poppins font-extrabold uppercase tracking-tight text-xl leading-none"
+                                                style={{
+                                                    color: deepColor(meta.color),
+                                                }}
+                                            >
+                                                {meta.label}
+                                            </span>
                                         </DrawerTitle>
                                         <DrawerDescription>
                                             {template ??

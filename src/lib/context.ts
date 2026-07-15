@@ -324,6 +324,16 @@ export const zoneSidebarOpen = __globalAtom<boolean>(
     false,
 );
 
+/**
+ * A monotonically-increasing "open the Add-question dialog" SIGNAL (v873).
+ * The Questions drawer (a vaul drawer) can't host the AddQuestionDialog
+ * trigger directly: its own vaul drawer nested inside the Questions drawer
+ * caused a stacking/orphan bug (the first question from the drawer's "New"
+ * button read "not sent"). Instead, the drawer's New button closes the
+ * drawer and BUMPS this signal; the always-mounted `AddQuestionDialog`
+ * (in `BottomNav`, `respondToSignal`) opens in response — never nested. */
+export const addQuestionSignal = atom<number>(0);
+
 export const defaultUnit = persistentAtom<Units>("defaultUnit", "kilometers");
 export const hiderMode = persistentAtom<
     | false
