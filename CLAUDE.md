@@ -430,6 +430,17 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v857 — lobby restructured around the ROOM CODE.** The lobby is about the game
+ROOM, so the **room code + Share/Copy/QR actions are now the fixed header**
+(`GameLobbyDialog`, `shrink-0` with a `border-b`; the standalone city-name title
++ its `useFitFontSize` were removed — the map carries the city). The scroll body
+is three labelled sections in order: **Game settings** (size + transit + the
+play-area map — moved back OUT of the header into this scrollable section),
+**Players** (roster), **House rules**. The body's old SHARE subheader + share
+card were removed (share lives in the header now); `HouseRulesSection`'s header
+was restyled to match the other section subheaders (`text-sm` display-extrabold,
+no top border). Supersedes the v855/v856 header experiments.
+
 **v856 — lobby: map pinned in the header + PLAYERS/SHARE sections + inline row
 actions.** Follow-up to v855. (1) **The play-area map moved OUT of the scrollable
 body INTO the fixed header** (`GameLobbyDialog`, alongside the title + size/transit

@@ -100,10 +100,12 @@ export function HouseRulesSection({
     if (readOnly && active.length === 0) return null;
 
     return (
-        <div className="pt-3 mt-3 border-t border-border">
-            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
+        <div>
+            {/* Section subheader — matches the lobby's Game settings / Players
+                headers (v857). */}
+            <h3 className="text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground mb-2">
                 House rules
-            </div>
+            </h3>
 
             {visible.length > 0 && (
                 <p className="text-sm text-muted-foreground mb-3 leading-snug">
