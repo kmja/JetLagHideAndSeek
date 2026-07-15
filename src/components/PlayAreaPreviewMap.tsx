@@ -194,6 +194,7 @@ export function PlayAreaPreviewMap({
     awaitAdjacent = false,
     preferCombinedBoundary = false,
     deferReveal = false,
+    framePadding = 24,
 }: {
     value: OpenStreetMap;
     height?: string;
@@ -237,6 +238,10 @@ export function PlayAreaPreviewMap({
      *  false: there the cache-hit fast path avoids a veil flash when `value`
      *  swaps within the already-painted mounted instance. */
     deferReveal?: boolean;
+    /** v879: extra fit padding (px) around the framed boundary. A larger
+     *  value zooms the camera OUT so more context shows around the play
+     *  area — the lobby header passes a bigger value than the default. */
+    framePadding?: number;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     // v228: opt into the dark-tile CSS filter only when the resolved
@@ -426,7 +431,7 @@ export function PlayAreaPreviewMap({
                         [minX, minY],
                         [maxX, maxY],
                     ],
-                    { padding: 24, duration: 400, maxZoom: 12 },
+                    { padding: framePadding, duration: 400, maxZoom: 12 },
                 );
             } catch {
                 /* ignore */
@@ -450,7 +455,7 @@ export function PlayAreaPreviewMap({
                     [minX, minY],
                     [maxX, maxY],
                 ],
-                { padding: 24, duration: 400, maxZoom: 12 },
+                { padding: framePadding, duration: 400, maxZoom: 12 },
             );
         } catch {
             /* ignore */

@@ -402,6 +402,17 @@ export const roundEndBaseMs = atom<number | null>(null);
 export const roundEndBonusPieces = atom<number[] | null>(null);
 
 /**
+ * Volatile: the display name of the hider who just finished, SNAPSHOTTED at
+ * round-end (v879). Fixes the leaderboard bug where past-round names shifted
+ * to the NEXT hider: `startNewRound` used to resolve the name from the LIVE
+ * roster, but by then the "New round" button had already rotated roles to the
+ * incoming hider, so every stored row got the wrong name. Captured the moment
+ * the round ends (before any rotation) and preferred by `startNewRound` +
+ * `EndOfRoundDialog`. Cleared per round.
+ */
+export const roundEndHiderName = atom<string | null>(null);
+
+/**
  * Volatile: show the on-map "zone locked in" callout near the hider's
  * timer (v798)? Set true by `confirmAndCommitZone` right after a zone is
  * committed DURING the hiding period — it replaces the old second modal

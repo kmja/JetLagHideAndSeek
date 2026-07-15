@@ -101,11 +101,6 @@ export function HiderMapTimer() {
         $hidingEndsAt !== null && $foundAt === null,
     );
 
-    const timeToBeatMs = useMemo(() => {
-        if ($roundLog.length === 0) return null;
-        return Math.max(...$roundLog.map((r) => r.hidingMs));
-    }, [$roundLog]);
-
     const inHidingPeriod = $hidingEndsAt !== null && now < $hidingEndsAt;
     const remainingMs = $hidingEndsAt ? Math.max(0, $hidingEndsAt - now) : 0;
     const graceEndsAt = $hidingEndsAt ? $hidingEndsAt + ZONE_GRACE_MS : null;
@@ -121,6 +116,23 @@ export function HiderMapTimer() {
         ? Math.max(0, elapsedAnchor - $hidingEndsAt)
         : 0;
     const roundOver = $foundAt !== null;
+
+    // v879: the NEXT time to overtake — the smallest past-round time that is
+    // still LONGER than the hider's current hidden time. Shown ABOVE the live
+    // clock so the hider sees the target they're about to pass (not the
+    // unreachable 1st-place time). Its rank = one better than the live time's.
+    // Null once the hider is already leading (no time above them).
+    const nextToBeat = useMemo(() => {
+        const above = $roundLog
+            .filter((r) => r.hidingMs > hiddenElapsedMs)
+            .sort((a, b) => a.hidingMs - b.hidingMs)[0];
+        if (!above) return null;
+        const rank =
+            [hiddenElapsedMs, ...$roundLog.map((r) => r.hidingMs)].filter(
+                (t) => t > above.hidingMs,
+            ).length + 1;
+        return { hidingMs: above.hidingMs, name: above.hiderName, rank };
+    }, [$roundLog, hiddenElapsedMs]);
 
     const insideZone =
         $hidingZone !== null &&
@@ -422,12 +434,75 @@ export function HiderMapTimer() {
                 </div>
             )}
 
-            {/* seeking / endgame / over — white "HIDDEN FOR" box + red
-                accent + gold time-to-beat row. */}
+            {/* seeking / endgame / over — the NEXT time to overtake sits
+                ABOVE the white "HIDDEN FOR" box (v879): a leaderboard row
+                (rank + hider name + time) for the nearest longer past hide,
+                so the hider sees the target they're about to pass rather than
+                the unreachable 1st-place time. Drops out once they lead. */}
             {(phase === "seeking" ||
                 phase === "endgame" ||
                 phase === "over") && (
                 <>
+                    {nextToBeat !== null && phase !== "over" && (
+                        <div
+                            className="flex items-stretch rounded-xl overflow-hidden shadow-lg"
+                            title={`Next to beat: ${nextToBeat.name} — ${formatTimeRemaining(nextToBeat.hidingMs)}`}
+                        >
+                            <div
+                                className="flex items-center px-2.5"
+                                style={{
+                                    background:
+                                        nextToBeat.rank === 1
+                                            ? "#F2C63C"
+                                            : nextToBeat.rank === 2
+                                              ? "#B8BDC7"
+                                              : nextToBeat.rank === 3
+                                                ? "#CF8B4B"
+                                                : "#9AA1AD",
+                                }}
+                            >
+                                <span
+                                    className={cn(
+                                        "font-inter-tight font-black text-sm leading-none",
+                                        nextToBeat.rank === 3
+                                            ? "text-white"
+                                            : "text-[#1F2F3F]",
+                                    )}
+                                >
+                                    {nextToBeat.rank}
+                                    <span className="text-[9px] align-super">
+                                        {nextToBeat.rank === 1
+                                            ? "st"
+                                            : nextToBeat.rank === 2
+                                              ? "nd"
+                                              : nextToBeat.rank === 3
+                                                ? "rd"
+                                                : "th"}
+                                    </span>
+                                </span>
+                            </div>
+                            <div
+                                className="flex flex-col justify-center px-3 py-1.5 leading-none"
+                                style={{
+                                    background:
+                                        nextToBeat.rank === 1
+                                            ? "#F2C63C"
+                                            : nextToBeat.rank === 2
+                                              ? "#D6DAE1"
+                                              : nextToBeat.rank === 3
+                                                ? "#E4B98D"
+                                                : "#E6E8EC",
+                                }}
+                            >
+                                <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">
+                                    {nextToBeat.name}
+                                </span>
+                                <span className="font-inter-tight font-black tabular-nums text-lg leading-none text-[#1F2F3F]">
+                                    {formatTimeRemaining(nextToBeat.hidingMs)}
+                                </span>
+                            </div>
+                        </div>
+                    )}
                     <div
                         role="status"
                         aria-live="polite"
@@ -461,27 +536,6 @@ export function HiderMapTimer() {
                             aria-hidden
                         />
                     </div>
-
-                    {timeToBeatMs !== null && phase !== "over" && (
-                        <div
-                            className="flex items-stretch rounded-xl overflow-hidden shadow-lg"
-                            title={`Time to beat: ${formatTimeRemaining(timeToBeatMs)}`}
-                        >
-                            <div className="flex items-center px-2.5 bg-[#D6A92B]">
-                                <span className="font-inter-tight font-black text-sm leading-none text-[#1F2F3F]">
-                                    1
-                                    <span className="text-[9px] align-super">
-                                        st
-                                    </span>
-                                </span>
-                            </div>
-                            <div className="flex items-center px-3 py-1.5 bg-[#F2C63C]">
-                                <span className="font-inter-tight font-black tabular-nums text-xl leading-none text-[#1F2F3F]">
-                                    {formatTimeRemaining(timeToBeatMs)}
-                                </span>
-                            </div>
-                        </div>
-                    )}
                 </>
             )}
         </div>

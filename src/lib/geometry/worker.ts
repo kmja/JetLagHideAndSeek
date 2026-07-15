@@ -87,10 +87,16 @@ type LandFromCoastPayload = {
     bbox: [number, number, number, number];
     seeker: { lat: number; lng: number };
 };
+type SeaFromCoastPayload = {
+    lines: Feature[];
+    bbox: [number, number, number, number];
+    seeker: { lat: number; lng: number };
+};
 type InMessage =
     | { id: number; type: "clip"; payload: ClipPayload }
     | { id: number; type: "combine"; payload: CombinePayload }
-    | { id: number; type: "landFromCoast"; payload: LandFromCoastPayload };
+    | { id: number; type: "landFromCoast"; payload: LandFromCoastPayload }
+    | { id: number; type: "seaFromCoast"; payload: SeaFromCoastPayload };
 
 /**
  * v875: per-city LAND polygons (play-area frame MINUS the sea built from the
@@ -139,6 +145,18 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
             self.postMessage({ id, ok: true, result });
         } else if (type === "landFromCoast") {
             const result = landFromCoastImpl(msg.payload);
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "seaFromCoast") {
+            // v879: the SEA polygon from the OSM coastline (body-of-water /
+            // coastline measuring elimination), off the main thread — the
+            // same heavy node/polygonize/right-of-way-label/union as
+            // landFromCoast, minus the world-frame difference. `null` on any
+            // degeneracy (caller falls back to the coarse sea).
+            const p = msg.payload;
+            const result = seaFromCoastline(p.lines as never, p.bbox, {
+                lng: p.seeker.lng,
+                lat: p.seeker.lat,
+            });
             self.postMessage({ id, ok: true, result });
         } else {
             self.postMessage({

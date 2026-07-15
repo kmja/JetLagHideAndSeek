@@ -12,10 +12,15 @@ import {
     formatTimeRemaining,
     hiddenCreditMs,
     hidingPeriodEndsAt,
+    roundEndHiderName,
     setupCompleted,
 } from "@/lib/gameSetup";
 import { roundFoundAt, roundLog } from "@/lib/hiderRole";
-import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import {
+    displayName,
+    multiplayerEnabled,
+    participants,
+} from "@/lib/multiplayer/session";
 import { seekerMarkFound } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +58,13 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     let $endgameConfirmedAt = useStore(endgameConfirmedAt);
     let $foundAt = useStore(roundFoundAt);
     let $roundLog = useStore(roundLog);
+    const $participants = useStore(participants);
+    // v879: the name of the hider hiding THIS round, for the live
+    // leaderboard row (past rows carry their own stored name).
+    const currentHiderName =
+        $participants.find((p) => p.role === "hider")?.displayName?.trim() ||
+        displayName.get()?.trim() ||
+        "Hider";
     if (preview) {
         $endsAt = preview.endsAt;
         $setupCompleted = preview.setupCompleted ?? true;
@@ -86,6 +98,15 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
             seekerMarkFound(ts);
         } else {
             roundFoundAt.set(ts);
+            // v879: snapshot the just-finished hider's name for the
+            // leaderboard (offline/solo — the online path snapshots in the
+            // `ended` handler). Captured before any rotation.
+            const hider = participants
+                .get()
+                .find((p) => p.role === "hider");
+            const name =
+                hider?.displayName?.trim() || displayName.get()?.trim();
+            if (name) roundEndHiderName.set(name);
             // Fire the celebratory end-of-round dialog (v631).
             endOfRoundDialogOpen.set(true);
         }
@@ -185,10 +206,11 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
             ? []
             : (() => {
                   const ranked = [
-                      { current: true, ms: currentElapsedMs },
+                      { current: true, ms: currentElapsedMs, name: currentHiderName },
                       ...$roundLog.map((r) => ({
                           current: false,
                           ms: r.hidingMs,
+                          name: r.hiderName,
                       })),
                   ]
                       .sort((a, b) => b.ms - a.ms)
@@ -317,8 +339,8 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                     title={`${phaseLabel}: ${display}`}
                     className="relative overflow-hidden rounded-xl shadow-lg bg-white pl-4 pr-7 py-2"
                 >
-                    <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
-                        Hidden for
+                    <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
+                        {currentHiderName}
                     </span>
                     <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
                         {display}
@@ -379,9 +401,10 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                             {e.current ? (
                                 // The LIVE clock — kept at its full prominent
                                 // size (text-3xl, red accent), always shown.
+                                // v879: the eyebrow carries the hider's NAME.
                                 <div className="relative flex flex-col justify-center bg-white pl-3 pr-7 py-2 leading-none">
-                                    <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
-                                        Hidden for
+                                    <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
+                                        {e.name}
                                     </span>
                                     <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
                                         {formatTtb(e.ms)}
@@ -393,7 +416,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                 </div>
                             ) : (
                                 <div
-                                    className="flex items-center px-3 py-1.5"
+                                    className="flex flex-col justify-center px-3 py-1.5 leading-none"
                                     // Match the box tint to the placement so a
                                     // 2nd-place time isn't gold (v871): gold 1st
                                     // / silver 2nd / bronze 3rd / neutral rest,
@@ -409,6 +432,10 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                                     : "#E6E8EC",
                                     }}
                                 >
+                                    {/* v879: hider name above the time. */}
+                                    <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">
+                                        {e.name}
+                                    </span>
                                     <span className="font-inter-tight font-black tabular-nums text-xl leading-none text-[#1F2F3F]">
                                         {formatTtb(e.ms)}
                                     </span>

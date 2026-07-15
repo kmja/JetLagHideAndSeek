@@ -929,6 +929,36 @@ export function DebugPhaseControls({
                     <DebugButton
                         onClick={() => {
                             hiddenCreditMs.set(
+                                hiddenCreditMs.get() + 7 * 60_000,
+                            );
+                            toast.success("+7 min to the current round");
+                        }}
+                    >
+                        +7 min · current round
+                    </DebugButton>
+                    <DebugButton
+                        onClick={() => {
+                            const log = roundLog.get();
+                            if (log.length === 0) {
+                                toast.info("No past rounds yet");
+                                return;
+                            }
+                            roundLog.set(
+                                log.map((r) => ({
+                                    ...r,
+                                    hidingMs: r.hidingMs + 7 * 60_000,
+                                })),
+                            );
+                            toast.success(
+                                `+7 min to ${log.length} past round${log.length === 1 ? "" : "s"}`,
+                            );
+                        }}
+                    >
+                        +7 min · past rounds
+                    </DebugButton>
+                    <DebugButton
+                        onClick={() => {
+                            hiddenCreditMs.set(
                                 hiddenCreditMs.get() + 30 * 60_000,
                             );
                             toast.success("+30 min to the current round");

@@ -21,6 +21,7 @@ import {
     hidingPeriodEndsAt,
     roundEndBaseMs,
     roundEndBonusPieces,
+    roundEndHiderName,
     setupDialogOpen,
 } from "@/lib/gameSetup";
 import { timeBonusPieces } from "@/lib/hiderDeck";
@@ -94,6 +95,9 @@ export function EndOfRoundDialog() {
     // the local computation on the hider's own device + all solo play.
     const $syncedBase = useStore(roundEndBaseMs);
     const $syncedPieces = useStore(roundEndBonusPieces);
+    // v879: hider name snapshotted at round-end (fixes the leaderboard
+    // name-shift after rotation).
+    const $roundEndHiderName = useStore(roundEndHiderName);
 
     const [rotateOpen, setRotateOpen] = useState(false);
 
@@ -182,7 +186,10 @@ export function EndOfRoundDialog() {
     const currentHidingMs = baseMs + bonusMs;
     const displayedMs = baseMs + tallyMs;
     const bonusMinutes = Math.round(bonusMs / 60_000);
+    // v879: prefer the name snapshotted at round-end so the just-finished
+    // row stays correct even if a rotation has already reassigned roles.
     const currentHiderName =
+        $roundEndHiderName?.trim() ||
         $participants.find((p) => p.role === "hider")?.displayName?.trim() ||
         displayNameAtom.get()?.trim() ||
         "Hider";

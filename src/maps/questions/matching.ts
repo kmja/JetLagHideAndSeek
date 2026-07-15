@@ -167,10 +167,10 @@ function stationName(f: Feature<Point>): string | null {
  * set + line lookup the HIDER grades with, so the map cut agrees with the
  * yes/no answer. Returns `false` (no cut) when the data is missing.
  *
- * For "length", the answer is 3-way (`lengthComparison`): the matching
- * set is stations with an equal / shorter / longer name than the
- * seeker's, per the hider's answer (defaults to "same" for the pre-answer
- * planning preview).
+ * For "length" (v879) the answer is BINARY (`same`), like every other
+ * matching type: the matching set is stations whose name length EQUALS
+ * the seeker's nearest, and `adjustPerMatching` keeps/complements that
+ * region per the hider's yes/no answer.
  */
 async function matchingStationBoundary(
     question: MatchingQuestion,
@@ -207,14 +207,15 @@ async function matchingStationBoundary(
                 return n ? n[0].toUpperCase() === letter : false;
             });
         } else {
+            // v879: station-name length is a BINARY matching question
+            // ("same" / "different"), like every other matching type — the
+            // boundary is the answer-independent union of the cells of every
+            // station whose name length EQUALS the seeker's nearest, and
+            // `adjustPerMatching` keeps or complements it per the yes/no answer.
             const len = name.length;
-            const cmp = question.lengthComparison ?? "same";
             matching = stations.features.filter((s) => {
                 const n = stationName(s);
-                if (!n) return false;
-                if (cmp === "same") return n.length === len;
-                if (cmp === "shorter") return n.length < len;
-                return n.length > len;
+                return n ? n.length === len : false;
             });
         }
     }
@@ -634,10 +635,9 @@ function matchingBoundaryMemoKey(
         lng: question.lng,
         cat: question.cat,
         geo: question.geo,
-        // same-length-station's boundary depends on the hider's 3-way answer
-        // (equal / shorter / longer), so it must invalidate the memo when the
-        // answer lands.
-        lengthComparison: question.lengthComparison,
+        // v879: same-length-station is now BINARY — its boundary (stations of
+        // equal name length) is answer-independent, so `lengthComparison` no
+        // longer belongs in the key; `adjustPerMatching` handles the yes/no.
         // v840: the silent draft-preview call is a SEPARATE memo entry from
         // the real elimination call (which must keep its toast/throw on
         // failure), so they can't share a cached undefined.
@@ -736,15 +736,10 @@ export const adjustPerMatching = async (
         return mapData;
     }
 
-    // same-length-station is a 3-way comparison: the boundary already
-    // encodes the answer (cells whose station name is equal / shorter /
-    // longer than the seeker's), so we always KEEP that region rather than
-    // toggling on `question.same`. Every other type is a binary same/
-    // different match driven by `question.same`.
-    const within =
-        question.type === "same-length-station" ? true : question.same;
-
-    return modifyMapData(mapData, boundary, within);
+    // v879: every matching type (same-length-station included) is a binary
+    // same/different match — the boundary is the answer-independent "same"
+    // region and `question.same` decides whether we KEEP it or its complement.
+    return modifyMapData(mapData, boundary, question.same);
 };
 
 export const hiderifyMatching = async (question: MatchingQuestion) => {
@@ -855,13 +850,10 @@ export const hiderifyMatching = async (question: MatchingQuestion) => {
                 question.same = false;
             }
         } else if (question.type === "same-length-station") {
-            if (hiderEnglishName.length === seekerEnglishName.length) {
-                question.lengthComparison = "same";
-            } else if (hiderEnglishName.length < seekerEnglishName.length) {
-                question.lengthComparison = "shorter";
-            } else {
-                question.lengthComparison = "longer";
-            }
+            // v879: binary — the seeker's nearest station name is the SAME
+            // length as the hider's, or it isn't.
+            question.same =
+                hiderEnglishName.length === seekerEnglishName.length;
         }
 
         return question;

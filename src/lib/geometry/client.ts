@@ -93,7 +93,7 @@ function getWorker(): Worker | null {
 }
 
 function call<T>(
-    type: "clip" | "combine" | "landFromCoast",
+    type: "clip" | "combine" | "landFromCoast" | "seaFromCoast",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -152,6 +152,26 @@ export async function landFromCoast(
     seeker: { lat: number; lng: number },
 ): Promise<Feature<Polygon | MultiPolygon> | null> {
     return call<Feature<Polygon | MultiPolygon> | null>("landFromCoast", {
+        lines,
+        bbox,
+        seeker,
+    });
+}
+
+/**
+ * The SEA polygon from the OSM coastline, OFF the main thread (v879) — the
+ * body-of-water / coastline measuring elimination's heaviest step
+ * (`seaFromCoastline`). REJECTS if the worker is unavailable, so the caller
+ * (`measuring.ts`) keeps its synchronous main-thread `seaFromCoastline` +
+ * coarse-sea fallback — correctness never depends on the worker existing,
+ * only smoothness. `null` = no valid sea (caller falls back).
+ */
+export async function seaFromCoast(
+    lines: Feature[],
+    bbox: [number, number, number, number],
+    seeker: { lat: number; lng: number },
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    return call<Feature<Polygon | MultiPolygon> | null>("seaFromCoast", {
         lines,
         bbox,
         seeker,

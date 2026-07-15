@@ -827,21 +827,8 @@ function AnswerControls({
                 />
             );
         case "matching":
-            // same-length-station is a 3-way length comparison, not a binary
-            // match — it needs its own control that sends `lengthComparison`
-            // (v824). Every other matching subtype is binary Match/No-match.
-            if (
-                (question.data as { type?: string }).type ===
-                "same-length-station"
-            ) {
-                return (
-                    <AutoGradedLengthAnswer
-                        question={question}
-                        hiderPos={hiderPos}
-                        revealed={revealed}
-                    />
-                );
-            }
+            // v879: every matching subtype — same-length-station included — is
+            // a binary Match/No-match, auto-computed like the others.
             return (
                 <AutoGradedBinaryAnswer
                     question={question}
@@ -1305,120 +1292,6 @@ function AutoGradedBinaryAnswer({
                     shareText={`My answer: ${
                         effective ? labels.true : labels.false
                     }.`}
-                />
-            )}
-        </div>
-    );
-}
-
-/**
- * Auto-graded 3-way answer for matching `same-length-station` — the
- * rulebook "Station Name's Length" question compares the LENGTHS of the
- * hider's and seeker's nearest station names (shorter / same / longer),
- * NOT a binary match. It grades through the same `hiderifyQuestion` engine
- * (which sets `lengthComparison`) and sends THAT field, so the seeker's
- * elimination (`matchingStationBoundary`, keyed on `lengthComparison`)
- * agrees. v824 fix: this subtype was wrongly routed through the binary
- * `same` control, which never set `lengthComparison`, so the seeker graded
- * every "shorter"/"longer" answer as "same" → wrong map cut.
- */
-function AutoGradedLengthAnswer({
-    question,
-    hiderPos,
-    revealed,
-}: {
-    question: Question;
-    hiderPos: { lat: number; lng: number; accuracy: number } | null;
-    revealed: boolean;
-}) {
-    type Cmp = "shorter" | "same" | "longer";
-    const [computed, setComputed] = useState<Cmp | null>(null);
-    const [grading, setGrading] = useState(false);
-    const [override, setOverride] = useState<Cmp | null>(null);
-
-    useEffect(() => {
-        if (!hiderPos) return;
-        let cancelled = false;
-        setGrading(true);
-        gradeViaEngine(question, hiderPos)
-            .then((data) => {
-                const v = data.lengthComparison;
-                if (
-                    !cancelled &&
-                    (v === "shorter" || v === "same" || v === "longer")
-                ) {
-                    setComputed(v);
-                }
-            })
-            .catch(() => {
-                /* leave null → hider picks manually */
-            })
-            .finally(() => {
-                if (!cancelled) setGrading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [question.key, hiderPos?.lat, hiderPos?.lng]);
-
-    if (!revealed) return null;
-    if (!hiderPos) {
-        return (
-            <p className="text-sm text-center text-muted-foreground py-6">
-                Waiting for your location…
-            </p>
-        );
-    }
-
-    const effective = override ?? computed;
-    const OPTIONS: Array<{ value: Cmp; label: string }> = [
-        { value: "shorter", label: "Shorter" },
-        { value: "same", label: "Same" },
-        { value: "longer", label: "Longer" },
-    ];
-
-    return (
-        <div className="space-y-3">
-            <p className="text-xs text-center text-muted-foreground font-poppins">
-                {grading && computed === null ? (
-                    <span className="inline-flex items-center gap-1.5">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Computing your answer…
-                    </span>
-                ) : computed === null && override === null ? (
-                    "Couldn't auto-compute your answer — pick it below."
-                ) : (
-                    "Your station name vs the seeker's — tap to change if wrong."
-                )}
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-                {OPTIONS.map(({ value, label }) => {
-                    const isSelected = effective === value;
-                    return (
-                        <button
-                            key={value}
-                            type="button"
-                            onClick={() => setOverride(value)}
-                            className={cn(
-                                "py-6 rounded-lg font-poppins font-semibold text-base",
-                                "transition-all border-2",
-                                isSelected
-                                    ? "bg-primary text-primary-foreground border-primary"
-                                    : "bg-secondary text-foreground border-border hover:bg-accent",
-                            )}
-                        >
-                            {label}
-                        </button>
-                    );
-                })}
-            </div>
-
-            {effective !== null && (
-                <ShareBackRow
-                    question={question}
-                    answer={{ lengthComparison: effective }}
-                    shareText={`My station name is ${effective} than yours.`}
                 />
             )}
         </div>

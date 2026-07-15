@@ -49,6 +49,7 @@ import {
     playArea,
     roundEndBaseMs,
     roundEndBonusPieces,
+    roundEndHiderName,
 } from "@/lib/gameSetup";
 import { timeBonusPieces } from "@/lib/hiderDeck";
 import {
@@ -965,6 +966,19 @@ function handleServerMessage(msg: ServerMessage) {
         case "ended":
             if (roundFoundAt.get() === null) {
                 roundFoundAt.set(msg.foundAt);
+                // v879: snapshot the just-finished hider's name NOW, while the
+                // roster still holds them — the "New round" button rotates
+                // roles to the NEXT hider before startNewRound runs, so
+                // resolving the name later attributed rounds to the wrong
+                // person (the leaderboard name-shift bug). Same roster on
+                // every device, so all devices snapshot the same name.
+                {
+                    const hider = participants
+                        .get()
+                        .find((p) => p.role === "hider");
+                    const name = hider?.displayName?.trim();
+                    if (name) roundEndHiderName.set(name);
+                }
                 // v851: the base hiding time (Move credit / late-answer
                 // debit) AND the in-hand time bonus are BOTH hider-local, so
                 // a seeker can't compute the true final time or the tally.

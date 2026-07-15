@@ -30,6 +30,7 @@ import {
     fetchPrewarmedAreaWater,
     requestWaterWarmAll,
 } from "@/maps/api/water";
+import { seaFromCoast as seaFromCoastViaWorker } from "@/lib/geometry/client";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
@@ -507,16 +508,26 @@ export const determineMeasuringBoundary = async (
                         cityCoastLines = await fetchAreaCoastlineLines();
                         const lines = cityCoastLines;
                         if (lines && lines.length > 0) {
-                            sea = seaFromCoastline(
-                                lines,
-                                bBox as [
-                                    number,
-                                    number,
-                                    number,
-                                    number,
-                                ],
-                                seeker,
-                            );
+                            const frame = bBox as [
+                                number,
+                                number,
+                                number,
+                                number,
+                            ];
+                            // v879: run the heavy seaFromCoastline
+                            // (node/polygonize/union) OFF the main thread so a
+                            // dense coastal metro (NYC harbour + tidal rivers)
+                            // doesn't freeze the UI. Falls back to the sync
+                            // main-thread version if the worker is unavailable.
+                            try {
+                                sea = await seaFromCoastViaWorker(
+                                    lines,
+                                    frame,
+                                    seeker,
+                                );
+                            } catch {
+                                sea = seaFromCoastline(lines, frame, seeker);
+                            }
                         }
                     } catch (e) {
                         console.warn(

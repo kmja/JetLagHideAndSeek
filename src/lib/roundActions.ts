@@ -17,6 +17,7 @@ import {
     preloadBucketTimestamps,
     roundEndBaseMs,
     roundEndBonusPieces,
+    roundEndHiderName,
     seekersFrozenUntil,
     seekingStartFiredFor,
     setupCompleted,
@@ -92,12 +93,17 @@ export function startNewRound() {
                 : tallyTimeBonusMinutes(hiderHand.get(), gameSize.get()) *
                   60_000;
         const hidingMs = baseMs + bonusMs;
-        // Resolve the hider's name: multiplayer participant if we
-        // have one, otherwise the local display-name (solo plays
-        // through the seeker chrome, single device).
+        // Resolve the hider's name. v879: PREFER the name snapshotted at
+        // round-end (`roundEndHiderName`) — by the time this runs the "New
+        // round" button has already rotated roles to the NEXT hider, so
+        // reading the live roster here attributed the round to the wrong
+        // person (the leaderboard name-shift bug). Fall back to the live
+        // roster / local display-name only when no snapshot exists (older
+        // rounds, solo without a captured name).
         const ps = participants.get();
         const hiderEntry = ps.find((p) => p.role === "hider");
         const hiderName =
+            roundEndHiderName.get()?.trim() ||
             hiderEntry?.displayName?.trim() ||
             displayNameAtom.get()?.trim() ||
             "Hider";

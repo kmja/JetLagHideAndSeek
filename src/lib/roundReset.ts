@@ -48,6 +48,7 @@ import {
     resetMapOverlays,
     roundEndBaseMs,
     roundEndBonusPieces,
+    roundEndHiderName,
     seekersFrozenUntil,
     seekingStartCelebrationAt,
     seekingStartFiredFor,
@@ -140,4 +141,5 @@ export function resetSharedRoundState(): void {
     endOfRoundDialogOpen.set(false);
     roundEndBaseMs.set(null);
     roundEndBonusPieces.set(null);
+    roundEndHiderName.set(null);
 }

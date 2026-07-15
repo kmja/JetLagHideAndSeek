@@ -28,8 +28,6 @@ import {
 } from "@/components/ui/popover";
 import { appConfirm } from "@/lib/confirm";
 import { additionalMapGeoLocations, mapGeoLocation } from "@/lib/context";
-import { commitPlayAreaChange } from "@/lib/playAreaCommit";
-import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
     type GameSize,
@@ -45,7 +43,6 @@ import {
     setupDialogOpen,
     TRANSIT_ICONS,
     TRANSIT_LABELS,
-    type TransitMode,
     welcomeSeen,
 } from "@/lib/gameSetup";
 import { appNavigate } from "@/lib/appNavigate";
@@ -79,23 +76,25 @@ import { returnToLandingPage } from "@/lib/roundActions";
 import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
-import { PlayAreaStep, TransitStep } from "./GameSetupDialog";
-import { HouseRulesSection } from "./HouseRulesSection";
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
 
 /**
- * Controls that read on the map header (v866). The map fades to the
- * drawer's own background at the top/bottom bands, so these use the
- * normal FOREGROUND colour (theme-aware) rather than white-on-dark:
- * a subtle foreground-tinted chip that reads on the background band and
- * still holds over the partly-visible map below.
+ * Controls that read on the map header. The scrim fades the map into the
+ * drawer background at the top/bottom bands, so these use the app's
+ * NORMAL secondary-button styling (v879 — reverted the frosted-glass
+ * look) so they match the rest of the UI's chrome.
  */
 const GLASS_BTN =
-    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-foreground/10 border border-foreground/20 text-foreground backdrop-blur-sm hover:bg-foreground/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const GLASS_PILL =
-    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-foreground/10 border border-foreground/20 text-foreground backdrop-blur-sm";
+    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground";
+/** The map's bottom-right EDIT button — sized to match the transit icon
+ *  pills (h-10 w-10) so it reads as part of that row (v879). Opens the
+ *  full game-settings wizard dialog. */
+const EDIT_BTN =
+    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -289,40 +288,15 @@ export function GameLobbyDialog() {
     const isHost =
         !$mp || $localIsHost || hostId === null || hostId === $self;
 
-    // Inline settings editing (host only). Writes the same atoms the
-    // setup wizard's edit mode does and pushes to peers via the same
-    // `hostPushSetup`, so a lobby tweak propagates exactly like a
-    // "Save edits" would. Transit + size apply live with no hiding-
-    // period restart, matching GameSetupDialog.handleSaveEdits.
-    const commitTransit = (next: TransitMode[]) => {
-        // Keep canonical mode order so the chip row + cache keys stay
-        // stable regardless of click order.
-        allowedTransit.set(ALL_TRANSIT_MODES.filter((m) => next.includes(m)));
-        hostPushSetup();
-    };
+    // Inline size editing (host only). Writes the same atom the setup
+    // wizard's edit mode does and pushes to peers via `hostPushSetup`, so
+    // a lobby tweak propagates exactly like a "Save edits" would. v879:
+    // transit + play-area editing moved into the game-settings wizard
+    // dialog (the bottom-right map Edit button), so only the quick size
+    // popover stays inline here.
     const setSize = (s: GameSize) => {
         gameSize.set(s);
         hostPushSetup();
-    };
-    // v838: the play area gets its OWN focused "Edit play area" dialog
-    // (matching the compact transit/size editors), instead of opening the
-    // whole tabbed Game-Settings wizard. Draft is seeded from the current
-    // area on open; Save commits it live (+ pushes to peers) only when it
-    // actually changed.
-    const openAreaEditor = () => {
-        setPlayAreaEditOpen(true);
-    };
-    const handleSavePlayArea = () => {
-        const current = mapGeoLocation.get();
-        const changed =
-            draftArea != null &&
-            draftArea.properties.osm_id !==
-                (current?.properties.osm_id ?? null);
-        if (changed) {
-            commitPlayAreaChange(draftArea);
-            hostPushSetup();
-        }
-        setPlayAreaEditOpen(false);
     };
 
     // v447: pick / switch team from the lobby roster zero-state. Mirrors
@@ -459,16 +433,6 @@ export function GameLobbyDialog() {
 
     const [copied, setCopied] = useState(false);
     const [qrOpen, setQrOpen] = useState(false);
-    // Transit-mode editor (host). Opens the wizard's transit step in a
-    // dialog; changes apply live via commitTransit (and push to peers).
-    const [transitEditOpen, setTransitEditOpen] = useState(false);
-    // v838: dedicated "Edit play area" dialog (draft seeded from the current
-    // area on open). Kept out of the whole Game-Settings wizard.
-    const [playAreaEditOpen, setPlayAreaEditOpen] = useState(false);
-    const [draftArea, setDraftArea] = useState<OpenStreetMap | null>(null);
-    useEffect(() => {
-        if (playAreaEditOpen) setDraftArea(mapGeoLocation.get());
-    }, [playAreaEditOpen]);
     // Change-display-name dialog (v834), opened from the roster row's inline
     // pencil next to "(you)". Seeds from the current name on open.
     const [nameEditOpen, setNameEditOpen] = useState(false);
@@ -693,6 +657,7 @@ export function GameLobbyDialog() {
                                     height="h-[280px]"
                                     preferCombinedBoundary
                                     deferReveal
+                                    framePadding={70}
                                 />
                             </div>
                         ) : (
@@ -709,13 +674,16 @@ export function GameLobbyDialog() {
                         {/* readability scrim: the map fades into the drawer's own
                             background colour (theme-aware --sidebar-background) at
                             the top (room code) + bottom (settings) bands, with the
-                            play area open through the middle. Same-colour transparent
-                            stops (…/0) avoid the fade-to-grey premultiply artifact. */}
+                            play area open through the middle. v879: the TOP band is
+                            FULLY SOLID from the very top down through the room code
+                            (~18%), THEN fades to clear — so the room code always
+                            sits on solid background, not the map. Same-colour
+                            transparent stops (…/0) avoid the fade-to-grey artifact. */}
                         <div
                             className="pointer-events-none absolute inset-0"
                             style={{
                                 background:
-                                    "linear-gradient(180deg, hsl(var(--sidebar-background) / 1) 0%, hsl(var(--sidebar-background) / 0) 30%, hsl(var(--sidebar-background) / 0) 50%, hsl(var(--sidebar-background) / 1) 100%)",
+                                    "linear-gradient(180deg, hsl(var(--sidebar-background) / 1) 0%, hsl(var(--sidebar-background) / 1) 18%, hsl(var(--sidebar-background) / 0) 36%, hsl(var(--sidebar-background) / 0) 50%, hsl(var(--sidebar-background) / 1) 100%)",
                             }}
                         />
 
@@ -780,26 +748,10 @@ export function GameLobbyDialog() {
 
                             {/* bottom: settings on the solid band. The play-area
                                 NAME was dropped (v866) — the map itself identifies
-                                the area; only the host's "Edit area" affordance
-                                remains (its the sole trigger for the area editor). */}
+                                the area. v879: the standalone "Edit area" button
+                                is gone; the single bottom-right pencil now opens
+                                the full game-settings wizard dialog. */}
                             <div className="mt-auto flex flex-col gap-2">
-                                {isHost && (
-                                    <div className="flex items-center">
-                                        <button
-                                            type="button"
-                                            onClick={openAreaEditor}
-                                            aria-label="Change play area"
-                                            title="Change the play area"
-                                            className={cn(
-                                                GLASS_BTN,
-                                                "w-auto gap-1.5 px-2.5 text-xs font-semibold",
-                                            )}
-                                        >
-                                            <Pencil className="w-3.5 h-3.5" />
-                                            Edit area
-                                        </button>
-                                    </div>
-                                )}
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                     {isHost ? (
                                         <Popover>
@@ -875,13 +827,13 @@ export function GameLobbyDialog() {
                                         <button
                                             type="button"
                                             onClick={() =>
-                                                setTransitEditOpen(true)
+                                                setupDialogOpen.set(true)
                                             }
-                                            aria-label="Edit transit modes"
-                                            title="Edit transit modes"
-                                            className={cn(GLASS_BTN, "ml-auto")}
+                                            aria-label="Edit game settings"
+                                            title="Edit game settings"
+                                            className={cn(EDIT_BTN, "ml-auto")}
                                         >
-                                            <Pencil className="w-3.5 h-3.5" />
+                                            <Pencil className="w-4 h-4" />
                                         </button>
                                     )}
                                 </div>
@@ -958,95 +910,6 @@ export function GameLobbyDialog() {
                     )}
 
 
-                    {/* Transit-mode editor — the wizard's transit step in
-                        a dialog. Changes apply live (commitTransit pushes
-                        to peers). Mirrors the QR dialog's portal pattern
-                        so it renders above the lobby drawer. */}
-                    {isHost && (
-                        <Dialog
-                            open={transitEditOpen}
-                            onOpenChange={setTransitEditOpen}
-                        >
-                            <DialogContent
-                                // Raise above the lobby drawer (content
-                                // z-[1055]) — the default dialog z-[1050]
-                                // would open BEHIND it (see CLAUDE.md
-                                // z-index ladder).
-                                className={cn(
-                                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                                    "sm:max-w-md z-[1060]",
-                                )}
-                                overlayClassName="z-[1060]"
-                            >
-                                <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em]">
-                                    Transit modes
-                                </DialogTitle>
-                                <TransitStep
-                                    value={$allowedTransit}
-                                    onChange={commitTransit}
-                                />
-                                {/* Changes apply live (commitTransit pushes to
-                                    peers); Save just closes the editor. */}
-                                <Button
-                                    onClick={() => setTransitEditOpen(false)}
-                                    className="w-full mt-2"
-                                >
-                                    <Check className="w-4 h-4 mr-1.5" />
-                                    Save
-                                </Button>
-                            </DialogContent>
-                        </Dialog>
-                    )}
-
-                    {/* Edit play area (v838) — a focused dialog (search + map
-                        picker + adjacent areas), matching the compact transit/
-                        size editors instead of the whole tabbed Game-Settings
-                        wizard. Host only; only reachable pre-game (the preview
-                        Edit button lives in the !isMidGame block). */}
-                    {isHost && (
-                        <Dialog
-                            open={playAreaEditOpen}
-                            onOpenChange={setPlayAreaEditOpen}
-                        >
-                            <DialogContent
-                                className={cn(
-                                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                                    "sm:max-w-lg z-[1060] flex max-h-[88vh] flex-col",
-                                )}
-                                overlayClassName="z-[1060]"
-                            >
-                                <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em] shrink-0">
-                                    Edit play area
-                                </DialogTitle>
-                                <div className="flex-1 overflow-y-auto -mx-1 px-1">
-                                    <PlayAreaStep
-                                        value={draftArea}
-                                        onChange={setDraftArea}
-                                    />
-                                </div>
-                                <div className="shrink-0 flex gap-2 pt-1">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() =>
-                                            setPlayAreaEditOpen(false)
-                                        }
-                                        className="flex-1"
-                                    >
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        onClick={handleSavePlayArea}
-                                        disabled={!draftArea}
-                                        className="flex-1"
-                                    >
-                                        <Check className="w-4 h-4 mr-1.5" />
-                                        Save
-                                    </Button>
-                                </div>
-                            </DialogContent>
-                        </Dialog>
-                    )}
-
                     {/* Change display name (v834) — opened from the roster
                         row's pencil next to "(you)". Applies to the local
                         player + syncs to the room via setOnlineName. */}
@@ -1082,13 +945,6 @@ export function GameLobbyDialog() {
                         </DialogContent>
                     </Dialog>
 
-
-                    {/* Section 2 — PLAYERS (v856). */}
-                    {$mp && ($participants.length > 0 || !isMidGame) && (
-                        <h3 className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                            Players
-                        </h3>
-                    )}
 
                     {/* Players roster + team zero-state. v447: each card
                         carries a "join this team" button (unless the
@@ -1183,19 +1039,9 @@ export function GameLobbyDialog() {
                         </label>
                     )}
 
-                    {/* House rules — table-wide deviations from the
-                        printed rulebook. Host-authoritative: a toggle
-                        writes the local atom and pushes the whole setup
-                        to peers (hostPushSetup), and incoming setups
-                        mirror the values back, so every device plays by
-                        the same rules. Guests see them read-only. Moved
-                        here from the per-device Settings drawer in v601
-                        because they govern the whole game, not one
-                        device. */}
-                    <HouseRulesSection
-                        readOnly={!isHost}
-                        onAfterChange={hostPushSetup}
-                    />
+                    {/* House rules moved into the game-settings wizard
+                        dialog (v879 — the bottom-right map Edit button), so
+                        the lobby body stays focused on players + leaderboard. */}
 
                     {/* v318: leaderboard — surfaces the rolling
                         round results once at least one round has
@@ -1219,7 +1065,7 @@ export function GameLobbyDialog() {
                     bottom of the roster block. Mid-game manual reopens
                     still dismiss via swipe-down; the Leave button
                     stays available there too. */}
-                <div className="px-6 pt-2 pb-3 border-t border-border space-y-1.5">
+                <div className="px-6 pt-3 pb-4 border-t border-border space-y-2">
                     {isMidGame ? null : isHost ? (
                         <>
                             {/* v297: subtitle slot is conditionally
@@ -1275,11 +1121,10 @@ export function GameLobbyDialog() {
                     {$mp && ($code || hostingState === "failed") && (
                         <Button
                             variant="ghost"
-                            size="sm"
                             onClick={handleLeaveGame}
-                            className="w-full h-8 gap-2 text-xs text-foreground/70 hover:text-foreground hover:bg-accent"
+                            className="w-full gap-2 text-foreground/70 hover:text-foreground hover:bg-accent"
                         >
-                            <LogOut className="w-3.5 h-3.5" />
+                            <LogOut className="w-4 h-4" />
                             Leave game
                         </Button>
                     )}
@@ -1555,15 +1400,6 @@ function estimatePreloadMB(
     const est = base + areaKm2 * 0.03;
     return Math.max(3, Math.min(150, Math.round(est)));
 }
-
-/** Canonical mode order for the editable chip row + add menu. */
-const ALL_TRANSIT_MODES: TransitMode[] = [
-    "bus",
-    "tram",
-    "train",
-    "subway",
-    "ferry",
-];
 
 /** Size options for the inline size dropdown. */
 const SIZE_OPTIONS: { value: GameSize; label: string }[] = [

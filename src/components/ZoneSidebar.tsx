@@ -440,21 +440,17 @@ export const ZoneSidebar = () => {
                                 : name[0].toUpperCase() !== letter;
                         });
                     } else if (question.data.type === "same-length-station") {
+                        // v879: binary — keep zones whose station name length
+                        // equals the seeker's (same) or differs from it.
                         const seekerLength = englishName.length;
-                        const comparison = question.data.lengthComparison;
 
                         circles = circles.filter((circle) => {
                             const name = extractStationName(circle.properties);
                             if (!name) return false;
 
-                            if (comparison === "same") {
-                                return name.length === seekerLength;
-                            } else if (comparison === "shorter") {
-                                return name.length < seekerLength;
-                            } else if (comparison === "longer") {
-                                return name.length > seekerLength;
-                            }
-                            return false;
+                            return question.data.same
+                                ? name.length === seekerLength
+                                : name.length !== seekerLength;
                         });
                     }
                 }

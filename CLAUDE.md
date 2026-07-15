@@ -428,7 +428,55 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v878`. Use `git log` for the per-version detail;
+build stamp. Current: `v879`. Use `git log` for the per-version detail;
+
+**v879 — leaderboard name fix + timer names + lobby header redesign + station-
+length binary + sea/coast worker offload.** A demo-prep batch:
+- **Leaderboard hider-name attribution fixed.** Past-round names shifted to the
+  NEXT hider (Round 1 "Sabrina" showed the round-2 hider, etc.). Root cause:
+  `startNewRound` (`roundActions.ts`) resolved the name from the LIVE roster,
+  but the "New round" button rotates roles to the incoming hider BEFORE the
+  append runs — so every stored row got the wrong name. Fix: snapshot the
+  just-finished hider's name at ROUND-END into a new volatile atom
+  `roundEndHiderName` (`gameSetup.ts`) — set in the `ended` handler
+  (`multiplayer/store.ts`, all devices, roster still pre-rotation) and the
+  offline mark-found path (`HiderTimer`), cleared per round in
+  `resetSharedRoundState`. `startNewRound` + `EndOfRoundDialog` now PREFER the
+  snapshot over the live roster.
+- **Timer player names + hider "next to overtake".** Both timers show the hider
+  NAME on each time. The seeker `HiderTimer` leaderboard rows carry the name
+  (live row = current hider, past rows = stored `hiderName`). The hider
+  `HiderMapTimer` now shows the NEXT time to overtake (the smallest past time
+  still LONGER than the current hidden time, ranked one better) ABOVE the live
+  clock — replacing the old unreachable "1st below" row — with the name.
+- **`same-length-station` is now BINARY** (`same`/`different`), auto-computed
+  like every other matching type — the 3-way `lengthComparison` path was
+  removed (boundary, memo key, grading, `adjustPerMatching`, `ZoneSidebar`
+  filter, `HiderView` `AutoGradedLengthAnswer` deleted, matching card toggle).
+- **Sea/coast geometry offloaded to the Web Worker (freeze fix part 2).** New
+  `seaFromCoast` op (`geometry/worker.ts` + `client.ts`) runs the heavy
+  `seaFromCoastline` off the main thread; `measuring.ts` body-of-water/coastline
+  routes through it with the sync main-thread fallback.
+- **Lobby header redesign.** Reverted the frosted-glass map buttons to the
+  normal secondary style; zoomed the header map out (`framePadding` prop on
+  `PlayAreaPreviewMap`); the top scrim is now fully solid from the top through
+  the room code then fades; removed the "Players" subheader; the single
+  bottom-right map Edit button (sized to match the transit pills) opens the
+  full game-settings wizard dialog (`setupDialogOpen`) — the separate "Edit
+  area"/inline transit+area editors were removed; HOUSE RULES moved into the
+  wizard as a new "Rules" tab (`GameSetupDialog`); the Leave button reverted to
+  the default size with a bit more footer space.
+- **Debug: +7 min screenshot buttons** for current + past hidden times (beside
+  the existing +30).
+
+Prewarm note (answering "what do I need to run for v864+"): the laptop
+prewarmer's `processCity` already warms ALL families — refs, area-stations,
+water, coast, admin, metro, tile-pack — for BOTH primaries and (`--adjacents`)
+neighbours by default; NONE of the v864-v878 elimination-logic changes require
+re-running `build-city-adjacents.mjs` (that only bakes the adjacency SET, not
+elimination geometry). Coast/water/admin/metro remain deliberately OUT of the
+star gate, so re-run with `--force` for a large city to refresh those families
+after an Overpass soft-timeout.
 
 **v878 — draw the actual train LINE on the same-train-line configure map.**
 The matching "train line" question's configure preview showed only the pin's
