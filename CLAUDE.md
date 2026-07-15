@@ -430,6 +430,20 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v855 — lobby two-section restructure + host icon.** Pre-game lobby
+(`GameLobbyDialog`) reorganised into two clear sections: (1) **game
+info/settings** — the title, size/transit row, and the map preview now read as
+one block (the header dropped its `border-b` divider + most of its bottom
+padding, so the transit row flows straight into the map with no rule between
+them); (2) **invite & players** — introduced by a new `Invite & players`
+subheader below the map, under which the **share/room-code card moved to sit
+JUST BELOW the map** (was at the bottom of the roster block) followed by the
+Seekers/Hiders roster. The **top-right header Share button was removed** (the
+share card carries Share/Copy/QR). The hider empty state dropped its "— the seat
+is open" tail ("No hiders yet."). The roster **host badge icon changed from
+`Crown` to `Shield`** — the crown reads as a leaderboard/high-score marker, so
+the host now gets a distinct owner glyph.
+
 **v854 — hiding-zone label default max chars 12 → 15.** Roomier default before a
 station label truncates (`stationLabelMaxChars`, `debugState.ts`); the debug
 slider still tunes it live, and anyone who already set it keeps their value.

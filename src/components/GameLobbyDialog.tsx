@@ -4,13 +4,13 @@ import {
     Check,
     ChevronDown,
     Copy,
-    Crown,
     Loader2,
     LogOut,
     Pencil,
     Plus,
     QrCode,
     Share2,
+    Shield,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
@@ -631,10 +631,10 @@ export function GameLobbyDialog() {
                     spelled out rather than icon-only. */}
                 {(() => {
                     return (
-                        <div className="px-5 pt-5 pb-4 shrink-0 border-b border-border space-y-3">
-                            {/* Row 1: title + Share, vertically aligned so
-                                the header and the Share button sit on one
-                                line. */}
+                        <div className="px-5 pt-5 pb-1 shrink-0 space-y-3">
+                            {/* Row 1: title. (Share moved out of the header to
+                                the share card just below the map — the header +
+                                map are now one "game info" section, v855.) */}
                             <div className="flex items-center gap-3">
                                 <VaulDrawer.Title
                                     ref={titleRef}
@@ -648,17 +648,6 @@ export function GameLobbyDialog() {
                                         ? `Allowed transit: ${$allowedTransit.map((m) => TRANSIT_LABELS[m]).join(", ")}`
                                         : "Walking only"}
                                 </VaulDrawer.Description>
-                                {$mp && $code && (
-                                    <Button
-                                        onClick={handleShare}
-                                        aria-label="Share invite link"
-                                        title="Share invite link"
-                                        className="shrink-0 gap-2"
-                                    >
-                                        <Share2 className="w-4 h-4" />
-                                        Share
-                                    </Button>
-                                )}
                             </div>
 
                             {/* Row 2: game size + allowed-transit (icon-only,
@@ -1037,73 +1026,21 @@ export function GameLobbyDialog() {
                             </div>
                         ))}
 
-                    {/* Players roster + team zero-state. v447: each card
-                        carries a "join this team" button (unless the
-                        local player is already on it) so picking / switching
-                        a role happens here instead of a popup. Hidden
-                        mid-game (no role-swapping once the clock runs). */}
-                    {$mp && ($participants.length > 0 || !isMidGame) && (
-                        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
-                            <RosterCard
-                                label={`Seekers · ${seekers.length}`}
-                                tone="seeker"
-                                participants={seekers}
-                                selfId={$self}
-                                hostId={hostId}
-                                onJoin={
-                                    !isMidGame && $playerRole === null
-                                        ? () => joinTeam("seeker")
-                                        : undefined
-                                }
-                                joinLabel="Join seekers"
-                                onSwitchTeam={
-                                    !isMidGame && $playerRole === "seeker"
-                                        ? () => joinTeam("hider")
-                                        : undefined
-                                }
-                                onEditName={
-                                    !isMidGame
-                                        ? () => setNameEditOpen(true)
-                                        : undefined
-                                }
-                            />
-                            <RosterCard
-                                label={`Hiders · ${hiders.length}`}
-                                tone="hider"
-                                participants={hiders}
-                                selfId={$self}
-                                hostId={hostId}
-                                onJoin={
-                                    !isMidGame && $playerRole === null
-                                        ? () => joinTeam("hider")
-                                        : undefined
-                                }
-                                joinLabel="Join hiders"
-                                onSwitchTeam={
-                                    !isMidGame && $playerRole === "hider"
-                                        ? () => joinTeam("seeker")
-                                        : undefined
-                                }
-                                onEditName={
-                                    !isMidGame
-                                        ? () => setNameEditOpen(true)
-                                        : undefined
-                                }
-                            />
-                        </div>
-                    )}
-                    {$mp && !isMidGame && $playerRole === null && (
-                        <p className="text-sm text-muted-foreground leading-snug animate-in fade-in duration-200">
-                            Pick your team above to continue.
-                        </p>
+                    {/* Section 2 subheader (v855): everything from here down is
+                        "get people in + who's playing" — the sharing card and
+                        the roster. The header + map above are section 1 (game
+                        info). Shown whenever the share/roster section is. */}
+                    {$mp && !isMidGame && (
+                        <h3 className="pt-1 text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
+                            Invite &amp; players
+                        </h3>
                     )}
 
-                    {/* Share / room code section (v455): the full-width
-                        card is back, positioned here at the bottom of the
-                        roster block (below the "need a seeker + hider"
-                        hint). Eyebrow label + code on the left, Share /
-                        Copy / QR on the right. A pulsing skeleton holds
-                        the slot while the room is still being created. */}
+                    {/* Share / room code section (v855: moved to JUST BELOW the
+                        map — it's the first actionable thing in section 2).
+                        Eyebrow label + code on the left, Share / Copy / QR on
+                        the right. A pulsing skeleton holds the slot while the
+                        room is still being created. */}
                     {$mp && !isMidGame && hostingState === "creating" && !$code && (
                         <div
                             className="rounded-md border border-border bg-secondary/40 px-3 py-2 flex items-center gap-2 min-h-[3.5rem] animate-in fade-in duration-200"
@@ -1181,6 +1118,67 @@ export function GameLobbyDialog() {
                                 )}
                             </div>
                         </div>
+                    )}
+
+                    {/* Players roster + team zero-state. v447: each card
+                        carries a "join this team" button (unless the
+                        local player is already on it) so picking / switching
+                        a role happens here instead of a popup. Hidden
+                        mid-game (no role-swapping once the clock runs). */}
+                    {$mp && ($participants.length > 0 || !isMidGame) && (
+                        <div className="flex flex-col gap-2 animate-in fade-in duration-200">
+                            <RosterCard
+                                label={`Seekers · ${seekers.length}`}
+                                tone="seeker"
+                                participants={seekers}
+                                selfId={$self}
+                                hostId={hostId}
+                                onJoin={
+                                    !isMidGame && $playerRole === null
+                                        ? () => joinTeam("seeker")
+                                        : undefined
+                                }
+                                joinLabel="Join seekers"
+                                onSwitchTeam={
+                                    !isMidGame && $playerRole === "seeker"
+                                        ? () => joinTeam("hider")
+                                        : undefined
+                                }
+                                onEditName={
+                                    !isMidGame
+                                        ? () => setNameEditOpen(true)
+                                        : undefined
+                                }
+                            />
+                            <RosterCard
+                                label={`Hiders · ${hiders.length}`}
+                                tone="hider"
+                                participants={hiders}
+                                selfId={$self}
+                                hostId={hostId}
+                                onJoin={
+                                    !isMidGame && $playerRole === null
+                                        ? () => joinTeam("hider")
+                                        : undefined
+                                }
+                                joinLabel="Join hiders"
+                                onSwitchTeam={
+                                    !isMidGame && $playerRole === "hider"
+                                        ? () => joinTeam("seeker")
+                                        : undefined
+                                }
+                                onEditName={
+                                    !isMidGame
+                                        ? () => setNameEditOpen(true)
+                                        : undefined
+                                }
+                            />
+                        </div>
+                    )}
+                    {$mp && !isMidGame && $playerRole === null && (
+                        <p className="text-sm text-muted-foreground leading-snug animate-in fade-in duration-200">
+                            Pick your team above to continue.
+                        </p>
                     )}
 
                     {/* Preload opt-in — only on a metered link. On wifi
@@ -1384,7 +1382,7 @@ function RosterCard({
                 <div className="text-sm text-muted-foreground italic leading-snug">
                     {tone === "seeker"
                         ? "No seekers yet."
-                        : "No hiders yet — the seat is open."}
+                        : "No hiders yet."}
                 </div>
             ) : (
                 <ul className="space-y-1.5">
@@ -1411,7 +1409,7 @@ function RosterCard({
                                             title="Host"
                                             aria-label="Host"
                                         >
-                                            <Crown className="w-3.5 h-3.5 text-amber-500" />
+                                            <Shield className="w-3.5 h-3.5 text-amber-500" />
                                         </span>
                                     )}
                                     {isMe && (
