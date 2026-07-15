@@ -2,7 +2,9 @@ import type { LucideIcon } from "lucide-react";
 import { AlertTriangle, Check, Hourglass } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
+import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { mapGeoLocation } from "@/lib/context";
 import { iconForSubtype } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 
@@ -47,9 +49,31 @@ function subtypeLabel(type: string | undefined): string | null {
             return "Train line";
         case "same-length-station":
             return "Station length";
+        case "admin1-border":
+        case "admin2-border":
+            return adminBorderLabel(stripped);
         default:
             return stripped.replace(/[-_]/g, " ");
     }
+}
+
+/** Locale-specific label for the measuring admin-division border subtypes
+ *  (v869) — "State border" / "County border" for the play area's country,
+ *  matching the picker tile. Reads the play-area country (non-reactive, but
+ *  it never changes during a question's life); falls back to the generic
+ *  wording when the country is unknown/untabled. */
+function adminBorderLabel(value: string): string {
+    const tier = value === "admin1-border" ? 1 : 2;
+    const iso = (
+        mapGeoLocation.get()?.properties as { countrycode?: string } | undefined
+    )?.countrycode;
+    if (iso) {
+        const name = adminDivisionName(iso, adminTierToOsmLevel(iso, tier));
+        if (!name.startsWith("OSM") && !name.includes("admin division")) {
+            return `${name.replace(/\s*\(.*\)\s*$/, "")} border`;
+        }
+    }
+    return tier === 1 ? "1st admin border" : "2nd admin border";
 }
 
 /* ────────────────── Summary ────────────────── */

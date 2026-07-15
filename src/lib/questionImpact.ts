@@ -596,12 +596,27 @@ export function useQuestionImpact(
         // neighbour's cell = "not matching" (the consulate bug, v868). The
         // drawn regions are still CLIPPED to the masked `playArea` below.
         const siteArea = fullPlayArea ?? playArea;
-        const candidates =
+        const inAreaCandidates =
             siteArea && family.kind !== "city"
                 ? rawCandidates.filter((c) =>
                       pointInPlayArea(siteArea, c.lng, c.lat),
                   )
                 : rawCandidates;
+        // Tentacles: the question is "of the references WITHIN your reach,
+        // which are you nearest to" — so only plot the ones inside the
+        // tentacle radius, not the whole play area's POI field (v869). Other
+        // modes keep the full in-area set.
+        const candidates =
+            mode === "tentacles" && tentacleRadiusKm
+                ? inAreaCandidates.filter(
+                      (c) =>
+                          turf.distance(
+                              turf.point([lng, lat]),
+                              turf.point([c.lng, c.lat]),
+                              { units: "kilometers" },
+                          ) <= tentacleRadiusKm,
+                  )
+                : inAreaCandidates;
         const loading =
             family.kind === "measuring-geom"
                 ? // line families have no point cache — "loading" until the

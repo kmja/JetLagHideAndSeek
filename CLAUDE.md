@@ -428,7 +428,33 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v869`. Use `git log` for the per-version detail;
+build stamp. Current: `v870`. Use `git log` for the per-version detail;
+
+**v870 — measuring gating + locale labels + tentacle candidate filter.**
+- **Reference-in-area gating** (`subtypeAvailability.ts`) for two measuring
+  types whose reference must be INSIDE the play area (rulebook p17) else they
+  buffer the WHOLE area as "closer" (NYC reports): **high-speed rail** (nearest
+  line 5000 km away in England) and **international border** (nearest ~500 km in
+  Canada). New presence gates: HSR = the play-area-clipped Overpass
+  `[highspeed=yes]` (same query the elimination uses → NYC returns none);
+  international border = the bundled Natural Earth admin_0 lines tested against
+  the play-area bbox (no network). Both follow the v842 coast-presence shape —
+  `null` (unknown / fetch failed) stays AVAILABLE so a valid city is never
+  wrongly hidden; keyed by play-area signature.
+- **Admin-span gate fixed for the ZERO case** (from v868): `computeAdminSpan`
+  returned `regions.length` when no region covered the interior, which kept a
+  meaningless tile enabled. It now returns the true `seen.size`, so "City / Town
+  (OSM 8)" (and any level with no in-area region) is correctly disabled.
+- **Measuring admin-division border LOCALE labels** (E): "1st admin div.
+  border" / "2nd admin div. border" now read as the play-area country's tier-1 /
+  tier-2 division + " border" (US → "State border" / "County border") via
+  `localizeAdminSubtype` (picker, `AddQuestionDialog`) + `adminBorderLabel`
+  (card header, `questionOverlayCard`) — the same `adminDivisions.ts` mapping the
+  matching admin tiles use. Internal ids unchanged.
+- **Tentacle candidate filter** (`questionImpact.ts`): the configure map plotted
+  the WHOLE play area's POI field for a tentacle question; now it only plots the
+  references WITHIN the tentacle radius (the question is "of the ones in reach,
+  which are you nearest to"), matching the drawn tentacle circle.
 
 **v869 — photo + hider-answer flow fixes (NYC demo feedback).**
 - **Photo censor dialog opened BEHIND its launcher (app-locking bug).**

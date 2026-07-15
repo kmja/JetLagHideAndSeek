@@ -165,10 +165,34 @@ const TENTACLE_RADIUS_KM: Record<string, number> = {
     aquarium: 25,
     theme_park: 25,
 };
+/** Measuring "closer/further to a <tier> border" — the tier the border
+ *  subtype refers to, so it gets the same country-specific label as the
+ *  matching admin tiles (v869). admin1-border = tier 1 (state/canton/…),
+ *  admin2-border = tier 2 (county/district/…). */
+const ADMIN_BORDER_TIER_NUM: Record<string, 1 | 2> = {
+    "admin1-border": 1,
+    "admin2-border": 2,
+};
+
 function localizeAdminSubtype(
     subtype: SubtypeMeta,
     iso: string | undefined,
 ): SubtypeMeta {
+    // Measuring admin-division BORDER subtypes: relabel "1st admin div.
+    // border" → "State border" / "County border" etc. for the play area's
+    // country, matching the matching-question admin tiles.
+    const borderTier = ADMIN_BORDER_TIER_NUM[subtype.value];
+    if (borderTier && iso) {
+        const level = adminTierToOsmLevel(iso, borderTier);
+        const localised = adminDivisionName(iso, level);
+        if (!localised.startsWith("OSM") && !localised.includes("admin division")) {
+            // Drop any parenthetical (e.g. "County (Län)") for a compact
+            // "<Tier> border" label.
+            const base = localised.replace(/\s*\(.*\)\s*$/, "");
+            return { ...subtype, label: `${base} border` };
+        }
+        return subtype;
+    }
     const tier = ADMIN_TIER_NUM[subtype.value];
     if (!tier || !iso) return subtype;
     const level = adminTierToOsmLevel(iso, tier);

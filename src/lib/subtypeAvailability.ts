@@ -9,6 +9,7 @@ import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
 import { fetchPrewarmedAreaAdmin } from "@/maps/api/adminBoundary";
 import { fetchAreaCoastlineLines } from "@/maps/api/coast";
+import { fetchBorders0Land, findPlacesInZone } from "@/maps/api/overpass";
 import {
     countInPlayArea,
     type FamilyKey,
@@ -221,6 +222,64 @@ async function computeCoastPresent(): Promise<boolean | null> {
     }
 }
 
+/* ─────────── Reference-in-area gating for line references (v869) ─────────── *
+ *
+ * Two more measuring "closer/further to a ___" types whose reference must be
+ * INSIDE the play area (rulebook p17), else the question can't cut the map —
+ * it just buffers the WHOLE area as "closer" (the NYC reports: nearest
+ * high-speed line 5000 km away in England; nearest international border ~500 km
+ * away in Canada). Same safe presence-gate shape as coast: a null (unknown /
+ * fetch failed) stays AVAILABLE so a valid city's question is never wrongly
+ * hidden. Keyed by play-area signature.
+ *   - high-speed rail: play-area-clipped Overpass `[highspeed=yes]` — the SAME
+ *     query the elimination uses, so the gate matches reality (NYC → none).
+ *   - international border: the bundled Natural Earth admin_0 border lines,
+ *     tested against the play-area bbox (cheap, no network at game time).
+ */
+const HSR_GATED = new Set(["highspeed-measure-shinkansen"]);
+const BORDER0_GATED = new Set(["international-border"]);
+const linePresentCache = new Map<string, boolean>();
+const linePresentPending = new Set<string>();
+
+async function computeHsrPresent(): Promise<boolean | null> {
+    try {
+        const data = await findPlacesInZone(
+            "[highspeed=yes]",
+            undefined,
+            "nwr",
+            "geom",
+            [],
+            0,
+            true, // silent — a gate must never toast
+        );
+        const geo = osmtogeojson(data);
+        return (geo.features?.length ?? 0) > 0;
+    } catch {
+        return null;
+    }
+}
+
+async function computeBorder0Present(): Promise<boolean | null> {
+    const area = playAreaPolygon();
+    if (!area) return null;
+    try {
+        const fc = await fetchBorders0Land();
+        const frame = turf.bboxPolygon(
+            turf.bbox(area) as [number, number, number, number],
+        );
+        for (const f of fc.features) {
+            try {
+                if (turf.booleanIntersects(f, frame)) return true;
+            } catch {
+                /* skip a malformed border line */
+            }
+        }
+        return false;
+    } catch {
+        return null;
+    }
+}
+
 export interface SubtypeAvailability {
     /** false ⇒ too few instances in the play area to be worth asking. */
     available: boolean;
@@ -334,6 +393,38 @@ export function useSubtypeAvailability(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key, $poly]);
 
+    // Line-reference presence: high-speed rail + international border — check
+    // once per play area whether the reference exists IN it (else the question
+    // can't cut the map). Per-subtype cache key; null=unknown stays available.
+    useEffect(() => {
+        const gated = values.filter(
+            (v) => HSR_GATED.has(v) || BORDER0_GATED.has(v),
+        );
+        if (gated.length === 0) return;
+        if (!playAreaPolygon()) return;
+        const sig = areaSignature();
+        let cancelled = false;
+        for (const v of gated) {
+            const ckey = `${sig}:${v}`;
+            if (linePresentCache.has(ckey) || linePresentPending.has(ckey)) {
+                continue;
+            }
+            linePresentPending.add(ckey);
+            const compute = HSR_GATED.has(v)
+                ? computeHsrPresent
+                : computeBorder0Present;
+            compute().then((present) => {
+                linePresentPending.delete(ckey);
+                if (present != null) linePresentCache.set(ckey, present);
+                if (!cancelled) setTick((t) => t + 1);
+            });
+        }
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key, $poly]);
+
     return useMemo(() => {
         const out: Record<string, SubtypeAvailability> = {};
         for (const v of values) {
@@ -341,6 +432,19 @@ export function useSubtypeAvailability(
             // area has no coast (inland). Unknown → available.
             if (COAST_GATED.has(v)) {
                 const present = coastPresentCache.get(areaSignature());
+                out[v] = {
+                    available: present === undefined ? true : present,
+                    count: null,
+                    min: 0,
+                };
+                continue;
+            }
+            // High-speed rail / international border: disabled only when we
+            // KNOW the reference isn't in the play area. Unknown → available.
+            if (HSR_GATED.has(v) || BORDER0_GATED.has(v)) {
+                const present = linePresentCache.get(
+                    `${areaSignature()}:${v}`,
+                );
                 out[v] = {
                     available: present === undefined ? true : present,
                     count: null,
