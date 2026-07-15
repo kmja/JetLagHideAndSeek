@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v881`. Use `git log` for the per-version detail;
+build stamp. Current: `v882`. Use `git log` for the per-version detail;
+
+**v882 — sea-level question gets a configure-map preview.** The `sea-level`
+measuring subtype previously drew NO closer/further overlay (v840 left it null
+— "elevation contour, not a distance buffer"). But we PREWARM the elevation DEM
+(Terrarium z11 tiles, the laptop's `processElevation`), which is exactly what
+the elimination reads, so the preview can use the same geometry. New
+`resolveFamily` kind `sea-level` (`questionImpact.ts`): the measuring effect
+calls `seaLevelRegion(turf.bbox(playArea), lng, lat)` — the SAME "closer to sea
+level than the seeker" region the elimination buffers — and the existing
+`real`/yes-no clip treats it like the other full-geometry families (it's in
+`noPointSet` + the `measuring-geom`-style `loading` gate). So preview == cut,
+Overpass-free for a warmed city. (Returns null at an elevation extreme, same as
+before — nothing to cut.)
 
 **v881 — landing "Install app" button only shows a real one-tap install.**
 `InstallAppButton` (landing, `Welcome`) used to fall back on iOS Safari to a

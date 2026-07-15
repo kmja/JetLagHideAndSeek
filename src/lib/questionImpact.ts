@@ -44,6 +44,7 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
+import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
 import { arcBufferToPoint } from "@/maps/geo-utils";
@@ -98,6 +99,10 @@ type ResolvedFamily =
     // The overlay comes from the SAME determineMatchingBoundary the
     // elimination uses (via matchingDraftRegion).
     | { kind: "matching-region"; type: string }
+    // v881: sea-level — the "closer to sea level than the seeker" region,
+    // built from the prewarmed elevation DEM (`seaLevelRegion`), NOT a point
+    // buffer. Its own kind so the effect calls the elevation path.
+    | { kind: "sea-level" }
     | { kind: "city" }
     | null;
 
@@ -142,6 +147,9 @@ function resolveFamily(typeRaw: string): ResolvedFamily {
         stripped === "highspeed-measure-shinkansen"
     )
         return { kind: "measuring-geom", type: stripped };
+    // v881: sea-level now HAS a preview — we prewarm the elevation DEM, so
+    // `seaLevelRegion` can build the "closer to sea level" region here.
+    if (stripped === "sea-level") return { kind: "sea-level" };
     if (stripped in LOCATION_FIRST_TAG) {
         const loc = stripped as APILocations;
         return { kind: "api", family: `api:${loc}`, location: loc };
@@ -366,7 +374,8 @@ export function useQuestionImpact(
             !family ||
             family.kind === "city" ||
             family.kind === "measuring-geom" ||
-            family.kind === "matching-region"
+            family.kind === "matching-region" ||
+            family.kind === "sea-level"
         ) {
             return;
         }
@@ -483,7 +492,17 @@ export function useQuestionImpact(
         // point path.
         const useFullGeom =
             family.kind === "water" || family.kind === "measuring-geom";
-        const bufferPromise = useFullGeom
+        const bufferPromise = family.kind === "sea-level"
+            ? // v881: the "closer to sea level" region straight from the
+              // prewarmed elevation DEM. seaLevelRegion returns the answer
+              // region itself (not a point buffer); the yes/no clip below
+              // treats it exactly like the full-geometry buffer.
+              seaLevelRegion(
+                  turf.bbox(playArea) as [number, number, number, number],
+                  lng,
+                  lat,
+              )
+            : useFullGeom
             ? measuringDraftBuffer(type, lat, lng)
             : (() => {
                   const cached = getCachedCategory(
@@ -562,7 +581,8 @@ export function useQuestionImpact(
         // skip the point-cache path entirely.
         const noPointSet =
             family.kind === "measuring-geom" ||
-            family.kind === "matching-region";
+            family.kind === "matching-region" ||
+            family.kind === "sea-level";
 
         const rawCandidates: Array<{ lat: number; lng: number; name: string }> =
             family.kind === "city"
@@ -618,9 +638,9 @@ export function useQuestionImpact(
                   )
                 : inAreaCandidates;
         const loading =
-            family.kind === "measuring-geom"
-                ? // line families have no point cache — "loading" until the
-                  // full-geometry buffer resolves for this position
+            family.kind === "measuring-geom" || family.kind === "sea-level"
+                ? // line/contour families have no point cache — "loading"
+                  // until the full-geometry region resolves for this position
                   !measuringReady
                 : family.kind === "matching-region"
                   ? !matchingRegionReady
