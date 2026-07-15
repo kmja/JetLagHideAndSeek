@@ -874,6 +874,52 @@ out geom;
     return uniqNodes;
 };
 
+/**
+ * v877: the actual RAIL LINE geometry (LineString/MultiLineString features)
+ * the given station node sits on — the SAME 2-step name/name:en/network query
+ * `trainLineNodeFinder` uses (so a drawn line matches the same-train-line
+ * grading), but KEEPS the line features instead of extracting node ids. Used
+ * only to DRAW the line on the configure-question preview; the elimination
+ * path (`trainLineNodeFinder`) is untouched.
+ */
+export const findTrainLineGeometry = async (
+    node: string,
+): Promise<GeoJSON.Feature[]> => {
+    const nodeId = node.split("/")[1];
+    const tagQuery = `[out:json];node(${nodeId});wr(bn);out tags;`;
+    const tagData = await getOverpassData(tagQuery);
+    const query = `
+[out:json];
+(
+${tagData.elements
+    .map((element: any) => {
+        if (
+            !element.tags?.name &&
+            !element.tags?.["name:en"] &&
+            !element.tags?.network
+        )
+            return "";
+        let q = "";
+        if (element.tags.name) q += `wr["name"="${element.tags.name}"];`;
+        if (element.tags["name:en"])
+            q += `wr["name:en"="${element.tags["name:en"]}"];`;
+        if (element.tags["network"])
+            q += `wr["network"="${element.tags["network"]}"];`;
+        return q;
+    })
+    .join("\n")}
+);
+out geom;
+`;
+    const data = await getOverpassData(query);
+    const geoJSON = osmtogeojson(data);
+    return geoJSON.features.filter(
+        (f) =>
+            f.geometry?.type === "LineString" ||
+            f.geometry?.type === "MultiLineString",
+    );
+};
+
 /** Soft cap on how many coordinate pairs go into a `poly:` filter
  *  string. The string is repeated once per sub-statement in a
  *  combined query, so the effective query size is roughly

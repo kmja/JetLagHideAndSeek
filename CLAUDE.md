@@ -428,7 +428,19 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v877`. Use `git log` for the per-version detail;
+build stamp. Current: `v878`. Use `git log` for the per-version detail;
+
+**v878 — draw the actual train LINE on the same-train-line configure map.**
+The matching "train line" question's configure preview showed only the pin's
+nearest STATION dot; now it also draws the rail LINE that station sits on. New
+`findTrainLineGeometry` (`overpass.ts`) reuses the EXACT 2-step
+name/name:en/network query `trainLineNodeFinder` uses (so the drawn line matches
+the grading) but keeps the LineString features instead of extracting node ids —
+`trainLineNodeFinder` / the elimination path is untouched. `trainLineForPoint`
+(`matching.ts`) mirrors `matchingStationBoundary`'s nearest-station lookup then
+fetches the line; `InlineLocationPicker` fetches it off the elimination path for
+`same-train-line` and draws it as a white-casing + purple-core line under the
+pin. Returns [] on any failure (nothing drawn, never throws).
 
 **v877 — body-of-water / coastline elimination ignored the big river/bay
 (NYC East River) — root-caused + fixed.** Both the body-of-water and coastline

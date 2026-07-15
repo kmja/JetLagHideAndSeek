@@ -21,6 +21,7 @@ import {
     fetchCoastline,
     findAdminBoundary,
     findPlacesInZone,
+    findTrainLineGeometry,
     apiLocationFilter,
     nearestToQuestion,
     prettifyLocation,
@@ -253,6 +254,32 @@ async function matchingStationBoundary(
     return safeUnion(
         turf.featureCollection(sameCells as any),
     ) as Feature<Polygon | MultiPolygon>;
+}
+
+/**
+ * v877: the rail LINE(s) the pin's NEAREST station sits on — for DRAWING on
+ * the same-train-line configure preview (which otherwise shows only the
+ * station dot). Mirrors `matchingStationBoundary`'s nearest-station lookup,
+ * then fetches the line geometry via `findTrainLineGeometry` (the same
+ * name/name:en/network query the grading uses, so the drawn line matches).
+ * Returns [] on any failure — nothing drawn, never throws.
+ */
+export async function trainLineForPoint(
+    lat: number,
+    lng: number,
+): Promise<GeoJSON.Feature[]> {
+    try {
+        const stations = osmtogeojson(
+            await findPlacesInZone("[railway=station]", undefined, "node"),
+        ) as FeatureCollection<Point>;
+        if (stations.features.length === 0) return [];
+        const nearest = turf.nearestPoint(turf.point([lng, lat]), stations);
+        const id = nearest.properties?.id as string | undefined;
+        if (!id) return [];
+        return await findTrainLineGeometry(id);
+    } catch {
+        return [];
+    }
 }
 
 export const determineMatchingBoundary = memoize(

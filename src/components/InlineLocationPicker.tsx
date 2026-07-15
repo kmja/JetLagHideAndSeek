@@ -44,6 +44,7 @@ import { iconForSubtype } from "@/lib/subtypes";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { holedMask } from "@/maps";
+import { trainLineForPoint } from "@/maps/questions/matching";
 
 import { ConfigureDialogContext } from "./configureDialogContext";
 import { MapNavControls } from "./MapNavControls";
@@ -442,6 +443,32 @@ export function InlineLocationPicker({
     const safeLng = coordsAreSet
         ? longitude
         : ($playArea?.geometry?.coordinates?.[1] as number) ?? 0;
+
+    // v877: for the same-train-line question, draw the actual rail LINE the
+    // pin's nearest station sits on (the config map otherwise shows only the
+    // station dot). Fetched off the elimination path via `trainLineForPoint`;
+    // [] / null → nothing drawn.
+    const [trainLineFC, setTrainLineFC] =
+        useState<GeoJSON.FeatureCollection | null>(null);
+    useEffect(() => {
+        if (!impactMode || impactType !== "same-train-line" || !coordsAreSet) {
+            setTrainLineFC(null);
+            return;
+        }
+        let cancelled = false;
+        void trainLineForPoint(safeLat, safeLng).then((features) => {
+            if (cancelled) return;
+            setTrainLineFC(
+                features.length
+                    ? { type: "FeatureCollection", features }
+                    : null,
+            );
+        });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [impactMode, impactType, coordsAreSet, safeLat, safeLng]);
 
     // Recenter only on GPS-flip-to-granted (not on hand-drag).
     const lastGpsRef = useRef(gpsState);
@@ -988,6 +1015,43 @@ export function InlineLocationPicker({
                                             ? "hsl(220, 10%, 92%)"
                                             : "hsl(140, 65%, 32%)",
                                     "line-width": 2.5,
+                                    "line-opacity": 0.95,
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {/* v877: the rail line the nearest station is on
+                        (same-train-line question) — drawn under the pin so the
+                        seeker sees the actual line, not just the station dot. */}
+                    {trainLineFC && (
+                        <Source
+                            id="train-line"
+                            type="geojson"
+                            data={trainLineFC}
+                        >
+                            <Layer
+                                id="train-line-casing"
+                                type="line"
+                                layout={{
+                                    "line-cap": "round",
+                                    "line-join": "round",
+                                }}
+                                paint={{
+                                    "line-color": "hsl(0,0%,100%)",
+                                    "line-width": 6,
+                                    "line-opacity": 0.7,
+                                }}
+                            />
+                            <Layer
+                                id="train-line-core"
+                                type="line"
+                                layout={{
+                                    "line-cap": "round",
+                                    "line-join": "round",
+                                }}
+                                paint={{
+                                    "line-color": "hsl(266,60%,45%)",
+                                    "line-width": 3,
                                     "line-opacity": 0.95,
                                 }}
                             />
