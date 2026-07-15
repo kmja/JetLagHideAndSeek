@@ -67,6 +67,89 @@ import { SelfPositionMarker } from "./SelfPositionMarker";
  * Public API is unchanged from the Leaflet version that lived here
  * through v79 — same props, same behaviour, MapLibre GL underneath.
  */
+
+/**
+ * v864: for a MATCHING question the answer is only "same" (the pin's NEAREST
+ * reference — whose Voronoi cell IS the same-region) or "different" (everything
+ * else). So plotting the whole field of parks/POIs is noise. Return the indices
+ * of just the nearest reference PLUS the references whose Voronoi cells BORDER
+ * it — those are exactly the ones that draw the same/different boundary around
+ * the answer. Far-away references are all "different" and don't move that
+ * border, so they're dropped. Returns null on any failure (caller falls back to
+ * the full/remaining-area set).
+ */
+function matchingBorderIndices(
+    candidates: { lat: number; lng: number }[],
+    anchor: { lat: number; lng: number },
+): number[] | null {
+    if (candidates.length < 2) return null;
+    try {
+        // Nearest candidate to the pin — the "same" reference.
+        let nearIdx = 0;
+        let nearD = Infinity;
+        for (let i = 0; i < candidates.length; i++) {
+            const dx = candidates[i].lng - anchor.lng;
+            const dy = candidates[i].lat - anchor.lat;
+            const d = dx * dx + dy * dy;
+            if (d < nearD) {
+                nearD = d;
+                nearIdx = i;
+            }
+        }
+        const fc = featureCollection(
+            candidates.map((c) => turfPoint([c.lng, c.lat])),
+        );
+        const bb = turfBbox(fc);
+        const padX = (bb[2] - bb[0]) * 0.5 + 0.02;
+        const padY = (bb[3] - bb[1]) * 0.5 + 0.02;
+        const cells =
+            voronoi(fc, {
+                bbox: [bb[0] - padX, bb[1] - padY, bb[2] + padX, bb[3] + padY],
+            })?.features ?? [];
+        if (cells.length === 0) return null;
+        // turf voronoi USUALLY returns cells in input order, but that isn't
+        // guaranteed — verify the fast path, search on a miss.
+        const cellForSite = (i: number): GeoJSON.Feature | null => {
+            const pt: [number, number] = [candidates[i].lng, candidates[i].lat];
+            const fast = cells[i];
+            if (fast?.geometry) {
+                try {
+                    if (booleanPointInPolygon(pt, fast as never)) return fast;
+                } catch {
+                    /* fall through to search */
+                }
+            }
+            return (
+                cells.find((cell) => {
+                    if (!cell?.geometry) return false;
+                    try {
+                        return booleanPointInPolygon(pt, cell as never);
+                    } catch {
+                        return false;
+                    }
+                }) ?? null
+            );
+        };
+        const nearCell = cellForSite(nearIdx);
+        if (!nearCell) return null;
+        const keep = new Set<number>([nearIdx]);
+        for (let i = 0; i < candidates.length; i++) {
+            if (i === nearIdx) continue;
+            const cell = cellForSite(i);
+            if (!cell) continue;
+            try {
+                if (booleanIntersects(cell, nearCell)) keep.add(i);
+            } catch {
+                /* skip */
+            }
+        }
+        return [...keep];
+    } catch (e) {
+        console.warn("[impact] matching border pass failed:", e);
+        return null;
+    }
+}
+
 export function InlineLocationPicker({
     latitude,
     longitude,
@@ -196,6 +279,21 @@ export function InlineLocationPicker({
     const visibleCandidates = useMemo(() => {
         if (!candidatePoints || candidatePoints.length === 0)
             return candidatePoints;
+        // v864: matching → show ONLY the pin's nearest reference + the ones
+        // whose Voronoi cells border it (the same/different boundary). The
+        // whole park/POI field is otherwise plotted for a question whose
+        // answer is just "same" or "different". Falls through on any failure.
+        if (
+            impactMode === "matching" &&
+            referencePoint &&
+            candidatePoints.length >= 2
+        ) {
+            const idx = matchingBorderIndices(candidatePoints, referencePoint);
+            if (idx && idx.length >= 1) {
+                const set = new Set(idx);
+                return candidatePoints.filter((_, i) => set.has(i));
+            }
+        }
         if (!$maskData) return candidatePoints;
         const polys: GeoJSON.Feature[] = [];
         const collect = (g: GeoJSON.GeoJSON | null | undefined) => {
@@ -281,7 +379,7 @@ export function InlineLocationPicker({
         }
 
         return candidatePoints.filter((_, i) => keep.has(i));
-    }, [candidatePoints, $maskData, impactMode]);
+    }, [candidatePoints, $maskData, impactMode, referencePoint]);
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",

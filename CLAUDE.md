@@ -430,6 +430,17 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v864 — matching configure map plots only the nearest reference + its Voronoi
+border (not the whole POI field).** A matching question's answer is just "same"
+(the pin's NEAREST reference — whose Voronoi cell IS the same-region) or
+"different" (everything else), so plotting every park/POI on the configure map
+(`InlineLocationPicker`) was noise. New `matchingBorderIndices(candidates, anchor)`
+returns the nearest reference PLUS the references whose Voronoi cells BORDER it —
+exactly the ones that draw the same/different boundary — and the `visibleCandidates`
+memo uses it for `impactMode === "matching"` (falls through to the prior
+remaining-area filter on any failure / no pin / <2 candidates). Display-only: the
+elimination MATH in `useQuestionImpact` still uses the full candidate set.
+
 **v863 — lobby header IS the play-area map (settings overlaid on a dimmed map).**
 The pre-game `GameLobbyDialog` header is now the play-area `PlayAreaPreviewMap`
 itself (`h-[200px]`, full-bleed — its inner rounded/border stripped via
