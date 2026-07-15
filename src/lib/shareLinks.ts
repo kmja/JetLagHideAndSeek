@@ -122,6 +122,12 @@ export interface SharedCursePayload {
      * through the `?c=` link's JSON; absent for every other curse.
      */
     disabledCategories?: string[];
+    /**
+     * Proof photo for a photo-casting-cost curse (Zoologist / Luxury
+     * Car). An R2 URL — never an inline data URI (that would blow the
+     * link/message size). Absent for every non-photo curse.
+     */
+    photoUrl?: string;
 }
 
 /**

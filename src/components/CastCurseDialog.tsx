@@ -1,10 +1,11 @@
 import { useStore } from "@nanostores/react";
-import { Check, Copy, Dice5, RotateCw, Share2, Trash2, Zap } from "lucide-react";
+import { Camera, Check, Dice5, RotateCw, Send, Trash2, Zap } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { renderBodyText } from "@/components/CardTile";
+import { PhotoCensorDialog } from "@/components/PhotoCensorDialog";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -16,9 +17,11 @@ import {
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     canPayDiscardCost,
+    curseCostRequiresPhoto,
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
+import { preparePhotoForSend } from "@/lib/photo";
 import {
     activeBlockingCurse,
     CURSE_DRAINED_BRAIN,
@@ -31,7 +34,7 @@ import {
     discardCard,
     hiderHand,
 } from "@/lib/hiderRole";
-import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import { currentGameCode, multiplayerEnabled } from "@/lib/multiplayer/session";
 import { hiderCastCurse } from "@/lib/multiplayer/store";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
@@ -114,6 +117,17 @@ export function CastCurseDialog({
         $activeBlocker !== null &&
         $activeBlocker !== card?.name;
     const fizzleRule = card ? DICE_FIZZLE[card.name] : undefined;
+    // Photo casting cost (Zoologist / Luxury Car): the hider attaches a
+    // proof photo the seekers see. `photoFile` is the picked/edited file
+    // awaiting the censor editor; `preparedPhoto` holds the uploaded R2
+    // URL + local thumbnail once processed.
+    const [photoFile, setPhotoFile] = useState<File | null>(null);
+    const [photoBusy, setPhotoBusy] = useState(false);
+    const [preparedPhoto, setPreparedPhoto] = useState<{
+        url?: string;
+        thumb: string;
+    } | null>(null);
+    const photoInputRef = useRef<HTMLInputElement | null>(null);
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
     const [sharing, setSharing] = useState(false);
@@ -185,6 +199,9 @@ export function CastCurseDialog({
             setLastShareResult(null);
             setCostSelectedIds([]);
             setDrainedCategories([]);
+            setPhotoFile(null);
+            setPhotoBusy(false);
+            setPreparedPhoto(null);
         }
     }, [open, card?.id]);
 
@@ -225,6 +242,40 @@ export function CastCurseDialog({
         for (const id of ids) discardCard(id);
     };
 
+    // Photo casting cost. In multiplayer the app can DELIVER the photo to
+    // the seekers, so it's required before casting; solo/link games keep
+    // it a self-attested real-life action (no room to send it to) — the
+    // capture UI is offered but doesn't gate the cast.
+    const costRequiresPhoto = curseCostRequiresPhoto(card.castingCost);
+    const online = $multiplayer && !!currentGameCode.get();
+    const photoRequired = costRequiresPhoto && online;
+    const photoSatisfied = !photoRequired || preparedPhoto !== null;
+
+    // Run a picked/edited photo through the shared compress+upload
+    // pipeline. On success we hold the R2 URL (sent to the seekers) plus
+    // a local thumbnail for the preview strip.
+    const commitPhoto = async (file: File) => {
+        setPhotoBusy(true);
+        try {
+            const prepared = await preparePhotoForSend(file, online);
+            setPreparedPhoto({
+                url: prepared.photoUrl,
+                thumb: prepared.photoUri,
+            });
+            if (prepared.fellBack) {
+                toast.warn(
+                    "Couldn't upload the full-size photo — sent a smaller preview instead.",
+                    { autoClose: 3500 },
+                );
+            }
+        } catch (e) {
+            console.warn("curse photo failed", e);
+            toast.error("Couldn't process that photo. Try another one.");
+        } finally {
+            setPhotoBusy(false);
+        }
+    };
+
     // `rolled` is the *live* tumble display — it cycles through
     // random values every animation frame, so reading it directly
     // in derived state (canCast / fizzles / outcome colors / button
@@ -242,6 +293,7 @@ export function CastCurseDialog({
 
     const canCast =
         !sharing &&
+        !photoBusy &&
         // Rulebook p386: can't stack a second ask-blocking curse.
         !blockedByActiveCurse &&
         // Cards with a fizzle rule need a SETTLED roll before the
@@ -251,6 +303,9 @@ export function CastCurseDialog({
         // designated the cards) before the curse can be cast.
         costSatisfiable &&
         costPaid &&
+        // Photo casting cost (multiplayer): the proof photo must be
+        // captured + uploaded before the curse can be sent.
+        photoSatisfied &&
         // Drained Brain: exactly 3 categories must be chosen before the
         // curse can be cast (it disables those 3 on the seekers).
         (!isDrainedBrain || drainedCategories.length === 3);
@@ -263,10 +318,16 @@ export function CastCurseDialog({
         });
     };
 
-    /** The enforcement params carried in the cast payload (Drained Brain
-     *  only). Undefined for every other curse. */
-    const enforceParams = (): { disabledCategories?: string[] } =>
-        isDrainedBrain ? { disabledCategories: drainedCategories } : {};
+    /** The curse-specific params carried in the cast payload: Drained
+     *  Brain's disabled categories and, for a photo-cost curse, the R2
+     *  URL of the hider's proof photo. Empty for every other curse. */
+    const enforceParams = (): {
+        disabledCategories?: string[];
+        photoUrl?: string;
+    } => ({
+        ...(isDrainedBrain ? { disabledCategories: drainedCategories } : {}),
+        ...(preparedPhoto?.url ? { photoUrl: preparedPhoto.url } : {}),
+    });
 
     const roll = () => {
         if (rolling) return;
@@ -421,52 +482,6 @@ export function CastCurseDialog({
         }
     };
 
-    /**
-     * Manual fallback: copy the curse link to the clipboard. Same
-     * end-state as a successful share (card → discard, dialog
-     * closes) — gives the hider a single-tap recovery for when the
-     * share sheet was dismissed without sending, or when the OS
-     * share sheet doesn't include the recipient they need.
-     */
-    const copyLink = async () => {
-        if (!canCast) return;
-        if (fizzles) {
-            // Defensive: copy shouldn't show on fizzles, but if a
-            // future refactor surfaces it, behave like Discard.
-            discardCard(card.id);
-            onOpenChange(false);
-            return;
-        }
-        setSharing(true);
-        try {
-            const url = encodeCurseLink({
-                name: card.name,
-                description: card.description,
-                castingCost: card.castingCost ?? null,
-                ...enforceParams(),
-            });
-            try {
-                await navigator.clipboard.writeText(url);
-                setLastShareResult("copy");
-                payCostDiscards();
-                discardCard(card.id);
-                onCurseLanded();
-                toast.success(
-                    `${card.name} link copied. Curse moved to discard.`,
-                    { autoClose: 2500 },
-                );
-                onOpenChange(false);
-            } catch {
-                setLastShareResult("failed");
-                toast.error(
-                    "Couldn't access the clipboard — try the Share button.",
-                );
-            }
-        } finally {
-            setSharing(false);
-        }
-    };
-
     // Once the player has rolled and the tumble has settled, the
     // dialog becomes committing. Refuse close attempts (Escape,
     // click outside) until the appropriate action is taken —
@@ -492,6 +507,7 @@ export function CastCurseDialog({
     };
 
     return (
+        <>
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogContent
                 className={cn(
@@ -773,6 +789,80 @@ export function CastCurseDialog({
                                 </div>
                             )}
 
+                            {/* Photo casting cost (Zoologist / Luxury
+                                Car): capture a proof photo the seekers
+                                see. Crop/censor before it sends, same as
+                                a photo answer. In multiplayer the shot is
+                                uploaded + required; solo/link games treat
+                                it as a self-attested action (still
+                                offered, not gated). */}
+                            {costRequiresPhoto && (
+                                <div className="mt-2.5">
+                                    {preparedPhoto ? (
+                                        <div className="flex items-center gap-3">
+                                            <img
+                                                src={preparedPhoto.thumb}
+                                                alt="Curse proof photo"
+                                                className="w-16 h-16 rounded-md object-cover border border-border shrink-0"
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs text-success font-semibold leading-snug">
+                                                    Photo attached — the
+                                                    seekers will see it.
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setPreparedPhoto(null);
+                                                        photoInputRef.current?.click();
+                                                    }}
+                                                    disabled={photoBusy}
+                                                    className="mt-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                                >
+                                                    Retake
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                disabled={photoBusy}
+                                                onClick={() =>
+                                                    photoInputRef.current?.click()
+                                                }
+                                                className="w-full gap-1.5"
+                                            >
+                                                <Camera className="w-4 h-4" />
+                                                {photoBusy
+                                                    ? "Processing…"
+                                                    : "Take or choose photo"}
+                                            </Button>
+                                            <p className="text-[11px] text-muted-foreground leading-snug mt-1.5">
+                                                {photoRequired
+                                                    ? "Attach the proof photo before casting — the seekers receive it with the curse."
+                                                    : "Optional here — no room to send it to. Show it to the seekers in person."}
+                                            </p>
+                                        </>
+                                    )}
+                                    <input
+                                        ref={photoInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        capture="environment"
+                                        className="sr-only"
+                                        onChange={(e) => {
+                                            const picked =
+                                                e.currentTarget.files?.[0];
+                                            e.currentTarget.value = "";
+                                            if (picked) setPhotoFile(picked);
+                                        }}
+                                    />
+                                </div>
+                            )}
+
                             {fizzleRule && (
                                 <div className="flex flex-col items-center gap-3 pt-4">
                                     <button
@@ -873,8 +963,8 @@ export function CastCurseDialog({
                                 <RotateCw className="w-3.5 h-3.5 mt-0.5 shrink-0 text-yellow-300" />
                                 <span>
                                     {lastShareResult === "cancelled"
-                                        ? "Share dismissed before it landed. Tap Cast on seekers again, or use Copy link."
-                                        : "Sharing didn't work. Use Copy link instead, or tap Cast on seekers to retry."}
+                                        ? "Share dismissed before it landed — tap Cast curse to retry."
+                                        : "Sharing didn't work — tap Cast curse to retry."}
                                 </span>
                             </div>
                         )}
@@ -912,57 +1002,15 @@ export function CastCurseDialog({
                         </div>
                     )}
 
-                    <div className="flex flex-row gap-2 sm:justify-end">
-                        {/* "Not now" only makes sense before the roll
-                            commits. After a roll, the curse is fated
-                            either way — either to discard (fizzle) or
-                            to the seekers (success) — and the player
-                            doesn't get to back out keeping the card. */}
-                        {!rolledAndCommitted && (
-                            <Button
-                                variant="outline"
-                                onClick={() => onOpenChange(false)}
-                            >
-                                {/* "Cancel" reads as "abort this attempt"
-                                    — fitting once the dialog is staged
-                                    around an action (the dice roll) the
-                                    player is about to commit. For curses
-                                    without a roll, "Not now" reads more
-                                    naturally — there's no committed
-                                    action to abort, the player is just
-                                    deferring the cast. */}
-                                {fizzleRule ? "Cancel" : "Not now"}
-                            </Button>
-                        )}
-                        {/* Manual copy fallback — same end-state as a
-                            successful share (card → discard) but uses
-                            the clipboard, so the hider always has a
-                            single-tap recovery even when the OS share
-                            sheet keeps getting dismissed. Hidden on
-                            fizzle and in multiplayer (curse goes over
-                            the wire, not a link). */}
-                        {(fizzleRule === undefined || settled !== null) &&
-                            !fizzles &&
-                            !$multiplayer && (
-                                <Button
-                                    variant="outline"
-                                    onClick={copyLink}
-                                    disabled={!canCast}
-                                    className="gap-1.5"
-                                >
-                                    <Copy className="w-4 h-4" />
-                                    Copy link
-                                </Button>
-                            )}
-                        {/* Hide the cast/discard action button entirely
-                            until *after* the dice has settled for
-                            curses with a fizzle rule — the pre-roll
-                            screen should be 100% focused on the roll,
-                            with no Share/Cast button hanging around
-                            disabled and distracting from the dice.
-                            Curses without a fizzle rule have no roll
-                            step at all, so the button shows from the
-                            start. */}
+                    {/* v886: vertical, app-only. The curse is sent through the
+                        app automatically (over the wire in multiplayer); the
+                        old Copy-link / Share-again buttons were link-era
+                        remnants and were removed. */}
+                    <div className="flex flex-col gap-2">
+                        {/* Hide the cast/discard action until *after* the dice
+                            has settled for curses with a fizzle rule — the
+                            pre-roll screen stays focused on the roll. Curses
+                            without a fizzle rule show it from the start. */}
                         {(fizzleRule === undefined || settled !== null) && (
                             <Button
                                 onClick={cast}
@@ -978,18 +1026,23 @@ export function CastCurseDialog({
                                         <Trash2 className="w-4 h-4" />
                                         Discard fizzled curse
                                     </>
-                                ) : lastShareResult === "cancelled" ||
-                                  lastShareResult === "failed" ? (
-                                    <>
-                                        <RotateCw className="w-4 h-4" />
-                                        Share again
-                                    </>
                                 ) : (
                                     <>
-                                        <Share2 className="w-4 h-4" />
-                                        Cast on seekers
+                                        <Send className="w-4 h-4" />
+                                        Cast curse
                                     </>
                                 )}
+                            </Button>
+                        )}
+                        {/* "Not now" only makes sense before the roll commits.
+                            After a roll the curse is fated either way, so the
+                            player can't back out keeping the card. */}
+                        {!rolledAndCommitted && (
+                            <Button
+                                variant="outline"
+                                onClick={() => onOpenChange(false)}
+                            >
+                                Cancel
                             </Button>
                         )}
                     </div>
@@ -997,6 +1050,20 @@ export function CastCurseDialog({
                 </div>
             </DialogContent>
         </Dialog>
+
+        {/* Crop/censor editor for a picked photo-cost proof photo. Its own
+            Dialog at z-[1070] (v869), so it layers over this cast dialog. */}
+        {photoFile && (
+            <PhotoCensorDialog
+                file={photoFile}
+                onCancel={() => setPhotoFile(null)}
+                onConfirm={(redacted) => {
+                    setPhotoFile(null);
+                    commitPhoto(redacted);
+                }}
+            />
+        )}
+        </>
     );
 }
 

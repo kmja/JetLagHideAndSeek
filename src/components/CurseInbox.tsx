@@ -279,6 +279,13 @@ export function CurseInbox() {
                                 <p className="text-xs text-foreground/80 mt-1 leading-snug">
                                     {curse.description}
                                 </p>
+                                {curse.photoUrl && (
+                                    <img
+                                        src={curse.photoUrl}
+                                        alt={`${curse.name} proof photo`}
+                                        className="mt-2 w-full max-h-40 rounded-md object-cover border border-purple-500/30"
+                                    />
+                                )}
                                 {/* Casting cost is the hider's concern, not
                                     the seeker's — omitted. Timed curses show
                                     a live "clears in" countdown instead. */}
@@ -356,6 +363,13 @@ export function CurseInbox() {
                         <p className="text-sm text-foreground/80 leading-snug">
                             {resolvedDialog?.description}
                         </p>
+                        {resolvedDialog?.photoUrl && (
+                            <img
+                                src={resolvedDialog.photoUrl}
+                                alt={`${resolvedDialog.name} proof photo`}
+                                className="w-full max-h-60 rounded-md object-cover border border-purple-500/30"
+                            />
+                        )}
                         {dlgMeta?.expiresAt != null && (
                             <p className="text-xs text-purple-300 inline-flex items-center gap-1 tabular-nums">
                                 <Hourglass className="w-3 h-3" />

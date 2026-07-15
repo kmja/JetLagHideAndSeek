@@ -532,6 +532,13 @@ export interface CursePayload {
      * + back-compat: absent for every other curse and older clients.
      */
     disabledCategories?: string[];
+    /**
+     * Proof photo the hider attaches when a curse's casting cost is a
+     * photo ("A photo of an animal / a car" — Zoologist, Luxury Car). An
+     * R2 URL (uploaded via the game's photo endpoint), so it stays tiny
+     * on the wire. Absent for every non-photo curse and older clients.
+     */
+    photoUrl?: string;
 }
 
 /** Push subscription stored by the client for server-side delivery. */

@@ -64,6 +64,21 @@ export function parseDiscardCost(castingCost: string | null): DiscardCost | null
 }
 
 /**
+ * Whether a curse's casting cost is "take a photo" — i.e. the hider must
+ * attach a proof photo the seekers see (Curse of the Zoologist "A photo
+ * of an animal", Curse of the Luxury Car "A photo of a car"). Those are
+ * the curses where the app can actually deliver the hider's photo to the
+ * seekers, rather than leaving it a self-attested real-life action.
+ *
+ * "Film a bird" is deliberately EXCLUDED — it's a video, not a still, and
+ * the app has no video pipeline; the bird footage is the casting-cost
+ * proof the hider keeps, not something delivered over the wire.
+ */
+export function curseCostRequiresPhoto(castingCost: string | null): boolean {
+    return !!castingCost && /\bphoto\b/i.test(castingCost);
+}
+
+/**
  * The subset of `hand` that can satisfy `cost`, excluding the curse
  * card paying the cost (the casting cost is paid *in addition* to the
  * curse itself).

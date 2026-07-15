@@ -428,7 +428,36 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v886`. Use `git log` for the per-version detail;
+build stamp. Current: `v887`. Use `git log` for the per-version detail;
+
+**v887 — Cast Curse dialog cleanup, photo-cost curses deliver a photo,
+randomize is response-only.**
+- **Cast Curse dialog is app-only + vertical buttons** (`CastCurseDialog`).
+  The link-era Copy-link / Share-again buttons were removed (the `copyLink`
+  fn dropped, the cancelled/failed retry-hint text updated) — a curse is sent
+  through the app automatically (over the wire in multiplayer). The footer is
+  now a vertical `flex flex-col gap-2`: a single **Cast curse** (`Send`) /
+  **Discard fizzled curse** (`Trash2`) action on top, **Cancel** (was "Not
+  now") below.
+- **Photo-cost curses now DELIVER the hider's photo to the seekers.** Curse of
+  the Zoologist ("A photo of an animal") and Curse of the Luxury Car ("A photo
+  of a car") have a photo casting cost the app couldn't fulfil before. New
+  `curseCostRequiresPhoto(castingCost)` (`castingCost.ts`, `/\bphoto\b/i`;
+  "Film a bird" is a video, deliberately excluded) drives a capture UI in the
+  casting-cost box (`Camera` button → shared `PhotoCensorDialog` crop/censor →
+  `preparePhotoForSend` → R2 upload). In multiplayer the photo is REQUIRED
+  before casting and its R2 URL rides `CursePayload.photoUrl` (new optional
+  field, mirrored in `SharedCursePayload` for the `?c=` link — URL only, never
+  an inline data URI) → server relays verbatim → seeker's `curseReceived`
+  handler carries it into the `receivedCurses` entry → `CurseInbox` renders it
+  in the notification banner + the dialog. Solo/link games keep it a
+  self-attested action (capture offered but not gated — no room to send it
+  to). Server + demo broker pass the payload through unchanged.
+- **Randomize can't be played standalone from the hand** (`HiderHandFan` +
+  `HiderHandPanel`). It's a RESPONSE card — it swaps the question you're
+  answering for a random one — so the hand's `case "randomize"` no longer
+  discards it for no effect; it toasts "Randomize is played in response to a
+  question — open the question you want to answer and play it from there."
 
 **v886 — draw-picker stepper + GPS-on-open uses lastKnownPosition + title
 contrast.**

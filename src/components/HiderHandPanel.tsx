@@ -149,9 +149,14 @@ export function HiderHandPanel() {
                 );
                 return;
             case "randomize":
-                discardCard(card.id);
+                // v887: Randomize is a RESPONSE card — it swaps the
+                // question you're answering for a random one, so it can
+                // only be played FROM a question (the answer dialog's
+                // response actions), never standalone from the hand.
+                // Direct the hider there instead of discarding it for no
+                // effect.
                 toast.info(
-                    "Randomize played. Pick a different un-asked question from the same category at random — answer that one instead.",
+                    "Randomize is played in response to a question — open the question you want to answer and play it from there.",
                     { autoClose: 5000 },
                 );
                 return;
