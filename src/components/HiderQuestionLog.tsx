@@ -174,6 +174,9 @@ function AnsweredCard({ entry }: { entry: InboxEntry }) {
     const isPhoto = entry.id === "photo";
     const d = question.data as Record<string, unknown>;
     const photoSrc = (d.photoUrl as string) || (d.photoUri as string) || null;
+    // v883: a vetoed / randomized-away question eliminates nothing, so its
+    // outcome map (the whole play area) is meaningless — show a note instead.
+    const noOutcome = Boolean(d.vetoed) || Boolean(d.randomizedAway);
 
     return (
         <div className="space-y-2">
@@ -201,7 +204,13 @@ function AnsweredCard({ entry }: { entry: InboxEntry }) {
                 ariaLabel={`${expanded ? "Collapse" : "Expand"} answered ${entry.id} question`}
             />
             {expanded &&
-                (isPhoto ? (
+                (noOutcome ? (
+                    <p className="px-1 text-xs italic text-muted-foreground">
+                        {d.vetoed
+                            ? "You vetoed this question — no answer was given and nothing was eliminated."
+                            : "This question was randomized away — nothing was eliminated."}
+                    </p>
+                ) : isPhoto ? (
                     photoSrc ? (
                         <img
                             src={photoSrc}

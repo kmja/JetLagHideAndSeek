@@ -19,11 +19,7 @@ import {
     spoofPickMode,
 } from "@/lib/debugGpsSpoof";
 import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
-import {
-    debugLauncherHidden,
-    debugPanelOpen,
-    stationLabelMaxChars,
-} from "@/lib/debugState";
+import { debugPanelOpen, stationLabelMaxChars } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
 import { type Card, shuffledDeck } from "@/lib/hiderDeck";
 import { hiddenCreditMs } from "@/lib/gameSetup";
@@ -111,22 +107,16 @@ type Phase =
     | "answered-no";
 
 /**
- * Where the legacy floating "debug" chip should appear:
- *   "always"  — every viewport (used on /welcome, which has no header)
- *   "desktop" — desktop only; mobile reaches it via the header
- *               `DebugLaunchButton` (seeker page: header is md:hidden)
- *   "never"   — header always present (hider page) so no floating chip
- * v617: the panel + actions are unchanged; this only gates the launcher.
+ * Legacy prop, retained so existing call sites still type-check. It used to
+ * gate WHERE the floating "debug" chip appeared; v883 removed the chip
+ * entirely (the panel opens via the hidden top-centre 5-tap gesture), so this
+ * value is now ignored.
  */
 type DebugFloating = "always" | "desktop" | "never";
 
-export function DebugPhaseControls({
-    floating = "always",
-}: {
-    floating?: DebugFloating;
-} = {}) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
     const open = useStore(debugPanelOpen);
-    const $launcherHidden = useStore(debugLauncherHidden);
     const $labelMaxChars = useStore(stationLabelMaxChars);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
@@ -671,39 +661,10 @@ export function DebugPhaseControls({
     }, []);
     if (!mounted || typeof document === "undefined") return null;
 
-    const triggerButton = !open && floating !== "never" && (
-        <button
-            type="button"
-            onClick={() => debugPanelOpen.set(true)}
-            aria-label="Open developer debug panel"
-            className={cn(
-                // v271: moved from right → left so it doesn't collide
-                // with the HiderTimer that lives at bottom-right.
-                "fixed bottom-20 left-3 z-[9999] pointer-events-auto",
-                "items-center gap-1 px-2 py-1 rounded-md",
-                "bg-background/80 border border-border/60",
-                "text-[11px] font-mono text-muted-foreground/40",
-                "hover:text-muted-foreground hover:bg-secondary/80 hover:border-border transition-colors",
-                "shadow-sm",
-                // v617: on the seeker page the floating chip is desktop-only
-                // (mobile reaches the panel via the header DebugLaunchButton),
-                // since the bottom-left corner now holds the Map-options chip.
-                floating === "desktop" ? "hidden md:flex" : "flex",
-                // v353: amber-tint the launcher while GPS is spoofed so a
-                // forgotten spoof can't masquerade as broken real GPS.
-                $spoof && "text-amber-400 border-amber-400/60 bg-amber-950/40",
-                // Invisible-but-clickable for demo screenshots (toggled inside
-                // the panel). opacity-0 hides the icon + border + bg; the hit
-                // area stays so the panel can still be reopened.
-                $launcherHidden && "opacity-0 hover:opacity-0",
-            )}
-        >
-            <Bug className="w-3 h-3" />
-            {$spoof ? "debug · GPS spoofed" : "debug"}
-        </button>
-    );
-
-    if (!open) return triggerButton ? createPortal(triggerButton, document.body) : null;
+    // v883: the floating debug launcher chip was REMOVED so users can't tap
+    // it by accident. The panel now opens ONLY via the hidden top-centre
+    // 5-tap gesture (installDebugSecretTap, main.tsx) → debugPanelOpen.
+    if (!open) return null;
 
     const content = (
         <div
@@ -756,23 +717,6 @@ export function DebugPhaseControls({
                         )}
                     </div>
                 </div>
-
-                {/* Demo screenshots: hide the launcher button(s) while keeping
-                    them clickable — this panel stays reachable to un-hide. */}
-                <label className="flex items-center gap-2 text-[11px] cursor-pointer select-none rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
-                    <input
-                        type="checkbox"
-                        checked={$launcherHidden}
-                        onChange={(e) =>
-                            debugLauncherHidden.set(e.target.checked)
-                        }
-                        className="accent-amber-500"
-                    />
-                    <span>
-                        Hide launcher (invisible but clickable — for
-                        screenshots)
-                    </span>
-                </label>
 
                 {/* Hiding-zone label length. Names are abbreviated
                     (Street → St, …) then truncated to this many chars.
@@ -1219,13 +1163,7 @@ export function DebugPhaseControls({
         </div>
     );
 
-    return createPortal(
-        <>
-            {triggerButton}
-            {content}
-        </>,
-        document.body,
-    );
+    return createPortal(content, document.body);
 }
 
 function phaseLabel(p: Phase): string {

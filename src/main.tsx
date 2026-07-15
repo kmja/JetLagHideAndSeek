@@ -4,6 +4,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { installDebugSecretTap } from "@/hooks/useDebugSecretTap";
 import { installBodyPointerEventsGuard } from "@/lib/bodyPointerEventsGuard";
 import { installTheme } from "@/lib/theme";
 // Side-effect import: registers the `beforeinstallprompt` listener at
@@ -27,6 +28,10 @@ installTheme();
 // docs). Installed once for the app lifetime; replaces the per-component
 // band-aids. Runs outside React so it survives every route change.
 installBodyPointerEventsGuard();
+
+// Hidden developer gesture: 5 quick taps in the top-centre of the screen open
+// the debug panel. Installed once, app-wide — there's no visible launcher.
+installDebugSecretTap();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root element missing from index.html");

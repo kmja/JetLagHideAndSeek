@@ -1,12 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Check } from "lucide-react";
-import {
-    type CSSProperties,
-    useCallback,
-    useEffect,
-    useRef,
-    useState,
-} from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -73,25 +67,6 @@ export function DrawPickerDialog() {
     // Track timers across the kept lifecycle so a hot-reload or fast
     // reopen of the picker doesn't fire stale callbacks.
     const timersRef = useRef<number[]>([]);
-
-    // Measure the card-tray width so we can decide whether three cards
-    // fit side by side at sensible proportions, or should drop to a 2+1
-    // layout. A callback ref + ResizeObserver handles the dialog's
-    // conditional mount cleanly (the tray only exists while $pending).
-    const [containerW, setContainerW] = useState(0);
-    const roRef = useRef<ResizeObserver | null>(null);
-    const measureRef = useCallback((el: HTMLDivElement | null) => {
-        roRef.current?.disconnect();
-        roRef.current = null;
-        if (!el) return;
-        setContainerW(el.clientWidth);
-        const ro = new ResizeObserver((entries) => {
-            const w = entries[0]?.contentRect.width;
-            if (w) setContainerW(w);
-        });
-        ro.observe(el);
-        roRef.current = ro;
-    }, []);
 
     // Reset local picker state whenever a fresh draw arrives. Reset on
     // both the question key AND the card-id signature so re-draws for
@@ -161,23 +136,12 @@ export function DrawPickerDialog() {
         setSelectedId((curr) => (curr === id ? null : id));
     };
 
-    // Layout decision. Cards ALWAYS keep their poker (5:7) proportions.
-    // Three cards go side by side only if each still gets a sensible
-    // width; otherwise they wrap to a 2+1 layout (two on top, one
-    // centered below at the same width). 2 → one row; 4 → 2×2.
-    const GAP_PX = 12; // gap-3
-    const MIN_CARD_W = 150;
-    const threeAcross =
-        total === 3 &&
-        containerW > 0 &&
-        (containerW - 2 * GAP_PX) / 3 >= MIN_CARD_W;
-    const twoPlusOne = total === 3 && !threeAcross;
-    const gridColsClass =
-        total === 2
-            ? "grid-cols-2"
-            : threeAcross
-              ? "grid-cols-3"
-              : "grid-cols-2"; // 2+1 and 4-up both use a 2-col grid
+    // v883: the cards are shown in a horizontal CAROUSEL (scroll-snap) rather
+    // than a grid — at poker (5:7) proportions two or more cards side-by-side
+    // on a phone became too small and clipped their descriptions. Each card is
+    // ~one-at-a-time width so ALL its content fits; the hider swipes between
+    // them and taps "Pick this card". The flying-to-hand card escapes the
+    // carousel's overflow via `position: fixed` (see CardCell).
 
     // v306: chrome fades both during the final card's fly AND
     // during the discard fade-out — they're now the same moment.
@@ -230,29 +194,26 @@ export function DrawPickerDialog() {
                 </DialogDescription>
 
                 <div
-                    ref={measureRef}
-                    className="px-2 py-2 min-h-0 overflow-visible"
+                    className={cn(
+                        "flex gap-3 items-start px-[11%] py-2",
+                        // Horizontal scroll-snap carousel — one card at a time
+                        // with the neighbours peeking. Scrollbar hidden.
+                        "overflow-x-auto snap-x snap-mandatory",
+                        "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
+                    )}
                 >
-                    <div className={cn("grid gap-3 items-start", gridColsClass)}>
-                        {$pending.cards.map((card, i) => {
-                            const isSelected = selectedId === card.id;
-                            const isKept = keptIds.includes(card.id);
-                            const isFlying = flyingId === card.id;
-                            // v312: discards start fading the
-                            // moment the last fly begins, not after
-                            // it ends. `chromeFadeOn` is true while
-                            // either `flyingLast` (during the final
-                            // fly) or `finished` (after) is true,
-                            // and the flying card itself is
-                            // excluded so the fade transform
-                            // doesn't fight the fly transform.
-                            const isFading =
-                                chromeFadeOn &&
-                                !isKept &&
-                                !isFlying;
-                            const cell = (
+                    {$pending.cards.map((card) => {
+                        const isSelected = selectedId === card.id;
+                        const isKept = keptIds.includes(card.id);
+                        const isFlying = flyingId === card.id;
+                        const isFading =
+                            chromeFadeOn && !isKept && !isFlying;
+                        return (
+                            <div
+                                key={card.id}
+                                className="snap-center shrink-0 w-[78%] max-w-[15rem]"
+                            >
                                 <CardCell
-                                    key={card.id}
                                     card={card}
                                     gameSize={$gameSize}
                                     isSelected={isSelected}
@@ -263,26 +224,9 @@ export function DrawPickerDialog() {
                                     onTap={() => handleCardTap(card.id)}
                                     onConfirm={confirmSelected}
                                 />
-                            );
-                            // 2+1: the third card spans both columns and
-                            // centers at a single-column width, so all
-                            // three keep identical poker proportions
-                            // across two rows.
-                            if (twoPlusOne && i === 2) {
-                                return (
-                                    <div
-                                        key={card.id}
-                                        className="col-span-2 flex justify-center"
-                                    >
-                                        <div style={{ width: "calc(50% - 6px)" }}>
-                                            {cell}
-                                        </div>
-                                    </div>
-                                );
-                            }
-                            return cell;
-                        })}
-                    </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </DialogContent>
         </Dialog>
@@ -321,13 +265,19 @@ function CardCell({
     // safe-area-aware viewport bottom), so the picked card visibly
     // tucks into where the hand actually sits.
     const wrapperRef = useRef<HTMLDivElement | null>(null);
-    const [flyDelta, setFlyDelta] = useState<{
-        x: number;
-        y: number;
+    // v883: capture the cell's viewport rect at fly-start so the flying card
+    // can go `position: fixed` and ESCAPE the carousel's `overflow-x-auto`
+    // (which would otherwise clip the card as it flies down to the hand).
+    const [flyRect, setFlyRect] = useState<{
+        left: number;
+        top: number;
+        width: number;
+        dx: number;
+        dy: number;
     } | null>(null);
     useEffect(() => {
         if (!isFlying) {
-            setFlyDelta(null);
+            setFlyRect(null);
             return;
         }
         const el = wrapperRef.current;
@@ -344,7 +294,13 @@ function CardCell({
         // iOS safe areas.
         const targetX = vw / 2;
         const targetY = vh - 34;
-        setFlyDelta({ x: targetX - cellCx, y: targetY - cellCy });
+        setFlyRect({
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            dx: targetX - cellCx,
+            dy: targetY - cellCy,
+        });
     }, [isFlying]);
 
     // Card transform per phase. Defaults (resting + highlighted) sit
@@ -357,11 +313,18 @@ function CardCell({
             // doesn't jump. The next render applies the measured
             // translate and the CSS transition fires from rest →
             // target in one smooth motion.
-            if (!flyDelta) {
+            if (!flyRect) {
                 return { transition: "transform 180ms ease-out" };
             }
+            // v883: pin to the measured viewport rect so the fly escapes the
+            // carousel's overflow clipping, then translate to the hand.
             return {
-                transform: `translate(${flyDelta.x}px, ${flyDelta.y}px) scale(0.36) rotate(-3deg)`,
+                position: "fixed",
+                left: flyRect.left,
+                top: flyRect.top,
+                width: flyRect.width,
+                zIndex: 60,
+                transform: `translate(${flyRect.dx}px, ${flyRect.dy}px) scale(0.36) rotate(-3deg)`,
                 opacity: 0.9,
                 transition: `transform ${FLY_MS}ms cubic-bezier(.4,.0,.7,.2), opacity ${FLY_MS}ms ease-in`,
                 pointerEvents: "none",

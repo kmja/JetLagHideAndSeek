@@ -428,7 +428,34 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v883`. Use `git log` for the per-version detail;
+build stamp. Current: `v884`. Use `git log` for the per-version detail;
+
+**v884 — draw-picker carousel + veto-label fix + global debug gesture + card
+tests.**
+- **Draw-picker cards are a horizontal CAROUSEL** (`DrawPickerDialog`) instead
+  of a grid. At poker (5:7) proportions two+ cards side-by-side on a phone
+  became too small and clipped their descriptions; each card is now ~one-at-a-
+  time width (`w-[78%] max-w-[15rem]`, scroll-snap) so ALL content fits. The
+  fly-to-hand animation escapes the carousel's `overflow-x-auto` via
+  `position: fixed` at the card's measured rect (`CardCell` `flyRect`).
+- **Veto no longer mislabels as "further".** A vetoed measuring question has no
+  `hiderCloser`, so `answeredDetail` (`cards/base.tsx`) read the absent field as
+  a false verdict → "Hider is further". Now `answeredDetail` early-returns
+  "Vetoed — no answer" / "Randomized" BEFORE the per-type switch (guards every
+  consumer), and the hider's `HiderQuestionLog` skips the meaningless outcome
+  map for a vetoed/randomized-away question. (The seeker side already honoured
+  `vetoed`; this was purely the hider's log.)
+- **Debug panel gesture is GLOBAL + no launcher.** The floating debug chip was
+  REMOVED (`DebugPhaseControls` — users could tap it by accident). The panel
+  now opens ONLY via `installDebugSecretTap` (`main.tsx`): a passive,
+  capture-phase document listener that opens the panel on 5 quick taps in the
+  top-CENTRE region of the screen — works on EVERY screen (not just where the
+  wordmark shows) and never blocks any UI. The wordmark reverted to plain
+  branding.
+- **Hider-card unit tests** (`tests/hiderCards.test.ts`, 9): deck composition
+  (55 time-bonus + 21 powerups + curses, all 7 powerup kinds), time-bonus tally
+  incl. the passive Duplicate copying the max bonus, and curse asking-
+  restrictions (Drained Brain / Urban Explorer / Spotty Memory / dismissed).
 
 **v883 — lobby header redesign (contained map) + hidden debug gesture.**
 - **Lobby header rebuilt** (`GameLobbyDialog`). The full-bleed map + dimming

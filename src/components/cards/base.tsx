@@ -52,6 +52,12 @@ function formatRelativeTime(timestamp: number, now: number): string {
  */
 export function answeredDetail(q: Question): string | null {
     const d = q.data as Record<string, unknown>;
+    // v883: a vetoed / randomized-away question has NO real answer — never
+    // fall through to the per-type detail (which would read an absent field as
+    // a false verdict, e.g. a vetoed measuring question showing "Hider is
+    // further" because `hiderCloser` is undefined). This guards EVERY consumer.
+    if (d.vetoed) return "Vetoed — no answer";
+    if (d.randomizedAway) return "Randomized";
     switch (q.id) {
         case "radius":
             return d.within ? "Inside the radius" : "Outside the radius";

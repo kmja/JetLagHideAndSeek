@@ -1,32 +1,48 @@
-import { useRef } from "react";
-
 import { debugPanelOpen } from "@/lib/debugState";
 
 /** Taps needed in quick succession to reveal the debug panel. */
 const TAPS_NEEDED = 5;
 /** Max gap (ms) between taps before the counter resets. */
 const TAP_WINDOW_MS = 700;
+/** Top-centre hit region (px): within this half-width of the horizontal
+ *  centre AND within this distance of the very top of the viewport. */
+const REGION_HALF_WIDTH_PX = 130;
+const REGION_HEIGHT_PX = 96;
+
+let count = 0;
+let last = 0;
+let installed = false;
+
+function onPointerDown(e: PointerEvent) {
+    const cx = window.innerWidth / 2;
+    if (Math.abs(e.clientX - cx) > REGION_HALF_WIDTH_PX) return;
+    if (e.clientY > REGION_HEIGHT_PX) return;
+    const now = Date.now();
+    // Reset the streak if it's been too long since the previous tap.
+    if (now - last > TAP_WINDOW_MS) count = 0;
+    last = now;
+    count += 1;
+    if (count >= TAPS_NEEDED) {
+        count = 0;
+        debugPanelOpen.set(true);
+    }
+}
 
 /**
- * Secret gesture to open the developer debug panel (v882): the header
- * wordmark (dead-centre, top of the screen) must be tapped 5 times in quick
- * succession. A single tap does nothing, so the panel is no longer trivially
- * discoverable during a demo — but it stays reachable for development without
- * a visible launcher. Returns an onClick handler; the wordmark otherwise reads
- * as plain branding.
+ * Install the hidden debug gesture (v883): tapping the TOP-CENTRE of the
+ * screen 5 times in quick succession opens the developer debug panel. It's a
+ * passive, capture-phase document listener that only OBSERVES taps landing in
+ * a small top-centre region — it never blocks or consumes the event, so it
+ * doesn't interfere with any UI (a modal title, a header, the wordmark). This
+ * works ACROSS THE APP, on every screen, not just where the wordmark shows,
+ * and there's no visible launcher to tap accidentally. Idempotent; called once
+ * from `main.tsx`.
  */
-export function useDebugSecretTap(): () => void {
-    const count = useRef(0);
-    const last = useRef(0);
-    return () => {
-        const now = Date.now();
-        // Reset the streak if it's been too long since the previous tap.
-        if (now - last.current > TAP_WINDOW_MS) count.current = 0;
-        last.current = now;
-        count.current += 1;
-        if (count.current >= TAPS_NEEDED) {
-            count.current = 0;
-            debugPanelOpen.set(true);
-        }
-    };
+export function installDebugSecretTap(): void {
+    if (installed || typeof window === "undefined") return;
+    installed = true;
+    window.addEventListener("pointerdown", onPointerDown, {
+        capture: true,
+        passive: true,
+    });
 }
