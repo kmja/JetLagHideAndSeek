@@ -428,7 +428,17 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v880`. Use `git log` for the per-version detail;
+build stamp. Current: `v881`. Use `git log` for the per-version detail;
+
+**v881 — landing "Install app" button only shows a real one-tap install.**
+`InstallAppButton` (landing, `Welcome`) used to fall back on iOS Safari to a
+manual "tap Share → Add to Home Screen" TOAST, which read as broken (it's
+instructions, not an install). Now the button renders ONLY when a real
+`beforeinstallprompt` is captured (Chrome/Edge/Android + desktop Chromium) —
+the iOS-manual toast path was removed, so on browsers with no programmatic
+install the button simply doesn't appear rather than offering a dead action.
+(The Settings-panel `PWAInstallButton` keeps its passive iOS text hint — a
+static instruction in a settings list, not a dead CTA — so it's untouched.)
 
 **v880 — debug question-inject fix + compact committed-zone card + big
 top-of-map grace prompt.**
