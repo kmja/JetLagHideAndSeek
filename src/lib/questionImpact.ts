@@ -168,6 +168,30 @@ function usePlayAreaPolygon(): Feature<Polygon | MultiPolygon> | null {
     }, [$maskData, $mapGeoJSON, $polyGeoJSON]);
 }
 
+/**
+ * The FULL play-area polygon, ignoring the elimination mask — used to
+ * FILTER the candidate/Voronoi site set (v868). The masked
+ * `usePlayAreaPolygon` is right for CLIPPING the drawn yes/no regions to
+ * the not-yet-eliminated area, but filtering the candidate SITES against it
+ * dropped a reference that sits in already-eliminated land — so for
+ * matching (consulate etc.) the seeker's labelled nearest could be excluded
+ * from the Voronoi sites and the labelled pin then fell into a neighbour's
+ * cell = "not matching", which is impossible. The nearest-reference LABEL
+ * (`nearestFromCache`) filters against this FULL area, so the overlay's site
+ * set must match it. (Clipping still uses the masked area.)
+ */
+function useFullPlayAreaPolygon(): Feature<Polygon | MultiPolygon> | null {
+    const $mapGeoJSON = useStore(mapGeoJSON);
+    const $polyGeoJSON = useStore(polyGeoJSON);
+    return useMemo(() => {
+        const src = ($mapGeoJSON ?? $polyGeoJSON) as
+            | Feature
+            | FeatureCollection
+            | null;
+        return toSinglePolygon(src);
+    }, [$mapGeoJSON, $polyGeoJSON]);
+}
+
 /** Collapse a Feature / FeatureCollection to ONE polygon feature
  *  (unioning the parts of a multi-feature remaining area). */
 function toSinglePolygon(
@@ -330,6 +354,8 @@ export function useQuestionImpact(
 ): QuestionImpact | null {
     const family = useMemo(() => resolveFamily(type), [type]);
     const playArea = usePlayAreaPolygon();
+    // Full (unmasked) area for filtering candidate SITES — see the hook doc.
+    const fullPlayArea = useFullPlayAreaPolygon();
     const [tick, setTick] = useState(0);
 
     // Warm the family cache if it isn't already (point families only;
@@ -564,10 +590,16 @@ export function useQuestionImpact(
         // single-area and multi-area play areas. Falls through to the
         // unfiltered list while the polygon is still loading (matches
         // the v369 graceful-degrade in nearestFromCache).
+        // Filter SITES against the FULL play area (not the elimination mask)
+        // so the seeker's labelled nearest reference is never excluded from
+        // the Voronoi sites — otherwise the labelled pin can fall into a
+        // neighbour's cell = "not matching" (the consulate bug, v868). The
+        // drawn regions are still CLIPPED to the masked `playArea` below.
+        const siteArea = fullPlayArea ?? playArea;
         const candidates =
-            playArea && family.kind !== "city"
+            siteArea && family.kind !== "city"
                 ? rawCandidates.filter((c) =>
-                      pointInPlayArea(playArea, c.lng, c.lat),
+                      pointInPlayArea(siteArea, c.lng, c.lat),
                   )
                 : rawCandidates;
         const loading =

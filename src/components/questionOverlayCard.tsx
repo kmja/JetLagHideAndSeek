@@ -42,7 +42,7 @@ function subtypeLabel(type: string | undefined): string | null {
         case "major-city":
             return "Major city";
         case "highspeed-measure-shinkansen":
-            return "Shinkansen";
+            return "High-speed rail";
         case "same-train-line":
             return "Train line";
         case "same-length-station":

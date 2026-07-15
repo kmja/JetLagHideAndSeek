@@ -428,7 +428,49 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v867`. Use `git log` for the per-version detail;
+build stamp. Current: `v868`. Use `git log` for the per-version detail;
+
+**v868 — matching/measuring question-correctness batch 1 (NYC demo feedback).**
+Five targeted fixes from a walkthrough of NYC question types:
+- **Consulate (matching) — nearest reference drawn in the "not matching"
+  region (impossible).** `questionImpact.ts` filtered the Voronoi SITE set
+  against the elimination-masked remaining area (`$maskData`), while the
+  nearest-reference LABEL (`nearestFromCache`) filters against the FULL play
+  area — so a consulate in already-eliminated land was dropped from the
+  overlay's sites and the labelled pin fell into a neighbour's cell. New
+  `useFullPlayAreaPolygon()` filters the candidate SITES against the full area
+  (the mask still CLIPS the drawn yes/no regions), so the labelled nearest is
+  always a site and lands in its own "matching" cell.
+- **Admin "City / Town (OSM 8)" in NYC — toast storm + "all mirrors timed
+  out".** NYC has no `admin_level=8` boundary inside it (it's level 5, boroughs
+  level 6), so the prewarmed L8 field contains no boundary CONTAINING an in-area
+  point. `findAdminBoundary` (`overpass.ts`) treated warm-but-no-containing as a
+  reason to fall through to LIVE Overpass (poly + `is_in`), hammering the
+  mirrors. Now a WARM miss is AUTHORITATIVE "no zone" and returns undefined —
+  only a COLD miss goes live. AND the v841 admin-span gate now returns the TRUE
+  span (`seen.size`) instead of the `regions.length` fallback, so "City / Town
+  (OSM 8)" is correctly DISABLED in NYC (span 0 — nothing to cut).
+- **Same-landmass / heavy-question "empty preview on reopen".**
+  `determineMatchingBoundary` (lodash `memoize`) pinned a silent-draft failure's
+  resolved-`undefined`, so every reopen returned undefined → no overlay ever
+  drew. The memo-key resolver was extracted (`matchingBoundaryMemoKey`) and
+  `matchingDraftRegion` now EVICTS the entry when a silent draft resolves
+  `undefined` (a transient/cold failure — `false` stays cached as a valid "point
+  type, no region"), so a reopen recomputes once the geometry warms.
+- **"High-speed rail" rename** — the on-card label "Shinkansen" →
+  "High-speed rail" (`questionOverlayCard.tsx`); internal id
+  `highspeed-measure-shinkansen` unchanged (save-game compat).
+- **Low-poly radar mask** — `modifyMapData`'s zone-radius-buffer dilation used
+  `turf.buffer` at its default `steps:8`, producing a coarse ~20-gon circle;
+  now `steps:64` (the underlying `arcBuffer` circle was already smooth).
+Remaining NYC-walkthrough items queued for the next passes (heavier / need
+their own work): draw the actual train LINE (matching train-line); worker-offload
+the sea/coast geometry so same-landmass / body-of-water don't FREEZE the app +
+tear the dialog down (also fixes the "loading animation freezes" + "slow question
+closes with 'couldn't send'"); measuring sea/coast elimination correctness
+(body-of-water ignoring the big river/bay, coastline math, sea-level preview);
+presence-gating for high-speed-rail + international-border (no in-area reference →
+disable); and locale labels for the measuring 1st/2nd admin-division borders.
 
 **v867 — lobby header fades into the THEME background + foreground text; wizard
 play-area card cleanup + GPS dot.** Follow-up to the v866 navy header. **Lobby

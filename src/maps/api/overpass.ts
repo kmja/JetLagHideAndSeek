@@ -700,12 +700,20 @@ export const findAdminBoundary = async (
                 }
             });
             if (hit) return hit;
-            // Warm-but-no-containing-boundary: fall through to the live poly
-            // query (the bbox superset can miss a boundary that only clips
-            // the play area at its edge).
+            // Warm-but-no-containing-boundary is AUTHORITATIVE "no zone here",
+            // NOT a reason to go live. The prewarmed set is the whole
+            // admin_level=N field across a 2 km-PADDED bbox superset of the
+            // play area, so any boundary that could contain a point INSIDE the
+            // play area is already in it (with full `out geom`). Falling
+            // through to live Overpass here was the reported NYC bug: NYC has
+            // no admin_level=8 municipality inside it (it's level 5, boroughs
+            // level 6), so "City / Town (OSM 8)" found no containing boundary
+            // and then hammered Overpass → the 3× "Determining matching zone…"
+            // toasts + "all mirrors timed out". A warm miss returns undefined.
+            return undefined;
         }
     } catch {
-        /* fall through to the live poly query below */
+        /* fall through to the live poly query below (cold / fetch failed) */
     }
 
     try {

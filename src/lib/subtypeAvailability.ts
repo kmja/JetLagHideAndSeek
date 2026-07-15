@@ -180,7 +180,16 @@ async function computeAdminSpan(level: number): Promise<number | null> {
             }
         }
     }
-    return seen.size > 0 ? seen.size : regions.length;
+    // `seen.size` is the true span: how many distinct regions at this level
+    // actually contain play-area interior points. A result of 0 means NO
+    // region of this level covers the play area — e.g. NYC (admin_level 5,
+    // boroughs level 6) has NO admin_level=8 municipalities inside it, so a
+    // level-8 bbox query returns only NJ/Westchester towns that touch the
+    // padded bbox but contain no NYC point. That's span 0 → the question
+    // can't cut the map → disabled. (The old `: regions.length` fallback
+    // wrongly reported those touch-the-bbox regions as spanning the area,
+    // so "City / Town (OSM 8)" stayed enabled in NYC — the reported bug.)
+    return seen.size;
 }
 
 /* ────────────────── Coast-presence gating (v842) ──────────────────── *

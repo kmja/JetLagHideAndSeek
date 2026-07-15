@@ -59,7 +59,12 @@ export const modifyMapData = (
             const buffered = turf.buffer(
                 safeModifications as Feature<Polygon | MultiPolygon>,
                 withinModifications ? zoneBufferKm : -zoneBufferKm,
-                { units: "kilometers" },
+                // steps 64 (turf's default is 8) — the default produced a
+                // visibly low-poly ~20-gon radar mask when the zone-radius
+                // buffer rule dilated the circle (v868). The underlying
+                // arcBuffer circle is smooth; this keeps it smooth after the
+                // house-rule dilation.
+                { units: "kilometers", steps: 64 },
             ) as Feature<Polygon | MultiPolygon> | undefined;
             if (withinModifications) {
                 if (buffered) safeModifications = buffered;

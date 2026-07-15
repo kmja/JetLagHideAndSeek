@@ -588,31 +588,40 @@ out geom;
 
         return boundary;
     },
-    (question: MatchingQuestion & { geo?: unknown; cat?: unknown }) =>
-        // v376: was serialising the whole polyGeoJSON FeatureCollection
-        // (hundreds of KB) into the memo key on every lookup. The key only
-        // needs to change when the play area changes — playAreaSignature
-        // produces a stable few-byte string per FeatureCollection identity
-        // (cached on a WeakMap). ~10-50ms per memo lookup → ~5us.
-        JSON.stringify({
-            type: question.type,
-            lat: question.lat,
-            lng: question.lng,
-            cat: question.cat,
-            geo: question.geo,
-            // same-length-station's boundary depends on the hider's 3-way
-            // answer (equal / shorter / longer), so it must invalidate the
-            // memo when the answer lands.
-            lengthComparison: question.lengthComparison,
-            // v840: the silent draft-preview call is a SEPARATE memo entry
-            // from the real elimination call (which must keep its toast/throw
-            // on failure), so they can't share a cached undefined.
-            silent: (question as { silent?: boolean }).silent === true,
-            entirety: polyGeoJSON.get()
-                ? playAreaSignature(polyGeoJSON.get())
-                : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as string | number),
-        }),
+    matchingBoundaryMemoKey,
 );
+
+/**
+ * Memo key for `determineMatchingBoundary`. Extracted (v868) so
+ * `matchingDraftRegion` can EVICT a failed silent-draft entry — see the note
+ * there. v376: was serialising the whole polyGeoJSON FeatureCollection
+ * (hundreds of KB) into the key on every lookup; `playAreaSignature` is a
+ * stable few-byte string per FeatureCollection identity (WeakMap-cached).
+ */
+function matchingBoundaryMemoKey(
+    question: MatchingQuestion & { geo?: unknown; cat?: unknown },
+): string {
+    return JSON.stringify({
+        type: question.type,
+        lat: question.lat,
+        lng: question.lng,
+        cat: question.cat,
+        geo: question.geo,
+        // same-length-station's boundary depends on the hider's 3-way answer
+        // (equal / shorter / longer), so it must invalidate the memo when the
+        // answer lands.
+        lengthComparison: question.lengthComparison,
+        // v840: the silent draft-preview call is a SEPARATE memo entry from
+        // the real elimination call (which must keep its toast/throw on
+        // failure), so they can't share a cached undefined.
+        silent: (question as { silent?: boolean }).silent === true,
+        entirety: polyGeoJSON.get()
+            ? playAreaSignature(polyGeoJSON.get())
+            : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as
+                  | string
+                  | number),
+    });
+}
 
 /**
  * v840: the "same/yes" region for a DRAFT matching question — the exact
@@ -629,12 +638,31 @@ out geom;
 export async function matchingDraftRegion(
     question: MatchingQuestion,
 ): Promise<Feature<Polygon | MultiPolygon> | null> {
+    const silentQuestion = {
+        ...question,
+        drag: false,
+        silent: true,
+    } as unknown as MatchingQuestion;
     try {
-        const boundary = await determineMatchingBoundary({
-            ...question,
-            drag: false,
-            silent: true,
-        } as unknown as MatchingQuestion);
+        const boundary = await determineMatchingBoundary(silentQuestion);
+        // A silent draft that FAILED resolves `undefined` (a heavy/cold
+        // lookup that threw its guards — e.g. NYC same-landmass). lodash
+        // memoize pins that resolved-undefined promise, so every reopen at
+        // the same pin returned undefined → no overlay ever drew (the
+        // "empty preview on reopen" bug). Evict the failed entry so the next
+        // open recomputes once the coast/geometry warms. `false` is a VALID
+        // stable result (point/POI types have no region) — keep it cached.
+        if (boundary === undefined) {
+            try {
+                (
+                    determineMatchingBoundary as unknown as {
+                        cache: { delete: (k: string) => void };
+                    }
+                ).cache.delete(matchingBoundaryMemoKey(silentQuestion as never));
+            } catch {
+                /* cache shape changed — non-fatal */
+            }
+        }
         if (!boundary || boundary === true) return null;
         if ((boundary as Feature).type === "Feature") {
             const g = (boundary as Feature).geometry;
