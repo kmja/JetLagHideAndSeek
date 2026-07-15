@@ -132,26 +132,27 @@ export function SeekerPage() {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $overLobby = useStore(gameStartOverLobby);
     const $celebrationAt = useStore(gameStartCelebrationAt);
-    // v828: the in-game shell MOUNTS as soon as the hiding clock is armed —
-    // INCLUDING during the game-start flourish — so the map (GL init +
-    // basemap tiles + the slow play-area boundary/Overpass fetch) starts
-    // loading the instant the 3-2-1 countdown begins, and is hopefully ready
-    // by the time the user dismisses the GO-GO-GO card. It's just held
-    // VISUALLY HIDDEN (opacity 0) behind the GoGoGo overlay while the
-    // flourish plays, then revealed as the overlay fades. (Before v828 the
-    // shell only mounted on dismiss — the "choppy unloaded map after closing
-    // GO-GO-GO" the user reported.)
-    //
-    // `clockArmed` = there's a game. `flourishActive` = the GO-GO-GO flourish
-    // is genuinely live (celebration set AND still over the lobby); it gates
-    // ONLY the shell's opacity, not whether it mounts.
+    // v889: the LOBBY stays mounted through the entire game-start flourish,
+    // so it doesn't RELOAD mid-countdown. The bug: the moment the clock armed,
+    // `clockArmed` flipped and this page swapped the pre-game branch for the
+    // in-game shell — which REMOUNTS `GameLobbyDialog` (mounted in BOTH
+    // branches), reloading its `PlayAreaPreviewMap` right as the 3-2-1 played
+    // (the "lobby sort of reloads in the middle of the countdown"). Now the
+    // pre-game branch (the SAME lobby instance) is kept mounted while
+    // `flourishActive`, and the GoGoGo backdrop progressively dims + blurs it
+    // as the countdown runs, then the GO-GO-GO card bursts. The in-game shell
+    // mounts only when the flourish ENDS (on dismiss) — the lobby preview map
+    // already warmed the basemap HTTP cache, so the map paints fast under the
+    // overlay's reveal fade. (This intentionally supersedes v828's
+    // "mount the shell hidden during the countdown", which required the branch
+    // swap that caused the reload + a second live GL context mid-flourish.)
     //
     // v820 SELF-HEALING carries over: `flourishActive` is tied to the
     // celebration ACTUALLY being live, so a stuck `gameStartOverLobby` (with
-    // the celebration already cleared) can't hide the map forever. The Move
+    // the celebration already cleared) can't strand the lobby forever. The Move
     // powerup re-fires the celebration mid-game but leaves `gameStartOverLobby`
     // false, so `flourishActive` is false → its GO-GO-GO plays over the
-    // visible map, never hides it.
+    // visible map, never re-shows the lobby.
     const clockArmed = Number.isFinite($hidingEndsAt);
     const flourishActive =
         clockArmed && $overLobby && $celebrationAt !== null;
@@ -181,7 +182,7 @@ export function SeekerPage() {
     // when the lobby drawer/dialog unmounted without closing — now cleared
     // globally by installBodyPointerEventsGuard.)
 
-    if (!clockArmed) {
+    if (!clockArmed || flourishActive) {
         return (
             <div className="fixed inset-0 bg-jetlag overflow-hidden">
                 {/* v819: the hidden full-screen warmup `<Map>` that used to
@@ -218,22 +219,13 @@ export function SeekerPage() {
     const showMap = true;
 
     return (
-        // v828: mounted as soon as the clock is armed so the map loads DURING
-        // the countdown. While the flourish is live the shell is held at
-        // opacity 0 (and pointer-events off) BEHIND the App-level GoGoGo
-        // overlay — invisible, but fully mounted + loading. When the flourish
-        // ends the opacity transitions 0→1 as the overlay's opaque cover fades
-        // out, so the (now-loaded) map is revealed smoothly rather than
-        // starting to load only after the card is closed. On a normal mid-game
-        // reload flourishActive is false, so it renders at opacity 1 with no
-        // transition (no spurious fade).
-        <div
-            className={cn(
-                "bg-jetlag transition-opacity duration-500 ease-out",
-                flourishActive && "pointer-events-none",
-            )}
-            style={{ opacity: flourishActive ? 0 : 1 }}
-        >
+        // v889: the shell renders only once the flourish is OVER (the guard
+        // above keeps the lobby branch mounted while `flourishActive`), so it
+        // fades IN as the GoGoGo overlay's opaque cover fades out — a smooth
+        // reveal of the freshly-mounted map (basemap HTTP cache already warmed
+        // by the lobby preview). `animate-in fade-in` gives the mount a gentle
+        // fade rather than a hard cut.
+        <div className="bg-jetlag animate-in fade-in duration-500">
             <SidebarProviderL>
                 <SidebarProviderR defaultOpen={false}>
                     <QuestionSidebar />

@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v888`. Use `git log` for the per-version detail;
+build stamp. Current: `v889`. Use `git log` for the per-version detail;
+
+**v889 — start-round countdown: the lobby no longer RELOADS mid-flourish;
+it dims + blurs progressively, then GO-GO-GO bursts.** The bug: the instant
+the hiding clock armed, `clockArmed` flipped and `SeekerPage`/`HiderPage`
+swapped the pre-game branch for the in-game shell — which REMOUNTED
+`GameLobbyDialog` (mounted in BOTH branches), reloading its
+`PlayAreaPreviewMap` right as the 3-2-1 played (the "lobby sort of reloads
+in the middle of the countdown"). Fix: the branch guard is now
+`if (!clockArmed || flourishActive)`, so the SAME lobby instance stays
+mounted through the entire flourish (no remount → no reload); the in-game
+shell mounts only when the flourish ENDS (on dismiss), fading in
+(`animate-in fade-in`) as the GoGoGo cover fades out — the map paints fast
+because the lobby's preview already warmed the basemap HTTP cache + boundary.
+This intentionally supersedes v828's "mount the shell hidden during the
+countdown" (which required the branch swap that caused the reload + ran a
+second live GL context mid-flourish). `GoGoGoOverlay`'s backdrop now
+PROGRESSIVELY dims + blurs across the countdown (`opacity` 0.12→0.34→0.58 at
+3/2/1, blur 0.5→1.5→2.5 px, 650 ms CSS transitions between steps) then
+deepens to 0.96 / blur-4 as the GO card explodes — the lobby slowly
+dissolving behind the flourish rather than snapping. Move-powerup GO-GO-GO
+is unaffected (it leaves `gameStartOverLobby` false → `flourishActive`
+false → plays over the live map). The v820 self-healing gate is intact.
 
 **v888 — hider POI overlay from the basemap pmtiles (+ drawer search) and
 "film a bird" duration-capture curse.**

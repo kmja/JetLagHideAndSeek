@@ -86,10 +86,10 @@ export function HiderPage() {
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $overLobby = useStore(gameStartOverLobby);
     const $celebrationAt = useStore(gameStartCelebrationAt);
-    // v828: the in-game shell MOUNTS as soon as the clock is armed (even
-    // during the flourish) so the hider map loads during the countdown; it's
-    // held opacity-0 behind the GoGoGo overlay and revealed on dismiss (see
-    // SeekerPage for the full rationale). v820 SELF-HEALING carries over:
+    // v889: the LOBBY stays mounted through the whole flourish so it doesn't
+    // RELOAD mid-countdown (see SeekerPage for the full rationale — the branch
+    // swap was remounting GameLobbyDialog + its preview map). The hider shell
+    // mounts only when the flourish ENDS. v820 SELF-HEALING carries over:
     // `flourishActive` is tied to the celebration actually being live.
     const clockArmed = Number.isFinite($hidingEndsAt);
     const flourishActive =
@@ -103,7 +103,7 @@ export function HiderPage() {
     // (Lobby→in-game swap body-lock leftover is cleared globally by
     // installBodyPointerEventsGuard — see main.tsx.)
 
-    if (!clockArmed) {
+    if (!clockArmed || flourishActive) {
         return (
             <div className="fixed inset-0 bg-jetlag overflow-hidden">
                 <Suspense fallback={null}>
@@ -123,18 +123,11 @@ export function HiderPage() {
     }
 
     return (
-        // v828: mounted as soon as the clock is armed so the hider map loads
-        // DURING the countdown; held opacity-0 (pointer-events off) behind the
-        // GoGoGo overlay while the flourish plays, revealed as the overlay
-        // fades (see SeekerPage). Normal reload = flourishActive false =
-        // opacity 1, no spurious fade.
-        <div
-            className={cn(
-                "bg-background min-h-screen transition-opacity duration-500 ease-out",
-                flourishActive && "pointer-events-none",
-            )}
-            style={{ opacity: flourishActive ? 0 : 1 }}
-        >
+        // v889: renders only once the flourish is over (the guard above keeps
+        // the lobby mounted while `flourishActive`), fading in as the GoGoGo
+        // overlay's cover fades out — a smooth reveal of the freshly-mounted
+        // hider map (basemap HTTP cache warmed by the lobby preview).
+        <div className="bg-background min-h-screen animate-in fade-in duration-500">
             <HiderView />
             <MultiplayerBoot />
             <GameStartWatcher />

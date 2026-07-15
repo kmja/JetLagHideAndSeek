@@ -173,17 +173,49 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
             aria-modal="true"
             aria-live="assertive"
         >
-            {/* Backdrop as its own layer so it can TRANSITION between phases:
-                light during the countdown (the lobby reads through, numbers
-                on top), then deepens as the GO card explodes — which is what
-                makes the lobby fade away in the background. */}
+            {/* Backdrop as its own layer so it can TRANSITION smoothly: it
+                starts nearly CLEAR (the lobby reads through, numbers on top)
+                and PROGRESSIVELY dims + blurs the lobby as the 3-2-1 counts
+                down (v889 — each count steps the target up and the CSS
+                transition ramps between them), then deepens fully as the GO
+                card explodes — the lobby slowly dissolving behind the flourish
+                rather than snapping. On dismiss it fades fully out to reveal
+                the game shell mounting beneath. */}
             <div
-                className="absolute inset-0 bg-background transition-[opacity] duration-500 ease-out"
+                className="absolute inset-0 bg-background"
                 style={{
-                    // v822: fade the cover fully out on dismiss to uncover the
-                    // game shell loading beneath.
-                    opacity: dismissing ? 0 : inGo ? 0.96 : 0.4,
-                    backdropFilter: inGo ? "blur(4px)" : "blur(1px)",
+                    opacity: dismissing
+                        ? 0
+                        : inGo
+                          ? 0.96
+                          : // countdown: 3 → clear-ish, 2 → half, 1 → mostly dim
+                            count >= 3
+                            ? 0.12
+                            : count === 2
+                              ? 0.34
+                              : 0.58,
+                    // backdrop-filter blurs the lobby behind this layer; ramp it
+                    // up in step with the dim.
+                    backdropFilter: dismissing
+                        ? "blur(0px)"
+                        : inGo
+                          ? "blur(4px)"
+                          : count >= 3
+                            ? "blur(0.5px)"
+                            : count === 2
+                              ? "blur(1.5px)"
+                              : "blur(2.5px)",
+                    WebkitBackdropFilter: dismissing
+                        ? "blur(0px)"
+                        : inGo
+                          ? "blur(4px)"
+                          : count >= 3
+                            ? "blur(0.5px)"
+                            : count === 2
+                              ? "blur(1.5px)"
+                              : "blur(2.5px)",
+                    transition:
+                        "opacity 650ms ease-out, backdrop-filter 650ms ease-out, -webkit-backdrop-filter 650ms ease-out",
                 }}
             />
             {dismissing ? null : !inGo ? (
