@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { hiderMode } from "@/lib/context";
+import { hiderMode, lastKnownPosition } from "@/lib/context";
 import {
     answeringQuestion,
     discardCard,
@@ -209,16 +209,38 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
         accuracy: number;
     } | null>(null);
     const posLockedRef = useRef(false);
+    // The snapshot also feeds HiderMap (via overridePos) so the comparison
+    // map + nearest-reference distances use the SAME position that grades —
+    // and the SAME one the main map shows.
+    const [openSnapshot, setOpenSnapshot] = useState<{
+        lat: number;
+        lng: number;
+    } | null>(null);
     useEffect(() => {
+        // v886: prefer the app's KNOWN position (`lastKnownPosition`) — the
+        // exact atom the main map's "You" dot reads, and which respects a GPS
+        // spoof. A raw `navigator.geolocation.getCurrentPosition` here could
+        // return the real device GPS (bypassing a spoof, or racing the
+        // spoof-patch install), so the dialog disagreed with the map (the
+        // "map says NYC, dialog says Sweden" bug). Fall back to a fresh fix
+        // only when nothing is known yet.
+        const known = lastKnownPosition.get();
+        if (known) {
+            posLockedRef.current = true;
+            setOpenSnapshot({ lat: known.lat, lng: known.lng });
+            setHiderPos({ lat: known.lat, lng: known.lng, accuracy: 0 });
+            return;
+        }
         if (typeof navigator === "undefined" || !navigator.geolocation) return;
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 posLockedRef.current = true;
-                setHiderPos({
+                const s = {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
-                    accuracy: pos.coords.accuracy,
-                });
+                };
+                setOpenSnapshot(s);
+                setHiderPos({ ...s, accuracy: pos.coords.accuracy });
             },
             () => {
                 /* denied/timeout — HiderMap's watch or the manual fallback
@@ -229,7 +251,6 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
         // Once per opened question (the component is keyed by question).
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
     // Manual fallback for when GPS is denied/unavailable. When set, this
     // overrides the GPS-derived position inside HiderMap, and the manual
     // location panel collapses to a small "edit" affordance.
@@ -238,6 +259,17 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
         lng: number;
         label: string;
     } | null>(null);
+    // A manual location override (GPS denied) wins for grading.
+    useEffect(() => {
+        if (manualPos) {
+            setHiderPos({
+                lat: manualPos.lat,
+                lng: manualPos.lng,
+                accuracy: 0,
+            });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [manualPos?.lat, manualPos?.lng]);
 
     // Whether GPS failed (denied/unsupported). v315: the only thing
     // driving the manual-location UI now. Previously a tiny "set
@@ -332,7 +364,7 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                     >
                         <HiderMap
                             question={question}
-                            overridePos={manualPos}
+                            overridePos={manualPos ?? openSnapshot}
                             onHiderLocationChange={(lat, lng, accuracy) => {
                                 // v884: HiderMap's live watch only fills the
                                 // grading position UNTIL the on-open snapshot

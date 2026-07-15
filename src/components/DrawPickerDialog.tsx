@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Check } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,10 @@ export function DrawPickerDialog() {
     // Track timers across the kept lifecycle so a hot-reload or fast
     // reopen of the picker doesn't fire stale callbacks.
     const timersRef = useRef<number[]>([]);
+    // v886: which card the stepper is showing. An index-based stepper (one
+    // card centred at a time, prev/next) replaced the free-scroll carousel,
+    // which snapped unreliably and didn't "lock on" to a card.
+    const [viewIndex, setViewIndex] = useState(0);
 
     // Reset local picker state whenever a fresh draw arrives. Reset on
     // both the question key AND the card-id signature so re-draws for
@@ -78,6 +82,7 @@ export function DrawPickerDialog() {
         setKeptIds([]);
         setFlyingId(null);
         setFinished(false);
+        setViewIndex(0);
         return () => {
             for (const t of timersRef.current) clearTimeout(t);
             timersRef.current = [];
@@ -124,8 +129,20 @@ export function DrawPickerDialog() {
         // Non-final pick: fly the kept card down, then commit to
         // keptIds so the picker presents the next pick.
         const t1 = window.setTimeout(() => {
-            setKeptIds([...keptIds, id]);
+            const nextKept = [...keptIds, id];
+            setKeptIds(nextKept);
             setFlyingId(null);
+            // v886: advance the stepper to the next card the hider hasn't kept
+            // yet, so a multi-keep draw (e.g. tentacle: draw 4, keep 2) moves
+            // on instead of sitting on the now-empty slide.
+            const cards = $pending?.cards ?? [];
+            for (let k = 1; k <= cards.length; k++) {
+                const cand = (viewIndex + k) % cards.length;
+                if (!nextKept.includes(cards[cand].id)) {
+                    setViewIndex(cand);
+                    break;
+                }
+            }
         }, FLY_MS);
         timersRef.current.push(t1);
     };
@@ -136,12 +153,13 @@ export function DrawPickerDialog() {
         setSelectedId((curr) => (curr === id ? null : id));
     };
 
-    // v883: the cards are shown in a horizontal CAROUSEL (scroll-snap) rather
-    // than a grid — at poker (5:7) proportions two or more cards side-by-side
-    // on a phone became too small and clipped their descriptions. Each card is
-    // ~one-at-a-time width so ALL its content fits; the hider swipes between
-    // them and taps "Pick this card". The flying-to-hand card escapes the
-    // carousel's overflow via `position: fixed` (see CardCell).
+    // v886: the cards are shown in an index-based STEPPER (one card centred at
+    // a time, prev/next arrows + dots) rather than a grid or free-scroll
+    // carousel — at poker (5:7) proportions two+ cards side-by-side on a phone
+    // were too small and clipped their descriptions, and the scroll carousel
+    // snapped unreliably. The stepper always LOCKS onto exactly one card at a
+    // comfortable size so ALL its content fits; the flying-to-hand card escapes
+    // the viewport's overflow via `position: fixed` (see CardCell).
 
     // v306: chrome fades both during the final card's fly AND
     // during the discard fade-out — they're now the same moment.
@@ -180,7 +198,11 @@ export function DrawPickerDialog() {
                 <DialogTitle
                     className={cn(
                         "px-2 text-center font-inter-tight font-black uppercase",
-                        "text-3xl tracking-tight leading-tight text-foreground",
+                        // v886: white with a drop-shadow — the dialog is
+                        // transparent over the dimmed map, so a dark title was
+                        // unreadable.
+                        "text-3xl tracking-tight leading-tight text-white",
+                        "[text-shadow:0_2px_10px_rgba(0,0,0,0.55)]",
                         chromeFadeCls,
                     )}
                 >
@@ -193,41 +215,112 @@ export function DrawPickerDialog() {
                     from the {total} drawn. The rest are discarded.
                 </DialogDescription>
 
-                <div
-                    className={cn(
-                        "flex gap-3 items-start px-[11%] py-2",
-                        // Horizontal scroll-snap carousel — one card at a time
-                        // with the neighbours peeking. Scrollbar hidden.
-                        "overflow-x-auto snap-x snap-mandatory",
-                        "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
-                    )}
-                >
-                    {$pending.cards.map((card) => {
-                        const isSelected = selectedId === card.id;
-                        const isKept = keptIds.includes(card.id);
-                        const isFlying = flyingId === card.id;
-                        const isFading =
-                            chromeFadeOn && !isKept && !isFlying;
-                        return (
-                            <div
-                                key={card.id}
-                                className="snap-center shrink-0 w-[78%] max-w-[15rem]"
+                {/* v886: an index-based STEPPER — one card centred at a time,
+                    with prev/next arrows + dots. A translated track (not a
+                    free-scroll carousel) so the view always LOCKS onto exactly
+                    one card. */}
+                <div className="relative px-2 py-2">
+                    <div className="overflow-hidden">
+                        <div
+                            className="flex transition-transform duration-300 ease-out"
+                            style={{
+                                transform: `translateX(-${viewIndex * 100}%)`,
+                            }}
+                        >
+                            {$pending.cards.map((card) => {
+                                const isSelected = selectedId === card.id;
+                                const isKept = keptIds.includes(card.id);
+                                const isFlying = flyingId === card.id;
+                                const isFading =
+                                    chromeFadeOn && !isKept && !isFlying;
+                                return (
+                                    <div
+                                        key={card.id}
+                                        className="w-full shrink-0 flex justify-center px-1"
+                                    >
+                                        <div className="w-full max-w-[15rem]">
+                                            <CardCell
+                                                card={card}
+                                                gameSize={$gameSize}
+                                                isSelected={isSelected}
+                                                isKept={isKept}
+                                                isFlying={isFlying}
+                                                isFading={isFading}
+                                                disabled={
+                                                    Boolean(flyingId) || finished
+                                                }
+                                                onTap={() =>
+                                                    handleCardTap(card.id)
+                                                }
+                                                onConfirm={confirmSelected}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {total > 1 && !chromeFadeOn && (
+                        <>
+                            <button
+                                type="button"
+                                aria-label="Previous card"
+                                disabled={viewIndex === 0}
+                                onClick={() =>
+                                    setViewIndex((i) => Math.max(0, i - 1))
+                                }
+                                className={cn(
+                                    "absolute left-0 top-1/2 -translate-y-1/2 z-10",
+                                    "inline-flex h-10 w-10 items-center justify-center rounded-full",
+                                    "bg-background/90 border border-border shadow-md text-foreground",
+                                    "disabled:opacity-0 disabled:pointer-events-none",
+                                )}
                             >
-                                <CardCell
-                                    card={card}
-                                    gameSize={$gameSize}
-                                    isSelected={isSelected}
-                                    isKept={isKept}
-                                    isFlying={isFlying}
-                                    isFading={isFading}
-                                    disabled={Boolean(flyingId) || finished}
-                                    onTap={() => handleCardTap(card.id)}
-                                    onConfirm={confirmSelected}
-                                />
-                            </div>
-                        );
-                    })}
+                                <ChevronLeft className="w-5 h-5" />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="Next card"
+                                disabled={viewIndex >= total - 1}
+                                onClick={() =>
+                                    setViewIndex((i) =>
+                                        Math.min(total - 1, i + 1),
+                                    )
+                                }
+                                className={cn(
+                                    "absolute right-0 top-1/2 -translate-y-1/2 z-10",
+                                    "inline-flex h-10 w-10 items-center justify-center rounded-full",
+                                    "bg-background/90 border border-border shadow-md text-foreground",
+                                    "disabled:opacity-0 disabled:pointer-events-none",
+                                )}
+                            >
+                                <ChevronRight className="w-5 h-5" />
+                            </button>
+                        </>
+                    )}
                 </div>
+
+                {total > 1 && !chromeFadeOn && (
+                    <div className="flex items-center justify-center gap-1.5">
+                        {$pending.cards.map((card, i) => (
+                            <button
+                                key={card.id}
+                                type="button"
+                                aria-label={`Show card ${i + 1}`}
+                                onClick={() => setViewIndex(i)}
+                                className={cn(
+                                    "h-2 rounded-full transition-all",
+                                    i === viewIndex
+                                        ? "w-5 bg-white"
+                                        : keptIds.includes(card.id)
+                                          ? "w-2 bg-primary"
+                                          : "w-2 bg-white/50",
+                                )}
+                            />
+                        ))}
+                    </div>
+                )}
             </DialogContent>
         </Dialog>
     );

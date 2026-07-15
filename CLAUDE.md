@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v885`. Use `git log` for the per-version detail;
+build stamp. Current: `v886`. Use `git log` for the per-version detail;
+
+**v886 — draw-picker stepper + GPS-on-open uses lastKnownPosition + title
+contrast.**
+- **Draw picker is an index STEPPER, not a scroll carousel.** The v884
+  scroll-snap carousel snapped unreliably ("doesn't lock on"). Replaced with a
+  translated single-card track + prev/next arrows + dot indicators
+  (`DrawPickerDialog`) so the view always locks onto exactly one card. Multi-
+  keep draws auto-advance to the next un-kept card; the fly-to-hand still
+  escapes the viewport overflow via `position: fixed`.
+- **"PICK N CARDS" title is white** with a drop-shadow — it's a transparent
+  dialog over the dimmed map, where the dark title was unreadable.
+- **Hider answer GPS-on-open now snapshots `lastKnownPosition`** (the atom the
+  MAIN map's "You" dot reads, which respects a GPS spoof) instead of a raw
+  `navigator.geolocation.getCurrentPosition` — the raw call returned the real
+  device GPS (bypassing a spoof / racing the spoof-patch install), so the
+  answer dialog disagreed with the map ("map says NYC, dialog says Sweden").
+  The snapshot also feeds `HiderMap` via `overridePos`, so the comparison map +
+  nearest-reference distances use the SAME position that grades. Falls back to
+  a fresh fix only when nothing is known yet; a manual override still wins.
 
 **v885 — hider answer GPS-on-open + radar-preview framing.**
 - **The hider's answer is graded against the GPS fix taken when the answer
