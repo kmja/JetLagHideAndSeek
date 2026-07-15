@@ -71,6 +71,7 @@ import {
 } from "@/lib/multiplayer/store";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
+import { resolvedTheme } from "@/lib/theme";
 import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
@@ -123,6 +124,9 @@ export function GameLobbyDialog() {
     const $size = useStore(gameSize);
     const $manualOpen = useStore(lobbyManualOpen);
     const $overLobby = useStore(gameStartOverLobby);
+    // v860: the room-code header renders in the INVERSE theme of the app
+    // (dark header in light mode, light header in dark mode) for contrast.
+    const $resolvedTheme = useStore(resolvedTheme);
     // v442: the setup/area editor is a Radix Dialog that would otherwise
     // open BEHIND this drawer (the drawer content sits at z-[1055], above
     // the dialog's z-[1050]). So whenever the editor is open we close the
@@ -609,8 +613,20 @@ export function GameLobbyDialog() {
                     Copy / QR actions sit at the very top. Fixed (never scrolls);
                     the Game settings / Players / House rules sections follow in
                     the scroll area below. A pulsing skeleton holds the slot
-                    while the room is still being created. */}
-                <div className="px-5 pt-5 pb-4 shrink-0 space-y-3 border-b border-border">
+                    while the room is still being created.
+
+                    v860: rendered in the INVERSE theme of the app (dark header
+                    in light mode, light header in dark mode) — the opposite
+                    `.light`/`.dark` class re-scopes the shadcn tokens for this
+                    subtree, so the sidebar bg/text + child token colours all
+                    flip. */}
+                <div
+                    className={cn(
+                        "px-5 pt-1 pb-4 shrink-0 space-y-3 border-b border-border",
+                        "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
+                        $resolvedTheme === "dark" ? "light" : "dark",
+                    )}
+                >
                     <VaulDrawer.Title className="sr-only">
                         {$code ? `Game lobby — room ${$code}` : "Game lobby"}
                     </VaulDrawer.Title>

@@ -430,6 +430,17 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v860 — lobby room-code header: inverse theme + tighter top padding.** The
+`GameLobbyDialog` room-code header now renders in the INVERSE theme of the app —
+a DARK header in light mode, a LIGHT header in dark mode — for contrast against
+the body. Done with the CSS-variable indirection the theming caveat calls for:
+the header div gets the OPPOSITE `.light`/`.dark` class (`resolvedTheme === "dark"
+? "light" : "dark"`), which re-scopes the shadcn tokens for that subtree so the
+sidebar bg/text AND every child token colour (muted label, outline buttons,
+border) all flip together, plus an explicit
+`bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]`. Top
+padding dropped `pt-5` → `pt-1` (0.25rem).
+
 **v859 — RolePicker hider copy.** The hider tile description changed to "Answer
 questions and play cards to slow the seekers down." (was "…play the hider deck.
 Team up — multiple players can hide together.").
