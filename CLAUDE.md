@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v879`. Use `git log` for the per-version detail;
+build stamp. Current: `v880`. Use `git log` for the per-version detail;
+
+**v880 — debug question-inject fix + compact committed-zone card + big
+top-of-map grace prompt.**
+- **Debug "inject question to hider inbox" now works in demo / multiplayer.**
+  It wrote `hiderInbox` directly, but in MP the inbox is a bridge-managed
+  MIRROR of the synced `questions` store (rebuilt on every snapshot), so the
+  entry got wiped on the next `welcome`/`snapshot` AND was un-answerable (the
+  broker/server had no matching questions key). `injectInboxQuestion`
+  (`DebugPhaseControls`) now, when `multiplayerEnabled`, sends the SAME
+  `{t:"addQ"}` a real seeker sends (real-convention `key` in `[0,1)`) →
+  broker → `mergeIncomingQuestion` upserts BOTH stores, so it persists +
+  round-trips; solo keeps the direct `hiderInbox.set`.
+- **Committed-zone card compacted** (`HiderHome`): a small SQUARE
+  `ZonePreviewMap` on the left + the zone name beside it; the lock-icon block
+  and the large read-only map below were removed.
+- **Grace-period prompt is a big TOP-of-map card** (`HiderGracePrompt`,
+  mounted on `HiderBackgroundMap`; the small bottom-corner grace box was
+  removed from `HiderMapTimer`). It shows the urgent countdown PLUS the single
+  most relevant zone to commit — the one the hider is standing INSIDE
+  (distance ≤ hiding radius) or, failing that, the CLOSEST candidate
+  (`fetchAreaStations` nearest-first, distance-gated 25 m) — one-tap "Lock in"
+  via the shared `confirmAndCommitZone`.
 
 **v879 — leaderboard name fix + timer names + lobby header redesign + station-
 length binary + sea/coast worker offload.** A demo-prep batch:

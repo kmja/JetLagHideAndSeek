@@ -19,6 +19,7 @@ import Map, {
 } from "react-map-gl/maplibre";
 
 import { FadeOverlay } from "@/components/FadeOverlay";
+import { HiderGracePrompt } from "@/components/HiderGracePrompt";
 import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { HiderZoneHint } from "@/components/HiderZoneHint";
 import { MapNavControls } from "@/components/MapNavControls";
@@ -1134,6 +1135,11 @@ export function HiderBackgroundMap() {
                 v633: replaced the old HiderTimeHeader flow-row so the hider
                 map matches the seeker map. */}
             <HiderMapTimer />
+
+            {/* v879: big top-of-map grace-period prompt — the "pick a zone
+                before the grace window closes" countdown + the closest/
+                containing zone to one-tap commit. Only renders during grace. */}
+            <HiderGracePrompt />
 
             {/* v787: on-map zone-picker hint — mirrors the Zone drawer's
                 "zones you're in" list + Select buttons at the top of the map

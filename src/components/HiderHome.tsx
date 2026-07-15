@@ -1022,45 +1022,35 @@ function HidingZoneSection({
                 </div>
             )}
             {zone && !editing ? (
-                <div className="space-y-2">
-                    {/* Committed-zone card — matches the station-picker card
-                        style (icon block + bold name), not a plain box (v799). */}
-                    <div className="rounded-md border border-border bg-secondary/40 p-3 flex items-center gap-3">
-                        <span className="inline-flex items-center justify-center w-11 h-11 rounded-md shrink-0 bg-primary/20">
-                            <Lock className="w-5 h-5 text-primary" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                            <div className="text-base font-inter-tight font-bold leading-tight truncate">
-                                {zone.stationName}
-                            </div>
-                            <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
-                                {zone.stationLat.toFixed(5)},{" "}
-                                {zone.stationLng.toFixed(5)}
-                            </div>
-                        </div>
-                        {/* v803: no "Change" — locking a zone can't be undone
-                            (we tell the hider that at commit time), so there's
-                            no re-pick affordance once committed. */}
-                    </div>
-                    {/* Read-only preview of the committed zone with its radius
-                        drawn — a lightweight non-interactive map (ZonePreviewMap)
-                        framed tight on the zone so the hider can see at a glance
-                        where their boundary runs. */}
+                // v879: compact committed-zone card — a small SQUARE map
+                // preview on the left (radius circle framed tight) + the zone
+                // name beside it. The lock-icon block + the large read-only map
+                // below were removed; the small preview conveys the zone at a
+                // glance without the vertical bulk.
+                <div className="rounded-md border border-border bg-secondary/40 p-3 flex items-center gap-3">
                     <Suspense
                         fallback={
-                            <div className="w-full h-[30vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
-                                Loading map…
-                            </div>
+                            <div className="w-20 h-20 rounded-lg border border-dashed border-border shrink-0" />
                         }
                     >
                         <ZonePreviewMap
                             lat={zone.stationLat}
                             lng={zone.stationLng}
                             radiusMeters={radiusMeters}
-                            padding={10}
-                            className="h-[30vh] w-full"
+                            padding={6}
+                            className="w-20 h-20 shrink-0"
                         />
                     </Suspense>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-base font-inter-tight font-bold leading-tight truncate">
+                            {zone.stationName}
+                        </div>
+                        <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                            {zone.stationLat.toFixed(5)},{" "}
+                            {zone.stationLng.toFixed(5)}
+                        </div>
+                    </div>
+                    {/* v803: no "Change" — locking a zone can't be undone. */}
                 </div>
             ) : (
                 <div className="space-y-3">

@@ -110,7 +110,6 @@ export function HiderMapTimer() {
         $hidingZone === null &&
         graceEndsAt !== null &&
         now < graceEndsAt;
-    const graceRemainingMs = graceEndsAt ? Math.max(0, graceEndsAt - now) : 0;
     const elapsedAnchor = $foundAt ?? now;
     const hiddenElapsedMs = $hidingEndsAt
         ? Math.max(0, elapsedAnchor - $hidingEndsAt)
@@ -393,28 +392,9 @@ export function HiderMapTimer() {
                 and in the just-committed callout above, so a third copy on the
                 map was redundant. */}
 
-            {/* grace — red urgent "PICK A ZONE" box. */}
-            {phase === "grace" && (
-                <div
-                    role="status"
-                    aria-live="assertive"
-                    aria-label={`Pick a zone — grace period: ${formatTimeRemaining(graceRemainingMs)}`}
-                    className="flex items-center gap-3 rounded-xl pl-3 pr-5 py-2 shadow-lg bg-destructive animate-pulse"
-                >
-                    <Timer
-                        className="w-8 h-8 shrink-0 text-destructive-foreground"
-                        strokeWidth={2.5}
-                    />
-                    <div className="flex flex-col leading-none gap-1">
-                        <span className="text-[10px] font-poppins font-extrabold uppercase tracking-[0.12em] text-destructive-foreground">
-                            Pick a zone — grace
-                        </span>
-                        <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-destructive-foreground">
-                            {formatTimeRemaining(graceRemainingMs)}
-                        </span>
-                    </div>
-                </div>
-            )}
+            {/* grace — the "pick a zone" prompt moved to a BIG top-of-map card
+                (v879, `HiderGracePrompt`) that also lists the closest zone, so
+                the small corner box here was removed. */}
 
             {/* forfeit — red "ROUND LOST" stamp. */}
             {phase === "forfeit" && (

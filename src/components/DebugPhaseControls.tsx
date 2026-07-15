@@ -36,7 +36,12 @@ import {
     roundLog,
 } from "@/lib/hiderRole";
 import { startDemoGame, stopDemoGame } from "@/lib/multiplayer/demoBroker";
-import { demoMode, seekerLocations } from "@/lib/multiplayer/session";
+import {
+    demoMode,
+    multiplayerEnabled,
+    seekerLocations,
+} from "@/lib/multiplayer/session";
+import { getTransport } from "@/lib/multiplayer/transport";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
 import { receivedCurses } from "@/lib/seekerInbound";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
@@ -571,15 +576,29 @@ export function DebugPhaseControls({
 
     const injectInboxQuestion = (id: string) => {
         const { lat, lng } = pickSeekerLocation();
-        hiderInbox.set([
-            ...hiderInbox.get(),
-            {
-                key: Math.floor(Math.random() * 1_000_000),
-                id,
-                data: buildInboxData(id, lat, lng),
-                arrivedAt: Date.now(),
-            },
-        ]);
+        // v879: real question keys are in [0,1); use the same convention so the
+        // demo broker + randomize-split logic treat this like a real question.
+        const key = Math.random();
+        const data = buildInboxData(id, lat, lng);
+        if (multiplayerEnabled.get()) {
+            // In demo / real multiplayer the hider inbox is a bridge-managed
+            // MIRROR of the synced `questions` store (rebuilt from it on every
+            // snapshot), so writing `hiderInbox` directly gets wiped on the
+            // next welcome/snapshot AND is un-answerable over the wire (the
+            // broker/server has no matching questions key). Route through the
+            // SAME `addQ` path a real seeker uses: broker → qAdded →
+            // mergeIncomingQuestion upserts BOTH `questions` + `hiderInbox`, so
+            // it survives snapshots and the hider's answer round-trips.
+            getTransport()?.send({
+                t: "addQ",
+                question: { id, key, data } as Question,
+            });
+        } else {
+            hiderInbox.set([
+                ...hiderInbox.get(),
+                { key, id, data, arrivedAt: Date.now() },
+            ]);
+        }
     };
 
     const markLatestInboxReplied = () => {
