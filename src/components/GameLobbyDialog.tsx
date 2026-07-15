@@ -895,7 +895,7 @@ export function GameLobbyDialog() {
                         manual reopen is about the roster / round-end). */}
                     {!isMidGame && (
                         <>
-                            <h3 className="text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
+                            <h3 className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                                 Game settings
                             </h3>
 
@@ -1061,7 +1061,7 @@ export function GameLobbyDialog() {
 
                     {/* Section 2 — PLAYERS (v856). */}
                     {$mp && ($participants.length > 0 || !isMidGame) && (
-                        <h3 className="text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
+                        <h3 className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                             Players
                         </h3>
                     )}

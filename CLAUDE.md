@@ -430,6 +430,13 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v858 — lobby section subheaders aligned to the Map-options style.** The lobby's
+`Game settings` / `Players` / `House rules` subheaders were `text-sm font-display
+font-extrabold tracking-[0.12em]`; they now use the SAME style as the
+`MapOptionsPanel`'s `BASEMAP` / `OVERLAYS` / `TRANSIT OVERLAYS` labels —
+`text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground`
+(`GameLobbyDialog` + `HouseRulesSection`) so the two drawers read as one system.
+
 **v857 — lobby restructured around the ROOM CODE.** The lobby is about the game
 ROOM, so the **room code + Share/Copy/QR actions are now the fixed header**
 (`GameLobbyDialog`, `shrink-0` with a `border-b`; the standalone city-name title

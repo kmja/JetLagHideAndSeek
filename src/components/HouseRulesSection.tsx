@@ -103,7 +103,7 @@ export function HouseRulesSection({
         <div>
             {/* Section subheader — matches the lobby's Game settings / Players
                 headers (v857). */}
-            <h3 className="text-sm uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground mb-2">
+            <h3 className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
                 House rules
             </h3>
 
