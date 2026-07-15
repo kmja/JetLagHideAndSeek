@@ -430,6 +430,10 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v859 — RolePicker hider copy.** The hider tile description changed to "Answer
+questions and play cards to slow the seekers down." (was "…play the hider deck.
+Team up — multiple players can hide together.").
+
 **v858 — lobby section subheaders aligned to the Map-options style.** The lobby's
 `Game settings` / `Players` / `House rules` subheaders were `text-sm font-display
 font-extrabold tracking-[0.12em]`; they now use the SAME style as the

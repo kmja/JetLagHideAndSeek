@@ -251,8 +251,8 @@ export function RolePicker() {
                             </span>
                         </div>
                         <p className="text-[11px] text-muted-foreground leading-snug">
-                            Answer questions and play the hider deck. Team up —
-                            multiple players can hide together.
+                            Answer questions and play cards to slow the seekers
+                            down.
                         </p>
                     </button>
                 </div>
