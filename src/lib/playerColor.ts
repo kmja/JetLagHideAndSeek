@@ -24,13 +24,49 @@ export const PLAYER_COLORS = [
     "#b7791f", // amber
 ] as const;
 
-/** Stable colour for a participant id (hash → pool). Same on every device. */
-export function playerColor(id: string): string {
+function hashIndex(id: string): number {
     let h = 0;
     for (let i = 0; i < id.length; i++) {
         h = (h * 31 + id.charCodeAt(i)) >>> 0;
     }
-    return PLAYER_COLORS[h % PLAYER_COLORS.length];
+    return h % PLAYER_COLORS.length;
+}
+
+/** Stable colour for a participant id (hash → pool). Same on every device.
+ *  Standalone fallback for surfaces without the full roster (e.g. a lone map
+ *  pin). Within a roster prefer {@link assignPlayerColors}, which guarantees
+ *  DISTINCT colours — a bare hash can collide (two players, same colour). */
+export function playerColor(id: string): string {
+    return PLAYER_COLORS[hashIndex(id)];
+}
+
+/**
+ * Assign a DISTINCT colour to every id in a room (v862 — fixes two players
+ * sharing a colour). Each id prefers its hash colour; if that's already taken
+ * it linear-probes to the next free one, so colours stay mostly tied to the
+ * player yet never collide (until there are more players than pool colours —
+ * impossible at MAX_PARTICIPANTS=5 < 8). Deterministic across devices: ids are
+ * processed in sorted order, and the id set is the same everywhere.
+ */
+export function assignPlayerColors(ids: string[]): Record<string, string> {
+    const used = new Set<string>();
+    const out: Record<string, string> = {};
+    for (const id of [...ids].sort()) {
+        const start = hashIndex(id);
+        let colour = PLAYER_COLORS[start];
+        if (used.has(colour)) {
+            for (let k = 1; k < PLAYER_COLORS.length; k++) {
+                const c = PLAYER_COLORS[(start + k) % PLAYER_COLORS.length];
+                if (!used.has(c)) {
+                    colour = c;
+                    break;
+                }
+            }
+        }
+        used.add(colour);
+        out[id] = colour;
+    }
+    return out;
 }
 
 /** Up-to-two-letter initials for an avatar: first letters of the first and

@@ -430,6 +430,16 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v862 — distinct player colours within a room (fixes two players sharing a
+colour).** The v861 per-id hash could collide, so two players sometimes wore the
+same colour. `assignPlayerColors(ids)` (`playerColor.ts`) now assigns over the
+WHOLE room: each id prefers its hash colour but linear-probes to the next free
+one on a clash, so colours stay tied to the player yet never collide (guaranteed
+distinct while players ≤ pool size 8; `MAX_PARTICIPANTS=5`). Deterministic across
+devices (ids processed sorted; the id set is identical everywhere). `GameLobbyDialog`
+computes the map once over all `$participants` and passes it to both `RosterCard`s;
+the bare `playerColor(id)` stays as the no-roster fallback (e.g. a lone map pin).
+
 **v861 — per-player identity colours in the lobby roster (show-style).** Each
 participant gets a stable colour + an initialed avatar on their roster row
 (`GameLobbyDialog` `RosterCard`), inspired by the Jet Lag standings screen where

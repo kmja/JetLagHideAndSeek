@@ -69,7 +69,11 @@ import {
     setOnlineName,
     setOnlineRole,
 } from "@/lib/multiplayer/store";
-import { playerColor, playerInitials } from "@/lib/playerColor";
+import {
+    assignPlayerColors,
+    playerColor,
+    playerInitials,
+} from "@/lib/playerColor";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
 import { resolvedTheme } from "@/lib/theme";
@@ -235,6 +239,12 @@ export function GameLobbyDialog() {
     // distinction). `hider` = the first for any single-hider display bits.
     const hiders = $participants.filter(
         (p) => p.online && p.role === "hider",
+    );
+    // v862: DISTINCT per-player colour across the WHOLE room (both teams), so
+    // two players never share a colour. Assigned over every participant id.
+    const colorById = useMemo(
+        () => assignPlayerColors($participants.map((p) => p.id)),
+        [$participants],
     );
     const hider = hiders[0];
     // Require a real room with at least one seeker AND one hider.
@@ -1094,6 +1104,7 @@ export function GameLobbyDialog() {
                                 label={`Seekers · ${seekers.length}`}
                                 tone="seeker"
                                 participants={seekers}
+                                colorById={colorById}
                                 selfId={$self}
                                 hostId={hostId}
                                 onJoin={
@@ -1117,6 +1128,7 @@ export function GameLobbyDialog() {
                                 label={`Hiders · ${hiders.length}`}
                                 tone="hider"
                                 participants={hiders}
+                                colorById={colorById}
                                 selfId={$self}
                                 hostId={hostId}
                                 onJoin={
@@ -1300,6 +1312,7 @@ function RosterCard({
     label,
     tone,
     participants: rows,
+    colorById,
     selfId,
     hostId,
     onJoin,
@@ -1315,6 +1328,8 @@ function RosterCard({
         role: "seeker" | "hider" | null;
         online: boolean;
     }[];
+    /** Room-wide distinct player colours (v862) — keyed by participant id. */
+    colorById: Record<string, string>;
     selfId: string | null;
     hostId: string | null;
     /** When set, render a "join this team" button — only in the zero-state
@@ -1371,7 +1386,8 @@ function RosterCard({
                                         !p.online && "opacity-45",
                                     )}
                                     style={{
-                                        backgroundColor: playerColor(p.id),
+                                        backgroundColor:
+                                            colorById[p.id] ?? playerColor(p.id),
                                         boxShadow:
                                             "inset 0 0 0 1.5px rgba(255,255,255,.28)",
                                     }}
