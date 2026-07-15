@@ -25,6 +25,7 @@ import {
     disabledStations,
     displayHidingZones,
     hiderMode,
+    lastKnownPosition,
     mapContext,
     mapGeoJSON,
     mapGeoLocation,
@@ -113,12 +114,43 @@ import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
  * usually `administrative` — not very informative on its own, but
  * combined with the area estimate it's still enough to tell apart.
  */
+/**
+ * Administrative-division words that name their own tier, mapped to a
+ * concise English label. Photon guesses `type` from POPULATION for admin
+ * relations (so a rural Swedish *kommun* comes back "city" — see the note
+ * in geocode.ts), but the NAME usually states the real tier. When it does,
+ * trust the name over Photon's guess. Word-boundary matched, case-insensitive.
+ */
+const ADMIN_NAME_TIERS: [RegExp, string][] = [
+    [
+        /\b(kommun|kommune|gemeinde|comune|commune|municipi[oa]|munic[ií]pio|municipality|gmina|kunta|obec|obshtina|op[sš]tina)\b/i,
+        "Municipality",
+    ],
+    [/\b(county|l[äa]n|fylke|megye|powiat|okres|comitatul)\b/i, "County"],
+    [
+        /\b(province|provincia|provincie|provins|provinz|provincie)\b/i,
+        "Province",
+    ],
+    [/\b(region|r[ée]gion|regione|regi[óo]n|regio)\b/i, "Region"],
+    [/\b(district|distrikt|distrito|distretto|arrondissement|okrug)\b/i, "District"],
+    [/\b(prefecture|pr[ée]fecture)\b/i, "Prefecture"],
+    [/\b(borough)\b/i, "Borough"],
+];
+
 function placeTypeLabel(feature: OpenStreetMap): string {
     const props = feature.properties as {
         type?: string;
         osm_value?: string;
         osm_key?: string;
+        name?: string;
     };
+    // When the name states its administrative tier (e.g. "Ludvika kommun",
+    // "Dalarnas län"), trust that over Photon's population-derived `type`
+    // guess — otherwise a rural municipality mislabels as "City".
+    const name = props.name ?? "";
+    for (const [re, label] of ADMIN_NAME_TIERS) {
+        if (re.test(name)) return label;
+    }
     const raw = (props.type || props.osm_value || "").trim();
     if (!raw) return "Region";
     // Photon sometimes returns "house" or "street" for non-admin
@@ -926,6 +958,11 @@ export function PlayAreaStep({
         navigator.geolocation.getCurrentPosition(
             async (pos) => {
                 const { latitude, longitude } = pos.coords;
+                // Publish the fix so the play-area preview map (and anything
+                // else) can show the "you are here" blue dot — the wizard is
+                // often the first GPS read of the session, before any game
+                // map's watch has populated this atom.
+                lastKnownPosition.set({ lat: latitude, lng: longitude });
                 try {
                     const candidates = await reverseGeocodeCity(
                         latitude,
@@ -1262,7 +1299,6 @@ export function PlayAreaStep({
                         determineName(value).split(",")[0];
                     const typeLabel = placeTypeLabel(value);
                     const areaLabel = formatAreaLabel(value);
-                    const sizeHint = recommendedGameSize(value);
                     const warm = isWarmCity(
                         value.properties.osm_id,
                         $warmCities,
@@ -1300,15 +1336,8 @@ export function PlayAreaStep({
                                                     {areaLabel}
                                                 </span>
                                             )}
-                                            {sizeHint && (
-                                                <SizeBadge
-                                                    size={sizeHint}
-                                                    className="!text-[9px] !px-1.5 !py-0.5"
-                                                />
-                                            )}
                                         </div>
                                     </div>
-                                    <Check className="w-4 h-4 text-primary shrink-0" />
                                 </div>
 
                                 <Button

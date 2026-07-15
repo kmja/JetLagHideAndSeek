@@ -85,11 +85,17 @@ import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
 
-/** Frosted controls that read on the dimmed map header (v863). */
+/**
+ * Controls that read on the map header (v866). The map fades to the
+ * drawer's own background at the top/bottom bands, so these use the
+ * normal FOREGROUND colour (theme-aware) rather than white-on-dark:
+ * a subtle foreground-tinted chip that reads on the background band and
+ * still holds over the partly-visible map below.
+ */
 const GLASS_BTN =
-    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 border border-white/30 text-white backdrop-blur-sm hover:bg-white/25 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70";
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-foreground/10 border border-foreground/20 text-foreground backdrop-blur-sm hover:bg-foreground/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const GLASS_PILL =
-    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 border border-white/30 text-white backdrop-blur-sm";
+    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-foreground/10 border border-foreground/20 text-foreground backdrop-blur-sm";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -691,39 +697,41 @@ export function GameLobbyDialog() {
                             </div>
                         ) : (
                             <div
-                                className="h-[280px] w-full bg-jetlag flex items-center justify-center"
+                                className="h-[280px] w-full bg-[hsl(var(--sidebar-background))] flex items-center justify-center"
                                 role="status"
                                 aria-live="polite"
                                 aria-label="Waiting for play area"
                             >
-                                <Loader2 className="w-5 h-5 animate-spin text-white/70" />
+                                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                             </div>
                         )}
 
-                        {/* readability scrim: dim to bg-jetlag navy (#1F2F3F) at
+                        {/* readability scrim: the map fades into the drawer's own
+                            background colour (theme-aware --sidebar-background) at
                             the top (room code) + bottom (settings) bands, with the
-                            play area open through the middle. */}
+                            play area open through the middle. Same-colour transparent
+                            stops (…/0) avoid the fade-to-grey premultiply artifact. */}
                         <div
                             className="pointer-events-none absolute inset-0"
                             style={{
                                 background:
-                                    "linear-gradient(180deg, rgba(31,47,63,1) 0%, rgba(31,47,63,0) 50%, rgba(31,47,63,0) 50%, rgba(31,47,63,0.4) 100%)",
+                                    "linear-gradient(180deg, hsl(var(--sidebar-background) / 1) 0%, hsl(var(--sidebar-background) / 0) 30%, hsl(var(--sidebar-background) / 0) 50%, hsl(var(--sidebar-background) / 1) 100%)",
                             }}
                         />
 
-                        <div className="absolute inset-0 flex flex-col px-4 py-3.5 text-white">
+                        <div className="absolute inset-0 flex flex-col px-4 py-3.5">
                             {/* top: room code + Share / Copy / QR */}
                             <div className="flex items-start gap-2">
                                 <div className="flex flex-col min-w-0 leading-none">
-                                    <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-white/80">
+                                    <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                                         Room code
                                     </span>
                                     {$code ? (
-                                        <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-white mt-1 drop-shadow-[0_1px_6px_rgba(0,0,0,.65)]">
+                                        <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-foreground mt-1">
                                             {$code}
                                         </span>
                                     ) : (
-                                        <div className="h-6 w-28 rounded-sm bg-white/25 animate-pulse mt-1.5" />
+                                        <div className="h-6 w-28 rounded-sm bg-foreground/20 animate-pulse mt-1.5" />
                                     )}
                                 </div>
                                 {$code && (
@@ -770,27 +778,26 @@ export function GameLobbyDialog() {
                                 )}
                             </div>
 
-                            {/* bottom: city + settings on the dim band */}
+                            {/* bottom: settings on the solid band. The play-area
+                                NAME was dropped (v866) — the map itself identifies
+                                the area; only the host's "Edit area" affordance
+                                remains (its the sole trigger for the area editor). */}
                             <div className="mt-auto flex flex-col gap-2">
-                                {cityName && (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <span className="font-display font-extrabold text-white text-sm drop-shadow-[0_1px_4px_rgba(0,0,0,.6)] truncate">
-                                            {cityName}
-                                        </span>
-                                        {isHost && (
-                                            <button
-                                                type="button"
-                                                onClick={openAreaEditor}
-                                                aria-label="Change play area"
-                                                title="Change the play area"
-                                                className={cn(
-                                                    GLASS_BTN,
-                                                    "h-6 w-6",
-                                                )}
-                                            >
-                                                <Pencil className="w-3 h-3" />
-                                            </button>
-                                        )}
+                                {isHost && (
+                                    <div className="flex items-center">
+                                        <button
+                                            type="button"
+                                            onClick={openAreaEditor}
+                                            aria-label="Change play area"
+                                            title="Change the play area"
+                                            className={cn(
+                                                GLASS_BTN,
+                                                "w-auto gap-1.5 px-2.5 text-xs font-semibold",
+                                            )}
+                                        >
+                                            <Pencil className="w-3.5 h-3.5" />
+                                            Edit area
+                                        </button>
                                     </div>
                                 )}
                                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -800,11 +807,11 @@ export function GameLobbyDialog() {
                                                 <button
                                                     type="button"
                                                     aria-label="Change game size"
-                                                    className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                                                    className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                                 >
                                                     <SizeBadge
                                                         size={$size}
-                                                        className="text-xs px-2.5 py-1.5 shadow-md"
+                                                        className="text-sm px-3 py-2 shadow-md"
                                                         trailing={
                                                             <ChevronDown className="w-4 h-4 opacity-80" />
                                                         }
@@ -845,7 +852,7 @@ export function GameLobbyDialog() {
                                     )}
 
                                     {$allowedTransit.length === 0 ? (
-                                        <span className="text-xs text-white/90 italic drop-shadow-[0_1px_3px_rgba(0,0,0,.6)]">
+                                        <span className="text-xs text-muted-foreground italic">
                                             Walking only
                                         </span>
                                     ) : (
@@ -858,7 +865,7 @@ export function GameLobbyDialog() {
                                                     title={TRANSIT_LABELS[m]}
                                                     aria-label={TRANSIT_LABELS[m]}
                                                 >
-                                                    <Icon className="w-4 h-4" />
+                                                    <Icon className="w-5 h-5" />
                                                 </span>
                                             );
                                         })

@@ -428,16 +428,50 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v866`. Use `git log` for the per-version detail;
+build stamp. Current: `v867`. Use `git log` for the per-version detail;
+
+**v867 — lobby header fades into the THEME background + foreground text; wizard
+play-area card cleanup + GPS dot.** Follow-up to the v866 navy header. **Lobby
+header (`GameLobbyDialog`):** the readability scrim is now **theme-aware** — the
+map fades into the drawer's own background `hsl(var(--sidebar-background))` (light
+in light mode / dark in dark mode) instead of a hardcoded navy: a solid top band
+(room code) clearing by 30%, open map through the middle (30–50%), then a solid
+bottom band ramping from 50%→100% where the settings sit. Transparent stops use
+the SAME colour at `/0` (not the `transparent` keyword) to avoid the fade-to-grey
+premultiply artifact. Room code / icons dropped hardcoded `text-white` + dark
+drop-shadows for the normal **foreground** colour; the header controls
+(`GLASS_BTN`/`GLASS_PILL`, spinner, focus rings) moved from white-on-dark frosted
+glass to subtle **foreground-tinted** chips (`bg-foreground/10` +
+`border-foreground/20` + `text-foreground`), and the transit pills + size badge
+were **enlarged** (`GLASS_PILL` h-8→h-10, transit icon w-4→w-5, `SizeBadge`
+text-xs→text-sm). The **play-area NAME was removed** from the header (the map
+identifies the area); the host's area-edit affordance survives as a labelled
+"Edit area" button (its the sole trigger for the v838 area-editor dialog).
+**Wizard selected play-area card (`PlayAreaStep`, shared by `SetupPage` + the
+`GameSetupDialog` modal):** dropped the redundant trailing **checkmark** and the
+**game-size badge** (MEDIUM/…) from the selected summary (size is chosen on the
+SIZE step; the badge stays in the search-results rows where it aids picking). And
+**`placeTypeLabel` no longer mislabels rural municipalities as "City"** — Photon
+derives an admin relation's `type` from POPULATION (so a Swedish *kommun* comes
+back "city"), but the NAME states the real tier, so a new `ADMIN_NAME_TIERS` table
+maps a division word in the name (kommun/kommune/gemeinde/comune/…→Municipality,
+county/län/fylke→County, province/region/district/…) to the correct English
+label, overriding Photon's guess; names with no tier word keep the old
+Photon-`type` fallback (so "Paris"/"Berlin" still read "City"). **GPS "you are
+here" dot on the play-area preview map (`PlayAreaPreviewMap`):** it now renders
+the shared `SelfPositionMarker` at `lastKnownPosition` (the wizard's GPS-suggest
+flow now publishes its fix to that atom), so the player sees where they are
+relative to the area they're picking — in the wizard preview, the lobby header,
+and the summary card. No fix → no dot (correct degraded state).
 
 **v866 — lobby header map: taller + dim to navy top & bottom.** The pre-game
 `GameLobbyDialog` play-area header (v863) grew from `h-[200px]` to `h-[280px]`
 (both the `PlayAreaPreviewMap` and its loading placeholder) so the play area
-reads clearly between the two dimmed bands, and the readability scrim now dims
-to the **`bg-jetlag` navy `#1F2F3F`** (`rgba(31,47,63,…)`) instead of the old
-near-black `rgba(15,22,32,…)` — a solid navy top band (room code) fully clearing
-by 50%, open map through the middle, then a 0.40 navy bottom band (settings). No
-behaviour change; purely the scrim gradient + map height.
+reads clearly between the two dimmed bands, and the readability scrim dimmed to
+the **`bg-jetlag` navy `#1F2F3F`** (`rgba(31,47,63,…)`) instead of the old
+near-black `rgba(15,22,32,…)` — a solid navy top band (room code) clearing by
+50%, open map through the middle, then a 0.40 navy bottom band (settings).
+Superseded next patch by v867's theme-aware fade.
 
 **v865 — NYC trip planner "walking-only" fixed: stale MOTIS `METRO` enum poisoned
 every request.** The reported "trip planner always falls back to a walking estimate

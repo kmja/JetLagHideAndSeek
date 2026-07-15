@@ -19,6 +19,7 @@ import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import {
     additionalMapGeoLocations,
     adjacentCandidatePreview,
+    lastKnownPosition,
     mapGeoJSON,
     toggleAdjacentArea,
 } from "@/lib/context";
@@ -42,6 +43,7 @@ import { fetchRawBoundaryPolygon } from "@/maps/api/polygonsOsmFr";
 import type { OpenStreetMap } from "@/maps/api/types";
 
 import { MapTilesVeil } from "./MapTilesVeil";
+import { SelfPositionMarker } from "./SelfPositionMarker";
 
 /**
  * In-memory cache so swapping back to a previously-previewed result
@@ -242,6 +244,13 @@ export function PlayAreaPreviewMap({
     // setting instead of always being dark.
     const $theme = useStore(resolvedTheme);
     const darkTiles = $theme === "dark";
+
+    // v867: the "you are here" blue dot. The wizard's GPS suggestion (and
+    // the game maps' watch) publish to `lastKnownPosition`; show the marker
+    // whenever a fix is known so the player can see where they are relative
+    // to the play area they're picking. No fix → no dot (correct degraded
+    // state), same as the main maps.
+    const $selfPos = useStore(lastKnownPosition);
 
     // Photon's extent we normalised to [maxLat, minLng, minLat, maxLng].
     // Fall back to the centroid + a small box if extent is missing
@@ -766,6 +775,17 @@ export function PlayAreaPreviewMap({
                     added areas are ALREADY in `polygon` — don't also
                     re-fetch + draw them per-area (which could miss one). */}
                 {!combinedGeom && <CommittedAreasOverlay />}
+                {/* "You are here" — the local player's live GPS, so they can
+                    see where they sit relative to the play area they pick. */}
+                {$selfPos && (
+                    <Marker
+                        latitude={$selfPos.lat}
+                        longitude={$selfPos.lng}
+                        anchor="center"
+                    >
+                        <SelfPositionMarker />
+                    </Marker>
+                )}
             </MapGL>
             <MapTilesVeil
                 visible={showVeil}
