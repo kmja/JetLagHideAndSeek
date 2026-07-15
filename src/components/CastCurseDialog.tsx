@@ -1,5 +1,16 @@
 import { useStore } from "@nanostores/react";
-import { Camera, Check, Dice5, RotateCw, Send, Trash2, Zap } from "lucide-react";
+import {
+    Camera,
+    Check,
+    Dice5,
+    Play,
+    RotateCw,
+    Send,
+    Square,
+    Trash2,
+    Video,
+    Zap,
+} from "lucide-react";
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -18,6 +29,7 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     canPayDiscardCost,
     curseCostRequiresPhoto,
+    curseCostRequiresVideo,
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
@@ -71,6 +83,16 @@ import { cn } from "@/lib/utils";
  * rollable curse" button) can identify which curses trigger the
  * dice-roll flow without duplicating the list.
  */
+/** mm:ss (or h:mm:ss) from a whole-second count, for the film timer. */
+function formatClock(totalSeconds: number): string {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
 export const DICE_FIZZLE: Record<
     string,
     { fizzleOn: number[]; explainer: string } | undefined
@@ -128,6 +150,13 @@ export function CastCurseDialog({
         thumb: string;
     } | null>(null);
     const photoInputRef = useRef<HTMLInputElement | null>(null);
+    // Film casting cost (Bird Guide): in-app stopwatch. `filmSeconds` is
+    // the captured elapsed time (the target sent to the seekers);
+    // `filmRunning` + `filmElapsedMs` drive the live display while timing.
+    const [filmSeconds, setFilmSeconds] = useState<number | null>(null);
+    const [filmRunning, setFilmRunning] = useState(false);
+    const [filmElapsedMs, setFilmElapsedMs] = useState(0);
+    const filmStartRef = useRef<number | null>(null);
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
     const [sharing, setSharing] = useState(false);
@@ -202,8 +231,23 @@ export function CastCurseDialog({
             setPhotoFile(null);
             setPhotoBusy(false);
             setPreparedPhoto(null);
+            setFilmSeconds(null);
+            setFilmRunning(false);
+            setFilmElapsedMs(0);
+            filmStartRef.current = null;
         }
     }, [open, card?.id]);
+
+    // Drive the live stopwatch display while a film timer is running.
+    useEffect(() => {
+        if (!filmRunning) return;
+        const id = window.setInterval(() => {
+            if (filmStartRef.current != null) {
+                setFilmElapsedMs(Date.now() - filmStartRef.current);
+            }
+        }, 200);
+        return () => window.clearInterval(id);
+    }, [filmRunning]);
 
     if (!card) return null;
 
@@ -276,6 +320,32 @@ export function CastCurseDialog({
         }
     };
 
+    // Film casting cost (Bird Guide). Required in multiplayer (the target
+    // duration is delivered to the seekers); solo/link keeps it a
+    // self-attested action but still offers the stopwatch.
+    const costRequiresVideo = curseCostRequiresVideo(card.castingCost);
+    const videoRequired = costRequiresVideo && online;
+    const videoSatisfied = !videoRequired || filmSeconds != null;
+
+    const startFilm = () => {
+        filmStartRef.current = Date.now();
+        setFilmElapsedMs(0);
+        setFilmSeconds(null);
+        setFilmRunning(true);
+    };
+    const stopFilm = () => {
+        const start = filmStartRef.current;
+        setFilmRunning(false);
+        const secs = start != null ? Math.round((Date.now() - start) / 1000) : 0;
+        setFilmSeconds(secs);
+    };
+    const resetFilm = () => {
+        setFilmRunning(false);
+        setFilmSeconds(null);
+        setFilmElapsedMs(0);
+        filmStartRef.current = null;
+    };
+
     // `rolled` is the *live* tumble display — it cycles through
     // random values every animation frame, so reading it directly
     // in derived state (canCast / fizzles / outcome colors / button
@@ -306,6 +376,10 @@ export function CastCurseDialog({
         // Photo casting cost (multiplayer): the proof photo must be
         // captured + uploaded before the curse can be sent.
         photoSatisfied &&
+        // Film casting cost (multiplayer): the timer must be stopped with a
+        // captured duration before the curse can be sent.
+        videoSatisfied &&
+        !filmRunning &&
         // Drained Brain: exactly 3 categories must be chosen before the
         // curse can be cast (it disables those 3 on the seekers).
         (!isDrainedBrain || drainedCategories.length === 3);
@@ -324,9 +398,11 @@ export function CastCurseDialog({
     const enforceParams = (): {
         disabledCategories?: string[];
         photoUrl?: string;
+        filmSeconds?: number;
     } => ({
         ...(isDrainedBrain ? { disabledCategories: drainedCategories } : {}),
         ...(preparedPhoto?.url ? { photoUrl: preparedPhoto.url } : {}),
+        ...(filmSeconds != null ? { filmSeconds } : {}),
     });
 
     const roll = () => {
@@ -860,6 +936,67 @@ export function CastCurseDialog({
                                             if (picked) setPhotoFile(picked);
                                         }}
                                     />
+                                </div>
+                            )}
+
+                            {/* Film casting cost (Bird Guide): an in-app
+                                stopwatch. Start when the bird is in frame,
+                                Stop when it leaves — the captured duration
+                                is what the seekers must beat. */}
+                            {costRequiresVideo && (
+                                <div className="mt-2.5 flex flex-col items-center gap-2">
+                                    <div className="font-inter-tight font-black tabular-nums text-4xl">
+                                        {formatClock(
+                                            (filmSeconds != null
+                                                ? filmSeconds
+                                                : filmElapsedMs / 1000) || 0,
+                                        )}
+                                    </div>
+                                    {filmRunning ? (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="destructive"
+                                            onClick={stopFilm}
+                                            className="gap-1.5"
+                                        >
+                                            <Square className="w-4 h-4" />
+                                            Stop timer
+                                        </Button>
+                                    ) : filmSeconds != null ? (
+                                        <div className="flex flex-col items-center gap-1">
+                                            <p className="text-xs text-success font-semibold">
+                                                Filmed {formatClock(filmSeconds)}{" "}
+                                                — the seekers must beat it.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={resetFilm}
+                                                className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                            >
+                                                Redo
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={startFilm}
+                                                className="gap-1.5"
+                                            >
+                                                <Play className="w-4 h-4" />
+                                                Start timer
+                                            </Button>
+                                            <p className="text-[11px] text-muted-foreground leading-snug text-center inline-flex items-center gap-1">
+                                                <Video className="w-3 h-3" />
+                                                {videoRequired
+                                                    ? "Time your filming — the duration is sent to the seekers."
+                                                    : "Time your filming — tell the seekers the duration."}
+                                            </p>
+                                        </>
+                                    )}
                                 </div>
                             )}
 

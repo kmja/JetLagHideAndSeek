@@ -1259,6 +1259,9 @@ function handleServerMessage(msg: ServerMessage) {
                     // Proof photo for a photo-cost curse (Zoologist /
                     // Luxury Car) — the seekers see what the hider shot.
                     photoUrl: msg.curse.photoUrl,
+                    // Target film duration (Bird Guide) — the seekers must
+                    // film a bird for at least this many seconds.
+                    filmSeconds: msg.curse.filmSeconds,
                     receivedAt: Date.now(),
                     acknowledged: false,
                 },

@@ -21,6 +21,7 @@ import Map, {
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { HiderGracePrompt } from "@/components/HiderGracePrompt";
 import { HiderMapTimer } from "@/components/HiderMapTimer";
+import { HiderPoiOverlay } from "@/components/HiderPoiOverlay";
 import { HiderZoneHint } from "@/components/HiderZoneHint";
 import { MapNavControls } from "@/components/MapNavControls";
 import { MapOverlayLoadingToasts } from "@/components/MapOverlayLoadingToasts";
@@ -1026,6 +1027,12 @@ export function HiderBackgroundMap() {
                     Above the zone/boundary fills, below the point markers
                     (GPS, seeker pins) added after this. */}
                 <TransitRouteLayers transitFC={transitFC} />
+
+                {/* Points-of-interest overlay — reads the pmtiles `pois`
+                    layer (Overpass-free), so the hider can scout cafes /
+                    shops / toilets / parks near their zone. Toggled per
+                    kind from the map drawer. */}
+                <HiderPoiOverlay darkBasemap={darkBasemap} />
 
                 {/* Hider's own GPS pin — pulsing accuracy ring + a
                     "You" label so it's obvious at a glance which dot

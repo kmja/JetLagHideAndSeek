@@ -428,7 +428,48 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v887`. Use `git log` for the per-version detail;
+build stamp. Current: `v888`. Use `git log` for the per-version detail;
+
+**v888 — hider POI overlay from the basemap pmtiles (+ drawer search) and
+"film a bird" duration-capture curse.**
+- **Hider in-zone points-of-interest overlay, Overpass-free.** The basemap
+  pmtiles carry a `pois` source-layer we drop from the RENDERED style
+  (`protomapsStyle.ts:286`) but the tile data is still there and queryable.
+  `HiderPoiOverlay.tsx` reads it via `map.querySourceFeatures("protomaps",
+  {sourceLayer:"pois"})` — ZERO network (for a starred city it's the offline
+  tile pack). Once the hider COMMITS a zone, the useful POI field (food /
+  shops / civic / culture / nature groups) is drawn AUTOMATICALLY, clipped
+  to the committed zone's radius circle (`hidingZone` centre + radius,
+  haversine + 50 m margin). Viewport-scoped (recomputes on map `idle`),
+  deduped by kind+coords, group-coloured dots + name labels; purely
+  informational (no hit layer, so it never blocks tapping a hiding zone).
+  Mounted on `HiderBackgroundMap`. `src/lib/hiderPois.ts` is the catalog —
+  the exact POI `kind` set the Protomaps basemap encodes
+  (`@protomaps/basemaps` pois filter), grouped/coloured (food / shops /
+  civic / culture / nature / transit). State: `hiderPoiShow` (master toggle,
+  default on) + `hiderPoiHighlightKind` (the searched kind to emphasise),
+  both persistent. The `transit` group is excluded from the always-on field
+  (those are the Hiding-zones overlay) but stays highlightable.
+- **Map-drawer POI section + HIGHLIGHT search** (`HiderMapDisplayControls`
+  `HiderPoiSection`): a "Places in my zone" master on/off, plus a SEARCH
+  field that HIGHLIGHTS one kind (e.g. supermarkets) — matching POIs pop
+  (bigger dot + ring + always-labelled) while the rest of the field dims, so
+  the hider sees where all the X in their zone are at a glance. Active
+  highlight shows as a clearable chip; contributes +1 to the map-options
+  active count only while a highlight is set. Shows a "commit a zone to see
+  places in it" hint pre-commit.
+- **"Film a bird" duration-capture curse** (Curse of the Bird Guide). The
+  app can't ship 15 min of video, but the curse is about the DURATION (the
+  seekers must film for at least as long), so `curseCostRequiresVideo()`
+  (`castingCost.ts`, `/\bfilm\b/i`) drives an in-app STOPWATCH in
+  `CastCurseDialog` (Start when the bird's in frame → Stop → captured time).
+  In multiplayer the timer is required + the elapsed seconds ride
+  `CursePayload.filmSeconds` (new optional field, mirrored in
+  `SharedCursePayload`) → server/demo relay verbatim → seeker's
+  `curseReceived` carries it into `receivedCurses` → `CurseInbox` shows
+  "Film a bird for at least m:ss" in the banner + dialog. Solo/link keeps it
+  self-attested (stopwatch offered, not gated). New helpers unit-tested
+  (`tests/castingCost.test.ts`).
 
 **v887 — Cast Curse dialog cleanup, photo-cost curses deliver a photo,
 randomize is response-only.**

@@ -128,6 +128,11 @@ export interface SharedCursePayload {
      * link/message size). Absent for every non-photo curse.
      */
     photoUrl?: string;
+    /**
+     * For a "film a duration" curse (Bird Guide), the number of SECONDS the
+     * hider filmed — the target the seekers must beat. Absent otherwise.
+     */
+    filmSeconds?: number;
 }
 
 /**

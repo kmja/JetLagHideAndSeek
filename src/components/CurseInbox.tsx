@@ -43,6 +43,16 @@ const ENFORCED_REST_OF_RUN = new Set<string>([
     CURSE_URBAN_EXPLORER,
 ]);
 
+/** mm:ss (or h:mm:ss) from a whole-second film-duration target. */
+function formatFilmTarget(totalSeconds: number): string {
+    const s = Math.max(0, Math.floor(totalSeconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
 /**
  * Two-part curse UI for the seeker:
  *
@@ -286,6 +296,12 @@ export function CurseInbox() {
                                         className="mt-2 w-full max-h-40 rounded-md object-cover border border-purple-500/30"
                                     />
                                 )}
+                                {curse.filmSeconds != null && (
+                                    <p className="text-[11px] text-purple-300 mt-1 leading-snug font-semibold tabular-nums">
+                                        Film a bird for at least{" "}
+                                        {formatFilmTarget(curse.filmSeconds)}.
+                                    </p>
+                                )}
                                 {/* Casting cost is the hider's concern, not
                                     the seeker's — omitted. Timed curses show
                                     a live "clears in" countdown instead. */}
@@ -369,6 +385,13 @@ export function CurseInbox() {
                                 alt={`${resolvedDialog.name} proof photo`}
                                 className="w-full max-h-60 rounded-md object-cover border border-purple-500/30"
                             />
+                        )}
+                        {resolvedDialog?.filmSeconds != null && (
+                            <p className="text-sm text-purple-300 font-semibold tabular-nums">
+                                Film a bird for at least{" "}
+                                {formatFilmTarget(resolvedDialog.filmSeconds)}{" "}
+                                before asking your next question.
+                            </p>
                         )}
                         {dlgMeta?.expiresAt != null && (
                             <p className="text-xs text-purple-300 inline-flex items-center gap-1 tabular-nums">

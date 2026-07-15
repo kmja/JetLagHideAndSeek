@@ -79,6 +79,18 @@ export function curseCostRequiresPhoto(castingCost: string | null): boolean {
 }
 
 /**
+ * Whether a curse's casting cost is "film for a duration" — Curse of the
+ * Bird Guide ("Film a bird"), where the mechanic is entirely about the
+ * elapsed TIME the hider managed (the seekers must then film for at least
+ * as long). The app can't practically deliver 15 minutes of video, but it
+ * CAN time it precisely and send the seekers the target duration, so the
+ * cast flow offers an in-app stopwatch instead of the full video.
+ */
+export function curseCostRequiresVideo(castingCost: string | null): boolean {
+    return !!castingCost && /\bfilm\b/i.test(castingCost);
+}
+
+/**
  * The subset of `hand` that can satisfy `cost`, excluding the curse
  * card paying the cost (the casting cost is paid *in addition* to the
  * curse itself).

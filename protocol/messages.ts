@@ -539,6 +539,11 @@ export interface CursePayload {
      * on the wire. Absent for every non-photo curse and older clients.
      */
     photoUrl?: string;
+    /**
+     * For a "film a duration" curse (Bird Guide), the number of SECONDS the
+     * hider filmed — the target the seekers must beat. Absent otherwise.
+     */
+    filmSeconds?: number;
 }
 
 /** Push subscription stored by the client for server-side delivery. */

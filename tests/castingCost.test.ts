@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
     canPayDiscardCost,
+    curseCostRequiresPhoto,
+    curseCostRequiresVideo,
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
@@ -113,5 +115,20 @@ describe("eligibility + payability", () => {
         expect(
             canPayDiscardCost([curse("self"), timeBonus("t1")], pc, "self"),
         ).toBe(false);
+    });
+
+    it("detects photo casting costs (Zoologist / Luxury Car), not film", () => {
+        expect(curseCostRequiresPhoto("A photo of an animal.")).toBe(true);
+        expect(curseCostRequiresPhoto("A photo of a car.")).toBe(true);
+        expect(curseCostRequiresPhoto("Film a bird.")).toBe(false);
+        expect(curseCostRequiresPhoto("Discard two cards.")).toBe(false);
+        expect(curseCostRequiresPhoto(null)).toBe(false);
+    });
+
+    it("detects film casting costs (Bird Guide), not photo", () => {
+        expect(curseCostRequiresVideo("Film a bird.")).toBe(true);
+        expect(curseCostRequiresVideo("A photo of an animal.")).toBe(false);
+        expect(curseCostRequiresVideo("Build a rock tower.")).toBe(false);
+        expect(curseCostRequiresVideo(null)).toBe(false);
     });
 });
