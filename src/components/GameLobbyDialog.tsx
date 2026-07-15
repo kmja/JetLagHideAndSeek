@@ -76,7 +76,6 @@ import {
 } from "@/lib/playerColor";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
-import { resolvedTheme } from "@/lib/theme";
 import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
@@ -85,6 +84,12 @@ import { HouseRulesSection } from "./HouseRulesSection";
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
+
+/** Frosted controls that read on the dimmed map header (v863). */
+const GLASS_BTN =
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 border border-white/30 text-white backdrop-blur-sm hover:bg-white/25 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70";
+const GLASS_PILL =
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/15 border border-white/30 text-white backdrop-blur-sm";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -129,9 +134,6 @@ export function GameLobbyDialog() {
     const $size = useStore(gameSize);
     const $manualOpen = useStore(lobbyManualOpen);
     const $overLobby = useStore(gameStartOverLobby);
-    // v860: the room-code header renders in the INVERSE theme of the app
-    // (dark header in light mode, light header in dark mode) for contrast.
-    const $resolvedTheme = useStore(resolvedTheme);
     // v442: the setup/area editor is a Radix Dialog that would otherwise
     // open BEHIND this drawer (the drawer content sits at z-[1055], above
     // the dialog's z-[1050]). So whenever the editor is open we close the
@@ -246,6 +248,9 @@ export function GameLobbyDialog() {
         () => assignPlayerColors($participants.map((p) => p.id)),
         [$participants],
     );
+    // v863: short city name for the map-header overlay.
+    const cityName = $playArea?.displayName.split(",")[0]?.trim() ?? "";
+    const mapReady = ($mapGeoLocation?.properties?.osm_id ?? 0) > 0;
     const hider = hiders[0];
     // Require a real room with at least one seeker AND one hider.
     // Solo "single device" play is not allowed — the wizard now
@@ -619,52 +624,39 @@ export function GameLobbyDialog() {
                     {$manualOpen && (
                         <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
                     )}
-                {/* Header (v857): the ROOM CODE is the lobby's identity — this
-                    page is about the game ROOM itself, so the code + the Share /
-                    Copy / QR actions sit at the very top. Fixed (never scrolls);
-                    the Game settings / Players / House rules sections follow in
-                    the scroll area below. A pulsing skeleton holds the slot
-                    while the room is still being created.
+                {/* Header (v863): the play-area MAP is the header — the room
+                    code + Share ride on top of it, and the game settings (size
+                    + transit) sit on a BOTTOM-WEIGHTED dim so the map still
+                    reads as a map up top while the controls stay crisp on the
+                    darker band. Pre-game only; a mid-game manual reopen shows a
+                    compact room-code bar (no map / settings). */}
+                <VaulDrawer.Title className="sr-only">
+                    {$code ? `Game lobby — room ${$code}` : "Game lobby"}
+                </VaulDrawer.Title>
+                <VaulDrawer.Description className="sr-only">
+                    {$allowedTransit.length > 0
+                        ? `Allowed transit: ${$allowedTransit
+                              .map((m) => TRANSIT_LABELS[m])
+                              .join(", ")}`
+                        : "Walking only"}
+                </VaulDrawer.Description>
 
-                    v860: rendered in the INVERSE theme of the app (dark header
-                    in light mode, light header in dark mode) — the opposite
-                    `.light`/`.dark` class re-scopes the shadcn tokens for this
-                    subtree, so the sidebar bg/text + child token colours all
-                    flip. */}
-                <div
-                    className={cn(
-                        "px-5 pt-1 pb-4 shrink-0 space-y-3 border-b border-border",
-                        "bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]",
-                        $resolvedTheme === "dark" ? "light" : "dark",
-                    )}
-                >
-                    <VaulDrawer.Title className="sr-only">
-                        {$code ? `Game lobby — room ${$code}` : "Game lobby"}
-                    </VaulDrawer.Title>
-                    <VaulDrawer.Description className="sr-only">
-                        {$allowedTransit.length > 0
-                            ? `Allowed transit: ${$allowedTransit
-                                  .map((m) => TRANSIT_LABELS[m])
-                                  .join(", ")}`
-                            : "Walking only"}
-                    </VaulDrawer.Description>
-
-                    {$mp && $code ? (
-                        <div className="flex items-center gap-2">
-                            <div className="flex flex-col min-w-0 leading-none">
-                                <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
-                                    Room code
-                                </span>
-                                <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-primary mt-0.5">
-                                    {$code}
-                                </span>
-                            </div>
+                {isMidGame ? (
+                    <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border flex items-center gap-2">
+                        <div className="flex flex-col min-w-0 leading-none">
+                            <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                Room code
+                            </span>
+                            <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-primary mt-0.5">
+                                {$code ?? "——"}
+                            </span>
+                        </div>
+                        {$code && (
                             <div className="ml-auto flex items-center gap-1.5">
                                 <Button
                                     size="sm"
                                     onClick={handleShare}
                                     aria-label="Share invite link"
-                                    title="Share invite link"
                                     className="gap-1.5"
                                 >
                                     <Share2 className="w-3.5 h-3.5" />
@@ -675,9 +667,6 @@ export function GameLobbyDialog() {
                                     variant="outline"
                                     onClick={handleCopy}
                                     aria-label="Copy invite link"
-                                    title={
-                                        copied ? "Copied!" : "Copy invite link"
-                                    }
                                     className="px-2"
                                 >
                                     {copied ? (
@@ -686,43 +675,212 @@ export function GameLobbyDialog() {
                                         <Copy className="w-3.5 h-3.5" />
                                     )}
                                 </Button>
-                                {shareUrl && (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => setQrOpen(true)}
-                                        aria-label="Show large QR code"
-                                        title="Show large QR code"
-                                        className="px-2"
-                                    >
-                                        <QrCode className="w-3.5 h-3.5" />
-                                    </Button>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="relative shrink-0 border-b border-border">
+                        {mapReady ? (
+                            <div className="[&>div]:!rounded-none [&>div]:!border-0">
+                                <PlayAreaPreviewMap
+                                    value={$mapGeoLocation!}
+                                    height="h-[200px]"
+                                    preferCombinedBoundary
+                                    deferReveal
+                                />
+                            </div>
+                        ) : (
+                            <div
+                                className="h-[200px] w-full bg-jetlag flex items-center justify-center"
+                                role="status"
+                                aria-live="polite"
+                                aria-label="Waiting for play area"
+                            >
+                                <Loader2 className="w-5 h-5 animate-spin text-white/70" />
+                            </div>
+                        )}
+
+                        {/* readability scrim: light at top (map shows) → dark at
+                            the bottom band where the controls sit. */}
+                        <div
+                            className="pointer-events-none absolute inset-0"
+                            style={{
+                                background:
+                                    "linear-gradient(180deg, rgba(15,22,32,.34) 0%, rgba(15,22,32,.14) 32%, rgba(15,22,32,.72) 100%)",
+                            }}
+                        />
+
+                        <div className="absolute inset-0 flex flex-col px-4 py-3.5 text-white">
+                            {/* top: room code + Share / Copy / QR */}
+                            <div className="flex items-start gap-2">
+                                <div className="flex flex-col min-w-0 leading-none">
+                                    <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-white/80">
+                                        Room code
+                                    </span>
+                                    {$code ? (
+                                        <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-white mt-1 drop-shadow-[0_1px_6px_rgba(0,0,0,.65)]">
+                                            {$code}
+                                        </span>
+                                    ) : (
+                                        <div className="h-6 w-28 rounded-sm bg-white/25 animate-pulse mt-1.5" />
+                                    )}
+                                </div>
+                                {$code && (
+                                    <div className="ml-auto flex items-center gap-1.5">
+                                        <Button
+                                            size="sm"
+                                            onClick={handleShare}
+                                            aria-label="Share invite link"
+                                            title="Share invite link"
+                                            className="gap-1.5 shadow-md"
+                                        >
+                                            <Share2 className="w-3.5 h-3.5" />
+                                            Share
+                                        </Button>
+                                        <button
+                                            type="button"
+                                            onClick={handleCopy}
+                                            aria-label="Copy invite link"
+                                            title={
+                                                copied
+                                                    ? "Copied!"
+                                                    : "Copy invite link"
+                                            }
+                                            className={GLASS_BTN}
+                                        >
+                                            {copied ? (
+                                                <Check className="w-3.5 h-3.5" />
+                                            ) : (
+                                                <Copy className="w-3.5 h-3.5" />
+                                            )}
+                                        </button>
+                                        {shareUrl && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setQrOpen(true)}
+                                                aria-label="Show large QR code"
+                                                title="Show large QR code"
+                                                className={GLASS_BTN}
+                                            >
+                                                <QrCode className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </div>
                                 )}
                             </div>
-                        </div>
-                    ) : (
-                        <div
-                            className="flex items-center gap-2 min-h-[3rem]"
-                            role="status"
-                            aria-live="polite"
-                            aria-label="Creating game room"
-                        >
-                            <div className="flex flex-col min-w-0 leading-none gap-1.5">
-                                <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
-                                    {hostingState === "failed"
-                                        ? "Room code"
-                                        : "Creating room…"}
-                                </span>
-                                <div className="h-6 w-28 rounded-sm bg-primary/20 animate-pulse" />
+
+                            {/* bottom: city + settings on the dim band */}
+                            <div className="mt-auto flex flex-col gap-2">
+                                {cityName && (
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <span className="font-display font-extrabold text-white text-sm drop-shadow-[0_1px_4px_rgba(0,0,0,.6)] truncate">
+                                            {cityName}
+                                        </span>
+                                        {isHost && (
+                                            <button
+                                                type="button"
+                                                onClick={openAreaEditor}
+                                                aria-label="Change play area"
+                                                title="Change the play area"
+                                                className={cn(
+                                                    GLASS_BTN,
+                                                    "h-6 w-6",
+                                                )}
+                                            >
+                                                <Pencil className="w-3 h-3" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {isHost ? (
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    aria-label="Change game size"
+                                                    className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                                                >
+                                                    <SizeBadge
+                                                        size={$size}
+                                                        className="text-xs px-2.5 py-1.5 shadow-md"
+                                                        trailing={
+                                                            <ChevronDown className="w-4 h-4 opacity-80" />
+                                                        }
+                                                    />
+                                                </button>
+                                            </PopoverTrigger>
+                                            <PopoverContent
+                                                align="start"
+                                                container={drawerEl}
+                                                className="z-[1060] w-48 p-1"
+                                            >
+                                                {SIZE_OPTIONS.map((o) => (
+                                                    <button
+                                                        key={o.value}
+                                                        type="button"
+                                                        onClick={() =>
+                                                            setSize(o.value)
+                                                        }
+                                                        aria-label={o.label}
+                                                        className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent transition-colors"
+                                                    >
+                                                        <SizeBadge
+                                                            size={o.value}
+                                                            className="text-sm px-2.5 py-1"
+                                                        />
+                                                        {o.value === $size && (
+                                                            <Check className="w-4 h-4 text-primary ml-auto" />
+                                                        )}
+                                                    </button>
+                                                ))}
+                                            </PopoverContent>
+                                        </Popover>
+                                    ) : (
+                                        <SizeBadge
+                                            size={$size}
+                                            className="text-xs px-2.5 py-1.5 shadow-md"
+                                        />
+                                    )}
+
+                                    {$allowedTransit.length === 0 ? (
+                                        <span className="text-xs text-white/90 italic drop-shadow-[0_1px_3px_rgba(0,0,0,.6)]">
+                                            Walking only
+                                        </span>
+                                    ) : (
+                                        $allowedTransit.map((m) => {
+                                            const Icon = TRANSIT_ICONS[m];
+                                            return (
+                                                <span
+                                                    key={m}
+                                                    className={GLASS_PILL}
+                                                    title={TRANSIT_LABELS[m]}
+                                                    aria-label={TRANSIT_LABELS[m]}
+                                                >
+                                                    <Icon className="w-4 h-4" />
+                                                </span>
+                                            );
+                                        })
+                                    )}
+
+                                    {isHost && (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setTransitEditOpen(true)
+                                            }
+                                            aria-label="Edit transit modes"
+                                            title="Edit transit modes"
+                                            className={cn(GLASS_BTN, "ml-auto")}
+                                        >
+                                            <Pencil className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
-                            <div className="ml-auto flex items-center gap-1.5">
-                                <div className="h-8 w-[4.5rem] rounded-md bg-secondary animate-pulse" />
-                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:150ms]" />
-                                <div className="h-8 w-9 rounded-md bg-secondary animate-pulse [animation-delay:300ms]" />
-                            </div>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 <div className="px-5 py-3 flex-1 min-h-0 overflow-y-auto space-y-3">
                     {/* Autohost failure recovery. The "creating" skeleton
@@ -916,175 +1074,6 @@ export function GameLobbyDialog() {
                         </DialogContent>
                     </Dialog>
 
-                    {/* Section 1 — GAME SETTINGS (v857): size + allowed transit
-                        + the play-area map. Scrolls with the rest now that the
-                        ROOM CODE owns the fixed header. Pre-game only (mid-game
-                        manual reopen is about the roster / round-end). */}
-                    {!isMidGame && (
-                        <>
-                            <h3 className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                                Game settings
-                            </h3>
-
-                            {/* Game size + allowed-transit (icon-only,
-                                map-overlay sized) + an Edit button that opens
-                                the wizard's transit step — all on one row. */}
-                            <div className="flex items-center gap-2 flex-wrap">
-                                {/* Size pill — chevron lives INSIDE the coloured
-                                    pill so it reads as one unit. Host taps to
-                                    change; dropdown rows show the same badge. */}
-                                {isHost ? (
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <button
-                                                type="button"
-                                                aria-label="Change game size"
-                                                className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                            >
-                                                <SizeBadge
-                                                    size={$size}
-                                                    className="text-sm px-2.5 py-1.5"
-                                                    trailing={
-                                                        <ChevronDown className="w-4 h-4 opacity-80" />
-                                                    }
-                                                />
-                                            </button>
-                                        </PopoverTrigger>
-                                        <PopoverContent
-                                            align="start"
-                                            container={drawerEl}
-                                            className="z-[1060] w-48 p-1"
-                                        >
-                                            {SIZE_OPTIONS.map((o) => (
-                                                <button
-                                                    key={o.value}
-                                                    type="button"
-                                                    onClick={() =>
-                                                        setSize(o.value)
-                                                    }
-                                                    aria-label={o.label}
-                                                    className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent transition-colors"
-                                                >
-                                                    <SizeBadge
-                                                        size={o.value}
-                                                        className="text-sm px-2.5 py-1"
-                                                    />
-                                                    {o.value === $size && (
-                                                        <Check className="w-4 h-4 text-primary ml-auto" />
-                                                    )}
-                                                </button>
-                                            ))}
-                                        </PopoverContent>
-                                    </Popover>
-                                ) : (
-                                    <SizeBadge
-                                        size={$size}
-                                        className="text-sm px-2.5 py-1.5"
-                                    />
-                                )}
-
-                                {/* Allowed transit — icon-only pills. */}
-                                {$allowedTransit.length === 0 ? (
-                                    <span className="text-xs text-muted-foreground italic">
-                                        Walking only
-                                    </span>
-                                ) : (
-                                    <div className="flex items-center gap-1.5">
-                                        {$allowedTransit.map((m) => {
-                                            const Icon = TRANSIT_ICONS[m];
-                                            return (
-                                                <span
-                                                    key={m}
-                                                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border-2 border-border bg-background"
-                                                    title={TRANSIT_LABELS[m]}
-                                                    aria-label={TRANSIT_LABELS[m]}
-                                                >
-                                                    <Icon className="w-4 h-4" />
-                                                </span>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-
-                                {/* Edit transit — opens the wizard's transit
-                                    step in a dialog. When ALL modes are on the
-                                    row is full, so drop the "Edit" label to
-                                    icon-only so the pencil still fits. */}
-                                {isHost &&
-                                    (() => {
-                                        const allTransitOn =
-                                            $allowedTransit.length ===
-                                            ALL_TRANSIT_MODES.length;
-                                        return (
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    setTransitEditOpen(true)
-                                                }
-                                                aria-label="Edit transit modes"
-                                                title="Edit transit modes"
-                                                className={cn(
-                                                    "inline-flex h-9 items-center gap-1.5 rounded-md border-2 border-dashed border-border text-xs font-poppins font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                                    allTransitOn
-                                                        ? "w-9 justify-center px-0"
-                                                        : "px-2.5",
-                                                )}
-                                            >
-                                                <Pencil className="w-3.5 h-3.5" />
-                                                {!allTransitOn && "Edit"}
-                                            </button>
-                                        );
-                                    })()}
-                            </div>
-
-                            {/* Play-area map. The 180-px slot is reserved
-                                unconditionally so the content doesn't jump when
-                                a guest's host-pushed setup arrives a beat after
-                                the lobby opens; a skeleton fills the box until
-                                the boundary is in. */}
-                            {($mapGeoLocation?.properties?.osm_id ?? 0) > 0 ? (
-                                <div className="relative">
-                                    <PlayAreaPreviewMap
-                                        value={$mapGeoLocation!}
-                                        height="h-[180px]"
-                                        preferCombinedBoundary
-                                        deferReveal
-                                    />
-                                    {isHost && (
-                                        <button
-                                            type="button"
-                                            onClick={openAreaEditor}
-                                            aria-label="Change play area"
-                                            title="Change the play area"
-                                            className={cn(
-                                                "absolute top-2 right-2 z-[5]",
-                                                "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md",
-                                                "bg-background/90 backdrop-blur-sm border border-border shadow-sm",
-                                                "text-xs font-semibold text-foreground",
-                                                "hover:bg-background transition-colors",
-                                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                            )}
-                                        >
-                                            <Pencil className="w-3.5 h-3.5" />
-                                            Edit
-                                        </button>
-                                    )}
-                                </div>
-                            ) : (
-                                <div
-                                    className="relative w-full h-[180px] rounded-md overflow-hidden border border-border bg-secondary/30 flex flex-col items-center justify-center gap-2 text-muted-foreground animate-in fade-in duration-200"
-                                    role="status"
-                                    aria-live="polite"
-                                    aria-label="Waiting for play area"
-                                >
-                                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                                    <div className="text-xs">
-                                        Waiting for the host's play area…
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    )}
 
                     {/* Section 2 — PLAYERS (v856). */}
                     {$mp && ($participants.length > 0 || !isMidGame) && (

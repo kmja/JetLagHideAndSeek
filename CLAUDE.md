@@ -430,6 +430,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v863 — lobby header IS the play-area map (settings overlaid on a dimmed map).**
+The pre-game `GameLobbyDialog` header is now the play-area `PlayAreaPreviewMap`
+itself (`h-[200px]`, full-bleed — its inner rounded/border stripped via
+`[&>div]:!rounded-none [&>div]:!border-0`), with the room code + Share riding on
+top and the game settings (size pill + transit glass pills + Edit) seated on a
+**bottom-weighted scrim** (`linear-gradient` ~34%→14%→72% dark, top→bottom) so
+the map reads up top while the controls stay crisp on the dark band. Controls use
+frosted `GLASS_BTN`/`GLASS_PILL` (white + `bg-white/15` + white hairline +
+backdrop-blur); the size pill (`SizeBadge`) and Share button keep their solid
+colours. Play-area Edit is a pencil beside the city name; transit Edit a glass
+pencil at the row end (host only). Replaces BOTH the separate room-code header
+(v857/v860 — the inverse-theme trick is gone, obsolete under the scrim) and the
+scrollable GAME SETTINGS section (v857). Mid-game manual reopen shows a compact
+room-code bar (no map). `resolvedTheme` import dropped.
+
 **v862 — distinct player colours within a room (fixes two players sharing a
 colour).** The v861 per-id hash could collide, so two players sometimes wore the
 same colour. `assignPlayerColors(ids)` (`playerColor.ts`) now assigns over the
