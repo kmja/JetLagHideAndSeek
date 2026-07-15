@@ -428,7 +428,39 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v838`. Use `git log` for the per-version detail;
+build stamp. Current: `v865`. Use `git log` for the per-version detail;
+
+**v865 — NYC trip planner "walking-only" fixed: stale MOTIS `METRO` enum poisoned
+every request.** The reported "trip planner always falls back to a walking estimate
+in NYC even though the subway departures board shows trains" was NOT a coverage gap
+(Transitous/MOTIS covers NYC via the MTA GTFS in the Mobility Database) — it was a
+stale mode enum. `MOTIS_MODE_MAP.subway` (`overpass-cache/src/travel/adapters/transitous.ts`)
+was `["SUBWAY", "METRO"]`, but MOTIS **renamed `METRO` → `SUBURBAN` in 2.5.0** (the
+version the public Transitous instance runs), so `METRO` is no longer a valid `Mode`.
+A NYC no-bus game (`req.modes=["subway","train","tram","ferry"]`) therefore emitted
+`transitModes=WALK,SUBWAY,METRO,RAIL,…` — an INVALID enum value in the KNOWN
+`transitModes` parameter, which makes MOTIS reject the ENTIRE `/api/v1/plan` request
+with a 400 → `planViaMotis` hit `if (!resp.ok) return null` → `dispatchPlan` fell
+through to the unconditional walking backstop. (The departures board is a separate
+endpoint, so it kept working — the misleading "transit clearly exists" signal.) The
+comment at the `transitModes` set-site was the trap: "an unknown param is ignored by
+older MOTIS" is true for an unknown PARAMETER but NOT for an invalid ENUM VALUE inside
+a known one. Three fixes: (1) **`subway: ["SUBWAY"]`** — drop the stale `METRO`; `SUBWAY`
+is the stable enum and suburban/S-Bahn rail (what MOTIS now calls `SUBURBAN`) is not the
+subway anyway — it's covered by the `train` RAIL family. (2) **Defense-in-depth retry**
+(`planViaMotis`): if the modes-constrained request returns non-OK (most likely a 400 from
+a stale/invalid `transitModes` enum), retry ONCE WITHOUT `transitModes`. `parseMotisPlan`
+already picks a mode-compliant transit-bearing itinerary out of MOTIS's full ranked list
+(honouring `req.modes`, v766), so dropping the hint costs only ranking — and a future
+stale enum can never again silently collapse the planner to a walking estimate. (3)
+**`classifyMode` handles `SUBURBAN`** → train (parse-side; benign today since an unknown
+mode already falls to the always-passing generic `"transit"`, but it labels current-MOTIS
+suburban-rail legs correctly). Unit-tested (`tests/travelPlan.test.ts`: `motisTransitModes`
+never emits `METRO`). Applies to BOTH the public Transitous instance and a self-hosted
+MOTIS box (they share `planViaMotis`/`parseMotisPlan`). Worker change — auto-deploys with
+the `overpass-cache` Workers Build. **Not live-verifiable from CI (egress blocks
+api.transitous.org); confirm in production via `/api/travel/plan?debug=1` for a NYC
+origin/destination** — the walking fall-through should be gone.
 
 **v864 — matching configure map plots only the nearest reference + its Voronoi
 border (not the whole POI field).** A matching question's answer is just "same"

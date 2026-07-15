@@ -116,24 +116,48 @@ export async function planViaMotis(
     const motisModes = motisTransitModes(req.modes);
     if (motisModes) url.searchParams.set("transitModes", motisModes);
 
-    const ctrl = new AbortController();
-    const onAbort = () => ctrl.abort();
-    signal?.addEventListener("abort", onAbort, { once: true });
-    const timer = setTimeout(() => ctrl.abort(), UPSTREAM_TIMEOUT_MS);
+    // One-shot fetch helper (abort/timeout-safe). Returns the Response or
+    // null on a network/abort error — a non-OK status still resolves so the
+    // caller can decide whether to retry.
+    const doFetch = async (u: string): Promise<Response | null> => {
+        const ctrl = new AbortController();
+        const onAbort = () => ctrl.abort();
+        signal?.addEventListener("abort", onAbort, { once: true });
+        const timer = setTimeout(() => ctrl.abort(), UPSTREAM_TIMEOUT_MS);
+        try {
+            return await fetch(u, {
+                signal: ctrl.signal,
+                headers: { Accept: "application/json" },
+            });
+        } catch (e) {
+            console.warn("MOTIS fetch failed:", e);
+            return null;
+        } finally {
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", onAbort);
+        }
+    };
 
-    let resp: Response;
-    try {
-        resp = await fetch(url.toString(), {
-            signal: ctrl.signal,
-            headers: { Accept: "application/json" },
-        });
-    } catch (e) {
-        console.warn("MOTIS fetch failed:", e);
-        return null;
-    } finally {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
+    let resp = await doFetch(url.toString());
+    // Defense-in-depth: if the modes-constrained request is REJECTED (most
+    // likely a 400 from an invalid/stale `transitModes` enum value — the
+    // class of bug that made every NYC trip fall to walking), retry ONCE
+    // WITHOUT the constraint. `parseMotisPlan` already picks a mode-compliant
+    // transit-bearing itinerary out of MOTIS's full ranked list (honouring
+    // `req.modes`), so dropping the hint costs us nothing but ranking — and a
+    // future stale enum can never again silently collapse the planner to a
+    // walking estimate.
+    if (resp && !resp.ok && motisModes) {
+        console.warn(
+            "MOTIS non-OK with transitModes:",
+            resp.status,
+            resp.statusText,
+            "— retrying unconstrained",
+        );
+        url.searchParams.delete("transitModes");
+        resp = await doFetch(url.toString());
     }
+    if (!resp) return null;
     if (!resp.ok) {
         console.warn("MOTIS non-OK:", resp.status, resp.statusText);
         return null;
@@ -291,7 +315,17 @@ function place(p: MotisPlace | undefined, fallback?: TravelPlace): TravelPlace {
 const MOTIS_MODE_MAP: Record<TravelMode, string[]> = {
     bus: ["BUS", "COACH"],
     tram: ["TRAM"],
-    subway: ["SUBWAY", "METRO"],
+    // ONLY `SUBWAY` — the stable enum. `METRO` was RENAMED to `SUBURBAN` in
+    // MOTIS 2.5.0 (the version the public Transitous instance runs), so it is
+    // no longer a valid `Mode`. Sending it put an INVALID enum value into the
+    // known `transitModes` parameter, which makes MOTIS reject the ENTIRE
+    // /api/v1/plan request with a 400 → `planViaMotis` returned null → the
+    // dispatcher fell through to the walking backstop. That was the "walking
+    // estimate in NYC even though the subway departures board shows trains"
+    // bug: a NYC no-bus game emitted `…,SUBWAY,METRO,…` and 400'd every trip.
+    // (Suburban/S-Bahn rail — the thing MOTIS now calls SUBURBAN — is not the
+    // subway anyway; it's covered by the `train` RAIL family below.)
+    subway: ["SUBWAY"],
     train: [
         "RAIL",
         "REGIONAL_RAIL",
@@ -334,6 +368,9 @@ function classifyMode(mode?: string): "walk" | TravelMode | "transit" {
         case "REGIONAL_RAIL":
         case "REGIONAL_FAST_RAIL":
         case "COMMUTER_RAIL":
+        // MOTIS 2.5.0 renamed `METRO` (suburban / S-Bahn class rail) to
+        // `SUBURBAN`; classify it as train, matching the `train` RAIL family.
+        case "SUBURBAN":
         case "LONG_DISTANCE":
         case "HIGHSPEED_RAIL":
         case "NIGHT_RAIL":

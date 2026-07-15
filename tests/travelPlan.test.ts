@@ -1547,4 +1547,18 @@ describe("motisTransitModes (MOTIS mode restriction)", () => {
         expect(set.has("BUS")).toBe(true);
         expect(set.has("SUBWAY")).toBe(true);
     });
+
+    test("NEVER emits the stale `METRO` enum (renamed SUBURBAN in MOTIS 2.5.0)", () => {
+        // `METRO` is no longer a valid MOTIS `Mode`; sending it 400'd the whole
+        // /api/v1/plan request and dropped every NYC trip to a walking estimate.
+        for (const modes of [
+            ["subway"],
+            ["subway", "train", "tram", "ferry"],
+            ["bus", "subway", "train"],
+        ] as const) {
+            const v = motisTransitModes([...modes]);
+            expect(v).not.toBeNull();
+            expect(v!.split(",")).not.toContain("METRO");
+        }
+    });
 });
