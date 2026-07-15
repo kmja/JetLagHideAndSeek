@@ -37,6 +37,7 @@ import {
     mapGeoJSON,
     mapGeoLocation,
 } from "@/lib/context";
+import { landFromCoast as landFromCoastViaWorker } from "@/lib/geometry/client";
 import { COAST_BY_RELATION_BASE } from "@/maps/api/constants";
 import { findPlacesInZone } from "@/maps/api/overpass";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
@@ -264,6 +265,20 @@ export async function fetchAreaLandPolygons(seeker: {
 
     const lines = await fetchAreaCoastlineLines();
     if (!lines || lines.length === 0) return null;
+
+    // v875: run the heavy seaFromCoastline + world-frame difference OFF the
+    // main thread so a dense coastal metro (NYC harbour + tidal rivers) can't
+    // freeze the UI here. The worker REJECTS when unavailable → the identical
+    // main-thread computation below is the fallback (correctness never depends
+    // on the worker existing).
+    try {
+        return await landFromCoastViaWorker(lines, bbox, {
+            lat: seeker.lat,
+            lng: seeker.lng,
+        });
+    } catch {
+        /* worker unavailable / errored — main-thread fallback below */
+    }
 
     const sea = seaFromCoastline(lines, bbox, {
         lng: seeker.lng,

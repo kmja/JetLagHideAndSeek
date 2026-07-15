@@ -93,7 +93,7 @@ function getWorker(): Worker | null {
 }
 
 function call<T>(
-    type: "clip" | "combine",
+    type: "clip" | "combine" | "landFromCoast",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -136,6 +136,26 @@ export async function clipPolygonToLand(
         );
         return clipOnMainThread(polygon);
     }
+}
+
+/**
+ * Per-city LAND polygons from the OSM coastline, OFF the main thread (v875).
+ * The heavy `seaFromCoastline` + world-frame `difference` runs in the worker
+ * so a dense coastal metro's same-landmass question / configure preview no
+ * longer freezes the UI. REJECTS if the worker is unavailable — the caller
+ * (`coast.ts fetchAreaLandPolygons`) keeps its own main-thread fallback, so
+ * this never touches correctness, only smoothness.
+ */
+export async function landFromCoast(
+    lines: Feature[],
+    bbox: [number, number, number, number],
+    seeker: { lat: number; lng: number },
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    return call<Feature<Polygon | MultiPolygon> | null>("landFromCoast", {
+        lines,
+        bbox,
+        seeker,
+    });
 }
 
 /**

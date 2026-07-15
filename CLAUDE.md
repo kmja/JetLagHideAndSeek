@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v874`. Use `git log` for the per-version detail;
+build stamp. Current: `v875`. Use `git log` for the per-version detail;
+
+**v875 — same-landmass geometry offloaded to the Web Worker (freeze fix, part
+1).** The `same-landmass` question / configure preview froze the UI for seconds
+in a dense coastal metro because `fetchAreaLandPolygons` (`coast.ts`) ran the
+heavy `seaFromCoastline` (node/polygonize/right-of-way-label/union) + the
+world-frame `turf.difference` SYNCHRONOUSLY on the main thread (the reported
+NYC same-landmass freeze + the dialog tear-down + "loading animation freezes").
+It now runs in the existing geometry Web Worker: new `landFromCoast` op
+(`geometry/worker.ts` imports the turf-only `seaFromCoastline`; `geometry/client.ts`
+exports `landFromCoast`), and `fetchAreaLandPolygons` tries the worker first,
+keeping its IDENTICAL main-thread computation as the fallback (correctness never
+depends on the worker existing). Same async contract — callers already `await`
+it. NOTE: body-of-water's `seaFromCoastline` (measuring elimination) still runs
+on the main thread — a follow-up `seaFromCoast` worker op will offload it too.
 
 **v874 — hider nav matches seeker + player-colour seeker markers.**
 - **Hider bottom nav** (`HiderBottomNav`) now matches the seeker's exactly: the

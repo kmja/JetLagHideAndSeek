@@ -6,6 +6,9 @@ import type {
     Polygon,
 } from "geojson";
 
+import { area, bboxPolygon, difference, featureCollection } from "@turf/turf";
+
+import { seaFromCoastline } from "../../maps/questions/seaFromCoastline";
 import {
     clipPolygonToLandWith,
     parseLandPolys,
@@ -79,9 +82,44 @@ type CombinePayload = {
     addedFeatures: Feature<Polygon | MultiPolygon>[];
     subtractFeatures: Feature<Polygon | MultiPolygon>[];
 };
+type LandFromCoastPayload = {
+    lines: Feature[];
+    bbox: [number, number, number, number];
+    seeker: { lat: number; lng: number };
+};
 type InMessage =
     | { id: number; type: "clip"; payload: ClipPayload }
-    | { id: number; type: "combine"; payload: CombinePayload };
+    | { id: number; type: "combine"; payload: CombinePayload }
+    | { id: number; type: "landFromCoast"; payload: LandFromCoastPayload };
+
+/**
+ * v875: per-city LAND polygons (play-area frame MINUS the sea built from the
+ * OSM coastline) — the heavy `seaFromCoastline` node/polygonize/union + the
+ * world-frame `turf.difference`. Runs HERE so a dense metro's coastline
+ * (NYC harbour + tidal rivers) can't freeze the UI while the same-landmass
+ * question / configure preview computes. Pure turf; `null` on any
+ * degeneracy (caller keeps its main-thread fallback / global bundle).
+ */
+function landFromCoastImpl(
+    p: LandFromCoastPayload,
+): Feature<Polygon | MultiPolygon> | null {
+    const sea = seaFromCoastline(p.lines as never, p.bbox, {
+        lng: p.seeker.lng,
+        lat: p.seeker.lat,
+    });
+    if (!sea) return null;
+    try {
+        const frame = bboxPolygon(p.bbox);
+        const land = difference(
+            featureCollection([frame, sea] as never),
+        ) as Feature<Polygon | MultiPolygon> | null;
+        if (!land || !land.geometry) return null;
+        if (area(land) <= 0) return null;
+        return land;
+    } catch {
+        return null;
+    }
+}
 
 self.onmessage = async (e: MessageEvent<InMessage>) => {
     const msg = e.data;
@@ -98,6 +136,9 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
                     msg.payload.subtractFeatures,
                     (phase) => self.postMessage({ id, phase }),
                 );
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "landFromCoast") {
+            const result = landFromCoastImpl(msg.payload);
             self.postMessage({ id, ok: true, result });
         } else {
             self.postMessage({
