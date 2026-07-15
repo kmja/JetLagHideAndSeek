@@ -69,6 +69,7 @@ import {
     setOnlineName,
     setOnlineRole,
 } from "@/lib/multiplayer/store";
+import { playerColor, playerInitials } from "@/lib/playerColor";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
 import { resolvedTheme } from "@/lib/theme";
@@ -1357,8 +1358,27 @@ function RosterCard({
                         return (
                             <li
                                 key={p.id}
-                                className="flex items-center gap-2 text-base"
+                                className="flex items-center gap-2.5 text-base"
                             >
+                                {/* v861: per-player identity colour (show-
+                                    style) — a stable colour from the id, shown
+                                    as an initialed avatar. Reused later for
+                                    leaderboard rows + live pins. */}
+                                <span
+                                    className={cn(
+                                        "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+                                        "font-poppins font-bold text-[10.5px] text-white select-none",
+                                        !p.online && "opacity-45",
+                                    )}
+                                    style={{
+                                        backgroundColor: playerColor(p.id),
+                                        boxShadow:
+                                            "inset 0 0 0 1.5px rgba(255,255,255,.28)",
+                                    }}
+                                    aria-hidden="true"
+                                >
+                                    {playerInitials(p.displayName)}
+                                </span>
                                 <span
                                     className={cn(
                                         // v856: NOT flex-1 — the row stays

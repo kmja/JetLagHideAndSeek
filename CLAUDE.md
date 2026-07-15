@@ -430,6 +430,18 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v861 — per-player identity colours in the lobby roster (show-style).** Each
+participant gets a stable colour + an initialed avatar on their roster row
+(`GameLobbyDialog` `RosterCard`), inspired by the Jet Lag standings screen where
+every competitor owns a colour. `src/lib/playerColor.ts` is the shared source:
+`playerColor(id)` hashes the (server-assigned, room-shared) participant id into a
+pool → the SAME colour on every device with no extra wire sync; `playerInitials`
+builds the avatar text. The pool is the show palette but **deliberately excludes
+the brand red** (`--primary` is reserved for buttons / seeker chrome, so a player
+never wears it) and every colour passes white-text contrast. Deliberately shared
+so the same colour can later mark a player on the **leaderboard rows + live
+seeker map pins** — exactly where the show uses them (not wired there yet).
+
 **v860 — lobby room-code header: inverse theme + tighter top padding.** The
 `GameLobbyDialog` room-code header now renders in the INVERSE theme of the app —
 a DARK header in light mode, a LIGHT header in dark mode — for contrast against
