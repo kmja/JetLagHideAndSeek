@@ -8,7 +8,7 @@ import {
     point as turfPoint,
     simplify as turfSimplify,
 } from "@turf/turf";
-import { Footprints, HelpCircle, MapPin } from "lucide-react";
+import { HelpCircle, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
     AttributionControl,
@@ -59,6 +59,7 @@ import { holedMask } from "@/maps";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
 import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
+import { playerColor, playerInitials } from "@/lib/playerColor";
 import {
     PLAY_AREA_COLOR,
     PLAY_AREA_LINE_OPACITY,
@@ -225,6 +226,77 @@ export function HiderBackgroundMap() {
             }),
         [$seekerLocations, $participants],
     );
+
+    // v873: collision-aware seeker-name labels — a name pill shows only when
+    // it clears every OTHER seeker's avatar box + every already-accepted
+    // label box (greedy, shortest-first), recomputed on pan/zoom. Mirrors the
+    // adjacent-candidate label pass so clustered seekers don't overlap.
+    const [labeledSeekerIds, setLabeledSeekerIds] = useState<Set<string>>(
+        new Set(),
+    );
+    useEffect(() => {
+        const map = mapRef.current?.getMap();
+        if (!map || seekerPins.length === 0) {
+            setLabeledSeekerIds(new Set());
+            return;
+        }
+        const AV = 30; // avatar box (px)
+        const LH = 20; // label height
+        const CHAR = 6.5;
+        const PAD = 4;
+        const GAP = 6;
+        const overlaps = (
+            a: { x1: number; y1: number; x2: number; y2: number },
+            b: { x1: number; y1: number; x2: number; y2: number },
+        ) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+        const recompute = () => {
+            const pts = seekerPins.map((s) => {
+                const p = map.project([s.lng, s.lat]);
+                return { id: s.id, x: p.x, y: p.y, name: s.name };
+            });
+            const avatarBox = (x: number, y: number) => ({
+                x1: x - AV / 2,
+                y1: y - AV / 2,
+                x2: x + AV / 2,
+                y2: y + AV / 2,
+            });
+            const labelBox = (x: number, y: number, w: number) => ({
+                x1: x - w / 2 - PAD,
+                y1: y + AV / 2 + GAP - PAD,
+                x2: x + w / 2 + PAD,
+                y2: y + AV / 2 + GAP + LH + PAD,
+            });
+            const avatars = pts.map((p) => ({ id: p.id, box: avatarBox(p.x, p.y) }));
+            const order = [...pts].sort(
+                (a, b) =>
+                    a.name.length - b.name.length ||
+                    (a.id < b.id ? -1 : 1),
+            );
+            const accepted: { x1: number; y1: number; x2: number; y2: number }[] =
+                [];
+            const labeled = new Set<string>();
+            for (const p of order) {
+                const w = Math.min(120, Math.max(1, p.name.length) * CHAR);
+                const box = labelBox(p.x, p.y, w);
+                const hitsAvatar = avatars.some(
+                    (a) => a.id !== p.id && overlaps(box, a.box),
+                );
+                const hitsLabel = accepted.some((a) => overlaps(box, a));
+                if (!hitsAvatar && !hitsLabel) {
+                    labeled.add(p.id);
+                    accepted.push(box);
+                }
+            }
+            setLabeledSeekerIds(labeled);
+        };
+        recompute();
+        map.on("move", recompute);
+        map.on("zoom", recompute);
+        return () => {
+            map.off("move", recompute);
+            map.off("zoom", recompute);
+        };
+    }, [seekerPins]);
 
     // The "Mark spot" affordance lives on the floating HiderMapTimer
     // (v633; was HiderTimeHeader before): it sits above the live timer
@@ -1015,18 +1087,25 @@ export function HiderBackgroundMap() {
                 {seekerPins.map((s) => (
                     <Marker key={s.id} latitude={s.lat} longitude={s.lng}>
                         <div className="flex flex-col items-center">
+                            {/* Player-colour initials avatar (v873), matching
+                                the lobby roster / leaderboard identity colours. */}
                             <div
                                 title={s.name}
-                                className={cn(
-                                    "flex items-center justify-center w-7 h-7 rounded-full",
-                                    "bg-destructive border-2 border-background shadow-lg",
-                                )}
+                                className="flex items-center justify-center w-7 h-7 rounded-full border-2 border-background shadow-lg text-[11px] font-black text-white font-inter-tight leading-none"
+                                style={{ backgroundColor: playerColor(s.id) }}
                             >
-                                <Footprints className="w-4 h-4 text-background" />
+                                {playerInitials(s.name)}
                             </div>
-                            <MarkerLabel tone="destructive">
-                                {s.name}
-                            </MarkerLabel>
+                            {labeledSeekerIds.has(s.id) && (
+                                <span
+                                    className="mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-white shadow whitespace-nowrap leading-none"
+                                    style={{
+                                        backgroundColor: playerColor(s.id),
+                                    }}
+                                >
+                                    {s.name}
+                                </span>
+                            )}
                         </div>
                     </Marker>
                 ))}

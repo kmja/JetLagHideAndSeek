@@ -86,15 +86,27 @@ export function HiderBottomNav() {
     const inboxCount = $inbox.length;
     const onlineCount = $participants.filter((p) => p.online).length;
 
+    // v873: match the SEEKER nav (BottomNav) exactly — flat muted buttons,
+    // NOT the old bordered/filled tiles, so the two navs read identically.
     const navBtnClass = cn(
-        "relative flex flex-1 flex-col items-center justify-center gap-0.5",
+        "relative flex-1 flex flex-col items-center justify-center gap-0.5",
         "py-2 px-1 rounded-md min-h-[48px]",
-        "bg-secondary hover:bg-accent active:bg-secondary/80",
-        "border border-border",
-        "transition-colors font-poppins text-foreground",
+        "text-muted-foreground hover:text-foreground hover:bg-secondary",
+        "active:bg-secondary/80 transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    );
+    // The hider's PRIMARY action (Zone) mirrors the seeker's "New question"
+    // centre CTA — filled brand red, slightly wider.
+    const navPrimaryClass = cn(
+        "relative flex-[1.4] flex flex-col items-center justify-center gap-0.5",
+        "py-2 px-1 rounded-md min-h-[48px]",
+        "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80",
+        "transition-colors font-poppins",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
     );
     const navLabelClass = "text-[10px] font-poppins font-semibold";
+    const navPrimaryLabelClass =
+        "text-[10px] font-bold uppercase tracking-wider";
 
     return (
         <>
@@ -136,11 +148,11 @@ export function HiderBottomNav() {
                     <button
                         type="button"
                         onClick={() => setZoneOpen(true)}
-                        className={navBtnClass}
+                        className={navPrimaryClass}
                         aria-label="Open hiding zone controls"
                     >
                         <Tent className="w-5 h-5" strokeWidth={2} />
-                        <span className={navLabelClass}>Zone</span>
+                        <span className={navPrimaryLabelClass}>Zone</span>
                     </button>
 
                     {/* Map — opens the roomy map-options drawer (basemap /

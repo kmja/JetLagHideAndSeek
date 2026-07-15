@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v873`. Use `git log` for the per-version detail;
+build stamp. Current: `v874`. Use `git log` for the per-version detail;
+
+**v874 — hider nav matches seeker + player-colour seeker markers.**
+- **Hider bottom nav** (`HiderBottomNav`) now matches the seeker's exactly: the
+  bordered/filled tile buttons (`bg-secondary border`) became the seeker's FLAT
+  muted buttons, and the hider's primary action (**Zone**) is the filled brand-
+  red centre CTA (`flex-[1.4]`, uppercase label) mirroring the seeker's "New
+  question". Hand fan below is untouched.
+- **Seeker map markers** (`HiderBackgroundMap` live seeker pins) use each
+  player's **identity colour + initials avatar** (`playerColor`/`playerInitials`,
+  the lobby/leaderboard palette) instead of a red footprints circle, and the
+  name pill is **collision-hidden** — a greedy shortest-first pass drops any
+  label that would overlap another seeker's avatar or an already-placed label,
+  recomputed on pan/zoom.
 
 **v873 — Questions-drawer "New" no longer breaks the first question + subtype
 header styling.**
