@@ -428,7 +428,16 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v865`. Use `git log` for the per-version detail;
+build stamp. Current: `v866`. Use `git log` for the per-version detail;
+
+**v866 — lobby header map: taller + dim to navy top & bottom.** The pre-game
+`GameLobbyDialog` play-area header (v863) grew from `h-[200px]` to `h-[280px]`
+(both the `PlayAreaPreviewMap` and its loading placeholder) so the play area
+reads clearly between the two dimmed bands, and the readability scrim now dims
+to the **`bg-jetlag` navy `#1F2F3F`** (`rgba(31,47,63,…)`) instead of the old
+near-black `rgba(15,22,32,…)` — a solid navy top band (room code) fully clearing
+by 50%, open map through the middle, then a 0.40 navy bottom band (settings). No
+behaviour change; purely the scrim gradient + map height.
 
 **v865 — NYC trip planner "walking-only" fixed: stale MOTIS `METRO` enum poisoned
 every request.** The reported "trip planner always falls back to a walking estimate

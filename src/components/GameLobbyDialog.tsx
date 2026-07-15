@@ -684,14 +684,14 @@ export function GameLobbyDialog() {
                             <div className="[&>div]:!rounded-none [&>div]:!border-0">
                                 <PlayAreaPreviewMap
                                     value={$mapGeoLocation!}
-                                    height="h-[200px]"
+                                    height="h-[280px]"
                                     preferCombinedBoundary
                                     deferReveal
                                 />
                             </div>
                         ) : (
                             <div
-                                className="h-[200px] w-full bg-jetlag flex items-center justify-center"
+                                className="h-[280px] w-full bg-jetlag flex items-center justify-center"
                                 role="status"
                                 aria-live="polite"
                                 aria-label="Waiting for play area"
@@ -700,13 +700,14 @@ export function GameLobbyDialog() {
                             </div>
                         )}
 
-                        {/* readability scrim: light at top (map shows) → dark at
-                            the bottom band where the controls sit. */}
+                        {/* readability scrim: dim to bg-jetlag navy (#1F2F3F) at
+                            the top (room code) + bottom (settings) bands, with the
+                            play area open through the middle. */}
                         <div
                             className="pointer-events-none absolute inset-0"
                             style={{
                                 background:
-                                    "linear-gradient(180deg, rgba(15,22,32,.34) 0%, rgba(15,22,32,.14) 32%, rgba(15,22,32,.72) 100%)",
+                                    "linear-gradient(180deg, rgba(31,47,63,1) 0%, rgba(31,47,63,0) 50%, rgba(31,47,63,0) 50%, rgba(31,47,63,0.4) 100%)",
                             }}
                         />
 
