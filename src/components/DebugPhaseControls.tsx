@@ -26,12 +26,14 @@ import {
 } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
 import { type Card, shuffledDeck } from "@/lib/hiderDeck";
+import { hiddenCreditMs } from "@/lib/gameSetup";
 import {
     hiderHand,
     hiderInbox,
     playerRole,
     presentDraw,
     QUESTION_DRAW_BUDGET,
+    roundLog,
 } from "@/lib/hiderRole";
 import { startDemoGame, stopDemoGame } from "@/lib/multiplayer/demoBroker";
 import { demoMode, seekerLocations } from "@/lib/multiplayer/session";
@@ -920,6 +922,44 @@ export function DebugPhaseControls({
                         Adds an active curse to the seeker&apos;s inbox — cycles
                         through untimed / timed / dice-roll curses so you can
                         test the CurseInbox UI on demand.
+                    </p>
+                </Section>
+
+                <Section title="Hidden time (screenshots)">
+                    <DebugButton
+                        onClick={() => {
+                            hiddenCreditMs.set(
+                                hiddenCreditMs.get() + 30 * 60_000,
+                            );
+                            toast.success("+30 min to the current round");
+                        }}
+                    >
+                        +30 min · current round
+                    </DebugButton>
+                    <DebugButton
+                        onClick={() => {
+                            const log = roundLog.get();
+                            if (log.length === 0) {
+                                toast.info("No past rounds yet");
+                                return;
+                            }
+                            roundLog.set(
+                                log.map((r) => ({
+                                    ...r,
+                                    hidingMs: r.hidingMs + 30 * 60_000,
+                                })),
+                            );
+                            toast.success(
+                                `+30 min to ${log.length} past round${log.length === 1 ? "" : "s"}`,
+                            );
+                        }}
+                    >
+                        +30 min · past rounds
+                    </DebugButton>
+                    <p className="text-[10px] text-muted-foreground italic px-1">
+                        Pads the hidden-time clock for marketing screenshots.
+                        Current adds to the live seeking timer (hiddenCredit);
+                        past bumps every leaderboard round.
                     </p>
                 </Section>
 

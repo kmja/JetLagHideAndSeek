@@ -354,7 +354,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                 style={{
                                     background:
                                         e.rank === 1
-                                            ? "#D6A92B" // gold
+                                            ? "#F2C63C" // gold (vivid)
                                             : e.rank === 2
                                               ? "#B8BDC7" // silver
                                               : e.rank === 3
@@ -392,7 +392,23 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                     />
                                 </div>
                             ) : (
-                                <div className="flex items-center px-3 py-1.5 bg-[#F2C63C]">
+                                <div
+                                    className="flex items-center px-3 py-1.5"
+                                    // Match the box tint to the placement so a
+                                    // 2nd-place time isn't gold (v871): gold 1st
+                                    // / silver 2nd / bronze 3rd / neutral rest,
+                                    // lightened so the navy digits stay legible.
+                                    style={{
+                                        background:
+                                            e.rank === 1
+                                                ? "#F2C63C"
+                                                : e.rank === 2
+                                                  ? "#D6DAE1"
+                                                  : e.rank === 3
+                                                    ? "#E4B98D"
+                                                    : "#E6E8EC",
+                                    }}
+                                >
                                     <span className="font-inter-tight font-black tabular-nums text-xl leading-none text-[#1F2F3F]">
                                         {formatTtb(e.ms)}
                                     </span>

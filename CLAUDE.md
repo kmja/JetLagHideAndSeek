@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v870`. Use `git log` for the per-version detail;
+build stamp. Current: `v871`. Use `git log` for the per-version detail;
+
+**v871 — screenshot-prep polish (leaderboard colours + debug time buttons).**
+- **HiderTimer seeking leaderboard colours** — the 1st-place rank badge was a
+  muted gold `#D6A92B` while EVERY past-round time box was a vivid gold
+  `#F2C63C`, so a 2nd-place time read as gold and 1st looked pale. Now the 1st
+  badge is the vivid gold and the past-round time box is **placement-tinted**
+  (gold 1st / silver 2nd / bronze 3rd / neutral), so only the leader reads gold.
+- **Lobby leaderboard** (`GameLobbyDialog LeaderboardSection`) adopts the same
+  show-style placement blocks (gold/silver/bronze/neutral) instead of the red
+  "1" circle, matching the EndOfRoundDialog + HiderTimer leaderboards.
+- **Debug "Hidden time (screenshots)" section** (`DebugPhaseControls`): two
+  buttons that pad the hidden-time clock for marketing shots — **+30 min ·
+  current round** (adds to `hiddenCreditMs`, folded into the live seeking timer)
+  and **+30 min · past rounds** (bumps every `roundLog` entry's `hidingMs`).
 
 **v870 — measuring gating + locale labels + tentacle candidate filter.**
 - **Reference-in-area gating** (`subtypeAvailability.ts`) for two measuring

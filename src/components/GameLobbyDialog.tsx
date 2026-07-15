@@ -1604,17 +1604,27 @@ function LeaderboardSection() {
                         className={cn(
                             "flex items-center gap-2 px-2.5 py-1.5 rounded-sm",
                             "border border-border bg-secondary/40",
-                            idx === 0 && "border-primary/50 bg-primary/10",
+                            // Subtle gold tint for the leader (show-style, v871).
+                            idx === 0 &&
+                                "border-[#F2C63C]/60 bg-[#F2C63C]/10",
                         )}
                     >
                         <span
-                            className={cn(
-                                "shrink-0 inline-flex items-center justify-center",
-                                "w-5 h-5 rounded-full text-[10px] font-bold tabular-nums",
-                                idx === 0
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-secondary text-muted-foreground",
-                            )}
+                            className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md text-[11px] font-black tabular-nums font-inter-tight"
+                            style={{
+                                // Placement blocks — gold / silver / bronze /
+                                // neutral, matching the EndOfRoundDialog +
+                                // HiderTimer leaderboards (v850/v871).
+                                background:
+                                    idx === 0
+                                        ? "#F2C63C"
+                                        : idx === 1
+                                          ? "#B8BDC7"
+                                          : idx === 2
+                                            ? "#CF8B4B"
+                                            : "#9AA1AD",
+                                color: idx === 2 ? "#fff" : "#1F2F3F",
+                            }}
                             aria-label={`Position ${idx + 1}`}
                         >
                             {idx + 1}
