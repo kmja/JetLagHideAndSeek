@@ -39,7 +39,7 @@ import {
 } from "@/lib/context";
 import { landFromCoast as landFromCoastViaWorker } from "@/lib/geometry/client";
 import { COAST_BY_RELATION_BASE } from "@/maps/api/constants";
-import { findPlacesInZone } from "@/maps/api/overpass";
+import { getOverpassData } from "@/maps/api/overpass";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 
 /** Raw Overpass element (way with `out geom` geometry). */
@@ -178,20 +178,33 @@ async function computeAreaCoastlineLines(): Promise<
     const prewarmed = await fetchPrewarmedAreaCoast();
     if (prewarmed) return linesFromElements(prewarmed.elements);
 
-    // 2. Live Overpass over the play-area polygon (cold cities). Same worker
-    //    cache as every other Overpass query; clipped to the play area so it
-    //    can't pull a whole continent's coast. `fetchPrewarmedAreaCoast`
-    //    already fired `?warm=1` for the cold ids, so the NEXT game is served
-    //    from R2.
+    // 2. Live Overpass over the play-area BBOX (cold cities). v876: MUST be a
+    //    bbox query, NOT the land-clipped `poly:` query — the play-area polygon
+    //    is clipped to land + simplified INWARD, and OSM `natural=coastline`
+    //    ways trace that exact waterline, so a `poly:` filter EXCLUDES the
+    //    tidal-river/harbour coastline (NYC's East River etc.) that sits on/just
+    //    outside the boundary → the sea was invisible to body-of-water +
+    //    coastline, which then degraded to the coarse 1:50m bundle. A bbox
+    //    (2 km-padded, matching the `/api/coast/<id>` prewarm builder) catches
+    //    it. `fetchPrewarmedAreaCoast` already fired `?warm=1` for the cold ids,
+    //    so the NEXT game is served from R2.
+    const $map = mapGeoJSON.get();
+    if (!$map) return [];
+    let bb: [number, number, number, number];
     try {
-        const data = await findPlacesInZone(
-            '["natural"="coastline"]',
-            undefined,
-            "way",
-            "geom",
-        );
+        bb = turf.bbox($map).slice(0, 4) as [number, number, number, number];
+    } catch {
+        return null;
+    }
+    const PAD = 0.02; // ~2 km
+    const query =
+        `[out:json][timeout:90];` +
+        `way["natural"="coastline"](${bb[1] - PAD},${bb[0] - PAD},${bb[3] + PAD},${bb[2] + PAD});` +
+        `out geom;`;
+    try {
+        const data = await getOverpassData(query, undefined);
         return linesFromElements(
-            ((data as { elements?: OverpassElement[] })?.elements ?? []),
+            (data as { elements?: OverpassElement[] })?.elements ?? [],
         );
     } catch (e) {
         console.warn("[coast] live coastline fetch failed:", e);

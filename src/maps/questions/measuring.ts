@@ -481,6 +481,12 @@ export const determineMeasuringBoundary = async (
             try {
                 const seeker = { lng: question.lng, lat: question.lat };
                 let sea: Feature<Polygon | MultiPolygon> | null = null;
+                // v876: keep the DETAILED per-city coast lines around so the
+                // last-resort band (when seaFromCoastline fails) can reuse them
+                // instead of dropping to the coarse 1:50m bundle.
+                let cityCoastLines: Awaited<
+                    ReturnType<typeof fetchAreaCoastlineLines>
+                > = null;
 
                 // v776: prefer the DETAILED per-city OSM coastline (prewarmed
                 // `/api/coast/<id>`). OSM tags the open sea/bays as
@@ -498,7 +504,8 @@ export const determineMeasuringBoundary = async (
                         // R2, then a live play-area Overpass query on a cold
                         // city (so an un-warmed coastal metro also gets the
                         // detailed sea, not just the coarse 1:50m fallback).
-                        const lines = await fetchAreaCoastlineLines();
+                        cityCoastLines = await fetchAreaCoastlineLines();
+                        const lines = cityCoastLines;
                         if (lines && lines.length > 0) {
                             sea = seaFromCoastline(
                                 lines,
@@ -587,11 +594,16 @@ export const determineMeasuringBoundary = async (
                 if (sea && turf.area(sea as any) > 0) {
                     out.push(sea);
                 } else {
-                    // Last resort: the thin 1:50m coastline band.
-                    const coastLines = clipLinesToBbox(
-                        await fetchCoastline(),
-                        bBox,
-                    );
+                    // Last resort (v876): reuse the DETAILED per-city coast
+                    // lines if we have them — a seaFromCoastline failure
+                    // shouldn't discard the real East-River coastline and drop
+                    // to the coarse 1:50m band (the coastline subtype already
+                    // buffers the per-city lines directly). Only truly-empty
+                    // per-city coast falls to the bundled band.
+                    const coastLines =
+                        cityCoastLines && cityCoastLines.length > 0
+                            ? cityCoastLines
+                            : clipLinesToBbox(await fetchCoastline(), bBox);
                     if (coastLines.length > 0)
                         out.push(highSpeedBase(coastLines));
                 }

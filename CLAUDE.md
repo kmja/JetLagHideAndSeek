@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v876`. Use `git log` for the per-version detail;
+build stamp. Current: `v877`. Use `git log` for the per-version detail;
+
+**v877 — body-of-water / coastline elimination ignored the big river/bay
+(NYC East River) — root-caused + fixed.** Both the body-of-water and coastline
+measuring questions (elimination AND the configure overlay, which share the
+geometry) degraded to the coarse bundled 1:50m coastline in NYC, so the East
+River / harbour was invisible and the buffer built off a tiny inland waterway
+("English Kills"). Root cause: `fetchAreaCoastlineLines()`'s live fallback
+(`coast.ts`) queried `natural=coastline` scoped to the **land-clipped,
+inward-simplified play-area `poly:`** — but OSM coastline ways trace that exact
+waterline, so the tidal-river/harbour coastline sits on/just outside the polygon
+and the `poly:` filter EXCLUDES it → no coast → `seaFromCoastline` empty → coarse
+bundle. **Primary fix:** the live fallback now queries `way["natural"="coastline"]`
+over the play-area **BBOX** (2 km-padded, matching the `/api/coast/<id>` prewarm
+builder), so the East River etc. is captured. **Secondary fix:** body-of-water's
+last-resort band (`measuring.ts`) reuses the DETAILED per-city coast lines
+(hoisted `cityCoastLines`) when `seaFromCoastline` fails, instead of dropping to
+the coarse bundle — mirroring the coastline subtype. The nearest-water LABEL
+(`fetchNearestWater` → `fetchNearestCoastline`) folds in the same coast, so label
++ elimination now agree (both were degrading together — NOT a display mismatch).
+Same-landmass (which also reads `fetchAreaCoastlineLines`) gets the better NYC
+split for free. (Deeper follow-up: add coast to the prewarm star gate so warm
+coastal metros serve `/api/coast/<id>` from R2 and never hit the live path.)
 
 **v876 — tentacles configure card: hide the redundant "Location Type"
 dropdown.** The subtype is already chosen in the picker step + named in the
