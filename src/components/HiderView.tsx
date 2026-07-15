@@ -1153,6 +1153,10 @@ function AutoGradedBinaryAnswer({
     const [grading, setGrading] = useState(false);
     // The hider's manual override, if they tapped a button.
     const [override, setOverride] = useState<boolean | null>(null);
+    // v869: the answer now reads like the radar answer — the auto-computed
+    // verdict is shown in a "Your answer" box + Send, and the Match/No-match
+    // toggle is DEMOTED behind a small "change it" link. This reveals it.
+    const [showOverride, setShowOverride] = useState(false);
 
     useEffect(() => {
         if (!hiderPos) return;
@@ -1219,46 +1223,80 @@ function AutoGradedBinaryAnswer({
     }
 
     const effective = override ?? computed;
+    const computing = grading && computed === null;
+    // A verdict exists (engine or manual) and the hider isn't actively
+    // changing it → show the radar-style confirmation, not the toggle.
+    const showConfirm =
+        !computing && effective !== null && !showOverride;
+
+    if (computing) {
+        return (
+            <p className="text-sm text-center text-muted-foreground py-6 inline-flex items-center justify-center gap-1.5 w-full">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Computing your answer…
+            </p>
+        );
+    }
 
     return (
-        <div className="space-y-3">
-            <p className="text-xs text-center text-muted-foreground font-poppins">
-                {grading && computed === null ? (
-                    <span className="inline-flex items-center gap-1.5">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Computing your answer…
-                    </span>
-                ) : computed === null && override === null ? (
-                    // Grading finished but produced no verdict (e.g. the
-                    // coastline geometry couldn't be fetched) — be honest and
-                    // ask the hider to pick, rather than claiming it was
-                    // auto-computed while nothing is selected (v790).
-                    "Couldn't auto-compute your answer — pick it below."
-                ) : (
-                    "Auto-computed from your location — tap to change if it's wrong."
-                )}
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-                {([true, false] as const).map((value) => {
-                    const isSelected = effective === value;
-                    return (
-                        <button
-                            key={String(value)}
-                            type="button"
-                            onClick={() => setOverride(value)}
-                            className={cn(
-                                "py-6 rounded-lg font-poppins font-semibold text-lg",
-                                "transition-all border-2",
-                                isSelected
-                                    ? "bg-primary text-primary-foreground border-primary"
-                                    : "bg-secondary text-foreground border-border hover:bg-accent",
-                            )}
-                        >
-                            {value ? labels.true : labels.false}
-                        </button>
-                    );
-                })}
-            </div>
+        <div className="space-y-4">
+            {showConfirm ? (
+                <>
+                    {/* Radar-style "Your answer" box — the auto-computed
+                        verdict, just like the radius/thermometer answer, so
+                        every question reads the same: compute + Send. */}
+                    <div className="rounded-lg p-5 border-2 border-primary bg-primary/10 text-center">
+                        <div className="text-xs uppercase tracking-wider text-muted-foreground font-poppins font-semibold mb-2">
+                            Your answer
+                        </div>
+                        <div className="text-3xl font-poppins font-bold text-primary mb-1">
+                            {effective ? labels.true : labels.false}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                            Auto-computed from your location.
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowOverride(true)}
+                        className="mx-auto block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    >
+                        Not right? Change your answer
+                    </button>
+                </>
+            ) : (
+                <>
+                    <p className="text-xs text-center text-muted-foreground font-poppins">
+                        {computed === null
+                            ? // Grading produced no verdict (e.g. the geometry
+                              // couldn't be fetched) — be honest and ask the
+                              // hider to pick (v790).
+                              "Couldn't auto-compute your answer — pick it below."
+                            : "Pick the correct answer:"}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                        {([true, false] as const).map((value) => {
+                            const isSelected = effective === value;
+                            return (
+                                <button
+                                    key={String(value)}
+                                    type="button"
+                                    onClick={() => setOverride(value)}
+                                    className={cn(
+                                        "py-6 rounded-lg font-poppins font-semibold text-lg",
+                                        "transition-all border-2",
+                                        isSelected
+                                            ? "bg-primary text-primary-foreground border-primary"
+                                            : "bg-secondary text-foreground border-border hover:bg-accent",
+                                    )}
+                                >
+                                    {value ? labels.true : labels.false}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </>
+            )}
 
             {effective !== null && (
                 <ShareBackRow

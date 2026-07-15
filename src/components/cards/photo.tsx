@@ -55,6 +55,17 @@ export const PhotoQuestionComponent = ({
     const $endgame = useStore(endgameStartedAt);
     const isHideTeam = $role === "hider";
     const inEndgame = $endgame !== null;
+    // v869: in a multiplayer game the HIDER captures + sends the photo over
+    // the wire and the seeker RECEIVES it automatically (the answer arrives
+    // with `photoUrl`) — so the seeker must NOT see the manual "Attach photo"
+    // / "Mark answered" controls (a stale pre-multiplayer remnant that made
+    // the seeker card look broken). Manual capture stays for the hide team,
+    // and for solo/offline play (no hider on the wire — the local user is
+    // both roles).
+    const $mp = useStore(multiplayerEnabled);
+    const $code = useStore(currentGameCode);
+    const inMultiplayer = $mp && !!$code;
+    const showManualCapture = isHideTeam || !inMultiplayer;
 
     const label = `Photo ${
         $questions
@@ -239,9 +250,9 @@ export const PhotoQuestionComponent = ({
                         <div className="rounded-md border border-dashed border-border bg-secondary/30 p-3 flex flex-col items-center gap-2 text-center">
                             <ImagePlus className="w-7 h-7 text-muted-foreground" />
                             <p className="text-xs text-muted-foreground leading-snug">
-                                Hider sends a photo. When received, attach
-                                it here — or just mark the question
-                                answered without uploading.
+                                {showManualCapture
+                                    ? "Hider sends a photo. When received, attach it here — or just mark the question answered without uploading."
+                                    : "Waiting for the hider to take and send a photo. It'll appear here automatically."}
                             </p>
                         </div>
                     )}
@@ -286,7 +297,12 @@ export const PhotoQuestionComponent = ({
                         />
                     )}
 
-                    <div className="flex gap-2">
+                    <div
+                        className={cn(
+                            "flex gap-2",
+                            !showManualCapture && "hidden",
+                        )}
+                    >
                         <Button
                             type="button"
                             variant="outline"

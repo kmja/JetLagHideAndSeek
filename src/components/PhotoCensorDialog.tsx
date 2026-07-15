@@ -355,10 +355,19 @@ export function PhotoCensorDialog({
             }}
         >
             <DialogContent
+                // v869: this censor dialog is ALWAYS launched from INSIDE
+                // another layer — the hider answer dialog (z-[1060]) or the
+                // Questions drawer (vaul z-[1055]) — so at the shadcn default
+                // z-[1050] it opened BEHIND them, invisible, while its
+                // DismissableLayer froze the app (the "photo picker locks the
+                // review dialog" bug, same class as v797/v800). Raise both
+                // layers above every launcher.
                 className={cn(
+                    "z-[1070]",
                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col gap-3 sm:max-w-lg max-h-[92vh]",
                 )}
+                overlayClassName="z-[1070]"
             >
                 <DialogTitle className="font-poppins font-bold">
                     Review, crop &amp; censor

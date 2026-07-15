@@ -428,7 +428,33 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v868`. Use `git log` for the per-version detail;
+build stamp. Current: `v869`. Use `git log` for the per-version detail;
+
+**v869 — photo + hider-answer flow fixes (NYC demo feedback).**
+- **Photo censor dialog opened BEHIND its launcher (app-locking bug).**
+  `PhotoCensorDialog` used the shadcn default `z-[1050]`, but it's always
+  launched from INSIDE the hider answer dialog (`z-[1060]`) or the Questions
+  drawer (vaul `z-[1055]`) — so after the OS file picker returned, the "Review,
+  crop & censor" dialog mounted behind the launcher, invisible, while its
+  DismissableLayer froze the app (same class as v797/v800). Its content +
+  overlay are now `z-[1070]`.
+- **Seeker photo card showed a stale manual "Attach photo / Mark answered".**
+  In multiplayer the HIDER captures + sends the photo over the wire and the
+  seeker RECEIVES it automatically (`photoUrl` on the answered question — the
+  path was already fully wired). The manual-attach UI was a pre-multiplayer
+  remnant that made the seeker card look broken. `cards/photo.tsx` now gates the
+  attach/mark-answered controls on `showManualCapture = isHideTeam ||
+  !inMultiplayer`, so a multiplayer SEEKER sees a read-only "waiting for the
+  hider to send a photo" state; manual capture stays for the hide team and for
+  solo/offline.
+- **Hider answer reads like the radar answer (auto-compute + Send, not a
+  toggle).** `AutoGradedBinaryAnswer` (matching Match/No-match + measuring
+  Closer/Further) now shows the auto-computed verdict in the same "Your answer"
+  box as radius/thermometer with the single Send CTA, and DEMOTES the
+  Match/No-match toggle behind a small "Not right? Change your answer" link. The
+  two-button toggle still appears up-front only when auto-compute produced NO
+  verdict (honest fallback). (The 3-way `AutoGradedLengthAnswer` + tentacles
+  answer get the same radar-style treatment in the next patch.)
 
 **v868 — matching/measuring question-correctness batch 1 (NYC demo feedback).**
 Five targeted fixes from a walkthrough of NYC question types:
