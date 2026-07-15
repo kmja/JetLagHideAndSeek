@@ -430,6 +430,10 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v838`. Use `git log` for the per-version detail;
 
+**v854 — hiding-zone label default max chars 12 → 15.** Roomier default before a
+station label truncates (`stationLabelMaxChars`, `debugState.ts`); the debug
+slider still tunes it live, and anyone who already set it keeps their value.
+
 **v853 — server-authoritative "with the hider" range-check on Mark Found
 (Track 2 of the v852 proximity guards).** The tighter within-distance check
 v852 deferred (the seeker's device never holds the hider's coordinate — it's the
@@ -772,7 +776,7 @@ street-type SUFFIXES (Street → St, Avenue → Ave, Boulevard → Blvd, Square 
 Station → Stn, Parkway → Pkwy, …) by whole-word replace, and
 `shortenStationLabel(name, maxChars)` then truncates with an ellipsis (trimming a
 trailing space/hyphen first). The max is a **debug-adjustable** persistent atom
-`stationLabelMaxChars` (`debugState.ts`, **default 12**; 0 = abbreviate only) with
+`stationLabelMaxChars` (`debugState.ts`, **default 15** (was 12, v854); 0 = abbreviate only) with
 a slider in `DebugPhaseControls` so it can be tuned live. Applied at map-render
 time: both the seeker (`Map.tsx` `hidingZonesDisplay`) and hider
 (`HiderBackgroundMap` `reachDisplay`) memoize a copy of their hiding-zone FC with
