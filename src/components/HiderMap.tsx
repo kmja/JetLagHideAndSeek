@@ -221,8 +221,16 @@ export function HiderMap({
         [questionGeometry, hiderConnections],
     );
 
-    // Fit the camera to contain question geometry + hider pin whenever
-    // any of those move.
+    // Map readiness — declared before the fit effect so the fit can re-run
+    // once the map has settled (the dialog animates open, so the very first
+    // fitBounds can run against a mid-transition container size).
+    const [styleLoaded, setStyleLoaded] = useState(false);
+    const [idledOnce, setIdledOnce] = useState(false);
+
+    // Fit the camera to contain question geometry + hider pin whenever any of
+    // those move — AND once the map first settles (so a radar circle + the
+    // hider pin are correctly framed even though the dialog was still opening
+    // when the initial fit fired). v884.
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!map) return;
@@ -231,6 +239,13 @@ export function HiderMap({
         if (refs?.seeker) pts.push([refs.seeker.lng, refs.seeker.lat]);
         if (refs?.hider) pts.push([refs.hider.lng, refs.hider.lat]);
         if (pts.length === 0) return;
+        // The dialog's open animation can leave the canvas sized wrong for the
+        // first fit; sync the canvas to its container before framing.
+        try {
+            map.resize();
+        } catch {
+            /* ignore */
+        }
         if (pts.length === 1) {
             map.flyTo({ center: pts[0], zoom: 13, duration: 600 });
             return;
@@ -250,9 +265,9 @@ export function HiderMap({
                 [minLng, minLat],
                 [maxLng, maxLat],
             ],
-            { padding: 40, maxZoom: 15, duration: 600 },
+            { padding: 48, maxZoom: 15, duration: 600 },
         );
-    }, [question, hiderPos, refs]);
+    }, [question, hiderPos, refs, idledOnce]);
 
     const catColor =
         CATEGORIES[question.id as CategoryId]?.color ?? "#64748b";
@@ -276,8 +291,6 @@ export function HiderMap({
         [darkTiles, $pmtilesUrl],
     );
 
-    const [styleLoaded, setStyleLoaded] = useState(false);
-    const [idledOnce, setIdledOnce] = useState(false);
     useEffect(() => {
         if (styleLoaded && idledOnce) onMapReady?.();
     }, [styleLoaded, idledOnce, onMapReady]);

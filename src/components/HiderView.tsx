@@ -197,13 +197,38 @@ function HiderAnswerDialog() {
 function HiderQuestionAnswer({ question }: { question: Question }) {
     const categoryMeta = CATEGORIES[question.id as CategoryId];
 
-    // Hider's live position, lifted out of HiderMap so the answer logic
-    // and reveal state can also reference it.
+    // Hider's position used to GRADE the answer. v884: this is SNAPSHOTTED
+    // from a fresh GPS fix taken the moment the answer dialog OPENS — the
+    // rulebook grades against where the hider is when they answer, and a
+    // continuously-tracked position would drift while they review. HiderMap's
+    // live watch fills it as a fast fallback until the on-open fix lands
+    // (`posLockedRef`), after which further movement is ignored for grading.
     const [hiderPos, setHiderPos] = useState<{
         lat: number;
         lng: number;
         accuracy: number;
     } | null>(null);
+    const posLockedRef = useRef(false);
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                posLockedRef.current = true;
+                setHiderPos({
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                });
+            },
+            () => {
+                /* denied/timeout — HiderMap's watch or the manual fallback
+                   provides the position instead */
+            },
+            { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
+        );
+        // Once per opened question (the component is keyed by question).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Manual fallback for when GPS is denied/unavailable. When set, this
     // overrides the GPS-derived position inside HiderMap, and the manual
@@ -308,9 +333,15 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                         <HiderMap
                             question={question}
                             overridePos={manualPos}
-                            onHiderLocationChange={(lat, lng, accuracy) =>
-                                setHiderPos({ lat, lng, accuracy })
-                            }
+                            onHiderLocationChange={(lat, lng, accuracy) => {
+                                // v884: HiderMap's live watch only fills the
+                                // grading position UNTIL the on-open snapshot
+                                // locks it; after that, movement is ignored so
+                                // the answer reflects where the hider was when
+                                // they opened the dialog.
+                                if (posLockedRef.current) return;
+                                setHiderPos({ lat, lng, accuracy });
+                            }}
                             onGeoError={() => setGeoFailed(true)}
                             onMapReady={() => setMapReady(true)}
                         />

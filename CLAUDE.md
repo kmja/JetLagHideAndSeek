@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v884`. Use `git log` for the per-version detail;
+build stamp. Current: `v885`. Use `git log` for the per-version detail;
+
+**v885 — hider answer GPS-on-open + radar-preview framing.**
+- **The hider's answer is graded against the GPS fix taken when the answer
+  dialog OPENS** (`HiderView`), not a continuously-tracked position. On open it
+  does a fresh `getCurrentPosition` and LOCKS that as the grading `hiderPos`
+  (`posLockedRef`); `HiderMap`'s live watch only fills it as a fast fallback
+  until the snapshot lands, then movement is ignored for grading — so the
+  answer reflects where the hider was when they opened the question.
+- **Radar answer-map framing fixed** (`HiderMap`). The dialog animates open, so
+  the first `fitBounds` could run against a mid-transition canvas size and mis-
+  frame the radius circle + hider pin. The fit now `map.resize()`s before
+  framing and re-runs once the map first settles (`idledOnce` added to deps),
+  with a bit more padding, so the radius circle and the hider position are both
+  correctly framed.
 
 **v884 — draw-picker carousel + veto-label fix + global debug gesture + card
 tests.**
