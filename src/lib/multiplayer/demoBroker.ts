@@ -464,6 +464,15 @@ function handleClientMessage(msg: ClientMessage) {
             for (const p of s.state.participants) {
                 p.role = hiders.has(p.id) ? "hider" : "seeker";
             }
+            // Reset the per-round SERVER state so the NEXT round can end.
+            // Without this, `s.state.roundFoundAt` kept round 1's timestamp,
+            // so round 2's `found` hit the `roundFoundAt === null` guard,
+            // never injected `ended`, and the timer ticked forever (the
+            // "can't mark found on round 2" bug). Mirror the fields a real
+            // round-rotate clears.
+            s.state.roundFoundAt = null;
+            s.state.setup.endgameStartedAt = null;
+            s.state.setup.endgameConfirmedAt = null;
             broadcastPresence();
             return;
         }

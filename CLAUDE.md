@@ -428,7 +428,17 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v871`. Use `git log` for the per-version detail;
+build stamp. Current: `v872`. Use `git log` for the per-version detail;
+
+**v872 — demo broker: can't mark found on round 2 (fixed).** The demo broker's
+`found` handler only injects `ended` when `s.state.roundFoundAt === null`, but
+its `rotateHider` (new-round) handler reassigned roles WITHOUT clearing the
+per-round server state — so on round 2 `roundFoundAt` still held round 1's
+timestamp, the `found` was ignored, no `ended` fired, and the timer ticked
+forever (dialog closed, nothing happened). `rotateHider` now nulls
+`roundFoundAt` + the endgame stamps, mirroring the real server
+(`GameRoom.handleRotateHider`, which already did this — only the DEMO path was
+affected, i.e. screenshot/demo mode; real 2-device games were fine).
 
 **v871 — screenshot-prep polish (leaderboard colours + debug time buttons).**
 - **HiderTimer seeking leaderboard colours** — the 1st-place rank badge was a
