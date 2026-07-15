@@ -135,7 +135,18 @@ export const TentacleQuestionComponent = ({
                     </div>
                 </SidebarMenuItem>
             )}
-            <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
+            {/* v875: the subtype is chosen in the picker step (and named in
+                the card header), so the redundant "Location Type" dropdown is
+                hidden — matching matching/measuring (v611). Kept in the tree
+                (not deleted) so the "custom" tentacle-locations editing path +
+                its imports stay intact; only surfaced for an already-custom
+                question. */}
+            <SidebarMenuItem
+                className={cn(
+                    MENU_ITEM_CLASSNAME,
+                    data.locationType !== "custom" && "hidden",
+                )}
+            >
                 <Select
                     trigger="Location Type"
                     options={Object.fromEntries(

@@ -428,7 +428,14 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v875`. Use `git log` for the per-version detail;
+build stamp. Current: `v876`. Use `git log` for the per-version detail;
+
+**v876 — tentacles configure card: hide the redundant "Location Type"
+dropdown.** The subtype is already chosen in the picker step + named in the
+card header, so the dropdown is hidden for a normal tentacle question (matching
+matching/measuring, v611). Kept in the tree (rendered only when
+`data.locationType === "custom"`) so the "custom" tentacle-locations editing
+path + its imports stay intact — no orphaned code.
 
 **v875 — same-landmass geometry offloaded to the Web Worker (freeze fix, part
 1).** The `same-landmass` question / configure preview froze the UI for seconds
