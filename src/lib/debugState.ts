@@ -9,10 +9,14 @@ export const debugPanelOpen = atom(false);
  * clickable — for clean demo screenshots without losing debug access.
  * Toggled from inside the debug panel; persisted so it survives reloads.
  * The panel itself is unaffected (it only shows when opened).
+ *
+ * v882: defaults to TRUE — the debug panel is now a hidden gesture (5 quick
+ * taps on the top-centre wordmark, `useDebugSecretTap`), so the visible
+ * launchers are off by default and the panel isn't trivially discoverable.
  */
 export const debugLauncherHidden = persistentAtom<boolean>(
     "jlhs:debugLauncherHidden",
-    false,
+    true,
     { encode: JSON.stringify, decode: JSON.parse },
 );
 

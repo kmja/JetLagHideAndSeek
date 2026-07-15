@@ -53,7 +53,6 @@ import { resetHiderRoundState } from "@/lib/hiderRole";
 import {
     currentGameCode,
     displayName as displayNameAtom,
-    localIsHost,
     multiplayerEnabled,
     pickRandomCastName,
 } from "@/lib/multiplayer/session";
@@ -83,7 +82,6 @@ import {
 } from "@/maps/api/warmCities";
 import { ensureSeedCitiesLoaded } from "@/maps/api/seedCities";
 
-import { HouseRulesSection } from "./HouseRulesSection";
 import { SectionPill, SizeBadge } from "./JetLagLogo";
 import { MapLoader } from "./MapLoader";
 import { PlayAreaExtensions } from "./PlayAreaExtensions";
@@ -178,10 +176,6 @@ export function GameSetupDialog() {
     const $allowedTransit = useStore(allowedTransit);
     const $gameSize = useStore(gameSize);
     const $setupCompleted = useStore(setupCompleted);
-    // v879: house rules edit tab — host-authoritative, so a non-host guest
-    // sees the toggles read-only.
-    const $multiplayerEnabled = useStore(multiplayerEnabled);
-    const $localIsHost = useStore(localIsHost);
     // Added adjacent areas — folded into the auto game-size / transit
     // inference so the suggestion reflects the WHOLE play area, not just
     // the primary municipality.
@@ -210,9 +204,7 @@ export function GameSetupDialog() {
     // the player navigates the same three concepts (play area, transit,
     // size) in the same order, but laterally instead of sequentially.
     // Opens on Play area, the most-edited surface.
-    const [editTab, setEditTab] = useState<
-        "area" | "transit" | "size" | "rules"
-    >(
+    const [editTab, setEditTab] = useState<"area" | "transit" | "size">(
         "area",
     );
     const [draftFeature, setDraftFeature] = useState<OpenStreetMap | null>(
@@ -605,17 +597,6 @@ export function GameSetupDialog() {
                                         onChange={setDraftSizeManual}
                                     />
                                 )}
-                                {editTab === "rules" && (
-                                    // v879: house rules moved here from the
-                                    // lobby. Host-authoritative — toggles push
-                                    // to peers via hostPushSetup; solo edits
-                                    // apply locally. A non-host guest sees the
-                                    // active rules read-only.
-                                    <HouseRulesSection
-                                        readOnly={$multiplayerEnabled && !$localIsHost}
-                                        onAfterChange={hostPushSetup}
-                                    />
-                                )}
                             </div>
                             {/* Online play / lobby controls live in
                                 the lobby dialog (top-right header
@@ -787,28 +768,27 @@ export function GameSetupDialog() {
 /* ─── Edit-mode tabs ─── */
 
 const EDIT_TABS: Array<{
-    value: "area" | "transit" | "size" | "rules";
+    value: "area" | "transit" | "size";
     label: string;
 }> = [
     { value: "area", label: "Play area" },
     { value: "transit", label: "Transit" },
     { value: "size", label: "Size" },
-    { value: "rules", label: "Rules" },
 ];
 
 function EditTabs({
     value,
     onChange,
 }: {
-    value: "area" | "transit" | "size" | "rules";
-    onChange: (next: "area" | "transit" | "size" | "rules") => void;
+    value: "area" | "transit" | "size";
+    onChange: (next: "area" | "transit" | "size") => void;
 }) {
     return (
         <div
             role="tablist"
             aria-label="Game settings sections"
             className={cn(
-                "grid grid-cols-4 gap-1 p-1 rounded-md",
+                "grid grid-cols-3 gap-1 p-1 rounded-md",
                 "bg-secondary/40 border border-border",
             )}
         >

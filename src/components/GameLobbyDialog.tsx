@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/popover";
 import { appConfirm } from "@/lib/confirm";
 import { additionalMapGeoLocations, mapGeoLocation } from "@/lib/context";
+import { commitPlayAreaChange } from "@/lib/playAreaCommit";
+import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
     type GameSize,
@@ -43,6 +45,7 @@ import {
     setupDialogOpen,
     TRANSIT_ICONS,
     TRANSIT_LABELS,
+    type TransitMode,
     welcomeSeen,
 } from "@/lib/gameSetup";
 import { appNavigate } from "@/lib/appNavigate";
@@ -76,25 +79,21 @@ import { returnToLandingPage } from "@/lib/roundActions";
 import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
+import { PlayAreaStep, TransitStep } from "./GameSetupDialog";
+import { HouseRulesSection } from "./HouseRulesSection";
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
 
 /**
- * Controls that read on the map header. The scrim fades the map into the
- * drawer background at the top/bottom bands, so these use the app's
- * NORMAL secondary-button styling (v879 — reverted the frosted-glass
- * look) so they match the rest of the UI's chrome.
+ * Small solid chips/buttons that read on the contained map header (v882 — no
+ * scrim anymore, so they carry their own solid background). Normal secondary-
+ * button styling so they match the rest of the UI's chrome.
  */
 const GLASS_BTN =
     "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const GLASS_PILL =
     "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground";
-/** The map's bottom-right EDIT button — sized to match the transit icon
- *  pills (h-10 w-10) so it reads as part of that row (v879). Opens the
- *  full game-settings wizard dialog. */
-const EDIT_BTN =
-    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -288,15 +287,36 @@ export function GameLobbyDialog() {
     const isHost =
         !$mp || $localIsHost || hostId === null || hostId === $self;
 
-    // Inline size editing (host only). Writes the same atom the setup
-    // wizard's edit mode does and pushes to peers via `hostPushSetup`, so
-    // a lobby tweak propagates exactly like a "Save edits" would. v879:
-    // transit + play-area editing moved into the game-settings wizard
-    // dialog (the bottom-right map Edit button), so only the quick size
-    // popover stays inline here.
+    // Inline settings editing (host only). Writes the same atoms the setup
+    // wizard's edit mode does and pushes to peers via `hostPushSetup`, so a
+    // lobby tweak propagates exactly like a "Save edits" would. v882: the
+    // separate inline edit modes are BACK — a quick size popover, a transit-
+    // mode editor dialog, and a focused play-area editor dialog (the map's
+    // corner Edit button), instead of the whole game-settings wizard.
+    const commitTransit = (next: TransitMode[]) => {
+        // Keep canonical mode order so the chip row + cache keys stay stable
+        // regardless of click order.
+        allowedTransit.set(ALL_TRANSIT_MODES.filter((m) => next.includes(m)));
+        hostPushSetup();
+    };
     const setSize = (s: GameSize) => {
         gameSize.set(s);
         hostPushSetup();
+    };
+    const openAreaEditor = () => {
+        setPlayAreaEditOpen(true);
+    };
+    const handleSavePlayArea = () => {
+        const current = mapGeoLocation.get();
+        const changed =
+            draftArea != null &&
+            draftArea.properties.osm_id !==
+                (current?.properties.osm_id ?? null);
+        if (changed) {
+            commitPlayAreaChange(draftArea);
+            hostPushSetup();
+        }
+        setPlayAreaEditOpen(false);
     };
 
     // v447: pick / switch team from the lobby roster zero-state. Mirrors
@@ -433,6 +453,15 @@ export function GameLobbyDialog() {
 
     const [copied, setCopied] = useState(false);
     const [qrOpen, setQrOpen] = useState(false);
+    // Transit-mode editor (host) — the wizard's transit step in a dialog.
+    const [transitEditOpen, setTransitEditOpen] = useState(false);
+    // Focused "Edit play area" dialog (draft seeded from the current area on
+    // open) — the map's corner Edit button. Kept separate from the full wizard.
+    const [playAreaEditOpen, setPlayAreaEditOpen] = useState(false);
+    const [draftArea, setDraftArea] = useState<OpenStreetMap | null>(null);
+    useEffect(() => {
+        if (playAreaEditOpen) setDraftArea(mapGeoLocation.get());
+    }, [playAreaEditOpen]);
     // Change-display-name dialog (v834), opened from the roster row's inline
     // pencil next to "(you)". Seeds from the current name on open.
     const [nameEditOpen, setNameEditOpen] = useState(false);
@@ -649,194 +678,197 @@ export function GameLobbyDialog() {
                         )}
                     </div>
                 ) : (
-                    <div className="relative shrink-0 border-b border-border">
-                        {mapReady ? (
-                            <div className="[&>div]:!rounded-none [&>div]:!border-0">
-                                <PlayAreaPreviewMap
-                                    value={$mapGeoLocation!}
-                                    height="h-[280px]"
-                                    preferCombinedBoundary
-                                    deferReveal
-                                    framePadding={70}
-                                />
-                            </div>
-                        ) : (
-                            <div
-                                className="h-[280px] w-full bg-[hsl(var(--sidebar-background))] flex items-center justify-center"
-                                role="status"
-                                aria-live="polite"
-                                aria-label="Waiting for play area"
-                            >
-                                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                            </div>
-                        )}
-
-                        {/* readability scrim: the map fades into the drawer's own
-                            background colour (theme-aware --sidebar-background) at
-                            the top (room code) + bottom (settings) bands, with the
-                            play area open through the middle. v879: the TOP band is
-                            FULLY SOLID from the very top down through the room code
-                            (~18%), THEN fades to clear — so the room code always
-                            sits on solid background, not the map. Same-colour
-                            transparent stops (…/0) avoid the fade-to-grey artifact. */}
-                        <div
-                            className="pointer-events-none absolute inset-0"
-                            style={{
-                                background:
-                                    "linear-gradient(180deg, hsl(var(--sidebar-background) / 1) 0%, hsl(var(--sidebar-background) / 1) 18%, hsl(var(--sidebar-background) / 0) 36%, hsl(var(--sidebar-background) / 0) 50%, hsl(var(--sidebar-background) / 1) 100%)",
-                            }}
-                        />
-
-                        <div className="absolute inset-0 flex flex-col px-4 py-3.5">
-                            {/* top: room code + Share / Copy / QR */}
-                            <div className="flex items-start gap-2">
-                                <div className="flex flex-col min-w-0 leading-none">
-                                    <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
-                                        Room code
+                    // Pre-game header (v882): a SHARE section on top in its own
+                    // section, then a CONTAINED map preview (rounded/bordered
+                    // like the play-area picker) with the play-area name top-
+                    // left, the size + transit controls along the bottom, and a
+                    // corner Edit button. NO dimming scrim — the labels sit in
+                    // their own solid chips instead. Editing uses the separate
+                    // inline modes (size popover + transit dialog + area dialog),
+                    // not the full game-settings wizard.
+                    <div className="shrink-0 border-b border-border px-4 pt-3 pb-4 space-y-3">
+                        {/* SHARE section — room code + Share / Copy / QR. */}
+                        <div className="flex items-start gap-2">
+                            <div className="flex flex-col min-w-0 leading-none">
+                                <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                    Room code
+                                </span>
+                                {$code ? (
+                                    <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-primary mt-1">
+                                        {$code}
                                     </span>
-                                    {$code ? (
-                                        <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-foreground mt-1">
-                                            {$code}
-                                        </span>
-                                    ) : (
-                                        <div className="h-6 w-28 rounded-sm bg-foreground/20 animate-pulse mt-1.5" />
-                                    )}
-                                </div>
-                                {$code && (
-                                    <div className="ml-auto flex items-center gap-1.5">
-                                        <Button
-                                            size="sm"
-                                            onClick={handleShare}
-                                            aria-label="Share invite link"
-                                            title="Share invite link"
-                                            className="gap-1.5 shadow-md"
-                                        >
-                                            <Share2 className="w-3.5 h-3.5" />
-                                            Share
-                                        </Button>
-                                        <button
-                                            type="button"
-                                            onClick={handleCopy}
-                                            aria-label="Copy invite link"
-                                            title={
-                                                copied
-                                                    ? "Copied!"
-                                                    : "Copy invite link"
-                                            }
-                                            className={GLASS_BTN}
-                                        >
-                                            {copied ? (
-                                                <Check className="w-3.5 h-3.5" />
-                                            ) : (
-                                                <Copy className="w-3.5 h-3.5" />
-                                            )}
-                                        </button>
-                                        {shareUrl && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setQrOpen(true)}
-                                                aria-label="Show large QR code"
-                                                title="Show large QR code"
-                                                className={GLASS_BTN}
-                                            >
-                                                <QrCode className="w-3.5 h-3.5" />
-                                            </button>
-                                        )}
-                                    </div>
+                                ) : (
+                                    <div className="h-6 w-28 rounded-sm bg-foreground/20 animate-pulse mt-1.5" />
                                 )}
                             </div>
-
-                            {/* bottom: settings on the solid band. The play-area
-                                NAME was dropped (v866) — the map itself identifies
-                                the area. v879: the standalone "Edit area" button
-                                is gone; the single bottom-right pencil now opens
-                                the full game-settings wizard dialog. */}
-                            <div className="mt-auto flex flex-col gap-2">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                    {isHost ? (
-                                        <Popover>
-                                            <PopoverTrigger asChild>
-                                                <button
-                                                    type="button"
-                                                    aria-label="Change game size"
-                                                    className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                                >
-                                                    <SizeBadge
-                                                        size={$size}
-                                                        className="text-sm px-3 py-2 shadow-md"
-                                                        trailing={
-                                                            <ChevronDown className="w-4 h-4 opacity-80" />
-                                                        }
-                                                    />
-                                                </button>
-                                            </PopoverTrigger>
-                                            <PopoverContent
-                                                align="start"
-                                                container={drawerEl}
-                                                className="z-[1060] w-48 p-1"
-                                            >
-                                                {SIZE_OPTIONS.map((o) => (
-                                                    <button
-                                                        key={o.value}
-                                                        type="button"
-                                                        onClick={() =>
-                                                            setSize(o.value)
-                                                        }
-                                                        aria-label={o.label}
-                                                        className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent transition-colors"
-                                                    >
-                                                        <SizeBadge
-                                                            size={o.value}
-                                                            className="text-sm px-2.5 py-1"
-                                                        />
-                                                        {o.value === $size && (
-                                                            <Check className="w-4 h-4 text-primary ml-auto" />
-                                                        )}
-                                                    </button>
-                                                ))}
-                                            </PopoverContent>
-                                        </Popover>
-                                    ) : (
-                                        <SizeBadge
-                                            size={$size}
-                                            className="text-xs px-2.5 py-1.5 shadow-md"
-                                        />
-                                    )}
-
-                                    {$allowedTransit.length === 0 ? (
-                                        <span className="text-xs text-muted-foreground italic">
-                                            Walking only
-                                        </span>
-                                    ) : (
-                                        $allowedTransit.map((m) => {
-                                            const Icon = TRANSIT_ICONS[m];
-                                            return (
-                                                <span
-                                                    key={m}
-                                                    className={GLASS_PILL}
-                                                    title={TRANSIT_LABELS[m]}
-                                                    aria-label={TRANSIT_LABELS[m]}
-                                                >
-                                                    <Icon className="w-5 h-5" />
-                                                </span>
-                                            );
-                                        })
-                                    )}
-
-                                    {isHost && (
+                            {$code && (
+                                <div className="ml-auto flex items-center gap-1.5">
+                                    <Button
+                                        size="sm"
+                                        onClick={handleShare}
+                                        aria-label="Share invite link"
+                                        title="Share invite link"
+                                        className="gap-1.5"
+                                    >
+                                        <Share2 className="w-3.5 h-3.5" />
+                                        Share
+                                    </Button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCopy}
+                                        aria-label="Copy invite link"
+                                        title={copied ? "Copied!" : "Copy invite link"}
+                                        className={GLASS_BTN}
+                                    >
+                                        {copied ? (
+                                            <Check className="w-3.5 h-3.5" />
+                                        ) : (
+                                            <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                    </button>
+                                    {shareUrl && (
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                setupDialogOpen.set(true)
-                                            }
-                                            aria-label="Edit game settings"
-                                            title="Edit game settings"
-                                            className={cn(EDIT_BTN, "ml-auto")}
+                                            onClick={() => setQrOpen(true)}
+                                            aria-label="Show large QR code"
+                                            title="Show large QR code"
+                                            className={GLASS_BTN}
                                         >
-                                            <Pencil className="w-4 h-4" />
+                                            <QrCode className="w-3.5 h-3.5" />
                                         </button>
                                     )}
                                 </div>
+                            )}
+                        </div>
+
+                        {/* Contained map + overlays (no scrim). */}
+                        <div className="relative">
+                            {mapReady ? (
+                                <PlayAreaPreviewMap
+                                    value={$mapGeoLocation!}
+                                    height="h-[200px]"
+                                    preferCombinedBoundary
+                                    deferReveal
+                                    framePadding={40}
+                                />
+                            ) : (
+                                <div
+                                    className="h-[200px] w-full rounded-md border border-border bg-secondary/40 flex items-center justify-center"
+                                    role="status"
+                                    aria-live="polite"
+                                    aria-label="Waiting for play area"
+                                >
+                                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                                </div>
+                            )}
+
+                            {/* top-left: play-area name */}
+                            {cityName && (
+                                <div className="absolute top-2 left-2 max-w-[70%] rounded-md bg-background/90 border border-border px-2 py-1 shadow-sm">
+                                    <span className="block truncate text-sm font-inter-tight font-bold text-foreground">
+                                        {cityName}
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* top-right corner: edit the play area (host) */}
+                            {isHost && (
+                                <button
+                                    type="button"
+                                    onClick={openAreaEditor}
+                                    aria-label="Edit play area"
+                                    title="Edit play area"
+                                    className={cn(
+                                        GLASS_BTN,
+                                        "absolute top-2 right-2 shadow-sm",
+                                    )}
+                                >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+
+                            {/* bottom: size pill + transit icons (+ transit edit) */}
+                            <div className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5 flex-wrap">
+                                {isHost ? (
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <button
+                                                type="button"
+                                                aria-label="Change game size"
+                                                className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            >
+                                                <SizeBadge
+                                                    size={$size}
+                                                    className="text-sm px-3 py-2 shadow-md"
+                                                    trailing={
+                                                        <ChevronDown className="w-4 h-4 opacity-80" />
+                                                    }
+                                                />
+                                            </button>
+                                        </PopoverTrigger>
+                                        <PopoverContent
+                                            align="start"
+                                            side="top"
+                                            container={drawerEl}
+                                            className="z-[1060] w-48 p-1"
+                                        >
+                                            {SIZE_OPTIONS.map((o) => (
+                                                <button
+                                                    key={o.value}
+                                                    type="button"
+                                                    onClick={() => setSize(o.value)}
+                                                    aria-label={o.label}
+                                                    className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent transition-colors"
+                                                >
+                                                    <SizeBadge
+                                                        size={o.value}
+                                                        className="text-sm px-2.5 py-1"
+                                                    />
+                                                    {o.value === $size && (
+                                                        <Check className="w-4 h-4 text-primary ml-auto" />
+                                                    )}
+                                                </button>
+                                            ))}
+                                        </PopoverContent>
+                                    </Popover>
+                                ) : (
+                                    <SizeBadge
+                                        size={$size}
+                                        className="text-xs px-2.5 py-1.5 shadow-md"
+                                    />
+                                )}
+
+                                {$allowedTransit.length === 0 ? (
+                                    <span className="rounded-md bg-background/90 border border-border px-2 py-1 text-xs text-muted-foreground italic shadow-sm">
+                                        Walking only
+                                    </span>
+                                ) : (
+                                    $allowedTransit.map((m) => {
+                                        const Icon = TRANSIT_ICONS[m];
+                                        return (
+                                            <span
+                                                key={m}
+                                                className={cn(GLASS_PILL, "shadow-sm")}
+                                                title={TRANSIT_LABELS[m]}
+                                                aria-label={TRANSIT_LABELS[m]}
+                                            >
+                                                <Icon className="w-5 h-5" />
+                                            </span>
+                                        );
+                                    })
+                                )}
+
+                                {isHost && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setTransitEditOpen(true)}
+                                        aria-label="Edit transit modes"
+                                        title="Edit transit modes"
+                                        className={cn(GLASS_BTN, "ml-auto shadow-sm")}
+                                    >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -909,6 +941,87 @@ export function GameLobbyDialog() {
                         </Dialog>
                     )}
 
+
+                    {/* Transit-mode editor — the wizard's transit step in a
+                        dialog (v882, restored). Changes apply live via
+                        commitTransit (which pushes to peers); Save just closes.
+                        Raised above the lobby drawer (content z-[1055]). */}
+                    {isHost && (
+                        <Dialog
+                            open={transitEditOpen}
+                            onOpenChange={setTransitEditOpen}
+                        >
+                            <DialogContent
+                                className={cn(
+                                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
+                                    "sm:max-w-md z-[1060]",
+                                )}
+                                overlayClassName="z-[1060]"
+                            >
+                                <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em]">
+                                    Transit modes
+                                </DialogTitle>
+                                <TransitStep
+                                    value={$allowedTransit}
+                                    onChange={commitTransit}
+                                />
+                                <Button
+                                    onClick={() => setTransitEditOpen(false)}
+                                    className="w-full mt-2"
+                                >
+                                    <Check className="w-4 h-4 mr-1.5" />
+                                    Save
+                                </Button>
+                            </DialogContent>
+                        </Dialog>
+                    )}
+
+                    {/* Edit play area (v882, restored) — a focused dialog
+                        (search + map picker + adjacent areas), opened by the
+                        map's corner Edit button. Host only; pre-game only. */}
+                    {isHost && (
+                        <Dialog
+                            open={playAreaEditOpen}
+                            onOpenChange={setPlayAreaEditOpen}
+                        >
+                            <DialogContent
+                                className={cn(
+                                    "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
+                                    "sm:max-w-lg z-[1060] flex max-h-[88vh] flex-col",
+                                )}
+                                overlayClassName="z-[1060]"
+                            >
+                                <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em] shrink-0">
+                                    Edit play area
+                                </DialogTitle>
+                                <div className="flex-1 overflow-y-auto -mx-1 px-1">
+                                    <PlayAreaStep
+                                        value={draftArea}
+                                        onChange={setDraftArea}
+                                    />
+                                </div>
+                                <div className="shrink-0 flex gap-2 pt-1">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                            setPlayAreaEditOpen(false)
+                                        }
+                                        className="flex-1"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={handleSavePlayArea}
+                                        disabled={!draftArea}
+                                        className="flex-1"
+                                    >
+                                        <Check className="w-4 h-4 mr-1.5" />
+                                        Save
+                                    </Button>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                    )}
 
                     {/* Change display name (v834) — opened from the roster
                         row's pencil next to "(you)". Applies to the local
@@ -1039,9 +1152,14 @@ export function GameLobbyDialog() {
                         </label>
                     )}
 
-                    {/* House rules moved into the game-settings wizard
-                        dialog (v879 — the bottom-right map Edit button), so
-                        the lobby body stays focused on players + leaderboard. */}
+                    {/* House rules — table-wide deviations from the printed
+                        rulebook (v882: back in the lobby body). Host-
+                        authoritative: a toggle writes the local atom + pushes
+                        the whole setup to peers; guests see them read-only. */}
+                    <HouseRulesSection
+                        readOnly={!isHost}
+                        onAfterChange={hostPushSetup}
+                    />
 
                     {/* v318: leaderboard — surfaces the rolling
                         round results once at least one round has
@@ -1400,6 +1518,15 @@ function estimatePreloadMB(
     const est = base + areaKm2 * 0.03;
     return Math.max(3, Math.min(150, Math.round(est)));
 }
+
+/** Canonical mode order for the editable transit chip row. */
+const ALL_TRANSIT_MODES: TransitMode[] = [
+    "bus",
+    "tram",
+    "train",
+    "subway",
+    "ferry",
+];
 
 /** Size options for the inline size dropdown. */
 const SIZE_OPTIONS: { value: GameSize; label: string }[] = [

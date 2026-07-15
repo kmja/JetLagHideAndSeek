@@ -428,7 +428,28 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v882`. Use `git log` for the per-version detail;
+build stamp. Current: `v883`. Use `git log` for the per-version detail;
+
+**v883 — lobby header redesign (contained map) + hidden debug gesture.**
+- **Lobby header rebuilt** (`GameLobbyDialog`). The full-bleed map + dimming
+  scrim + wizard-in-a-lobby (v863–v879) is REPLACED by: a **SHARE section on
+  top** (room code + Share/Copy/QR in its own section), then a **CONTAINED map
+  preview** (rounded/bordered like the play-area picker, `h-[200px]`,
+  `framePadding=40`) with the **play-area name top-left**, the **size pill +
+  transit icons along the bottom**, and a **corner Edit button** — and **NO
+  dimming scrim** (labels sit in their own small solid chips). The **separate
+  inline edit modes are BACK**: a size popover (opens upward), a transit-mode
+  editor Dialog, and a focused play-area editor Dialog (the map's corner
+  pencil) — the single "open the whole wizard" Edit button was dropped. **House
+  Rules moved back into the lobby body** (out of the wizard). The wizard's
+  v879 "Rules" tab was removed (`GameSetupDialog` back to Play area / Transit /
+  Size).
+- **Debug panel is now a hidden gesture** — the top-centre HIDE+SEEK wordmark
+  must be tapped **5 times in quick succession** (`useDebugSecretTap`, 700 ms
+  window) to open it; a single tap does nothing. Applied to both
+  `SeekerTopBar` + `HiderTopBar`. The visible floating launchers also default
+  to hidden now (`debugLauncherHidden` default flipped to `true`), so the panel
+  isn't trivially discoverable during a demo.
 
 **v882 — sea-level question gets a configure-map preview.** The `sea-level`
 measuring subtype previously drew NO closer/further overlay (v840 left it null

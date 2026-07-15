@@ -15,7 +15,7 @@ import { Settings } from "lucide-react";
 
 import { HideSeekWordmark } from "@/components/JetLagLogo";
 import { NotificationsIconButton } from "@/components/NotificationsToggle";
-import { debugPanelOpen } from "@/lib/debugState";
+import { useDebugSecretTap } from "@/hooks/useDebugSecretTap";
 import { moreSheetOpen } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +28,7 @@ const headerBtn = cn(
 );
 
 export function SeekerTopBar() {
+    const secretTap = useDebugSecretTap();
     return (
         <header
             className={cn(
@@ -57,13 +58,14 @@ export function SeekerTopBar() {
                 <Settings className="w-4 h-4" />
             </button>
 
-            {/* Center — wordmark; tap opens the developer debug panel
-                (replaced the standalone debug launcher, v747). */}
+            {/* Center — wordmark. v882: the debug panel is now a hidden
+                gesture (5 quick taps here), so a single tap does nothing and
+                the panel isn't trivially discoverable in a demo. */}
             <button
                 type="button"
-                onClick={() => debugPanelOpen.set(true)}
+                onClick={secretTap}
                 className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-                aria-label="Open developer debug panel"
+                aria-label="Hide and Seek"
             >
                 <HideSeekWordmark className="text-white" />
             </button>
