@@ -530,6 +530,17 @@ function Fan({
 
 /* ────────────────── Carousel sheet ────────────────── */
 
+// v909 peek-carousel geometry (mirrors DrawPickerDialog): the active
+// card is CARD_BASIS_PCT% of the container, centred, so PEEK_PCT% of
+// each neighbour shows at the edges. A horizontal drag past
+// SWIPE_THRESHOLD px flicks to the neighbour. A TRANSLATED track (not
+// scroll-snap) always locks onto exactly one card — the old scroll-snap
+// version landed a few px off-centre and left the action row
+// misaligned, which the v299–v311 rAF-scroll-polling never fully cured.
+const CARD_BASIS_PCT = 80;
+const PEEK_PCT = (100 - CARD_BASIS_PCT) / 2;
+const SWIPE_THRESHOLD = 45;
+
 function HandCarousel({
     open,
     onOpenChange,
@@ -552,124 +563,45 @@ function HandCarousel({
     setPickerAction: (action: PickerAction) => void;
     setCastCurse: (card: CurseCard | null) => void;
 }) {
-    // Track the currently-focused card so the action buttons below
-    // act on whatever's centered in the scroll-snap row.
+    // Which card is centred. The action buttons below act on it. Driven
+    // directly by swipe / tap / dots — no scroll-snap, so it's always
+    // exact (v909; the old scroll-snap + rAF-polling version landed a few
+    // px off-centre, misaligning the action row — v299–v311's whole saga).
     const [focusIndex, setFocusIndex] = useState(initialIndex);
-    const trackRef = useRef<HTMLDivElement | null>(null);
+    // v909: peek-carousel drag bookkeeping — live finger-follow via
+    // `dragDx` (px), snapping on release; `dragRef.moved` marks a gesture
+    // that became a SWIPE so its trailing tap is suppressed.
+    const [dragDx, setDragDx] = useState(0);
+    const [dragging, setDragging] = useState(false);
+    const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(
+        null,
+    );
 
     // On open: clamp the requested initial index against the current
-    // hand size, set focus, then jump the track to that slide once
-    // the layout has settled. The slide must exist (rAF + nullable
-    // guard) since the drawer animates in. `scrollIntoView` with
-    // inline: "center" lines the chosen card up with the snap point.
+    // hand size and centre it. A translated track needs only the index —
+    // no scrollLeft juggling / rAF race with iOS Safari snap-correction.
     useEffect(() => {
         if (!open) return;
-        const clamped = Math.max(
-            0,
-            Math.min(initialIndex, hand.length - 1),
+        setFocusIndex(
+            Math.max(0, Math.min(initialIndex, hand.length - 1)),
         );
-        setFocusIndex(clamped);
-        const id = requestAnimationFrame(() => {
-            const el = trackRef.current;
-            if (!el) return;
-            const slide = el.children[clamped] as
-                | HTMLElement
-                | undefined;
-            if (!slide) return;
-            // `scrollLeft` directly avoids triggering the scroll
-            // listener's snap-correction race that scrollIntoView
-            // sometimes loses to on iOS Safari.
-            el.scrollLeft =
-                slide.offsetLeft - (el.clientWidth - slide.clientWidth) / 2;
-        });
-        return () => cancelAnimationFrame(id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, initialIndex]);
 
-    // v311: rAF polling — the simplest reliable path. v299 (scroll
-    // event + rAF throttle), v302 (IntersectionObserver), and v305
-    // (scroll + IO + pointerup, all redundant) all left the
-    // highlighted card stuck on whichever index the user tapped to
-    // open. Whatever Vaul is doing to pointer / touch / scroll
-    // events on its Content tree, the listeners weren't firing on
-    // the nested scroll-snap track reliably enough. Brute-force
-    // polling `scrollLeft` on every frame while the carousel is
-    // open bypasses the entire event system; it's a few hundred
-    // float comparisons per frame which is invisible to CPU and
-    // React bails on same-value setState so re-renders are free.
-    useEffect(() => {
-        if (!open) return;
-
-        let raf = 0;
-        let lastScrollLeft = Number.NaN;
-
-        const tick = () => {
-            // v791: read the ref INSIDE the loop each frame, not once at
-            // effect start. Vaul mounts its portal Content a beat AFTER `open`
-            // flips true, so `trackRef.current` is null when this effect first
-            // runs — the old `const el = trackRef.current; if (!el) return;`
-            // bailed out permanently and NEVER started polling, which is why
-            // the highlight/actions stayed stuck on the tapped-open card while
-            // swiping visibly centred others. Reading it per-frame picks the
-            // element up the moment it mounts.
-            const el = trackRef.current;
-            if (el) {
-                const sl = el.scrollLeft;
-                if (sl !== lastScrollLeft) {
-                    lastScrollLeft = sl;
-                    const cx = sl + el.clientWidth / 2;
-                    const slides = Array.from(el.children) as HTMLElement[];
-                    let bestIdx = 0;
-                    let bestDist = Infinity;
-                    for (let i = 0; i < slides.length; i++) {
-                        const sCenter =
-                            slides[i].offsetLeft + slides[i].clientWidth / 2;
-                        const dist = Math.abs(sCenter - cx);
-                        if (dist < bestDist) {
-                            bestDist = dist;
-                            bestIdx = i;
-                        }
-                    }
-                    setFocusIndex(bestIdx);
-                }
-            }
-            raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-
-        return () => cancelAnimationFrame(raf);
-    }, [open, hand.length]);
-
-    // Card to the carousel actions act on. Out-of-bounds index is
-    // possible right after a discard shrinks the hand below the
-    // previous focus.
+    // Card the carousel actions act on. Out-of-bounds index is possible
+    // right after a discard shrinks the hand below the previous focus.
     const focused = hand[focusIndex] ?? hand[hand.length - 1] ?? null;
 
-    // v299: keep focusIndex + carousel scroll in sync with the
-    // hand when a discard / draw shrinks or grows it from under us.
-    // Without this the pagination dot stays on a slot whose card has
-    // changed and the visible carousel snap can land on a different
-    // card than the actions row is operating on.
+    // v299: keep focusIndex in sync with the hand when a discard / draw
+    // shrinks or grows it from under us, so the pagination dot + action
+    // row stay on the card actually centred.
     const prevHandLen = useRef(hand.length);
     useEffect(() => {
         if (!open) return;
         if (hand.length === prevHandLen.current) return;
         prevHandLen.current = hand.length;
         if (hand.length === 0) return;
-        const clamped = Math.min(focusIndex, hand.length - 1);
-        setFocusIndex(clamped);
-        const el = trackRef.current;
-        if (!el) return;
-        // Re-anchor the carousel scroll to the (possibly clamped)
-        // focused slot so the snap position matches the dot the next
-        // frame.
-        requestAnimationFrame(() => {
-            const slide = el.children[clamped] as HTMLElement | undefined;
-            if (!slide) return;
-            el.scrollLeft =
-                slide.offsetLeft -
-                (el.clientWidth - slide.clientWidth) / 2;
-        });
+        setFocusIndex((i) => Math.min(i, hand.length - 1));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hand.length, open]);
 
@@ -784,109 +716,170 @@ function HandCarousel({
                         Hand · {focusIndex + 1} of {hand.length}
                     </VaulDrawer.Title>
 
-                    {/* Carousel — horizontal scroll-snap row. Each
-                        slide takes the full carousel width (with
-                        small side-peek so the neighbour shows it can
-                        be swiped to). Card maintains its natural
-                        ~3:4 aspect. */}
-                    <div
-                        ref={trackRef}
-                        role="region"
-                        aria-label="Hand cards"
-                        className={cn(
-                            "flex overflow-x-auto",
-                            "snap-x snap-mandatory scroll-smooth",
-                            "no-scrollbar gap-4 px-[10%] py-2",
-                            // v305: tell the browser to give horizontal
-                            // pans to native scroll. Without this Vaul's
-                            // pointer handlers on Content swallowed the
-                            // touch and the scroll event never fired
-                            // (so focusIndex stayed pinned to the slide
-                            // the user tapped to open).
-                            "touch-pan-x",
-                        )}
-                    >
-                        {hand.map((card, i) => (
-                            <article
-                                key={card.id}
-                                className={cn(
-                                    // `snap-always` (scroll-snap-stop:
-                                    // always) forces the scroller to
-                                    // stop at every snap point, so a
-                                    // flick swipe can only ever move
-                                    // ±1 card instead of carrying
-                                    // through several at once.
-                                    "snap-center snap-always shrink-0",
-                                    "w-[80%] max-w-[360px]",
-                                    "flex items-center justify-center",
-                                    "transition-transform duration-200",
-                                    i === focusIndex
-                                        ? "scale-100"
-                                        : "scale-95 opacity-70",
-                                )}
-                                aria-current={i === focusIndex}
-                            >
-                                <div
-                                    className="w-full"
-                                    style={{ aspectRatio: "5 / 7" }}
-                                >
-                                    <CardTile
-                                        card={card}
-                                        gameSize={$gameSize}
-                                        selectionIndicator="none"
-                                        className="h-full w-full"
-                                    />
-                                </div>
-                            </article>
-                        ))}
-                    </div>
-
-                    {/* Action row sits IMMEDIATELY below the card,
-                        not stuck to the bottom of the viewport — the
-                        card + actions read as a single object you've
-                        brought up. Centered with the same max width
-                        as the card. */}
-                    {focused && (
-                        <div className="mx-auto w-[80%] max-w-[360px] mt-3 px-[10%] sm:px-0">
-                            <CardActions
-                                card={focused}
-                                onPickerOpen={() => onOpenChange(false)}
-                                setPickerAction={setPickerAction}
-                                setCastCurse={setCastCurse}
-                                onActionTaken={() => {
-                                    // If we just discarded the last
-                                    // card, close the sheet — fan
-                                    // disappears on its own when the
-                                    // hand empties.
-                                    if (hiderHand.get().length === 0) {
-                                        onOpenChange(false);
-                                    }
-                                }}
-                            />
-                        </div>
-                    )}
-
-                    {/* Pagination dots, small and centred below the
-                        actions. Cheap navigation hint that costs
-                        almost nothing visually. */}
-                    {hand.length > 1 && (
+                    {/* v909: peek-carousel — a TRANSLATED track (not
+                        scroll-snap) centres the active card at
+                        CARD_BASIS_PCT% width so the neighbours PEEK at the
+                        edges (scaled + dimmed). A horizontal swipe flicks
+                        between cards with a live finger-follow, snapping on
+                        release; tapping a peeking neighbour centres it. The
+                        translate always locks onto exactly one card, so the
+                        action row below never drifts off-centre. */}
+                    <div className="mx-auto w-full max-w-md">
                         <div
-                            className="flex items-center justify-center gap-1.5 mt-4"
-                            aria-hidden
+                            role="region"
+                            aria-label="Hand cards"
+                            className="relative overflow-hidden py-2"
+                            onTouchStart={(e) => {
+                                const t = e.touches[0];
+                                dragRef.current = {
+                                    x: t.clientX,
+                                    y: t.clientY,
+                                    moved: false,
+                                };
+                                setDragging(true);
+                            }}
+                            onTouchMove={(e) => {
+                                const d = dragRef.current;
+                                if (!d) return;
+                                const t = e.touches[0];
+                                const dx = t.clientX - d.x;
+                                const dy = t.clientY - d.y;
+                                // Only a clearly-horizontal drag is a swipe.
+                                if (
+                                    Math.abs(dx) > 8 &&
+                                    Math.abs(dx) > Math.abs(dy)
+                                ) {
+                                    d.moved = true;
+                                    setDragDx(dx);
+                                }
+                            }}
+                            onTouchEnd={() => {
+                                const dx = dragDx;
+                                setDragDx(0);
+                                setDragging(false);
+                                if (
+                                    dx < -SWIPE_THRESHOLD &&
+                                    focusIndex < hand.length - 1
+                                ) {
+                                    setFocusIndex((i) => i + 1);
+                                } else if (
+                                    dx > SWIPE_THRESHOLD &&
+                                    focusIndex > 0
+                                ) {
+                                    setFocusIndex((i) => i - 1);
+                                }
+                            }}
                         >
-                            {hand.map((_, i) => (
-                                <span
-                                    key={i}
-                                    className={cn(
-                                        "rounded-full transition-all duration-200",
-                                        i === focusIndex
-                                            ? "w-4 h-1.5 bg-primary"
-                                            : "w-1.5 h-1.5 bg-white/40",
-                                    )}
-                                />
-                            ))}
+                            <div
+                                className={cn(
+                                    "flex",
+                                    !dragging &&
+                                        "transition-transform duration-300 ease-out",
+                                )}
+                                style={{
+                                    transform: `translateX(calc(${PEEK_PCT}% - ${
+                                        focusIndex * CARD_BASIS_PCT
+                                    }% + ${dragDx}px))`,
+                                }}
+                            >
+                                {hand.map((card, i) => {
+                                    const isActive = i === focusIndex;
+                                    return (
+                                        <div
+                                            key={card.id}
+                                            className="shrink-0 flex justify-center px-1.5"
+                                            style={{
+                                                flexBasis: `${CARD_BASIS_PCT}%`,
+                                            }}
+                                            aria-current={isActive}
+                                        >
+                                            <div
+                                                className={cn(
+                                                    "w-full transition-all duration-300 ease-out",
+                                                    isActive
+                                                        ? "scale-100 opacity-100"
+                                                        : "scale-[0.86] opacity-45",
+                                                )}
+                                                onClick={() => {
+                                                    // A swipe suppresses the
+                                                    // trailing tap.
+                                                    if (
+                                                        dragRef.current?.moved
+                                                    ) {
+                                                        dragRef.current.moved =
+                                                            false;
+                                                        return;
+                                                    }
+                                                    if (!isActive)
+                                                        setFocusIndex(i);
+                                                }}
+                                            >
+                                                <div
+                                                    className="w-full"
+                                                    style={{
+                                                        aspectRatio: "5 / 7",
+                                                    }}
+                                                >
+                                                    <CardTile
+                                                        card={card}
+                                                        gameSize={$gameSize}
+                                                        selectionIndicator="none"
+                                                        className="h-full w-full"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    )}
+
+                        {/* Action row sits IMMEDIATELY below the card, not
+                            stuck to the bottom of the viewport — the card +
+                            actions read as a single object you've brought
+                            up. Same max width as the active card. */}
+                        {focused && (
+                            <div className="mx-auto w-[80%] max-w-[360px] mt-3 px-[10%] sm:px-0">
+                                <CardActions
+                                    card={focused}
+                                    onPickerOpen={() => onOpenChange(false)}
+                                    setPickerAction={setPickerAction}
+                                    setCastCurse={setCastCurse}
+                                    onActionTaken={() => {
+                                        // If we just discarded the last
+                                        // card, close the sheet — fan
+                                        // disappears on its own when the
+                                        // hand empties.
+                                        if (
+                                            hiderHand.get().length === 0
+                                        ) {
+                                            onOpenChange(false);
+                                        }
+                                    }}
+                                />
+                            </div>
+                        )}
+
+                        {/* Pagination dots — cheap navigation hint. */}
+                        {hand.length > 1 && (
+                            <div className="flex items-center justify-center gap-1.5 mt-4">
+                                {hand.map((_, i) => (
+                                    <button
+                                        key={i}
+                                        type="button"
+                                        aria-label={`Show card ${i + 1}`}
+                                        onClick={() => setFocusIndex(i)}
+                                        className={cn(
+                                            "rounded-full transition-all duration-200",
+                                            i === focusIndex
+                                                ? "w-4 h-1.5 bg-primary"
+                                                : "w-1.5 h-1.5 bg-white/40",
+                                        )}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </VaulDrawer.Content>
             </VaulDrawer.Portal>
         </VaulDrawer.Root>

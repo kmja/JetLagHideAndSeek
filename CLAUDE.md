@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v908`. Use `git log` for the per-version detail;
+build stamp. Current: `v909`. Use `git log` for the per-version detail;
+
+**v909 — hand card-play carousel is a translate-track peek-carousel (exact
+centering).** `HandCarousel` (`HiderHandFan`) — the full-screen sheet that
+opens when the hider taps their hand fan — replaced its horizontal scroll-snap
+row (v299–v311's rAF-scroll-polling saga) with the SAME translated peek-carousel
+`DrawPickerDialog` uses (v901): the active card is centred at `CARD_BASIS_PCT`
+(80%) of a `max-w-md` container so neighbours PEEK (scaled `0.86` + dimmed) at
+the edges, a horizontal SWIPE flicks between cards with a live finger-follow
+(`dragDx`) snapping past `SWIPE_THRESHOLD` (45 px) on release, tapping a peeking
+neighbour centres it, and the dots jump to any card. `focusIndex` is now driven
+DIRECTLY by swipe/tap/dots (no scroll position to read back), so the centred
+card and the action row below it are always exactly aligned — the scroll-snap
+version landed a few px off-centre, leaving the "New question"-style action row
+misaligned. Removed `trackRef`, the on-open `scrollLeft` jump, the v311 rAF
+`scrollLeft` polling effect, and the resync effect's re-anchor scroll (the
+length-resync now just clamps `focusIndex`). Vaul drawer chrome, the close/back
+handling, and the discard/draw resync are unchanged.
 
 **v908 — time-bonus add-on on the hider timer + end-of-round pills styled
 like the card.**
