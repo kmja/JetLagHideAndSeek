@@ -117,11 +117,17 @@ export interface SharedCursePayload {
     castingCost: string | null;
     /**
      * Curse-specific enforcement params the hider picks at cast time.
-     * Currently only Drained Brain (the 3 question-category ids the
-     * seekers can't ask for the rest of the run). Carried verbatim
-     * through the `?c=` link's JSON; absent for every other curse.
+     * LEGACY Drained Brain field (pre-v907): 3 whole question-CATEGORY ids.
+     * Superseded by `disabledQuestions`; kept for back-compat. Absent
+     * otherwise.
      */
     disabledCategories?: string[];
+    /**
+     * Drained Brain (v907): the 3 specific QUESTIONS blocked — a bare
+     * category id or `"<category>/<subtype>"`. Carried verbatim through the
+     * `?c=` link's JSON.
+     */
+    disabledQuestions?: string[];
     /**
      * Proof photo for a photo-casting-cost curse (Zoologist / Luxury
      * Car). An R2 URL — never an inline data URI (that would blow the

@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v906`. Use `git log` for the per-version detail;
+build stamp. Current: `v907`. Use `git log` for the per-version detail;
+
+**v907 — Drained Brain blocks 3 specific QUESTIONS, not 3 categories.**
+Rulebook: "Choose three questions in different categories." The app was
+blocking 3 whole CATEGORIES. Now the cast picker (`CastCurseDialog`) selects
+3 specific questions, one per category: radar/thermometer are a single
+question (a bare-category row), matching/measuring/tentacles/photo expand to
+pick ONE subtype (`getSubtypes`). Each pick is a question id — a bare
+category id (`"radius"`) or `"<category>/<subtype>"`. Rides the new
+`CursePayload.disabledQuestions` / `SharedCursePayload.disabledQuestions`
+(legacy `disabledCategories` kept for older casts). `computeAskingRestrictions`
+(`curseEnforcement.ts`) splits them into `disabledCategories` (bare ids —
+whole category off) + `disabledSubtypes` (`"cat/sub"` — that one question
+off); `AddQuestionDialog` disables the matching category tiles AND the
+specific subtype tiles ("Blocked by Curse of the Drained Brain"). One
+question per category enforced at pick time (a second pick in a category
+replaces the first); exactly 3 to cast.
 
 **v906 — hider sees the curses they've cast (active-curse mirror).** The
 seeker's `CurseInbox` shows received curses; the hider had no view of what's

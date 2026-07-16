@@ -1256,6 +1256,8 @@ function handleServerMessage(msg: ServerMessage) {
                     // Brain's chosen categories) so the seeker's question
                     // UI can gate the right categories.
                     disabledCategories: msg.curse.disabledCategories,
+                    // Drained Brain: the 3 specific questions blocked (v907).
+                    disabledQuestions: msg.curse.disabledQuestions,
                     // Proof photo for a photo-cost curse (Zoologist /
                     // Luxury Car) — the seekers see what the hider shot.
                     photoUrl: msg.curse.photoUrl,

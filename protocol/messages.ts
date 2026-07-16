@@ -527,11 +527,20 @@ export interface CursePayload {
     castingCost: string | null;
     /**
      * Curse-specific enforcement params chosen by the hider at cast time.
-     * Currently only Drained Brain, which carries the 3 question-category
-     * ids the seekers can no longer ask for the rest of the run. Optional
-     * + back-compat: absent for every other curse and older clients.
+     * LEGACY Drained Brain field (pre-v907): 3 whole question-CATEGORY ids.
+     * Superseded by `disabledQuestions` (3 specific questions), kept so an
+     * older hider client's cast is still understood. Absent otherwise.
      */
     disabledCategories?: string[];
+    /**
+     * Drained Brain (v907): the 3 specific QUESTIONS the seekers can no
+     * longer ask for the rest of the run (rulebook: "three questions in
+     * different categories"). Each id is either a bare category id
+     * (`"radius"`/`"thermometer"`/`"photo"` — those categories are a single
+     * question) or `"<category>/<subtype>"` (a specific matching/measuring/
+     * tentacles question). Absent for every other curse and older clients.
+     */
+    disabledQuestions?: string[];
     /**
      * Proof photo the hider attaches when a curse's casting cost is a
      * photo ("A photo of an animal / a car" — Zoologist, Luxury Car). An

@@ -1177,6 +1177,12 @@ export const AddQuestionDialog = ({
                                                 const tooFew = Boolean(
                                                     avail && !avail.available,
                                                 );
+                                                // v907: Drained Brain can block
+                                                // this SPECIFIC question.
+                                                const curseBlockedSubtype =
+                                                    curseBlock.disabledSubtypes.has(
+                                                        `${subtypePickerFor}/${subtype.value}`,
+                                                    );
                                                 const isAdminTile =
                                                     /^admin-[1-4]$/.test(
                                                         subtype.value,
@@ -1223,7 +1229,9 @@ export const AddQuestionDialog = ({
                                                                 ?.countrycode,
                                                         )}
                                                         disabled={
-                                                            hardBlock || tooFew
+                                                            hardBlock ||
+                                                            tooFew ||
+                                                            curseBlockedSubtype
                                                         }
                                                         repeatMultiplier={
                                                             subtypeUsed
@@ -1231,9 +1239,11 @@ export const AddQuestionDialog = ({
                                                                 : undefined
                                                         }
                                                         blockedReason={
-                                                            hardBlock
-                                                                ? "House rule: each question can only be asked once per game."
-                                                                : tooFewReason
+                                                            curseBlockedSubtype
+                                                                ? "Blocked by Curse of the Drained Brain for the rest of the run."
+                                                                : hardBlock
+                                                                  ? "House rule: each question can only be asked once per game."
+                                                                  : tooFewReason
                                                         }
                                                         onClick={() => {
                                                             const cat =

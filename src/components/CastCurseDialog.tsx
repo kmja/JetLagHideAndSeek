@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import {
     Camera,
     Check,
+    ChevronDown,
     Dice5,
     MapPin,
     Minus,
@@ -14,7 +15,7 @@ import {
     Video,
     Zap,
 } from "lucide-react";
-import type { CSSProperties } from "react";
+import type { ComponentType, CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -45,6 +46,7 @@ import {
     curseBlocksAsking,
 } from "@/lib/curseEnforcement";
 import { gameSize } from "@/lib/gameSetup";
+import { getSubtypes } from "@/lib/subtypes";
 import type { CurseCard } from "@/lib/hiderDeck";
 import {
     activateOverflowingChalice,
@@ -113,6 +115,29 @@ export const DICE_FIZZLE: Record<
     },
 };
 
+/** Small solid category-colour icon block used in the Drained Brain picker. */
+function CatIcon({
+    Icon,
+    color,
+}: {
+    Icon: ComponentType<{
+        size?: number;
+        strokeWidth?: number;
+        className?: string;
+    }>;
+    color: string;
+}) {
+    return (
+        <span
+            className="inline-flex items-center justify-center w-4 h-4 rounded-sm shrink-0"
+            style={{ backgroundColor: color }}
+            aria-hidden="true"
+        >
+            <Icon size={10} strokeWidth={2.5} className="text-white" />
+        </span>
+    );
+}
+
 export function CastCurseDialog({
     open,
     onOpenChange,
@@ -131,8 +156,12 @@ export function CastCurseDialog({
     const [costSelectedIds, setCostSelectedIds] = useState<string[]>([]);
     /** Drained Brain only: the 3 categories the hider picks to disable
      *  on the seekers for the rest of the run. */
-    const [drainedCategories, setDrainedCategories] = useState<CategoryId[]>(
-        [],
+    // v907: Drained Brain now blocks 3 specific QUESTIONS, each in a
+    // different category (rulebook), not 3 whole categories. Each id is a
+    // bare category ("radius"/"thermometer"/"photo") or "<category>/<subtype>".
+    const [drainedQuestions, setDrainedQuestions] = useState<string[]>([]);
+    const [drainedExpanded, setDrainedExpanded] = useState<CategoryId | null>(
+        null,
     );
     const isDrainedBrain = card?.name === CURSE_DRAINED_BRAIN;
     const $activeBlocker = useStore(activeBlockingCurse);
@@ -239,7 +268,8 @@ export function CastCurseDialog({
             setShowFizzleEffect(false);
             setLastShareResult(null);
             setCostSelectedIds([]);
-            setDrainedCategories([]);
+            setDrainedQuestions([]);
+            setDrainedExpanded(null);
             setPhotoFile(null);
             setPhotoBusy(false);
             setPreparedPhoto(null);
@@ -412,15 +442,23 @@ export function CastCurseDialog({
         rockSatisfied &&
         // Destination (Travel Agent, multiplayer): a place must be entered.
         destSatisfied &&
-        // Drained Brain: exactly 3 categories must be chosen before the
-        // curse can be cast (it disables those 3 on the seekers).
-        (!isDrainedBrain || drainedCategories.length === 3);
+        // Drained Brain: exactly 3 questions (each a different category) must
+        // be chosen before the curse can be cast.
+        (!isDrainedBrain || drainedQuestions.length === 3);
 
-    const toggleDrainedCategory = (id: CategoryId) => {
-        setDrainedCategories((curr) => {
-            if (curr.includes(id)) return curr.filter((x) => x !== id);
-            if (curr.length >= 3) return curr; // cap at 3
-            return [...curr, id];
+    const categoryOfQuestion = (qid: string): CategoryId =>
+        (qid.includes("/") ? qid.split("/")[0] : qid) as CategoryId;
+
+    // Toggle a question pick. Enforces one-question-per-category (picking a
+    // second question in a category replaces the first) and a cap of 3.
+    const toggleDrainedQuestion = (catId: CategoryId, qid: string) => {
+        setDrainedQuestions((curr) => {
+            if (curr.includes(qid)) return curr.filter((x) => x !== qid);
+            const withoutSameCat = curr.filter(
+                (x) => categoryOfQuestion(x) !== catId,
+            );
+            if (withoutSameCat.length >= 3) return curr; // cap 3 categories
+            return [...withoutSameCat, qid];
         });
     };
 
@@ -428,13 +466,13 @@ export function CastCurseDialog({
      *  Brain's disabled categories and, for a photo-cost curse, the R2
      *  URL of the hider's proof photo. Empty for every other curse. */
     const enforceParams = (): {
-        disabledCategories?: string[];
+        disabledQuestions?: string[];
         photoUrl?: string;
         filmSeconds?: number;
         rockCount?: number;
         travelDestination?: string;
     } => ({
-        ...(isDrainedBrain ? { disabledCategories: drainedCategories } : {}),
+        ...(isDrainedBrain ? { disabledQuestions: drainedQuestions } : {}),
         ...(preparedPhoto?.url ? { photoUrl: preparedPhoto.url } : {}),
         ...(filmSeconds != null ? { filmSeconds } : {}),
         ...(rockCount != null && rockCount >= 1 ? { rockCount } : {}),
@@ -734,57 +772,154 @@ export function CastCurseDialog({
                         <div className="rounded-sm border-2 border-purple-500/40 bg-purple-500/5 px-3 py-2.5">
                             <div className="flex items-center justify-between mb-1.5">
                                 <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-purple-300">
-                                    Pick 3 categories to disable
+                                    Pick 3 questions to disable
                                 </span>
                                 <span className="text-[11px] tabular-nums text-muted-foreground">
-                                    {drainedCategories.length} / 3
+                                    {drainedQuestions.length} / 3
                                 </span>
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {(
-                                    Object.keys(CATEGORIES) as CategoryId[]
-                                ).map((id) => {
-                                    const sel =
-                                        drainedCategories.includes(id);
-                                    const meta = CATEGORIES[id];
-                                    const Icon = meta.icon;
-                                    return (
-                                        <button
-                                            key={id}
-                                            type="button"
-                                            onClick={() =>
-                                                toggleDrainedCategory(id)
-                                            }
-                                            aria-pressed={sel}
-                                            className={cn(
-                                                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
-                                                sel
-                                                    ? "border-purple-400 bg-purple-500/25 text-purple-100"
-                                                    : "border-border bg-background/40 text-foreground/80 hover:border-purple-500/50",
-                                            )}
-                                        >
-                                            <span
-                                                className="inline-flex items-center justify-center w-4 h-4 rounded-sm shrink-0"
-                                                style={{
-                                                    backgroundColor:
-                                                        meta.color,
-                                                }}
-                                                aria-hidden="true"
-                                            >
-                                                <Icon
-                                                    size={10}
-                                                    strokeWidth={2.5}
-                                                    className="text-white"
-                                                />
-                                            </span>
-                                            {meta.label}
-                                        </button>
-                                    );
-                                })}
+                            <div className="flex flex-col gap-1">
+                                {(Object.keys(CATEGORIES) as CategoryId[]).map(
+                                    (catId) => {
+                                        const meta = CATEGORIES[catId];
+                                        const Icon = meta.icon;
+                                        const subs = getSubtypes(
+                                            catId,
+                                            $gameSize,
+                                        );
+                                        // Category picked already (any question
+                                        // in it) — one per category.
+                                        const catPicked = drainedQuestions.some(
+                                            (q) =>
+                                                categoryOfQuestion(q) === catId,
+                                        );
+                                        // radar / thermometer: the category IS
+                                        // the question — a single selectable row.
+                                        if (!subs || subs.length === 0) {
+                                            const qid = catId;
+                                            const sel =
+                                                drainedQuestions.includes(qid);
+                                            return (
+                                                <button
+                                                    key={catId}
+                                                    type="button"
+                                                    onClick={() =>
+                                                        toggleDrainedQuestion(
+                                                            catId,
+                                                            qid,
+                                                        )
+                                                    }
+                                                    aria-pressed={sel}
+                                                    className={cn(
+                                                        "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs font-semibold transition-colors",
+                                                        sel
+                                                            ? "border-purple-400 bg-purple-500/25 text-purple-100"
+                                                            : "border-border bg-background/40 text-foreground/80 hover:border-purple-500/50",
+                                                    )}
+                                                >
+                                                    <CatIcon
+                                                        Icon={Icon}
+                                                        color={meta.color}
+                                                    />
+                                                    {meta.label}
+                                                </button>
+                                            );
+                                        }
+                                        // matching / measuring / tentacles /
+                                        // photo: expand to pick ONE subtype.
+                                        const expanded =
+                                            drainedExpanded === catId;
+                                        const pickedInCat = drainedQuestions.find(
+                                            (q) =>
+                                                categoryOfQuestion(q) === catId,
+                                        );
+                                        return (
+                                            <div key={catId}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setDrainedExpanded(
+                                                            (e) =>
+                                                                e === catId
+                                                                    ? null
+                                                                    : catId,
+                                                        )
+                                                    }
+                                                    aria-expanded={expanded}
+                                                    className={cn(
+                                                        "flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs font-semibold transition-colors",
+                                                        catPicked
+                                                            ? "border-purple-400 bg-purple-500/15 text-purple-100"
+                                                            : "border-border bg-background/40 text-foreground/80 hover:border-purple-500/50",
+                                                    )}
+                                                >
+                                                    <CatIcon
+                                                        Icon={Icon}
+                                                        color={meta.color}
+                                                    />
+                                                    <span className="flex-1">
+                                                        {meta.label}
+                                                    </span>
+                                                    {pickedInCat && (
+                                                        <span className="text-[10px] text-purple-300 truncate max-w-[8rem]">
+                                                            {subs.find(
+                                                                (s) =>
+                                                                    `${catId}/${s.value}` ===
+                                                                    pickedInCat,
+                                                            )?.label ?? ""}
+                                                        </span>
+                                                    )}
+                                                    <ChevronDown
+                                                        className={cn(
+                                                            "w-4 h-4 shrink-0 transition-transform",
+                                                            expanded &&
+                                                                "rotate-180",
+                                                        )}
+                                                    />
+                                                </button>
+                                                {expanded && (
+                                                    <div className="flex flex-wrap gap-1 py-1.5 pl-2">
+                                                        {subs.map((s) => {
+                                                            const qid = `${catId}/${s.value}`;
+                                                            const sel =
+                                                                drainedQuestions.includes(
+                                                                    qid,
+                                                                );
+                                                            return (
+                                                                <button
+                                                                    key={qid}
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        toggleDrainedQuestion(
+                                                                            catId,
+                                                                            qid,
+                                                                        )
+                                                                    }
+                                                                    aria-pressed={
+                                                                        sel
+                                                                    }
+                                                                    className={cn(
+                                                                        "rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                                                                        sel
+                                                                            ? "border-purple-400 bg-purple-500/25 text-purple-100"
+                                                                            : "border-border bg-background/40 text-foreground/70 hover:border-purple-500/50",
+                                                                    )}
+                                                                >
+                                                                    {s.label}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    },
+                                )}
                             </div>
                             <p className="text-[11px] text-muted-foreground leading-snug mt-2">
-                                These stay disabled for the seekers for the
-                                rest of your run — the app enforces it.
+                                These 3 questions (each a different category)
+                                stay disabled for the seekers for the rest of
+                                your run — the app enforces it.
                             </p>
                         </div>
                     )}

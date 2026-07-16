@@ -111,6 +111,14 @@ function activeCurses(curses: ReceivedCurse[]): ReceivedCurse[] {
 export interface AskingRestrictions {
     /** Categories the seekers currently can't ask (partial block). */
     disabledCategories: Set<CategoryId>;
+    /**
+     * Specific SUBTYPE questions the seekers can't ask (Drained Brain, v907),
+     * as `"<category>/<subtype>"` ids. The whole category stays askable — only
+     * these exact questions are off. (Category-level Drained Brain picks —
+     * radar/thermometer/photo — go into `disabledCategories` instead, since
+     * those categories are a single question.)
+     */
+    disabledSubtypes: Set<string>;
     /** True when asking is blocked entirely (no category is allowed). */
     blockedAll: boolean;
     /** Human-readable reason for a full block (for tooltips/notices). */
@@ -140,14 +148,27 @@ export function computeAskingRestrictions(
 ): AskingRestrictions {
     const active = activeCurses(curses);
     const disabledCategories = new Set<CategoryId>();
+    const disabledSubtypes = new Set<string>();
     let blockedAll = false;
     let reason: string | undefined;
     let needsSpottyRoll = false;
 
     const drained = active.find((c) => c.name === CURSE_DRAINED_BRAIN);
-    if (drained?.disabledCategories) {
-        for (const id of drained.disabledCategories) {
-            disabledCategories.add(id as CategoryId);
+    if (drained) {
+        // v907: 3 specific questions. A bare category id (radar/thermometer/
+        // photo) blocks the whole category; a "<cat>/<subtype>" blocks that
+        // one question. Falls back to the legacy `disabledCategories` (whole-
+        // category) field for a curse cast by an older client.
+        const questions = drained.disabledQuestions;
+        if (questions && questions.length > 0) {
+            for (const q of questions) {
+                if (q.includes("/")) disabledSubtypes.add(q);
+                else disabledCategories.add(q as CategoryId);
+            }
+        } else if (drained.disabledCategories) {
+            for (const id of drained.disabledCategories) {
+                disabledCategories.add(id as CategoryId);
+            }
         }
     }
 
@@ -182,5 +203,11 @@ export function computeAskingRestrictions(
         reason = "Every question category is disabled by an active curse.";
     }
 
-    return { disabledCategories, blockedAll, reason, needsSpottyRoll };
+    return {
+        disabledCategories,
+        disabledSubtypes,
+        blockedAll,
+        reason,
+        needsSpottyRoll,
+    };
 }
