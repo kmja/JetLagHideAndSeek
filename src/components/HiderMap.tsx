@@ -307,7 +307,13 @@ export function HiderMap({
                 style={{ width: "100%", height: "100%" }}
                 mapStyle={mapStyle}
                 attributionControl={false}
-                scrollZoom={false}
+                // v900: the answer-comparison map is now zoomable — wheel +
+                // double-click + pinch (the one-shot fitBounds is guarded by
+                // idledOnce, so the user's zoom sticks after the initial frame).
+                scrollZoom={true}
+                doubleClickZoom={true}
+                touchZoomRotate={true}
+                dragPan={true}
                 /* v326: match Map.tsx — PMTiles archive caps at z15,
                    so z16 is one level of overzoom freedom and past
                    that is just magnified vector data with no new

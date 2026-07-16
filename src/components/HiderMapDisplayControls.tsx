@@ -350,6 +350,7 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
     const $show = useStore(hiderPoiShow);
     const $highlight = useStore(hiderPoiHighlightKinds);
     const [query, setQuery] = useState("");
+    const [focused, setFocused] = useState(false);
 
     const highlightSet = new Set($highlight);
     const q = query.trim().toLowerCase();
@@ -406,6 +407,10 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
+                    onFocus={() => setFocused(true)}
+                    // Delay so a tap on a list row (which blurs the input)
+                    // still registers before the list unmounts.
+                    onBlur={() => window.setTimeout(() => setFocused(false), 120)}
                     placeholder="Highlight places (search: supermarket, library…)"
                     className={cn(
                         "w-full rounded-lg border-2 border-border bg-secondary pl-8 pr-3 text-sm",
@@ -414,6 +419,10 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                     )}
                 />
             </div>
+            {/* The type list only appears while the search box is focused (or a
+                query is present), so it doesn't push the transit overlays below
+                it off-screen when collapsed (v900). */}
+            {(focused || q.length > 0) && (
             <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background/60 p-1 flex flex-col gap-0.5">
                 {results.length === 0 ? (
                     <p className="text-[11px] text-muted-foreground px-2 py-2">
@@ -426,6 +435,9 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                             <button
                                 key={d.kind}
                                 type="button"
+                                // Keep input focus (don't blur → list stays open)
+                                // so multiple types can be toggled in one go.
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => toggleHighlight(d.kind)}
                                 aria-pressed={on}
                                 className={cn(
@@ -466,6 +478,7 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                     })
                 )}
             </div>
+            )}
             {$highlight.length > 0 && (
                 <button
                     type="button"

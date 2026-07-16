@@ -102,6 +102,8 @@ export function HiderPoiOverlay({ darkBasemap }: { darkBasemap: boolean }) {
                         "interpolate",
                         ["linear"],
                         ["zoom"],
+                        10,
+                        6,
                         12,
                         8,
                         16,
@@ -124,6 +126,8 @@ export function HiderPoiOverlay({ darkBasemap }: { darkBasemap: boolean }) {
                         "interpolate",
                         ["linear"],
                         ["zoom"],
+                        10,
+                        3.5,
                         12,
                         4.5,
                         16,
@@ -142,7 +146,7 @@ export function HiderPoiOverlay({ darkBasemap }: { darkBasemap: boolean }) {
             <Layer
                 id="hider-pois-labels"
                 type="symbol"
-                minzoom={14}
+                minzoom={12}
                 layout={{
                     "text-field": ["get", "name"],
                     "text-font": ["Noto Sans Regular"],

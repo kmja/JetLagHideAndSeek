@@ -1206,7 +1206,7 @@ export const AddQuestionDialog = ({
                                                               "same-landmass"
                                                             ? "The play area is a single landmass — this can't narrow the map."
                                                             : isPresenceLine
-                                                              ? "None in or near the play area — this can't narrow the map."
+                                                              ? "None in the play area — this can't narrow the map."
                                                               : avail!.count === 0
                                                                 ? "None in the play area to ask about."
                                                                 : "Only one in the play area — not enough to ask this."

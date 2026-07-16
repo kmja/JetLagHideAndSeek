@@ -690,7 +690,7 @@ export function GameLobbyDialog() {
                     // their own solid chips instead. Editing uses the separate
                     // inline modes (size popover + transit dialog + area dialog),
                     // not the full game-settings wizard.
-                    <div className="shrink-0 border-b border-border px-4 pt-7 pb-4 space-y-4">
+                    <div className="shrink-0 border-b border-border px-4 py-4 space-y-4">
                         {/* SHARE section — room code + Share / Copy / QR. */}
                         <div className="flex items-center gap-2">
                             <div className="flex flex-col min-w-0 leading-none">

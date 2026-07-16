@@ -1,9 +1,9 @@
 import {
     Check,
     Crop,
+    Paintbrush,
     Redo2,
     RotateCcw,
-    SquareDashedBottom,
     Undo2,
     X,
 } from "lucide-react";
@@ -27,20 +27,32 @@ interface NormRect {
     h: number;
 }
 
+/** A point in normalized [0..1] coordinates. */
+interface NormPoint {
+    x: number;
+    y: number;
+}
+
 /**
  * One non-destructive edit. Coordinates are normalized to the ORIGINAL
  * image, so the whole stack can be replayed (or partly replayed, for
  * undo) without ever mutating the source pixels.
- *   - redact: a black box, in original-image coords.
+ *   - redact: a black BRUSH STROKE — a polyline of points + a radius (both
+ *     in original-image coords, radius as a fraction of image width),
+ *     painted with round caps/joins so it reads as a freehand brush.
  *   - crop: the resulting visible window, in original-image coords.
  */
 type EditOp =
-    | { type: "redact"; rect: NormRect }
+    | { type: "redact"; points: NormPoint[]; r: number }
     | { type: "crop"; view: NormRect };
 
 type Mode = "redact" | "crop";
 
 const FULL_VIEW: NormRect = { x: 0, y: 0, w: 1, h: 1 };
+
+// Brush radius as a fraction of image WIDTH — a fixed absolute size so a
+// stroke stays the same physical size on the photo even after a later crop.
+const BRUSH_R = 0.03;
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
@@ -51,6 +63,48 @@ function rectFromPoints(
     const x = Math.min(a.x, b.x);
     const y = Math.min(a.y, b.y);
     return { x, y, w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+}
+
+/** Map a point from original coords into current-view-normalized space. */
+function pointOriginalToView(p: NormPoint, view: NormRect): NormPoint {
+    return { x: (p.x - view.x) / view.w, y: (p.y - view.y) / view.h };
+}
+
+/** Map a point from current-view-normalized space into original coords. */
+function pointViewToOriginal(p: NormPoint, view: NormRect): NormPoint {
+    return { x: view.x + p.x * view.w, y: view.y + p.y * view.h };
+}
+
+/** Paint a brush stroke (view-space points) as black onto the 2D context.
+ *  `rFracW` is the radius as a fraction of image width; `cw`/`view.w` map it
+ *  to canvas pixels. A single point is a filled dot. */
+function paintStroke(
+    ctx: CanvasRenderingContext2D,
+    pts: NormPoint[],
+    rFracW: number,
+    view: NormRect,
+    cw: number,
+    ch: number,
+) {
+    if (pts.length === 0) return;
+    const rPx = Math.max(1, (rFracW * cw) / view.w);
+    ctx.fillStyle = "#000";
+    ctx.strokeStyle = "#000";
+    if (pts.length === 1) {
+        ctx.beginPath();
+        ctx.arc(pts[0].x * cw, pts[0].y * ch, rPx, 0, Math.PI * 2);
+        ctx.fill();
+        return;
+    }
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.lineWidth = rPx * 2;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x * cw, pts[0].y * ch);
+    for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo(pts[i].x * cw, pts[i].y * ch);
+    }
+    ctx.stroke();
 }
 
 /** The current visible window in original coords = the last crop, or full. */
@@ -67,16 +121,6 @@ function viewToOriginal(s: NormRect, view: NormRect): NormRect {
         y: view.y + s.y * view.h,
         w: s.w * view.w,
         h: s.h * view.h,
-    };
-}
-
-/** Map a rect from original coords into current-view-normalized space. */
-function originalToView(r: NormRect, view: NormRect): NormRect {
-    return {
-        x: (r.x - view.x) / view.w,
-        y: (r.y - view.y) / view.h,
-        w: r.w / view.w,
-        h: r.h / view.h,
     };
 }
 
@@ -115,7 +159,9 @@ export function PhotoCensorDialog({
     const [mode, setMode] = useState<Mode>("redact");
     const [ops, setOps] = useState<EditOp[]>([]);
     const [redo, setRedo] = useState<EditOp[]>([]);
-    const [drawing, setDrawing] = useState<NormRect | null>(null); // view coords
+    // In-progress brush stroke, in VIEW coords (converted to original on
+    // commit). One pointerdown→up = one stroke = one undoable op.
+    const [stroke, setStroke] = useState<NormPoint[] | null>(null);
     const [cropSel, setCropSel] = useState<NormRect | null>(null); // view coords
     const [busy, setBusy] = useState(false);
 
@@ -160,19 +206,13 @@ export function PhotoCensorDialog({
         ctx.clearRect(0, 0, cw, ch);
         ctx.drawImage(img, view.x * ow, view.y * oh, vwPx, vhPx, 0, 0, cw, ch);
 
-        ctx.fillStyle = "#000";
         for (const op of ops) {
             if (op.type !== "redact") continue;
-            const r = originalToView(op.rect, view);
-            ctx.fillRect(r.x * cw, r.y * ch, r.w * cw, r.h * ch);
+            const vpts = op.points.map((p) => pointOriginalToView(p, view));
+            paintStroke(ctx, vpts, op.r, view, cw, ch);
         }
-        if (mode === "redact" && drawing) {
-            ctx.fillRect(
-                drawing.x * cw,
-                drawing.y * ch,
-                drawing.w * cw,
-                drawing.h * ch,
-            );
+        if (mode === "redact" && stroke) {
+            paintStroke(ctx, stroke, BRUSH_R, view, cw, ch);
         }
 
         if (mode === "crop" && cropSel && cropSel.w > 0 && cropSel.h > 0) {
@@ -191,7 +231,7 @@ export function PhotoCensorDialog({
             ctx.lineWidth = 2;
             ctx.strokeRect(s.x * cw, s.y * ch, s.w * cw, s.h * ch);
         }
-    }, [ops, drawing, cropSel, mode]);
+    }, [ops, stroke, cropSel, mode]);
 
     useEffect(() => {
         draw();
@@ -212,15 +252,19 @@ export function PhotoCensorDialog({
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
         const p = toNorm(e);
         startRef.current = p;
-        if (mode === "redact") setDrawing({ x: p.x, y: p.y, w: 0, h: 0 });
+        if (mode === "redact") setStroke([p]);
         else setCropSel({ x: p.x, y: p.y, w: 0, h: 0 });
     };
 
     const onPointerMove = (e: React.PointerEvent) => {
         if (!startRef.current) return;
-        const r = rectFromPoints(startRef.current, toNorm(e));
-        if (mode === "redact") setDrawing(r);
-        else setCropSel(r);
+        const p = toNorm(e);
+        if (mode === "redact") {
+            // Append to the freehand brush stroke.
+            setStroke((prev) => (prev ? [...prev, p] : [p]));
+        } else {
+            setCropSel(rectFromPoints(startRef.current, p));
+        }
     };
 
     const pushOp = (op: EditOp) => {
@@ -230,13 +274,16 @@ export function PhotoCensorDialog({
 
     const onPointerUp = () => {
         if (mode === "redact") {
-            const d = drawing;
-            setDrawing(null);
-            // Ignore taps / hairline drags so a stray tap doesn't drop a dot.
-            if (d && d.w > 0.012 && d.h > 0.012) {
+            const s = stroke;
+            setStroke(null);
+            // A tap (one point) is still a valid dot; commit any non-empty
+            // stroke as one undoable op, in ORIGINAL coords.
+            if (s && s.length > 0) {
+                const view = viewFromOps(ops);
                 pushOp({
                     type: "redact",
-                    rect: viewToOriginal(d, viewFromOps(ops)),
+                    points: s.map((p) => pointViewToOriginal(p, view)),
+                    r: BRUSH_R,
                 });
             }
         }
@@ -259,7 +306,7 @@ export function PhotoCensorDialog({
             setRedo((r) => [...r, last]);
             return prev.slice(0, -1);
         });
-        setDrawing(null);
+        setStroke(null);
         setCropSel(null);
     };
 
@@ -270,14 +317,14 @@ export function PhotoCensorDialog({
             setOps((o) => [...o, next]);
             return prev.slice(0, -1);
         });
-        setDrawing(null);
+        setStroke(null);
         setCropSel(null);
     };
 
     const resetAll = () => {
         setOps([]);
         setRedo([]);
-        setDrawing(null);
+        setStroke(null);
         setCropSel(null);
         setMode("redact");
     };
@@ -311,16 +358,10 @@ export function PhotoCensorDialog({
                 off.width,
                 off.height,
             );
-            ctx.fillStyle = "#000";
             for (const op of ops) {
                 if (op.type !== "redact") continue;
-                const r = originalToView(op.rect, view);
-                ctx.fillRect(
-                    r.x * off.width,
-                    r.y * off.height,
-                    r.w * off.width,
-                    r.h * off.height,
-                );
+                const vpts = op.points.map((p) => pointOriginalToView(p, view));
+                paintStroke(ctx, vpts, op.r, view, off.width, off.height);
             }
             off.toBlob(
                 (blob) => {
@@ -374,7 +415,7 @@ export function PhotoCensorDialog({
                 </DialogTitle>
                 <DialogDescription className="text-xs leading-snug">
                     {mode === "redact"
-                        ? "Drag across the photo to black out anything identifying — street and place names, shop signs, logos, license plates."
+                        ? "Brush over anything identifying to black it out — street and place names, shop signs, logos, license plates."
                         : "Drag to select the area to keep, then Apply crop to trim away the rest."}{" "}
                     Every edit can be undone; only the photo you finally send
                     is flattened.
@@ -393,7 +434,7 @@ export function PhotoCensorDialog({
                         }}
                         disabled={busy}
                     >
-                        <SquareDashedBottom className="w-4 h-4" />
+                        <Paintbrush className="w-4 h-4" />
                         Black out
                     </Button>
                     <Button
@@ -403,7 +444,7 @@ export function PhotoCensorDialog({
                         className="gap-1.5"
                         onClick={() => {
                             setMode("crop");
-                            setDrawing(null);
+                            setStroke(null);
                         }}
                         disabled={busy}
                     >

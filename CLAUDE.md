@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v899`. Use `git log` for the per-version detail;
+build stamp. Current: `v900`. Use `git log` for the per-version detail;
+
+**v900 — photo brush tool + zoomable answer map + POI drawer + lobby/text
+polish.**
+- **Photo black-out is now a BRUSH, not a rectangle** (`PhotoCensorDialog`).
+  A `redact` op is a freehand STROKE — a polyline of points + a radius (both
+  in original-image coords, radius a fraction of image width), painted with
+  round caps/joins (`paintStroke`); one pointerdown→up = one undoable stroke,
+  a tap = a dot. Non-destructive stack + crop + confirm-flatten unchanged;
+  icon → `Paintbrush`, copy → "Brush over anything identifying…".
+- **Hider answer-comparison map is zoomable** (`HiderMap`) — `scrollZoom` /
+  `doubleClickZoom` / `touchZoomRotate` / `dragPan` all on (the one-shot
+  `fitBounds` is `idledOnce`-guarded, so the user's zoom sticks).
+- **Hider map-drawer POI list only shows while the search box is focused**
+  (`HiderMapDisplayControls` `HiderPoiSection`) — it no longer pushes the
+  transit-overlay toggles off-screen when collapsed; list rows
+  `onMouseDown`-preventDefault so a tap doesn't blur-close before the toggle
+  fires, and the input's blur is delayed 120 ms.
+- **Highlighted POIs visible down to z10** (`HiderPoiOverlay`) — dot/ring
+  radius interpolation extended to zoom 10, labels `minzoom` 14→12.
+- **Measuring disabled text: "None in the play area"** (dropped the "or near"
+  — only in-area references count) for the presence-gated HSR / international
+  border tiles.
+- **Lobby SHARE section vertically centered** (`GameLobbyDialog`) — `pt-7 pb-4`
+  → `py-4`.
 
 **v899 — holedMask → worker + cancel phantom-answered fix + measuring
 disabled-reason text.**
