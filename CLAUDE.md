@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v910`. Use `git log` for the per-version detail;
+build stamp. Current: `v911`. Use `git log` for the per-version detail;
+
+**v911 — procedural sound engine (first audio in the app).** The app had NO
+audio. `src/lib/sound.ts` is a self-contained **Web Audio synthesis** engine —
+every SFX is generated in code (oscillators + gain envelopes + noise bursts),
+so there are **zero asset bytes, no licensing, offline-safe**. One lazy shared
+`AudioContext` + master gain (0.45), resumed on the first user gesture via
+`installSoundUnlock()` (called once from `main.tsx`, outside React — mirrors the
+theme / body-pointer-events / debug-tap installers). A persisted
+`soundMuted` atom (`jlhs:soundMuted`, **default OFF = sound on**) gates
+everything; `play(name, opts?)` is a no-op while muted, while the tab is
+backgrounded (OS notifications own that channel), or where Web Audio is
+unavailable, and never throws. Six recipes wired into the highest-impact beats
+(the "starter set"): **countdownTick** (rising pluck per 3-2-1 step) + **go**
+(warm ascending triad + sub thump) in `GoGoGoOverlay`; **elimination** (downward
+"cut" whoosh) in `Map.triggerEliminationFlash` — fires as the ruled-out slice
+flashes; **roundEnd** (major-arpeggio fanfare) once per `EndOfRoundDialog`
+reveal; **cardDraw** (light swish) on `DrawPickerDialog.confirmSelected`;
+**dice** (rattle + settle) on `DiceRoller.roll`. A **Sound On/Off toggle**
+(Volume2/VolumeX) sits in `AppSettingsDrawer`'s App section next to Theme. More
+beats (curses, timer warnings, endgame claim, question-sent) can hang off the
+same `play()` dispatcher — add a `SoundName` + recipe and call it. Upgrading to
+sampled audio files later reuses the same engine surface.
 
 **v910 — card body content is vertically centered (fills the tall 5:7 card).**
 `CardTile`'s three bodies (`TimeBonusBody`/`PowerupBody`/`CurseBody`) were

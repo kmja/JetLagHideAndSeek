@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 
 import { installDebugSecretTap } from "@/hooks/useDebugSecretTap";
 import { installBodyPointerEventsGuard } from "@/lib/bodyPointerEventsGuard";
+import { installSoundUnlock } from "@/lib/sound";
 import { installTheme } from "@/lib/theme";
 // Side-effect import: registers the `beforeinstallprompt` listener at
 // startup so the landing's "Install app" button can offer the native
@@ -32,6 +33,11 @@ installBodyPointerEventsGuard();
 // Hidden developer gesture: 5 quick taps in the top-centre of the screen open
 // the debug panel. Installed once, app-wide — there's no visible launcher.
 installDebugSecretTap();
+
+// Arm the Web Audio unlock so game-beat SFX (sound.ts) can play — browsers
+// block audio until the first user gesture; this resumes the shared
+// AudioContext on it. Installed once, outside React, so it survives routes.
+installSoundUnlock();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root element missing from index.html");

@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Volume2, VolumeX } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { HowToPlaySheet } from "@/components/HowToPlaySheet";
@@ -15,6 +15,7 @@ import {
 } from "@/lib/context";
 import { moreSheetOpen, setupCompleted } from "@/lib/gameSetup";
 import { estimateTotalAreaKm2 } from "@/lib/playAreaSize";
+import { soundMuted } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
 /**
@@ -39,6 +40,7 @@ export function AppSettingsDrawer() {
     const $moreOpen = useStore(moreSheetOpen);
     const $defaultUnit = useStore(defaultUnit);
     const $setupCompleted = useStore(setupCompleted);
+    const $soundMuted = useStore(soundMuted);
     // Committed play area (primary + added adjacents) so the preload
     // estimate reflects THIS game's size instead of the generic
     // null-area fallback (which always read ~19 MB regardless of city).
@@ -111,6 +113,31 @@ export function AppSettingsDrawer() {
                                         Theme
                                     </span>
                                     <ThemeToggle />
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-sm font-medium">
+                                        Sound
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            soundMuted.set(!$soundMuted)
+                                        }
+                                        aria-pressed={!$soundMuted}
+                                        className={cn(
+                                            "inline-flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors",
+                                            $soundMuted
+                                                ? "border-border text-muted-foreground"
+                                                : "border-primary bg-primary/10 text-primary",
+                                        )}
+                                    >
+                                        {$soundMuted ? (
+                                            <VolumeX className="w-4 h-4" />
+                                        ) : (
+                                            <Volume2 className="w-4 h-4" />
+                                        )}
+                                        {$soundMuted ? "Off" : "On"}
+                                    </button>
                                 </div>
                             </div>
 

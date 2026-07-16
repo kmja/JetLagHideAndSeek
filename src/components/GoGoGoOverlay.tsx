@@ -13,6 +13,7 @@ import {
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
+import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
 /**
@@ -120,12 +121,21 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
             setPhase("go");
             return;
         }
+        // v911: a rising pluck on each 3-2-1 step (step 0→2, so pitch
+        // climbs toward GO). Skipped in the debug preview.
+        if (!preview) play("countdownTick", { step: 3 - count });
         const t = window.setTimeout(
             () => setCount((c) => c - 1),
             COUNTDOWN_STEP_MS,
         );
         return () => window.clearTimeout(t);
-    }, [phase, count, $at]);
+    }, [phase, count, $at, preview]);
+
+    // v911: the GO burst fires as the card explodes in.
+    useEffect(() => {
+        if (preview || phase !== "go" || $at === null) return;
+        play("go");
+    }, [phase, preview, $at]);
 
     if ($at === null) return null;
 

@@ -1,6 +1,7 @@
 import { Dice5 } from "lucide-react";
 import { useState } from "react";
 
+import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
 /**
@@ -21,6 +22,8 @@ export function DiceRoller({
 
     const roll = () => {
         if (rolling) return;
+        // v911: a short rattle-and-settle as the die tumbles.
+        play("dice");
         setRolling(true);
         // Quick "tumble" — cycle through random values for ~400 ms
         // before settling, so the result feels earned.

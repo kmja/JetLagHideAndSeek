@@ -77,6 +77,7 @@ import {
     pmtilesUrl,
     recordPmtilesError,
 } from "@/lib/protomapsStyle";
+import { play } from "@/lib/sound";
 import { resolvedTheme } from "@/lib/theme";
 import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
@@ -891,6 +892,9 @@ export function Map({ className }: MapProps) {
         delta: GeoJSON.Feature,
         remaining?: GeoJSON.Feature | null,
     ) => {
+        // v911: a downward "cut" whoosh as the ruled-out slice flashes —
+        // an answer landing reads as deliberate progress.
+        play("elimination");
         fitMapToFlash(delta);
         flashTimersRef.current.forEach((t) => window.clearTimeout(t));
         flashTimersRef.current = [];

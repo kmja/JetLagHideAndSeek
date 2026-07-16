@@ -37,6 +37,7 @@ import {
     returnToLandingPage,
     startNewRound,
 } from "@/lib/roundActions";
+import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
 import { RotateHiderDialog } from "./multiplayer/RotateHiderDialog";
@@ -152,6 +153,19 @@ export function EndOfRoundDialog() {
     // shows base + tally. No bonus → no animation.
     const [tallyMs, setTallyMs] = useState(0);
     const rafRef = useRef<number | null>(null);
+
+    // v911: celebratory fanfare once per round-end reveal (found = round
+    // over). Guarded so it fires on the visible→true edge only, and rearms
+    // when the dialog closes.
+    const soundPlayedRef = useRef(false);
+    useEffect(() => {
+        if (visible && !soundPlayedRef.current) {
+            soundPlayedRef.current = true;
+            play("roundEnd");
+        } else if (!visible) {
+            soundPlayedRef.current = false;
+        }
+    }, [visible]);
     useEffect(() => {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         if (!visible || bonusMs <= 0) {

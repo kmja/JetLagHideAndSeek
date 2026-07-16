@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { type GameSize, gameSize } from "@/lib/gameSetup";
 import { pendingDraw, resolvePendingDraw } from "@/lib/hiderRole";
+import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
 import { CardTile } from "./CardTile";
@@ -117,6 +118,8 @@ export function DrawPickerDialog() {
         if (selectedId === null) return;
         const id = selectedId;
         const isLastPick = keptIds.length + 1 >= keep;
+        // v911: light swish as the kept card flies to the hand.
+        play("cardDraw");
         setFlyingId(id);
         setSelectedId(null);
 
