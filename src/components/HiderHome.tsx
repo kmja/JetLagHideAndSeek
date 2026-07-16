@@ -7,6 +7,7 @@ import {
     Lock,
     LockOpen,
     MapPin,
+    Radar,
     Sparkles,
     Timer,
     Trophy,
@@ -45,7 +46,11 @@ import {
     roundFoundAt,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
-import { lastKnownPosition } from "@/lib/context";
+import {
+    hidingRadius,
+    hidingRadiusUnits,
+    lastKnownPosition,
+} from "@/lib/context";
 import { fetchAreaStations } from "@/lib/journey/stations";
 import {
     endHidingPeriodEarly,
@@ -546,7 +551,7 @@ function HidingPhaseView({
                 committed — before that there's nowhere to hide, so ending would
                 strand the hider (same gate as the on-map timer button). */}
             {zone !== null && (
-                <div className="mb-4 flex justify-center">
+                <div className="mb-3 flex justify-end pr-1">
                     <Button
                         onClick={endHidingPeriodEarly}
                         variant="outline"
@@ -936,6 +941,12 @@ function FinalScoreBanner({
 
 /* ────────────────── Hiding zone section ────────────────── */
 
+const SHORT_UNIT: Record<string, string> = {
+    kilometers: "km",
+    miles: "mi",
+    meters: "m",
+};
+
 function HidingZoneSection({
     zone,
     radiusMeters,
@@ -955,6 +966,11 @@ function HidingZoneSection({
     lockToStations?: boolean;
 }) {
     const [editing, setEditing] = useState(zone === null);
+    // Radius in the hider's chosen units, for the committed-zone card's
+    // "how far you can roam" readout.
+    const $radius = useStore(hidingRadius);
+    const $radiusUnits = useStore(hidingRadiusUnits);
+    const radiusLabel = `${$radius} ${SHORT_UNIT[$radiusUnits] ?? ""}`.trim();
     const [mode] = useState<"stations" | "map">(
         showStationSuggest || lockToStations ? "stations" : "map",
     );
@@ -1033,25 +1049,39 @@ function HidingZoneSection({
                 // name beside it. The lock-icon block + the large read-only map
                 // below were removed; the small preview conveys the zone at a
                 // glance without the vertical bulk.
-                <div className="rounded-md border border-border bg-secondary/40 p-3 flex items-center gap-3">
+                <div className="rounded-md border border-border bg-secondary/40 p-3 flex items-center gap-3.5">
                     <Suspense
                         fallback={
-                            <div className="w-20 h-20 rounded-lg border border-dashed border-border shrink-0" />
+                            <div className="w-32 h-32 rounded-lg border border-dashed border-border shrink-0" />
                         }
                     >
+                        {/* v916: bigger preview + tighter framing (padding 2 →
+                            more zoomed in, so streets read for scouting). */}
                         <ZonePreviewMap
                             lat={zone.stationLat}
                             lng={zone.stationLng}
                             radiusMeters={radiusMeters}
-                            padding={6}
-                            className="w-20 h-20 shrink-0"
+                            padding={2}
+                            className="w-32 h-32 shrink-0"
                         />
                     </Suspense>
                     <div className="min-w-0 flex-1">
-                        <div className="text-base font-inter-tight font-bold leading-tight truncate">
+                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            Your zone
+                        </div>
+                        <div className="text-xl font-inter-tight font-bold leading-tight truncate mt-0.5">
                             {zone.stationName}
                         </div>
-                        <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                        {radiusLabel && (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1.5">
+                                <Radar
+                                    className="w-3.5 h-3.5 shrink-0"
+                                    strokeWidth={2.5}
+                                />
+                                <span>{radiusLabel} radius</span>
+                            </div>
+                        )}
+                        <div className="text-xs text-muted-foreground tabular-nums mt-1">
                             {zone.stationLat.toFixed(5)},{" "}
                             {zone.stationLng.toFixed(5)}
                         </div>

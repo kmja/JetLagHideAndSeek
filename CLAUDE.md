@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v915`. Use `git log` for the per-version detail;
+build stamp. Current: `v916`. Use `git log` for the per-version detail;
+
+**v916 — committed-zone (scouting) drawer polish.** Once the hider commits a
+zone but keeps the timer running, the Zone drawer is effectively their scouting
+hub. Five tweaks: (1) the drawer **subheader is committed-aware** (`HiderBottomNav`)
+— "Scout your zone and mark potential hiding spots." whenever `hidingZone !== null`
+with the timer still running (was stuck on "Select a station…" because it only
+switched once the hiding period was OVER via `inZoneStage`); the seeking-phase
+"Explore your zone and find your final hiding spot." stays for `inZoneStage`.
+(2) The **"End timer" button is right-aligned** (`justify-end`, was centered) so
+it sits under the header's countdown badge. (3) The drawer header's **`border-b`
+divider was removed**. (4) The committed-zone card's **`ZonePreviewMap` is bigger
++ more zoomed** (`w-20 h-20`→`w-32 h-32`, `padding 6`→`2` so streets read for
+scouting). (5) The **zone name is larger** (`text-base`→`text-xl`) with a "Your
+zone" eyebrow, and the card now shows the **hiding radius** (Radar icon +
+`hidingRadius`/`hidingRadiusUnits`, e.g. "0.5 km radius") as relevant
+roam-distance info above the coords.
 
 **v915 — sound disabled app-wide (master kill switch) while clips are sourced.**
 `src/lib/sound.ts` exports `SOUNDS_ENABLED: boolean = false`: `play()` is a hard

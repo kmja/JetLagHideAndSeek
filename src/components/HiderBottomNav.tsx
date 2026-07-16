@@ -286,14 +286,16 @@ export function HiderBottomNav() {
                         )}
                     >
                         <div className="mx-auto mt-3 mb-1 h-1.5 w-12 shrink-0 rounded-full bg-foreground/25" />
-                        <div className="flex items-start gap-3 px-5 pt-2 pb-3 shrink-0 border-b border-border">
+                        <div className="flex items-start gap-3 px-5 pt-2 pb-3 shrink-0">
                             <div className="min-w-0 flex-1 space-y-1">
                                 <VaulDrawer.Title className="text-lg font-semibold leading-none tracking-tight">
                                     Hiding zone
                                 </VaulDrawer.Title>
                                 <VaulDrawer.Description className="text-sm text-muted-foreground">
-                                    {inZoneStage
-                                        ? "Explore your zone and find your final hiding spot."
+                                    {$hidingZone !== null
+                                        ? inZoneStage
+                                            ? "Explore your zone and find your final hiding spot."
+                                            : "Scout your zone and mark potential hiding spots."
                                         : "Select a station to hide near."}
                                 </VaulDrawer.Description>
                             </div>
