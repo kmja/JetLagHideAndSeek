@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v896`. Use `git log` for the per-version detail;
+build stamp. Current: `v897`. Use `git log` for the per-version detail;
+
+**v897 — body-of-water: inland area wrongly "closer to water" fixed
+(`seaFromCoastline` face labelling).** The measuring body-of-water elimination
+folds the SEA in as an AREA built by `seaFromCoastline` (v770/v776), which
+tiles the play-area frame into faces (coastline + frame edges) and labels each
+face land/water by the OSM right-of-way rule. The OLD labeller **flooded**:
+for every coastline segment it sampled a point ~44 m to the RIGHT and marked
+whichever face CONTAINED that sample as water. In dense real-world coast
+(NYC's harbour + tidal rivers) a single stray or mis-directed segment sampled
+into a big INLAND face and flagged the whole thing water — so an inland area
+far from any water sat inside the seeker-distance buffer and got marked
+"closer to water" than the seeker (the reported SW-NYC bug). Rewritten to
+label **each face by its OWN geometry** relative to the coastline nearest to
+IT: take a STRICTLY-interior point of the face (centroid if
+`ignoreBoundary`-inside, else the largest triangle's centroid via
+`turf.tesselate` — a boundary/corner centroid classifies degenerately), find
+the nearest coastline segment(s), and sum the per-unit-length signed
+perpendicular offset over every segment at the minimum distance (summing at a
+shared VERTEX is the angle-bisector rule, correct at convex AND reflex
+corners); > 0 ⇒ water side. A distant mis-directed segment can no longer
+influence a face it doesn't bound, so an inland face is classified by its real
+nearest shore → land. Same guards (seeker-not-in-sea, degeneracy, near-whole-
+frame) and null-fallback contract; runs on the main thread AND in the geometry
+Web Worker (both import this module). Unit-tested (`tests/seaFromCoastline.ts`,
+6 cases incl. the concave L-shape corner).
 
 **v896 — performance pass (countdown hitch + re-render fan-out + radar
 trig).** From a two-agent perf review; the safe, high-ROI, low-risk wins:

@@ -29,10 +29,6 @@ import type {
  * city as inland).
  */
 
-// How far (in degrees) to step off a coastline midpoint to sample land vs.
-// water. ~0.0004° ≈ 44 m — small enough to stay inside the adjacent face but
-// large enough to clear floating-point noise on the coastline itself.
-const SAMPLE_DELTA_DEG = 0.0004;
 // Tolerance for deciding a coordinate lies on the frame boundary.
 const BOUNDARY_EPS = 1e-9;
 
@@ -169,47 +165,129 @@ export function seaFromCoastline(
         }
         if (!faces || faces.length === 0) return null;
 
-        // 7. LABEL faces as water using the right-side rule. For each ORIGINAL
-        //    clipped coastline segment (consecutive coord pair p0→p1): take the
-        //    midpoint M, the direction d = p1 − p0, and the RIGHT-hand normal in
-        //    (lng, lat) = (d.lat, −d.lng). Sample a point just off M along that
-        //    normal — whichever polygonized face CONTAINS it is WATER.
-        const waterFaces: Feature<Polygon>[] = [];
-        const isWater = new Array<boolean>(faces.length).fill(false);
+        // 7. LABEL each face by ITS OWN geometry relative to the coastline
+        //    NEAREST TO IT (OSM land-left / water-right). This replaced the old
+        //    "sample 44 m to the right of every segment and flood the containing
+        //    face" approach (v896): in dense real-world coast (NYC's harbour +
+        //    tidal rivers) a single stray or mis-directed segment flooded a big
+        //    INLAND face as water, so an inland area far from any water got
+        //    marked "closer to water" than the seeker. Classifying each face by
+        //    the coast nearest to it makes a distant segment unable to influence
+        //    a face it doesn't bound: an inland face's nearest coast puts it on
+        //    the LAND side, so it stays land.
+        //
+        //    Flatten the clipped coastline into a list of directed segments
+        //    once; for a query point q, find the nearest segment a→b and test
+        //    which side of it q lies on. The RIGHT-hand (water) normal of a→b in
+        //    (lng,lat) is (Δlat, −Δlng), so q is on the water side iff
+        //    (q−a)·(Δlat,−Δlng) = (q.lng−a.lng)·Δlat − (q.lat−a.lat)·Δlng > 0.
+        const segList: { a: Position; b: Position; len: number }[] = [];
         for (const seg of clippedSegments) {
             for (let i = 0; i < seg.length - 1; i++) {
-                const p0 = seg[i];
-                const p1 = seg[i + 1];
-                const dLng = p1[0] - p0[0];
-                const dLat = p1[1] - p0[1];
-                // Right-hand normal of travel direction.
-                let nLng = dLat;
-                let nLat = -dLng;
-                const len = Math.hypot(nLng, nLat);
-                if (len < 1e-15) continue; // zero-length segment
-                nLng /= len;
-                nLat /= len;
-                const mid: Position = [
-                    (p0[0] + p1[0]) / 2,
-                    (p0[1] + p1[1]) / 2,
-                ];
-                const sample = turf.point([
-                    mid[0] + nLng * SAMPLE_DELTA_DEG,
-                    mid[1] + nLat * SAMPLE_DELTA_DEG,
-                ]);
-                for (let f = 0; f < faces.length; f++) {
-                    if (isWater[f]) continue;
-                    try {
-                        if (turf.booleanPointInPolygon(sample, faces[f])) {
-                            isWater[f] = true;
-                            waterFaces.push(faces[f]);
-                            break;
-                        }
-                    } catch {
-                        // ignore a bad face
+                const a = seg[i];
+                const b = seg[i + 1];
+                const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+                if (len === 0) continue; // zero-length
+                segList.push({ a, b, len });
+            }
+        }
+        if (segList.length === 0) return null;
+
+        // Side of the coastline NEAREST to q. Returns the SUMMED signed
+        // perpendicular offset (normalised per segment) over every segment at
+        // the minimum distance; > 0 ⇒ RIGHT (water) side. Summing matters at a
+        // shared VERTEX, where q's nearest point is a corner touched by two
+        // segments and a single-segment side test is degenerate (q can be
+        // collinear with one of them) — adding the two normalised crosses is
+        // the angle-bisector rule, correct for convex and reflex corners alike.
+        const waterSide = (q: Position): number => {
+            const d2s = new Array<number>(segList.length);
+            let dmin = Infinity;
+            for (let i = 0; i < segList.length; i++) {
+                const { a, b } = segList[i];
+                const abx = b[0] - a[0];
+                const aby = b[1] - a[1];
+                const apx = q[0] - a[0];
+                const apy = q[1] - a[1];
+                const len2 = abx * abx + aby * aby;
+                let t = len2 > 0 ? (apx * abx + apy * aby) / len2 : 0;
+                if (t < 0) t = 0;
+                else if (t > 1) t = 1;
+                const dx = q[0] - (a[0] + t * abx);
+                const dy = q[1] - (a[1] + t * aby);
+                const d2 = dx * dx + dy * dy;
+                d2s[i] = d2;
+                if (d2 < dmin) dmin = d2;
+            }
+            const tol = dmin * 1e-6 + 1e-18;
+            let sum = 0;
+            for (let i = 0; i < segList.length; i++) {
+                if (d2s[i] > dmin + tol) continue;
+                const { a, b, len } = segList[i];
+                const abx = b[0] - a[0];
+                const aby = b[1] - a[1];
+                const apx = q[0] - a[0];
+                const apy = q[1] - a[1];
+                // (q−a)·(Δlat,−Δlng): right-hand normal of a→b, per-unit-length.
+                sum += (apx * aby - apy * abx) / len;
+            }
+            return sum;
+        };
+
+        // A point guaranteed to be STRICTLY inside a (possibly concave) face:
+        // the centroid when it's inside, else the centroid of the face's
+        // largest triangle (triangles are convex, so a triangle centroid is
+        // always interior). `pointOnFeature` is NOT reliable here — for a
+        // concave face whose centroid falls outside it, it returns a boundary
+        // VERTEX, which classifies ambiguously.
+        const interiorPoint = (face: Feature<Polygon>): Position | null => {
+            try {
+                const c = turf.centroid(face).geometry.coordinates as Position;
+                // STRICTLY inside — a centroid landing on the boundary (e.g. a
+                // concave face whose centroid sits on the shared coast vertex)
+                // would classify degenerately (side 0), so fall through to a
+                // triangle centroid, which is always strictly interior.
+                if (
+                    turf.booleanPointInPolygon(turf.point(c), face, {
+                        ignoreBoundary: true,
+                    })
+                )
+                    return c;
+            } catch {
+                // fall through to triangulation
+            }
+            try {
+                const tri = turf.tesselate(face);
+                let best: Position | null = null;
+                let bestA = -Infinity;
+                for (const t of tri.features) {
+                    const a = turf.area(t);
+                    if (a > bestA) {
+                        bestA = a;
+                        best = turf.centroid(t).geometry
+                            .coordinates as Position;
                     }
                 }
+                if (best) return best;
+            } catch {
+                // fall through
             }
+            try {
+                return turf.pointOnFeature(face).geometry
+                    .coordinates as Position;
+            } catch {
+                return null;
+            }
+        };
+
+        // Bias near-boundary faces toward LAND (don't over-claim water — the
+        // reported failure was the opposite direction).
+        const SIDE_EPS = 1e-12;
+        const waterFaces: Feature<Polygon>[] = [];
+        for (const face of faces) {
+            const q = interiorPoint(face);
+            if (!q) continue;
+            if (waterSide(q) > SIDE_EPS) waterFaces.push(face);
         }
 
         if (waterFaces.length === 0) return null;
