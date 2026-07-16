@@ -45,12 +45,14 @@ const SIZE_LETTER: Record<GameSize, string> = {
     medium: "M",
     large: "L",
 };
-const TIER_METER: { threshold: number; color: string; fillFrac: number }[] = [
-    { threshold: 30, color: "#3B82F6", fillFrac: 0.85 }, // blue
-    { threshold: 20, color: "#22C55E", fillFrac: 0.62 }, // green
-    { threshold: 15, color: "#E2854A", fillFrac: 0.45 }, // orange
-    { threshold: 10, color: "#DC3D38", fillFrac: 0.3 }, // red
-    { threshold: 0, color: "#DC3D38", fillFrac: 0.14 }, // small red triangle
+// Clock-wedge tier per time-bonus size (matched to the printed cards:
+// bigger bonuses show a larger pie wedge in a "cooler" colour).
+const TIER_METER: { threshold: number; color: string; sweepDeg: number }[] = [
+    { threshold: 30, color: "#3B82F6", sweepDeg: 170 }, // blue
+    { threshold: 20, color: "#22C55E", sweepDeg: 130 }, // green
+    { threshold: 15, color: "#EAA13C", sweepDeg: 100 }, // amber
+    { threshold: 10, color: "#E2854A", sweepDeg: 65 }, // orange
+    { threshold: 0, color: "#DC3D38", sweepDeg: 38 }, // small red wedge
 ];
 
 /* ────────────────── Scale-invariant sizing ────────────────── */
@@ -190,34 +192,30 @@ function TimeBonusBody({
     card: Extract<Card, { kind: "time-bonus" }>;
     gameSize: GameSize;
 }) {
-    // Faithful to the physical card: the clock-hexagon icon at TOP, the
-    // "TIME BONUS" title, then the three S/M/L minute badges pinned at the
-    // BOTTOM. All sizes are cqw so a mini card is this exact layout shrunk.
-    const sizes: GameSize[] = ["small", "medium", "large"];
+    // Faithful to the physical card: the tilted clock-hexagon icon (with
+    // the "+" badge overlapping its lower-left) at the top, the stacked
+    // "TIME / BONUS" title, then the calendar-style minute badge at the
+    // bottom. The printed card shows all three S/M/L badges because it
+    // can't know the game size; the digital card knows, so it shows ONLY
+    // the active size's badge (per the user's direction). All cqw.
     return (
         <div
             className="flex-1 flex flex-col items-center text-center"
-            style={{ padding: cu(4.7) }}
+            style={{ padding: cu(5.3), paddingTop: cu(7) }}
         >
-            <ClockHexIcon largest={card.minutes.large} cqw={31} />
+            <ClockHexIcon largest={card.minutes.large} cqw={40} />
             <div
-                className="font-inter-tight font-black uppercase tracking-tight leading-[0.95]"
-                style={{ color: NAVY, fontSize: cu(8), marginTop: cu(3) }}
+                className="font-inter-tight font-black uppercase tracking-tight leading-[0.98]"
+                style={{ color: NAVY, fontSize: cu(9.3), marginTop: cu(4) }}
             >
-                Time Bonus
+                <div>Time</div>
+                <div>Bonus</div>
             </div>
-            <div
-                className="flex items-stretch justify-center w-full"
-                style={{ gap: cu(1.6), marginTop: "auto" }}
-            >
-                {sizes.map((sz) => (
-                    <SizeMinutesBadge
-                        key={sz}
-                        size={sz}
-                        minutes={card.minutes[sz]}
-                        active={sz === gameSize}
-                    />
-                ))}
+            <div style={{ marginTop: "auto", paddingTop: cu(3) }}>
+                <SizeMinutesBadge
+                    size={gameSize}
+                    minutes={card.minutes[gameSize]}
+                />
             </div>
         </div>
     );
@@ -237,12 +235,15 @@ function PowerupBody({
             className="flex-1 flex flex-col min-h-0"
             style={{ padding: cu(5.3) }}
         >
-            <div className="flex justify-center shrink-0">
-                <PowerupGlyph powerup={card.powerup} cqw={27} />
+            <div
+                className="flex justify-center shrink-0"
+                style={{ marginTop: cu(2) }}
+            >
+                <PowerupGlyph powerup={card.powerup} cqw={36} />
             </div>
             <div
-                className="font-inter-tight font-black uppercase tracking-tight leading-[0.95] text-center shrink-0"
-                style={{ color: NAVY, fontSize: cu(6), marginTop: cu(4) }}
+                className="font-inter-tight font-black uppercase tracking-tight leading-[0.98] text-center shrink-0"
+                style={{ color: NAVY, fontSize: cu(7), marginTop: cu(4) }}
             >
                 {card.name}
             </div>
@@ -314,8 +315,6 @@ function CurseBody({
 
 /* ────────────────── Card icons (SVG, matched to the physical cards) ────────────────── */
 
-// Flat-sided hexagon used by the Time Bonus clock, Veto, and Move icons.
-const HEX_PTS = "50,6 90,28 90,72 50,94 10,72 10,28";
 const ICON_FONT = "Poppins, system-ui, sans-serif";
 
 function pointOnCircle(
@@ -344,10 +343,11 @@ function pieSlice(
 }
 
 /**
- * The Time Bonus clock — a hexagon with clock ticks, a colored pie WEDGE
- * whose sweep grows with the bonus tier (the physical card's "how much
- * time" meter), and a navy "+" hub at the centre. Matches the printed card
- * much more closely than the old scaled-solid-hexagon.
+ * The Time Bonus clock, drawn to match the printed card: a TILTED thick
+ * navy hexagon, an upright clock face inside it (short radial tick marks
+ * + a colored pie WEDGE from 12 o'clock whose sweep grows with the bonus
+ * tier), and a big solid-navy "+" badge overlapping the hexagon's
+ * LOWER-LEFT edge with a white knockout ring separating the two.
  */
 function ClockHexIcon({
     largest,
@@ -359,10 +359,8 @@ function ClockHexIcon({
 }) {
     const tier =
         TIER_METER.find((t) => largest >= t.threshold) ?? TIER_METER[TIER_METER.length - 1];
-    const cx = 50;
-    const cy = 50;
-    const faceR = 30;
-    const sweep = 30 + tier.fillFrac * 220; // ~60° (small) .. ~217° (big)
+    const cx = 52;
+    const cy = 47;
     return (
         <div
             className="relative inline-flex items-center justify-center shrink-0"
@@ -373,19 +371,23 @@ function ClockHexIcon({
                 className="absolute inset-0 w-full h-full"
                 aria-hidden="true"
             >
+                {/* tilted hexagon shell (the clock face stays upright) */}
                 <polygon
-                    points={HEX_PTS}
+                    points="52,9 85,26 88,62 52,85 19,68 16,32"
                     fill="none"
                     stroke={NAVY}
-                    strokeWidth="6"
+                    strokeWidth="7"
                     strokeLinejoin="round"
                 />
                 {/* colored wedge from 12 o'clock, sweeping clockwise */}
-                <path d={pieSlice(cx, cy, faceR, -90, sweep)} fill={tier.color} />
-                {/* clock ticks just inside the hexagon */}
+                <path
+                    d={pieSlice(cx, cy, 21, -90, tier.sweepDeg)}
+                    fill={tier.color}
+                />
+                {/* short radial tick marks around the face */}
                 {Array.from({ length: 12 }).map((_, i) => {
-                    const [x1, y1] = pointOnCircle(cx, cy, faceR + 3, i * 30);
-                    const [x2, y2] = pointOnCircle(cx, cy, faceR + 7, i * 30);
+                    const [x1, y1] = pointOnCircle(cx, cy, 25, i * 30 - 90);
+                    const [x2, y2] = pointOnCircle(cx, cy, 30, i * 30 - 90);
                     return (
                         <line
                             key={i}
@@ -394,17 +396,19 @@ function ClockHexIcon({
                             x2={x2.toFixed(1)}
                             y2={y2.toFixed(1)}
                             stroke={NAVY}
-                            strokeWidth="2.4"
+                            strokeWidth="3"
                             strokeLinecap="round"
                         />
                     );
                 })}
-                {/* navy "+" hub at the centre */}
-                <circle cx={cx} cy={cy} r="12" fill={NAVY} />
+                {/* "+" badge overlapping the lower-left edge: white knockout
+                    ring first, then the solid navy circle + white plus */}
+                <circle cx="27" cy="70" r="23" fill="#ffffff" />
+                <circle cx="27" cy="70" r="18.5" fill={NAVY} />
                 <path
-                    d={`M ${cx - 6} ${cy} H ${cx + 6} M ${cx} ${cy - 6} V ${cy + 6}`}
+                    d="M 18.5 70 H 35.5 M 27 61.5 V 78.5"
                     stroke="#ffffff"
-                    strokeWidth="3.6"
+                    strokeWidth="5.5"
                     strokeLinecap="round"
                 />
             </svg>
@@ -412,55 +416,91 @@ function ClockHexIcon({
     );
 }
 
-/** Overlapping-cards glyph (the discard/draw/expand powerups) with a
- *  draw badge (top-left) and a keep/expand badge (top-right). */
-function cardsGlyph(drawLabel: string, keepLabel: string): ReactNode {
+/** A rounded-rect "card" drawn TWICE — a fat white understroke first, then
+ *  the colored outline — so it knocks out whatever it overlaps (the white
+ *  separation rings the printed icons use everywhere). */
+function knockoutRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    rotate: string,
+    color: string,
+): ReactNode {
+    const common = { x, y, width: w, height: h, rx: 5, transform: rotate };
     return (
         <>
-            <rect
-                x="30"
-                y="40"
-                width="26"
-                height="36"
-                rx="4.5"
+            <rect {...common} fill="#ffffff" stroke="#ffffff" strokeWidth="13" />
+            <rect {...common} fill="#ffffff" stroke={color} strokeWidth="5" />
+        </>
+    );
+}
+
+/** Teardrop location-pin path: circle of radius `r` at (cx, cy) with the
+ *  tip at cy + 2.1r. */
+function pinPath(cx: number, cy: number, r: number): string {
+    return (
+        `M ${cx} ${cy + 2.1 * r}` +
+        ` C ${cx - 1.05 * r} ${cy + r * 0.9} ${cx - r} ${cy + r * 0.55} ${cx - r} ${cy}` +
+        ` A ${r} ${r} 0 1 1 ${cx + r} ${cy}` +
+        ` C ${cx + r} ${cy + r * 0.55} ${cx + 1.05 * r} ${cy + r * 0.9} ${cx} ${cy + 2.1 * r} Z`
+    );
+}
+
+/**
+ * Fanned-cards glyph (the discard/draw/expand powerups), matching the
+ * printed icon: a tilted hexagon, three fanned outline cards, an OUTLINED
+ * white circle bottom-left with the draw count ("+2"), and a SOLID navy
+ * circle top-right with the hand delta ("-1"). White knockout rings
+ * separate every overlap.
+ */
+function cardsGlyph(drawLabel: string, deltaLabel: string): ReactNode {
+    return (
+        <>
+            <polygon
+                points="50,6 87,21 91,60 56,90 19,75 11,34"
+                fill="none"
+                stroke={NAVY}
+                strokeWidth="6.5"
+                strokeLinejoin="round"
+            />
+            {knockoutRect(30, 26, 23, 33, "rotate(-20 41 42)", NAVY)}
+            {knockoutRect(41, 26, 23, 33, "rotate(-7 52 42)", NAVY)}
+            {knockoutRect(52, 28, 23, 33, "rotate(6 63 44)", NAVY)}
+            {/* draw badge — outlined circle, bottom-left */}
+            <circle cx="24" cy="73" r="21" fill="#ffffff" />
+            <circle
+                cx="24"
+                cy="73"
+                r="16.5"
                 fill="#ffffff"
                 stroke={NAVY}
                 strokeWidth="5"
-                transform="rotate(-10 43 58)"
             />
-            <rect
-                x="44"
-                y="34"
-                width="26"
-                height="36"
-                rx="4.5"
-                fill="#ffffff"
-                stroke={NAVY}
-                strokeWidth="5"
-            />
-            <circle cx="30" cy="33" r="13" fill={NAVY} />
             <text
-                x="30"
-                y="38.5"
+                x="24"
+                y="78"
                 textAnchor="middle"
-                fontSize="15"
+                fontSize="14"
                 fontWeight="800"
-                fill="#ffffff"
+                fill={NAVY}
                 fontFamily={ICON_FONT}
             >
                 {drawLabel}
             </text>
-            <circle cx="72" cy="30" r="11" fill={NAVY} />
+            {/* hand-delta badge — solid circle, top-right */}
+            <circle cx="80" cy="20" r="18.5" fill="#ffffff" />
+            <circle cx="80" cy="20" r="14" fill={NAVY} />
             <text
-                x="72"
-                y="34.8"
+                x="80"
+                y="24.5"
                 textAnchor="middle"
                 fontSize="13"
                 fontWeight="800"
                 fill="#ffffff"
                 fontFamily={ICON_FONT}
             >
-                {keepLabel}
+                {deltaLabel}
             </text>
         </>
     );
@@ -469,29 +509,32 @@ function cardsGlyph(drawLabel: string, keepLabel: string): ReactNode {
 function renderPowerupGlyph(powerup: PowerupKind): ReactNode {
     switch (powerup) {
         case "veto":
-            // Red prohibition sign in a red hexagon.
+            // All-red: hexagon, a tilted card inside it, and a slash through
+            // both (the printed "ø card" mark) with white knockouts.
             return (
                 <>
                     <polygon
-                        points={HEX_PTS}
+                        points="50,8 85,25 87,61 52,88 17,70 14,33"
                         fill="none"
                         stroke={CARD_RED}
-                        strokeWidth="6"
+                        strokeWidth="6.5"
                         strokeLinejoin="round"
                     />
-                    <circle
-                        cx="50"
-                        cy="50"
-                        r="18"
-                        fill="none"
-                        stroke={CARD_RED}
-                        strokeWidth="6"
+                    {knockoutRect(37, 29, 26, 38, "rotate(10 50 48)", CARD_RED)}
+                    <line
+                        x1="30"
+                        y1="76"
+                        x2="71"
+                        y2="21"
+                        stroke="#ffffff"
+                        strokeWidth="10"
+                        strokeLinecap="round"
                     />
                     <line
-                        x1="38"
-                        y1="62"
-                        x2="62"
-                        y2="38"
+                        x1="30"
+                        y1="76"
+                        x2="71"
+                        y2="21"
                         stroke={CARD_RED}
                         strokeWidth="6"
                         strokeLinecap="round"
@@ -499,88 +542,96 @@ function renderPowerupGlyph(powerup: PowerupKind): ReactNode {
                 </>
             );
         case "move":
-            // Location pin inside a hexagon.
+            // Two location pins in a hexagon — outline pin behind,
+            // solid pin (with a white dot) in front.
             return (
                 <>
                     <polygon
-                        points={HEX_PTS}
+                        points="50,8 84,28 82,64 50,88 16,66 18,28"
                         fill="none"
                         stroke={NAVY}
-                        strokeWidth="6"
+                        strokeWidth="7"
                         strokeLinejoin="round"
                     />
                     <path
-                        d="M50 31 C41.7 31 35 37.7 35 46 C35 57 50 70 50 70 C50 70 65 57 65 46 C65 37.7 58.3 31 50 31 Z"
-                        fill={NAVY}
+                        d={pinPath(41, 42, 11)}
+                        fill="#ffffff"
+                        stroke={NAVY}
+                        strokeWidth="5"
+                        strokeLinejoin="round"
                     />
-                    <circle cx="50" cy="45.5" r="5.5" fill="#ffffff" />
+                    <path
+                        d={pinPath(57, 45, 13)}
+                        fill={NAVY}
+                        stroke="#ffffff"
+                        strokeWidth="4"
+                        strokeLinejoin="round"
+                    />
+                    <circle cx="57" cy="44.5" r="5" fill="#ffffff" />
                 </>
             );
         case "randomize":
-            // A die face with a "?".
+            // Isometric die: 2 pips on the top face, 1 on the right face,
+            // and a "?" on the left face.
             return (
                 <>
-                    <rect
-                        x="25"
-                        y="25"
-                        width="50"
-                        height="50"
-                        rx="12"
-                        fill="none"
+                    <polygon
+                        points="50,16 78,31 50,46 22,31"
+                        fill="#ffffff"
                         stroke={NAVY}
-                        strokeWidth="6"
+                        strokeWidth="5.5"
+                        strokeLinejoin="round"
                     />
-                    <circle cx="38" cy="38" r="4.2" fill={NAVY} />
-                    <circle cx="62" cy="62" r="4.2" fill={NAVY} />
+                    <polygon
+                        points="22,31 50,46 50,80 22,65"
+                        fill="#ffffff"
+                        stroke={NAVY}
+                        strokeWidth="5.5"
+                        strokeLinejoin="round"
+                    />
+                    <polygon
+                        points="50,46 78,31 78,65 50,80"
+                        fill="#ffffff"
+                        stroke={NAVY}
+                        strokeWidth="5.5"
+                        strokeLinejoin="round"
+                    />
+                    <ellipse cx="43" cy="28" rx="4.4" ry="2.8" fill={NAVY} />
+                    <ellipse cx="57" cy="34" rx="4.4" ry="2.8" fill={NAVY} />
+                    <ellipse cx="64" cy="55" rx="3" ry="4.2" fill={NAVY} />
                     <text
-                        x="50"
-                        y="60"
+                        x="36"
+                        y="67"
                         textAnchor="middle"
-                        fontSize="30"
+                        fontSize="19"
                         fontWeight="800"
                         fill={NAVY}
                         fontFamily={ICON_FONT}
+                        transform="rotate(8 36 62)"
                     >
                         ?
                     </text>
                 </>
             );
         case "duplicate":
-            // A card copied to a second card (a "+").
+            // A card copied to a second card, "+" on the front copy.
             return (
                 <>
-                    <rect
-                        x="28"
-                        y="38"
-                        width="30"
-                        height="40"
-                        rx="5"
-                        fill="#ffffff"
-                        stroke={NAVY}
-                        strokeWidth="5"
-                    />
-                    <rect
-                        x="42"
-                        y="28"
-                        width="30"
-                        height="40"
-                        rx="5"
-                        fill="#ffffff"
-                        stroke={NAVY}
-                        strokeWidth="5"
-                    />
+                    {knockoutRect(29, 29, 27, 39, "rotate(-10 42 48)", NAVY)}
+                    {knockoutRect(45, 32, 27, 39, "rotate(6 58 51)", NAVY)}
                     <path
-                        d="M57 40 V56 M49 48 H65"
+                        d="M 52 51 H 66 M 59 44 V 58"
                         stroke={NAVY}
                         strokeWidth="5"
                         strokeLinecap="round"
+                        transform="rotate(6 58 51)"
                     />
                 </>
             );
         case "discard1draw2":
-            return cardsGlyph("+2", "1");
+            return cardsGlyph("+2", "-1");
         case "discard2draw3":
-            return cardsGlyph("+3", "2");
+            return cardsGlyph("+3", "-2");
         case "draw1expand":
             return cardsGlyph("+1", "+1");
     }
@@ -659,52 +710,58 @@ function SizeBadge({
 }
 
 /**
- * One S/M/L minute badge for the Time Bonus card's bottom row — a colored
- * chip (yellow / orange / red, like the printed card) with the size letter,
- * the big minutes value, and "MIN". The chip for the active game size is
- * ringed (the digital card knows the size), while all three still show for
- * fidelity to the physical card. Sized in cqw so it scales with the card.
+ * The Time Bonus minute badge, drawn like the printed card's
+ * calendar-page badges: a colored rounded-rect border, a SOLID colored
+ * header band with the size letter in white, and a white body with the
+ * big colored minutes value over a small colored "MIN". The physical card
+ * prints all three S/M/L badges; the digital card shows only the active
+ * game size's. Sized in cqw so it scales with the card.
  */
 function SizeMinutesBadge({
     size,
     minutes,
-    active,
 }: {
     size: GameSize;
     minutes: number;
-    active?: boolean;
 }) {
+    const color = SIZE_BG[size];
     return (
         <div
-            className="flex flex-col items-center justify-center leading-none"
+            className="flex flex-col items-stretch overflow-hidden leading-none bg-white"
             style={{
-                backgroundColor: SIZE_BG[size],
-                color: SIZE_FG[size],
-                flex: "1 1 0",
-                borderRadius: cu(1.6),
-                padding: `${cu(1.4)} ${cu(1)}`,
-                gap: cu(0.6),
-                boxShadow: active ? `0 0 0 ${cu(0.7)} ${NAVY}` : undefined,
+                minWidth: cu(21),
+                border: `${cu(0.9)} solid ${color}`,
+                borderRadius: cu(2.7),
             }}
         >
-            <span
-                className="font-poppins font-bold uppercase"
-                style={{ fontSize: cu(2.7), opacity: 0.85 }}
+            <div
+                className="font-poppins font-bold uppercase text-center"
+                style={{
+                    backgroundColor: color,
+                    color: "#ffffff",
+                    fontSize: cu(4),
+                    padding: `${cu(0.9)} 0 ${cu(1.1)}`,
+                }}
             >
                 {SIZE_LETTER[size]}
-            </span>
-            <span
-                className="font-inter-tight font-black tabular-nums"
-                style={{ fontSize: cu(6.5) }}
+            </div>
+            <div
+                className="flex flex-col items-center"
+                style={{ padding: `${cu(1.2)} ${cu(2)} ${cu(1.6)}`, gap: cu(0.5) }}
             >
-                {minutes}
-            </span>
-            <span
-                className="font-poppins font-bold uppercase"
-                style={{ fontSize: cu(2.2), opacity: 0.85 }}
-            >
-                Min
-            </span>
+                <span
+                    className="font-inter-tight font-black tabular-nums"
+                    style={{ color, fontSize: cu(9) }}
+                >
+                    {minutes}
+                </span>
+                <span
+                    className="font-poppins font-bold uppercase"
+                    style={{ color, fontSize: cu(3), letterSpacing: "0.08em" }}
+                >
+                    Min
+                </span>
+            </div>
         </div>
     );
 }

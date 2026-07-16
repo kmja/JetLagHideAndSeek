@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v918`. Use `git log` for the per-version detail;
+build stamp. Current: `v919`. Use `git log` for the per-version detail;
+
+**v919 — card art matched to the physical close-ups (second fidelity pass).**
+Rebuilt from five close-up reference photos, correcting everything v918 got
+wrong. **Time Bonus** (`ClockHexIcon`): the hexagon shell is TILTED (irregular
+vertices) while the clock face stays upright inside it — 12 short radial ticks +
+a colored pie wedge from 12 o'clock (`TIER_METER` now carries explicit
+`sweepDeg`/colour per tier: red 38° → orange 65° → amber 100° → green 130° →
+blue 170°) — and the big solid-navy "+" badge sits overlapping the hexagon's
+LOWER-LEFT edge with a white knockout ring (not a centre hub). Title stacked
+"TIME"/"BONUS". The minute badge is now the printed card's CALENDAR style
+(colored rounded-rect border, solid colored header band with the size letter in
+white, white body with the big colored number over "MIN") — and per the user's
+direction the digital card shows ONLY the active game size's badge (the printed
+card shows all three because it can't know the size). **Powerups**: the fanned-
+cards glyph (`cardsGlyph`) now matches the print — tilted hexagon, three fanned
+knockout-outlined cards, an OUTLINED white circle bottom-left with the draw
+count ("+2"/"+3"/"+1") and a SOLID navy circle top-right with the hand delta
+("-1"/"-2"/"+1"); **Veto** is the printed "ø card" — an all-red tilted hexagon
+with a rotated card inside and a slash through both, white knockouts;
+**Randomize** is an isometric die (2 pips top face, 1 pip right face, "?" on the
+left face); **Move** is two pins in a hexagon (outline pin behind, solid pin
+with a white dot in front); **Duplicate** is two knockout-outlined cards with a
+"+" on the front copy. Shared helpers: `knockoutRect` (fat white understroke →
+colored outline, the print's white separation rings) + `pinPath`. Verified
+against the debug gallery via headless-Chromium screenshots.
 
 **v918 — hider cards redrawn to resemble the PHYSICAL cards (icons + layout).**
 The cqw scaling (v912) was right but the `CardTile` art didn't look like the
