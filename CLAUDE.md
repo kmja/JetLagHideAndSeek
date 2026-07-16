@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v916`. Use `git log` for the per-version detail;
+build stamp. Current: `v917`. Use `git log` for the per-version detail;
+
+**v917 — committed-zone card = scouting hub (bigger snapshot map + transit
+modes).** Follow-up to v916. The committed-zone card in the Zone drawer
+(`HiderHome` `HidingZoneSection`) was rebuilt: (1) a **full-width zone map**
+(`w-full h-44`, up from a 128px square) so streets read for scouting, rendered
+as a **static PNG snapshot** — `ZonePreviewMap` gained a `snapshot` prop that
+captures the settled view via `toDataURL` on `onIdle` (+ `preserveDrawingBuffer`),
+caches it in a bounded module `snapshotCache` keyed by lat/lng/radius/padding/
+theme/satellite/tile, and renders a cheap `<img>` (the same "save the map as an
+image" behaviour the question-log outcome maps use; the react-map-gl default
+import was renamed `MapGL` so `new Map()` for the cache doesn't collide). (2)
+**Transit-mode glyphs** — the committed station's modes now ride the zone:
+`HidingZone.modes?` + `ZoneStation.modes?` added, `confirmAndCommitZone` stores
+`station.modes`, and the two pickers (`HidingZoneSection` onPick + `HiderZoneHint`)
+pass `modes:[s.mode]` from the picked `FoundStation`; the card renders
+`TRANSIT_ICONS[mode]` glyphs (deduped). (3) **Coordinates removed**, (4) **zone
+name bigger** (`text-xl`→`text-2xl`), (5) **radius icon removed** (the Radar glyph
+— kept just the "0.5 km radius" text next to the mode glyphs). A map-picked zone
+(no station) has no modes → shows just the radius; old committed zones lack
+`modes` and degrade the same way.
 
 **v916 — committed-zone (scouting) drawer polish.** Once the hider commits a
 zone but keeps the timer running, the Zone drawer is effectively their scouting

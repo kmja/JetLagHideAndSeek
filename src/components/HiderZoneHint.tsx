@@ -77,7 +77,10 @@ export function HiderZoneHint() {
                     <div className="max-h-[45vh] overflow-y-auto px-2 pb-2">
                         <NearbyStationsPicker
                             onPick={(s: FoundStation) =>
-                                void confirmAndCommitZone(s, radiusMeters)
+                                void confirmAndCommitZone(
+                                    { ...s, modes: [s.mode] },
+                                    radiusMeters,
+                                )
                             }
                         />
                     </div>

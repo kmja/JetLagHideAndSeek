@@ -10,6 +10,7 @@ import {
     type GameSize,
     gameSize,
     hiddenDebitMs,
+    type TransitMode,
 } from "./gameSetup";
 import { type Card,shuffledDeck } from "./hiderDeck";
 
@@ -96,6 +97,9 @@ export interface HidingZone {
     radiusMeters: number;
     /** Unix ms when the hider committed to this zone. */
     committedAt: number;
+    /** Transit modes serving the committed station (for the zone card's
+     *  glyphs). Optional — a map-picked zone has no station modes. */
+    modes?: TransitMode[];
 }
 
 export const hidingZone = __globalPersistent<HidingZone | null>(

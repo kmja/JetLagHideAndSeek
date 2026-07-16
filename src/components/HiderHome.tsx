@@ -7,7 +7,6 @@ import {
     Lock,
     LockOpen,
     MapPin,
-    Radar,
     Sparkles,
     Timer,
     Trophy,
@@ -33,6 +32,7 @@ import {
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
     setupCompleted,
+    TRANSIT_ICONS,
 } from "@/lib/gameSetup";
 import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
@@ -971,6 +971,8 @@ function HidingZoneSection({
     const $radius = useStore(hidingRadius);
     const $radiusUnits = useStore(hidingRadiusUnits);
     const radiusLabel = `${$radius} ${SHORT_UNIT[$radiusUnits] ?? ""}`.trim();
+    // Deduped transit modes serving the committed station (glyphs on the card).
+    const zoneModes = zone?.modes ? Array.from(new Set(zone.modes)) : [];
     const [mode] = useState<"stations" | "map">(
         showStationSuggest || lockToStations ? "stations" : "map",
     );
@@ -1044,47 +1046,53 @@ function HidingZoneSection({
                 </div>
             )}
             {zone && !editing ? (
-                // v879: compact committed-zone card — a small SQUARE map
-                // preview on the left (radius circle framed tight) + the zone
-                // name beside it. The lock-icon block + the large read-only map
-                // below were removed; the small preview conveys the zone at a
-                // glance without the vertical bulk.
-                <div className="rounded-md border border-border bg-secondary/40 p-3 flex items-center gap-3.5">
+                // v917: the committed-zone card is the scouting hub — a big
+                // full-width zone map (saved as a static PNG snapshot, like the
+                // question-log outcome maps), then the zone identity: "YOUR
+                // ZONE" eyebrow, a large station name, and the transit modes
+                // serving it + the roam radius. No coordinates.
+                <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-3">
                     <Suspense
                         fallback={
-                            <div className="w-32 h-32 rounded-lg border border-dashed border-border shrink-0" />
+                            <div className="w-full h-44 rounded-lg border border-dashed border-border" />
                         }
                     >
-                        {/* v916: bigger preview + tighter framing (padding 2 →
-                            more zoomed in, so streets read for scouting). */}
                         <ZonePreviewMap
                             lat={zone.stationLat}
                             lng={zone.stationLng}
                             radiusMeters={radiusMeters}
                             padding={2}
-                            className="w-32 h-32 shrink-0"
+                            snapshot
+                            className="w-full h-44"
                         />
                     </Suspense>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0">
                         <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                             Your zone
                         </div>
-                        <div className="text-xl font-inter-tight font-bold leading-tight truncate mt-0.5">
+                        <div className="text-2xl font-inter-tight font-bold leading-tight truncate mt-0.5">
                             {zone.stationName}
                         </div>
-                        {radiusLabel && (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1.5">
-                                <Radar
-                                    className="w-3.5 h-3.5 shrink-0"
-                                    strokeWidth={2.5}
-                                />
-                                <span>{radiusLabel} radius</span>
+                        {(zoneModes.length > 0 || radiusLabel) && (
+                            <div className="flex items-center flex-wrap gap-x-2.5 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                                {zoneModes.length > 0 && (
+                                    <span className="flex items-center gap-1.5 text-foreground/70">
+                                        {zoneModes.map((m) => {
+                                            const Icon = TRANSIT_ICONS[m];
+                                            return (
+                                                <Icon
+                                                    key={m}
+                                                    className="w-4 h-4"
+                                                    strokeWidth={2.4}
+                                                    aria-label={m}
+                                                />
+                                            );
+                                        })}
+                                    </span>
+                                )}
+                                {radiusLabel && <span>{radiusLabel} radius</span>}
                             </div>
                         )}
-                        <div className="text-xs text-muted-foreground tabular-nums mt-1">
-                            {zone.stationLat.toFixed(5)},{" "}
-                            {zone.stationLng.toFixed(5)}
-                        </div>
                     </div>
                     {/* v803: no "Change" — locking a zone can't be undone. */}
                 </div>
@@ -1102,11 +1110,14 @@ function HidingZoneSection({
                                 // the on-map HiderZoneHint, v787) — asks "Lock
                                 // in?" before committing this round-defining
                                 // choice, then offers to end hiding early.
-                                void confirmAndCommitZone(s, radiusMeters).then(
-                                    (committed) => {
-                                        if (committed) setEditing(false);
-                                    },
-                                );
+                                // v916: carry the station's mode onto the zone
+                                // so the committed-zone card can show its glyph.
+                                void confirmAndCommitZone(
+                                    { ...s, modes: [s.mode] },
+                                    radiusMeters,
+                                ).then((committed) => {
+                                    if (committed) setEditing(false);
+                                });
                             }}
                         />
                     ) : (

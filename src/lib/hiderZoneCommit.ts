@@ -1,7 +1,11 @@
 import { toast } from "react-toastify";
 
 import { appConfirm } from "@/lib/confirm";
-import { hidingPeriodEndsAt, zoneLockedCallout } from "@/lib/gameSetup";
+import {
+    hidingPeriodEndsAt,
+    type TransitMode,
+    zoneLockedCallout,
+} from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
 import {
     HIDER_NOTIFICATION_PROMPT,
@@ -12,6 +16,8 @@ export interface ZoneStation {
     lat: number;
     lng: number;
     name?: string;
+    /** Transit modes serving this station, stored on the committed zone. */
+    modes?: TransitMode[];
 }
 
 /**
@@ -54,6 +60,7 @@ export async function confirmAndCommitZone(
         stationLng: station.lng,
         radiusMeters,
         committedAt: Date.now(),
+        modes: station.modes,
     });
     toast.success("Hiding zone committed.", { autoClose: 2000 });
 
