@@ -185,6 +185,34 @@ function ensureAdjacentDots(map: {
     }
 }
 
+/**
+ * v914: frame by a GEOGRAPHIC margin (a fraction of the play-area span)
+ * plus a tiny fixed pixel padding, instead of a large pixel `framePadding`.
+ * A big pixel padding on a short (e.g. 200 px) preview eats a device-
+ * DEPENDENT fraction of the container — the lobby's `framePadding={72}`
+ * left only ~56 px of a 200 px-tall map for the whole area, so it was both
+ * wildly over-zoomed-out AND a different zoom on every screen width. A
+ * fractional margin frames "play area + N%" the same on every device
+ * (only aspect ratio still varies, which is unavoidable with any fit).
+ */
+const FRAME_MARGIN_FRAC = 0.16;
+const FRAME_PIXEL_PAD = 12;
+
+function marginBounds(
+    b: [number, number, number, number],
+    frac = FRAME_MARGIN_FRAC,
+): [[number, number], [number, number]] {
+    const [minX, minY, maxX, maxY] = b;
+    // Guard degenerate spans (a point-ish bbox) with a small absolute floor
+    // so a zero-width area still gets a sane frame.
+    const dx = Math.max((maxX - minX) * frac, 0.004);
+    const dy = Math.max((maxY - minY) * frac, 0.004);
+    return [
+        [minX - dx, minY - dy],
+        [maxX + dx, maxY + dy],
+    ];
+}
+
 export function PlayAreaPreviewMap({
     value,
     height = "h-[160px]",
@@ -194,7 +222,6 @@ export function PlayAreaPreviewMap({
     awaitAdjacent = false,
     preferCombinedBoundary = false,
     deferReveal = false,
-    framePadding = 24,
 }: {
     value: OpenStreetMap;
     height?: string;
@@ -238,10 +265,6 @@ export function PlayAreaPreviewMap({
      *  false: there the cache-hit fast path avoids a veil flash when `value`
      *  swaps within the already-painted mounted instance. */
     deferReveal?: boolean;
-    /** v879: extra fit padding (px) around the framed boundary. A larger
-     *  value zooms the camera OUT so more context shows around the play
-     *  area — the lobby header passes a bigger value than the default. */
-    framePadding?: number;
 }) {
     const mapRef = useRef<MapRef | null>(null);
     // v228: opt into the dark-tile CSS filter only when the resolved
@@ -421,18 +444,16 @@ export function PlayAreaPreviewMap({
             try {
                 const map = mapRef.current?.getMap();
                 if (!map) return;
-                const [minX, minY, maxX, maxY] = turf.bbox({
+                const bb = turf.bbox({
                     type: "Feature",
                     properties: {},
                     geometry: combinedGeom,
                 } as GeoJSON.Feature) as [number, number, number, number];
-                map.fitBounds(
-                    [
-                        [minX, minY],
-                        [maxX, maxY],
-                    ],
-                    { padding: framePadding, duration: 400, maxZoom: 12 },
-                );
+                map.fitBounds(marginBounds(bb), {
+                    padding: FRAME_PIXEL_PAD,
+                    duration: 400,
+                    maxZoom: 12,
+                });
             } catch {
                 /* ignore */
             }
@@ -445,18 +466,16 @@ export function PlayAreaPreviewMap({
         try {
             const map = mapRef.current?.getMap();
             if (!map) return;
-            const [minX, minY, maxX, maxY] = turf.bbox({
+            const bb = turf.bbox({
                 type: "Feature",
                 properties: {},
                 geometry: realPolygon,
             } as GeoJSON.Feature) as [number, number, number, number];
-            map.fitBounds(
-                [
-                    [minX, minY],
-                    [maxX, maxY],
-                ],
-                { padding: framePadding, duration: 400, maxZoom: 12 },
-            );
+            map.fitBounds(marginBounds(bb), {
+                padding: FRAME_PIXEL_PAD,
+                duration: 400,
+                maxZoom: 12,
+            });
         } catch {
             /* ignore */
         }
@@ -508,13 +527,12 @@ export function PlayAreaPreviewMap({
             // Mark as "framed wider" so the primary-only tighten/widen
             // effects don't fight this fit.
             widenedRef.current = true;
-            map.fitBounds(
-                [
-                    [minX, minY],
-                    [maxX, maxY],
-                ],
-                { padding: 24, duration: 600, maxZoom: 12, essential: true },
-            );
+            map.fitBounds(marginBounds([minX, minY, maxX, maxY]), {
+                padding: FRAME_PIXEL_PAD,
+                duration: 600,
+                maxZoom: 12,
+                essential: true,
+            });
         } catch {
             /* ignore */
         }
@@ -560,13 +578,12 @@ export function PlayAreaPreviewMap({
             const map = mapRef.current?.getMap();
             if (!map) return;
             widenedRef.current = true;
-            map.fitBounds(
-                [
-                    [minX, minY],
-                    [maxX, maxY],
-                ],
-                { padding: 24, duration: 800, maxZoom: 12, essential: true },
-            );
+            map.fitBounds(marginBounds([minX, minY, maxX, maxY]), {
+                padding: FRAME_PIXEL_PAD,
+                duration: 800,
+                maxZoom: 12,
+                essential: true,
+            });
         } catch {
             /* ignore */
         }
@@ -585,11 +602,17 @@ export function PlayAreaPreviewMap({
         if (!map || !bbox) return;
         try {
             map.fitBounds(
-                [
-                    [bbox.minLng, bbox.minLat],
-                    [bbox.maxLng, bbox.maxLat],
-                ],
-                { padding: 16, duration: animate ? 400 : 0, maxZoom: 12 },
+                marginBounds([
+                    bbox.minLng,
+                    bbox.minLat,
+                    bbox.maxLng,
+                    bbox.maxLat,
+                ]),
+                {
+                    padding: FRAME_PIXEL_PAD,
+                    duration: animate ? 400 : 0,
+                    maxZoom: 12,
+                },
             );
         } catch {
             /* ignore — the map may not be ready yet */

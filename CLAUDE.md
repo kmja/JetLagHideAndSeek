@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v913`. Use `git log` for the per-version detail;
+build stamp. Current: `v914`. Use `git log` for the per-version detail;
+
+**v914 — play-area preview framing is device-consistent + not over-zoomed-out.**
+`PlayAreaPreviewMap` (the lobby header preview + wizard/summary previews) framed
+with a large pixel `framePadding` — the lobby passed **`framePadding={72}` into an
+`h-[200px]` map**, so 144 px of the 200 px height was padding, leaving ~56 px to
+fit the whole play area → wildly over-zoomed-out (NYC's 5 boroughs shown with
+Scranton→Long Island around them), AND because 144 px is a device-DEPENDENT
+fraction of the variable-width container, the zoom differed on every screen (the
+reported "zoom changes across devices"). Fixed by framing with a **geographic
+margin** instead: `marginBounds(bbox)` expands the fitted bbox by
+`FRAME_MARGIN_FRAC` (0.16 = play area + 16% context, with a small absolute floor
+for degenerate spans) and `fitBounds` uses a tiny fixed `FRAME_PIXEL_PAD` (12).
+The framed extent is now geographic (play area + 16%) so it's the same on every
+device (only aspect ratio still varies, unavoidable with any fit) and no longer
+over-zoomed. Applied to ALL five fits (combined-boundary, primary-tighten,
+initial bbox, committed-added-areas, candidate-widen). The now-unused
+`framePadding` prop was removed (only the lobby passed it).
 
 **v913 — warmer synth + plug-and-play sampled-audio path.** Two changes to
 `src/lib/sound.ts` after "the synth is too 8-bit" feedback. (1) The procedural

@@ -765,7 +765,6 @@ export function GameLobbyDialog() {
                                     height="h-[200px]"
                                     preferCombinedBoundary
                                     deferReveal
-                                    framePadding={72}
                                 />
                             ) : (
                                 <div
