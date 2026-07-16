@@ -20,6 +20,15 @@ import { persistentAtom } from "@nanostores/persistent";
  * muted / backgrounded / where Web Audio is unavailable, and never throws.
  */
 
+/**
+ * Master kill switch (v915). Sound is DISABLED app-wide while we source
+ * good audio clips — `play()` is a hard no-op, the unlock listeners never
+ * arm, and the Settings "Sound" toggle hides itself. Flip to `true` (and
+ * register clips in `SOUND_FILES` below / keep the warmed synth) to bring
+ * audio back; the persisted `soundMuted` toggle then works as normal.
+ */
+export const SOUNDS_ENABLED: boolean = false;
+
 export const soundMuted = persistentAtom<boolean>("jlhs:soundMuted", false, {
     encode: (v) => (v ? "1" : "0"),
     decode: (s) => s === "1",
@@ -110,6 +119,7 @@ let unlockInstalled = false;
  *  kick off preloading any registered sample files. Installed once from
  *  main.tsx, outside React so it survives route changes. */
 export function installSoundUnlock(): void {
+    if (!SOUNDS_ENABLED) return;
     if (typeof window === "undefined" || unlockInstalled) return;
     unlockInstalled = true;
     const resume = () => {
@@ -428,6 +438,7 @@ interface PlayOptions {
  *  warmed synth. No-op when muted, backgrounded, or Web Audio is
  *  unavailable. Safe to call from any event handler; never throws. */
 export function play(name: SoundName, opts?: PlayOptions): void {
+    if (!SOUNDS_ENABLED) return;
     if (soundMuted.get()) return;
     if (typeof document !== "undefined" && document.hidden) return;
     const c = audio();

@@ -428,7 +428,17 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v914`. Use `git log` for the per-version detail;
+build stamp. Current: `v915`. Use `git log` for the per-version detail;
+
+**v915 — sound disabled app-wide (master kill switch) while clips are sourced.**
+`src/lib/sound.ts` exports `SOUNDS_ENABLED: boolean = false`: `play()` is a hard
+no-op, `installSoundUnlock()` never arms the audio-unlock listeners / preload,
+and `AppSettingsDrawer` hides the "Sound" toggle row (so there's no dead
+control). All the v911–v913 wiring (recipes, `SOUND_FILES` sample path, the
+per-beat `play()` calls) is untouched — flip `SOUNDS_ENABLED` to `true` to bring
+audio back, at which point the persisted `soundMuted` toggle works normally
+again. Intended to pair with registering real clips in `SOUND_FILES` (see
+`public/sounds/README.md`).
 
 **v914 — play-area preview framing is device-consistent + not over-zoomed-out.**
 `PlayAreaPreviewMap` (the lobby header preview + wizard/summary previews) framed

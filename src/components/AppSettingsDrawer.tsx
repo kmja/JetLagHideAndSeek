@@ -15,7 +15,7 @@ import {
 } from "@/lib/context";
 import { moreSheetOpen, setupCompleted } from "@/lib/gameSetup";
 import { estimateTotalAreaKm2 } from "@/lib/playAreaSize";
-import { soundMuted } from "@/lib/sound";
+import { SOUNDS_ENABLED, soundMuted } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
 /**
@@ -114,7 +114,14 @@ export function AppSettingsDrawer() {
                                     </span>
                                     <ThemeToggle />
                                 </div>
-                                <div className="flex items-center justify-between gap-3">
+                                <div
+                                    className={cn(
+                                        "flex items-center justify-between gap-3",
+                                        // Sound is off app-wide while we source
+                                        // clips (v915) — hide the dead toggle.
+                                        !SOUNDS_ENABLED && "hidden",
+                                    )}
+                                >
                                     <span className="text-sm font-medium">
                                         Sound
                                     </span>
