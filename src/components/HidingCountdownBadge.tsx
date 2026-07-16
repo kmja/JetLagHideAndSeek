@@ -1,8 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Timer } from "lucide-react";
-import { useState } from "react";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { formatTimeRemaining, hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { roundFoundAt } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
@@ -19,12 +18,8 @@ import { cn } from "@/lib/utils";
 export function HidingCountdownBadge({ className }: { className?: string }) {
     const $endsAt = useStore(hidingPeriodEndsAt);
     const $found = useStore(roundFoundAt);
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(
-        () => setNow(Date.now()),
-        1000,
-        $endsAt !== null && $found === null,
-    );
+    // v905: shared clock — freezes while the game is paused.
+    const now = useNow($endsAt !== null && $found === null);
 
     // Only during the hiding period — nothing to show once the whistle blows.
     if ($endsAt === null || now >= $endsAt) return null;

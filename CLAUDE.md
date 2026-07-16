@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v904`. Use `git log` for the per-version detail;
+build stamp. Current: `v905`. Use `git log` for the per-version detail;
+
+**v905 — Pause actually freezes every timer (`useNow` pause-freeze).** The
+manual "Pause game" repaid time on RESUME (`resumeGame` shifts
+`hidingPeriodEndsAt` / answer windows / freeze forward) but the LIVE timers
+kept ticking during the pause — worst of all the hiding countdown, whose
+components (`HiderTimer`, `HiderMapTimer`) rolled their OWN private
+`Date.now()` interval instead of the shared clock, so they bypassed any
+freeze (the reported "pause doesn't pause the hiding timer" bug). Fix: the
+shared **`useNow`** clock (`src/hooks/useNow.ts`) now FREEZES at the
+pause-start instant while `manualPausedAt` (or the location-share pause) is
+set — it reads the pause atoms and re-ticks the instant a pause toggles — so
+EVERY countdown that reads it stops. Migrated all the private-interval timer
+components onto `useNow`: `HiderTimer`, `HiderMapTimer`, `HiderGracePrompt`,
+`HidingCountdownBadge`, `HiderUnansweredOverlay`, `HiderZoneHint`,
+`SeekerETACard` (the answer-window / curse "clears in" / `cards/base` timers
+already used `useNow`, so they now freeze too). Combined with `resumeGame`'s
+deadline shifts, every timer freezes live during the pause and continues
+exactly where it stopped on resume — no double-count (frozen `now` +
+deadline-shift cancel). The full-screen `GamePausedOverlay` curtain (its own
+count-UP timer deliberately keeps running) blocks interaction throughout.
+Still LOCAL-scoped (a synced multiplayer pause would ride `SetupState`) — the
+paused device freezes completely.
 
 **v904 — Mediocre Travel Agent destination payload.** The hider now names the
 place they're sending the seekers to (a free-text destination near the

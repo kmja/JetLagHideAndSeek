@@ -10,7 +10,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { lastKnownPosition } from "@/lib/context";
 import {
     endgameStartedAt,
@@ -94,12 +94,8 @@ export function HiderMapTimer() {
     const [draftLabel, setDraftLabel] = useState("");
     const [pinningSpot, setPinningSpot] = useState(false);
 
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(
-        () => setNow(Date.now()),
-        1000,
-        $hidingEndsAt !== null && $foundAt === null,
-    );
+    // v905: shared clock so the countdown FREEZES while the game is paused.
+    const now = useNow($hidingEndsAt !== null && $foundAt === null);
 
     const inHidingPeriod = $hidingEndsAt !== null && now < $hidingEndsAt;
     const remainingMs = $hidingEndsAt ? Math.max(0, $hidingEndsAt - now) : 0;

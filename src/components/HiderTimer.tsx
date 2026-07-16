@@ -2,7 +2,7 @@ import { useStore } from "@nanostores/react";
 import { Flag, Footprints, Timer } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { appConfirm } from "@/lib/confirm";
 import {
     effectiveHiddenDebitMs,
@@ -120,13 +120,11 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
 
     // Tick every second whenever the timer is meaningful, but
     // pause while the tab is hidden so the CPU isn't woken on
-    // locked phones.
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(
-        () => setNow(Date.now()),
-        1000,
-        Boolean($endsAt && $setupCompleted),
-    );
+    // locked phones. v905: the shared `useNow` clock FREEZES while the
+    // game is paused, so this countdown actually stops during a pause
+    // (the old private Date.now() interval kept ticking — the reported
+    // "pause doesn't pause the hiding timer" bug).
+    const now = useNow(Boolean($endsAt && $setupCompleted));
 
     // v848: the live current-round rank on the seeking leaderboard, for the
     // climb flourish. Null while not seeking. Computed before the early

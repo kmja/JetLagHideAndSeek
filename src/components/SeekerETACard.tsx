@@ -1,8 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Loader2, Radar } from "lucide-react";
-import { useState } from "react";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { seekerEta, seekerEtaTone } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
@@ -25,8 +24,8 @@ export function SeekerETACard() {
 
     // Local 1 Hz tick so "~N min away" and the colour band re-evaluate as
     // the clock ticks toward the (fixed) arrival timestamp.
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(() => setNow(Date.now()), 1000, $eta != null);
+    // v905: shared clock — freezes while the game is paused.
+    const now = useNow($eta != null);
 
     const arrivalAt = $eta?.arrivalAt ?? null;
     const minutesAway =

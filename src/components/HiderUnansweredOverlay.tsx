@@ -2,7 +2,7 @@ import { useStore } from "@nanostores/react";
 import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import {
     ANSWER_WINDOW_MS,
     answeringQuestion,
@@ -54,12 +54,8 @@ export function HiderUnansweredOverlay({
     // to the prompt actually counts. Visibility-aware: paused while
     // the tab is hidden, so a backgrounded phone doesn't keep
     // burning a setInterval.
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(
-        () => setNow(Date.now()),
-        1000,
-        waiting.length > 0,
-    );
+    // v905: shared clock — freezes while the game is paused.
+    const now = useNow(waiting.length > 0);
 
     if (waiting.length === 0) return null;
 

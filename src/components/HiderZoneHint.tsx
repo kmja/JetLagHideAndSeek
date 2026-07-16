@@ -11,7 +11,7 @@ import { hidingRadius, hidingRadiusUnits } from "@/lib/context";
 import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
 import { confirmAndCommitZone } from "@/lib/hiderZoneCommit";
-import { useVisibleInterval } from "@/hooks/useVisibleInterval";
+import { useNow } from "@/hooks/useNow";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,8 +32,8 @@ export function HiderZoneHint() {
     const $radius = useStore(hidingRadius);
     const $units = useStore(hidingRadiusUnits);
     const [collapsed, setCollapsed] = useState(false);
-    const [now, setNow] = useState(() => Date.now());
-    useVisibleInterval(() => setNow(Date.now()), 1000, $endsAt !== null);
+    // v905: shared clock — freezes while the game is paused.
+    const now = useNow($endsAt !== null);
 
     const radiusMeters = Math.round(
         convertLength($radius, $units, "meters"),

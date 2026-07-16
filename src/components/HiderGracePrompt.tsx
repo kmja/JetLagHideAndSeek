@@ -3,6 +3,7 @@ import { convertLength } from "@turf/turf";
 import { Loader2, Timer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useNow } from "@/hooks/useNow";
 import { Button } from "@/components/ui/button";
 import {
     hidingRadius,
@@ -47,7 +48,9 @@ export function HiderGracePrompt() {
         convertLength($hidingRadius, $hidingRadiusUnits, "meters"),
     );
 
-    const [now, setNow] = useState(() => Date.now());
+    // v905: shared clock (freezes while paused) — the grace countdown stops
+    // during a pause like every other timer.
+    const now = useNow($endsAt !== null && $zone === null);
     const graceEndsAt = $endsAt !== null ? $endsAt + ZONE_GRACE_MS : null;
     const inGrace =
         $endsAt !== null &&
@@ -55,12 +58,6 @@ export function HiderGracePrompt() {
         graceEndsAt !== null &&
         now >= $endsAt &&
         now < graceEndsAt;
-
-    useEffect(() => {
-        if (!inGrace) return;
-        const id = window.setInterval(() => setNow(Date.now()), 1000);
-        return () => window.clearInterval(id);
-    }, [inGrace]);
 
     // The single most relevant zone: the one the hider is INSIDE (distance
     // within the hiding radius) or, failing that, the CLOSEST candidate zone.
