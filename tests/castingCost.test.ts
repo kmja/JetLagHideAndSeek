@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     canPayDiscardCost,
     curseCostRequiresPhoto,
+    curseCostRequiresRockCount,
     curseCostRequiresVideo,
     eligibleForDiscardCost,
     parseDiscardCost,
@@ -117,9 +118,14 @@ describe("eligibility + payability", () => {
         ).toBe(false);
     });
 
-    it("detects photo casting costs (Zoologist / Luxury Car), not film", () => {
+    it("detects photo casting costs (Zoologist / Luxury Car / Ransom Note), not film", () => {
         expect(curseCostRequiresPhoto("A photo of an animal.")).toBe(true);
         expect(curseCostRequiresPhoto("A photo of a car.")).toBe(true);
+        expect(
+            curseCostRequiresPhoto(
+                "Spell out “ransom note” as a ransom note (without using this card).",
+            ),
+        ).toBe(true);
         expect(curseCostRequiresPhoto("Film a bird.")).toBe(false);
         expect(curseCostRequiresPhoto("Discard two cards.")).toBe(false);
         expect(curseCostRequiresPhoto(null)).toBe(false);
@@ -130,5 +136,12 @@ describe("eligibility + payability", () => {
         expect(curseCostRequiresVideo("A photo of an animal.")).toBe(false);
         expect(curseCostRequiresVideo("Build a rock tower.")).toBe(false);
         expect(curseCostRequiresVideo(null)).toBe(false);
+    });
+
+    it("detects rock-tower casting costs (Cairn)", () => {
+        expect(curseCostRequiresRockCount("Build a rock tower.")).toBe(true);
+        expect(curseCostRequiresRockCount("Film a bird.")).toBe(false);
+        expect(curseCostRequiresRockCount("A photo of an animal.")).toBe(false);
+        expect(curseCostRequiresRockCount(null)).toBe(false);
     });
 });

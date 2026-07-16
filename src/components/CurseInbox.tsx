@@ -302,6 +302,13 @@ export function CurseInbox() {
                                         {formatFilmTarget(curse.filmSeconds)}.
                                     </p>
                                 )}
+                                {curse.rockCount != null && (
+                                    <p className="text-[11px] text-purple-300 mt-1 leading-snug font-semibold tabular-nums">
+                                        Build a rock tower {curse.rockCount}{" "}
+                                        rock{curse.rockCount === 1 ? "" : "s"}{" "}
+                                        high.
+                                    </p>
+                                )}
                                 {/* Casting cost is the hider's concern, not
                                     the seeker's — omitted. Timed curses show
                                     a live "clears in" countdown instead. */}
@@ -391,6 +398,13 @@ export function CurseInbox() {
                                 Film a bird for at least{" "}
                                 {formatFilmTarget(resolvedDialog.filmSeconds)}{" "}
                                 before asking your next question.
+                            </p>
+                        )}
+                        {resolvedDialog?.rockCount != null && (
+                            <p className="text-sm text-purple-300 font-semibold tabular-nums">
+                                Build a rock tower {resolvedDialog.rockCount}{" "}
+                                rock{resolvedDialog.rockCount === 1 ? "" : "s"}{" "}
+                                high before asking your next question.
                             </p>
                         )}
                         {dlgMeta?.expiresAt != null && (

@@ -3,7 +3,9 @@ import {
     Camera,
     Check,
     Dice5,
+    Minus,
     Play,
+    Plus,
     RotateCw,
     Send,
     Square,
@@ -29,6 +31,7 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     canPayDiscardCost,
     curseCostRequiresPhoto,
+    curseCostRequiresRockCount,
     curseCostRequiresVideo,
     eligibleForDiscardCost,
     parseDiscardCost,
@@ -157,6 +160,9 @@ export function CastCurseDialog({
     const [filmRunning, setFilmRunning] = useState(false);
     const [filmElapsedMs, setFilmElapsedMs] = useState(0);
     const filmStartRef = useRef<number | null>(null);
+    // Rock-tower casting cost (Curse of the Cairn): the number of rocks the
+    // hider's tower reached — the target the seekers must match.
+    const [rockCount, setRockCount] = useState<number | null>(null);
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
     const [sharing, setSharing] = useState(false);
@@ -327,6 +333,13 @@ export function CastCurseDialog({
     const videoRequired = costRequiresVideo && online;
     const videoSatisfied = !videoRequired || filmSeconds != null;
 
+    // Rock-tower casting cost (Cairn). Required in multiplayer (the count is
+    // delivered to the seekers); solo/link still offers the entry.
+    const costRequiresRockCount = curseCostRequiresRockCount(card.castingCost);
+    const rockRequired = costRequiresRockCount && online;
+    const rockSatisfied =
+        !rockRequired || (rockCount != null && rockCount >= 1);
+
     const startFilm = () => {
         filmStartRef.current = Date.now();
         setFilmElapsedMs(0);
@@ -380,6 +393,9 @@ export function CastCurseDialog({
         // captured duration before the curse can be sent.
         videoSatisfied &&
         !filmRunning &&
+        // Rock-tower casting cost (Cairn, multiplayer): the hider must enter
+        // how many rocks their tower reached before casting.
+        rockSatisfied &&
         // Drained Brain: exactly 3 categories must be chosen before the
         // curse can be cast (it disables those 3 on the seekers).
         (!isDrainedBrain || drainedCategories.length === 3);
@@ -399,10 +415,12 @@ export function CastCurseDialog({
         disabledCategories?: string[];
         photoUrl?: string;
         filmSeconds?: number;
+        rockCount?: number;
     } => ({
         ...(isDrainedBrain ? { disabledCategories: drainedCategories } : {}),
         ...(preparedPhoto?.url ? { photoUrl: preparedPhoto.url } : {}),
         ...(filmSeconds != null ? { filmSeconds } : {}),
+        ...(rockCount != null && rockCount >= 1 ? { rockCount } : {}),
     });
 
     const roll = () => {
@@ -997,6 +1015,53 @@ export function CastCurseDialog({
                                             </p>
                                         </>
                                     )}
+                                </div>
+                            )}
+
+                            {/* Rock-tower casting cost (Curse of the Cairn):
+                                enter how many rocks the hider's tower reached —
+                                the seekers must match it. */}
+                            {costRequiresRockCount && (
+                                <div className="mt-2.5 flex flex-col items-center gap-2">
+                                    <div className="flex items-center gap-3">
+                                        <Button
+                                            type="button"
+                                            size="icon"
+                                            variant="outline"
+                                            aria-label="Fewer rocks"
+                                            className="h-10 w-10 shrink-0"
+                                            disabled={(rockCount ?? 0) <= 1}
+                                            onClick={() =>
+                                                setRockCount((n) =>
+                                                    Math.max(1, (n ?? 1) - 1),
+                                                )
+                                            }
+                                        >
+                                            <Minus className="w-4 h-4" />
+                                        </Button>
+                                        <div className="min-w-[3.5rem] text-center">
+                                            <span className="font-inter-tight font-black tabular-nums text-4xl">
+                                                {rockCount ?? "—"}
+                                            </span>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            size="icon"
+                                            variant="outline"
+                                            aria-label="More rocks"
+                                            className="h-10 w-10 shrink-0"
+                                            onClick={() =>
+                                                setRockCount((n) => (n ?? 0) + 1)
+                                            }
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground leading-snug text-center">
+                                        {rockRequired
+                                            ? "How many rocks high was your tower? The count is sent to the seekers to match."
+                                            : "How many rocks high was your tower? Tell the seekers to match it."}
+                                    </p>
                                 </div>
                             )}
 

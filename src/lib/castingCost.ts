@@ -73,9 +73,17 @@ export function parseDiscardCost(castingCost: string | null): DiscardCost | null
  * "Film a bird" is deliberately EXCLUDED — it's a video, not a still, and
  * the app has no video pipeline; the bird footage is the casting-cost
  * proof the hider keeps, not something delivered over the wire.
+ *
+ * Curse of the Ransom Note is ALSO included: its cost is spelling out
+ * "ransom note" as a physical ransom note, and a photo of that note is the
+ * natural proof to deliver to the seekers (matched on "ransom note" since
+ * the cost text doesn't literally say "photo").
  */
 export function curseCostRequiresPhoto(castingCost: string | null): boolean {
-    return !!castingCost && /\bphoto\b/i.test(castingCost);
+    return (
+        !!castingCost &&
+        (/\bphoto\b/i.test(castingCost) || /ransom note/i.test(castingCost))
+    );
 }
 
 /**
@@ -88,6 +96,19 @@ export function curseCostRequiresPhoto(castingCost: string | null): boolean {
  */
 export function curseCostRequiresVideo(castingCost: string | null): boolean {
     return !!castingCost && /\bfilm\b/i.test(castingCost);
+}
+
+/**
+ * Whether a curse's casting cost is "build a rock tower" (Curse of the
+ * Cairn), where the mechanic is entirely about the NUMBER of rocks the
+ * hider stacked (the seekers must then build a tower of the same count).
+ * The app can't verify a real rock tower, but it CAN carry the target
+ * count to the seekers, so the cast flow offers a rock-count entry.
+ */
+export function curseCostRequiresRockCount(
+    castingCost: string | null,
+): boolean {
+    return !!castingCost && /\brock tower\b/i.test(castingCost);
 }
 
 /**

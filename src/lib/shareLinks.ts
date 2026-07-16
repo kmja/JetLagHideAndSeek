@@ -133,6 +133,12 @@ export interface SharedCursePayload {
      * hider filmed — the target the seekers must beat. Absent otherwise.
      */
     filmSeconds?: number;
+    /**
+     * For a "build a tower" curse (Curse of the Cairn), the number of ROCKS
+     * the hider's tower reached — the target the seekers must match. Absent
+     * otherwise.
+     */
+    rockCount?: number;
 }
 
 /**

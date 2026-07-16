@@ -1262,6 +1262,9 @@ function handleServerMessage(msg: ServerMessage) {
                     // Target film duration (Bird Guide) — the seekers must
                     // film a bird for at least this many seconds.
                     filmSeconds: msg.curse.filmSeconds,
+                    // Target rock count (Curse of the Cairn) — the seekers
+                    // must build a tower of this many rocks.
+                    rockCount: msg.curse.rockCount,
                     receivedAt: Date.now(),
                     acknowledged: false,
                 },

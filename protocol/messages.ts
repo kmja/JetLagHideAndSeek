@@ -544,6 +544,12 @@ export interface CursePayload {
      * hider filmed — the target the seekers must beat. Absent otherwise.
      */
     filmSeconds?: number;
+    /**
+     * For a "build a tower" curse (Curse of the Cairn), the number of ROCKS
+     * the hider's tower reached — the target the seekers must match. Absent
+     * for every other curse and older clients.
+     */
+    rockCount?: number;
 }
 
 /** Push subscription stored by the client for server-side delivery. */

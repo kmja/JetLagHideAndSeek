@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v902`. Use `git log` for the per-version detail;
+build stamp. Current: `v903`. Use `git log` for the per-version detail;
+
+**v903 — two more curse payloads: Cairn rock-count + Ransom Note photo.**
+- **Curse of the Cairn** now carries `rockCount` — the number of rocks the
+  hider's tower reached, the target the seekers must match. New
+  `curseCostRequiresRockCount(castingCost)` (`castingCost.ts`, `/\brock
+  tower\b/i`, unit-tested) drives a +/- stepper in the casting-cost box of
+  `CastCurseDialog`; required before casting in multiplayer. Rides
+  `CursePayload.rockCount` / `SharedCursePayload.rockCount` → server/demo relay
+  verbatim → `receivedCurses` → `CurseInbox` shows "Build a rock tower N rocks
+  high."
+- **Curse of the Ransom Note** now delivers the hider's proof PHOTO (a picture
+  of the physical ransom note). `curseCostRequiresPhoto` was extended to match
+  the ransom-note casting cost (`/ransom note/i`), so the existing photo
+  capture/upload flow (Zoologist/Luxury Car) fires for it too.
 
 **v902 — matching answer-map shows the reference IDENTITY, not distance.**
 On the hider's answer-comparison map (`HiderMap`), the seeker's-nearest and
