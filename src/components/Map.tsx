@@ -1884,6 +1884,13 @@ export function Map({ className }: MapProps) {
                 onLoad={handleLoad}
                 onIdle={onTilesIdle}
                 onMoveEnd={handleMoveEnd}
+                // Panning the map turns Follow Me OFF (and stops the
+                // auto-recenter that would otherwise fight the pan). Only a
+                // USER drag fires this — the follow-me `easeTo` is
+                // programmatic and doesn't. (v891)
+                onDragStart={() => {
+                    if (followMe.get()) followMe.set(false);
+                }}
                 onError={handleMapLibreError}
                 onContextMenu={(e) => {
                     setContextMenu({

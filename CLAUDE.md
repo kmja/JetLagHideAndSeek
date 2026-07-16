@@ -428,7 +428,46 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v891`. Use `git log` for the per-version detail;
+build stamp. Current: `v892`. Use `git log` for the per-version detail;
+
+**v892 — lobby header polish, settings cleanup, follow-me fix, faster
+countdown dim, preload total reconciliation.**
+- **Lobby header (`GameLobbyDialog`, pre-game):** House Rules section
+  removed; the play-area name + its edit pencil MERGED into one top-right
+  chip (host taps it to edit; the top-left name chip is gone); transit-edit
+  button enlarged to the transit-icon size (`GLASS_PILL` 40px); Share/Copy/QR
+  buttons enlarged to match (`GLASS_PILL_BTN`); map zoomed out
+  (`framePadding` 40→72); more top padding on the share section
+  (`pt-3`→`pt-7`); the game-size popover tightened to just the pills (`w-auto`,
+  ring-selected, no checkmark/empty space); **QR dialog lifted to z-[1060]**
+  (it was opening BEHIND the lobby drawer at the default z-[1050] — the "QR
+  button does nothing" bug, same class as v797). **Pause game moved here**
+  from Settings — a warning-styled button above Leave game, shown only while
+  a game is running.
+- **`AppSettingsDrawer`:** Pause removed (now in the lobby); more space
+  between How-to-play / Rulebook (`space-y-2`→`space-y-3`).
+- **`PWAInstallButton`:** the UA-sniffed "To install on iOS, tap Share → Add
+  to Home Screen" hint was REMOVED — it showed on any browser spoofing an iOS
+  UA (Firefox desktop in responsive/mobile mode) and a static instruction
+  isn't an install action. Now shows ONLY a real captured `beforeinstallprompt`
+  button or the installed chip, else nothing (matches v881's landing philosophy).
+- **Units:** dropped the **Meters** option (`UnitSelect` → Miles / Kilometers).
+- **Theme toggle:** the segmented control now shows **Auto / Light / Dark**
+  text labels beside the icons (was icon-only; "System" relabelled "Auto").
+- **Follow-me fixed (seeker + hider):** panning the map now turns Follow Me
+  OFF (via `onDragStart` on both `<Map>`s — only a USER drag fires it, not the
+  programmatic follow `easeTo`), so it stops fighting a manual pan. While ON it
+  still recenters on each GPS fix.
+- **Seeker Questions drawer:** removed the yellow "HIDING PERIOD" warning
+  banner.
+- **Game-start countdown:** the backdrop dim+blur ramps MUCH faster (CSS
+  transition 650ms→220ms) so each 3-2-1 step snaps in.
+- **Preload total reconciled (`PreloadChoicesPanel`):** the footer summed
+  pre-download ESTIMATES while each row showed ACTUAL bytes once downloaded, so
+  an NYC game read "Estimated total ~63 MB" under a "Map — Downloaded 94 MB"
+  row. The total now sums actual bytes for downloaded buckets (estimate only
+  for not-yet-loaded ones) and relabels "Total downloaded" once nothing is an
+  estimate.
 
 **v891 — boot watchdog: blank-screen self-heal for a stale PWA shell.** An
 installed PWA whose service worker serves a STALE app shell (a cached index

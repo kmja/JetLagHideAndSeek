@@ -6,6 +6,7 @@ import {
     Copy,
     Loader2,
     LogOut,
+    Pause,
     Pencil,
     Plus,
     QrCode,
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/popover";
 import { appConfirm } from "@/lib/confirm";
 import { additionalMapGeoLocations, mapGeoLocation } from "@/lib/context";
+import { pauseGame } from "@/lib/gamePause";
 import { commitPlayAreaChange } from "@/lib/playAreaCommit";
 import type { OpenStreetMap } from "@/maps/api";
 import {
@@ -80,7 +82,6 @@ import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
 import { PlayAreaStep, TransitStep } from "./GameSetupDialog";
-import { HouseRulesSection } from "./HouseRulesSection";
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
 import { RoundEndSection } from "./RoundEndSection";
@@ -90,10 +91,13 @@ import { RoundEndSection } from "./RoundEndSection";
  * scrim anymore, so they carry their own solid background). Normal secondary-
  * button styling so they match the rest of the UI's chrome.
  */
-const GLASS_BTN =
-    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const GLASS_PILL =
     "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary border border-border text-foreground";
+/** Interactive variant — same 40px size as the transit-icon pills, with a
+ *  hover state + focus ring for the Copy / QR / transit-edit buttons. */
+const GLASS_PILL_BTN =
+    GLASS_PILL +
+    " hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 /**
  * Pre-game lobby. Sits between the setup wizard and the hiding-period
@@ -686,9 +690,9 @@ export function GameLobbyDialog() {
                     // their own solid chips instead. Editing uses the separate
                     // inline modes (size popover + transit dialog + area dialog),
                     // not the full game-settings wizard.
-                    <div className="shrink-0 border-b border-border px-4 pt-3 pb-4 space-y-3">
+                    <div className="shrink-0 border-b border-border px-4 pt-7 pb-4 space-y-4">
                         {/* SHARE section — room code + Share / Copy / QR. */}
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-center gap-2">
                             <div className="flex flex-col min-w-0 leading-none">
                                 <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                                     Room code
@@ -704,26 +708,29 @@ export function GameLobbyDialog() {
                             {$code && (
                                 <div className="ml-auto flex items-center gap-1.5">
                                     <Button
-                                        size="sm"
                                         onClick={handleShare}
                                         aria-label="Share invite link"
                                         title="Share invite link"
-                                        className="gap-1.5"
+                                        className="gap-1.5 h-10"
                                     >
-                                        <Share2 className="w-3.5 h-3.5" />
+                                        <Share2 className="w-4 h-4" />
                                         Share
                                     </Button>
                                     <button
                                         type="button"
                                         onClick={handleCopy}
                                         aria-label="Copy invite link"
-                                        title={copied ? "Copied!" : "Copy invite link"}
-                                        className={GLASS_BTN}
+                                        title={
+                                            copied
+                                                ? "Copied!"
+                                                : "Copy invite link"
+                                        }
+                                        className={GLASS_PILL_BTN}
                                     >
                                         {copied ? (
-                                            <Check className="w-3.5 h-3.5" />
+                                            <Check className="w-5 h-5" />
                                         ) : (
-                                            <Copy className="w-3.5 h-3.5" />
+                                            <Copy className="w-5 h-5" />
                                         )}
                                     </button>
                                     {shareUrl && (
@@ -732,9 +739,9 @@ export function GameLobbyDialog() {
                                             onClick={() => setQrOpen(true)}
                                             aria-label="Show large QR code"
                                             title="Show large QR code"
-                                            className={GLASS_BTN}
+                                            className={GLASS_PILL_BTN}
                                         >
-                                            <QrCode className="w-3.5 h-3.5" />
+                                            <QrCode className="w-5 h-5" />
                                         </button>
                                     )}
                                 </div>
@@ -749,7 +756,7 @@ export function GameLobbyDialog() {
                                     height="h-[200px]"
                                     preferCombinedBoundary
                                     deferReveal
-                                    framePadding={40}
+                                    framePadding={72}
                                 />
                             ) : (
                                 <div
@@ -762,30 +769,29 @@ export function GameLobbyDialog() {
                                 </div>
                             )}
 
-                            {/* top-left: play-area name */}
-                            {cityName && (
-                                <div className="absolute top-2 left-2 max-w-[70%] rounded-md bg-background/90 border border-border px-2 py-1 shadow-sm">
-                                    <span className="block truncate text-sm font-inter-tight font-bold text-foreground">
-                                        {cityName}
-                                    </span>
-                                </div>
-                            )}
-
-                            {/* top-right corner: edit the play area (host) */}
-                            {isHost && (
-                                <button
-                                    type="button"
-                                    onClick={openAreaEditor}
-                                    aria-label="Edit play area"
-                                    title="Edit play area"
-                                    className={cn(
-                                        GLASS_BTN,
-                                        "absolute top-2 right-2 shadow-sm",
-                                    )}
-                                >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                            )}
+                            {/* top-right: play-area name merged with its edit
+                                affordance (host taps the whole chip to edit). */}
+                            {cityName &&
+                                (isHost ? (
+                                    <button
+                                        type="button"
+                                        onClick={openAreaEditor}
+                                        aria-label={`Edit play area (${cityName})`}
+                                        title="Edit play area"
+                                        className="absolute top-2 right-2 max-w-[80%] inline-flex items-center gap-1.5 rounded-md bg-background/90 border border-border px-2.5 py-1.5 shadow-sm hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                        <span className="block truncate text-sm font-inter-tight font-bold text-foreground">
+                                            {cityName}
+                                        </span>
+                                        <Pencil className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                                    </button>
+                                ) : (
+                                    <div className="absolute top-2 right-2 max-w-[80%] rounded-md bg-background/90 border border-border px-2.5 py-1.5 shadow-sm">
+                                        <span className="block truncate text-sm font-inter-tight font-bold text-foreground">
+                                            {cityName}
+                                        </span>
+                                    </div>
+                                ))}
 
                             {/* bottom: size pill + transit icons (+ transit edit) */}
                             <div className="absolute bottom-2 left-2 right-2 flex items-center gap-1.5 flex-wrap">
@@ -810,7 +816,7 @@ export function GameLobbyDialog() {
                                             align="start"
                                             side="top"
                                             container={drawerEl}
-                                            className="z-[1060] w-48 p-1"
+                                            className="z-[1060] w-auto p-1.5 flex flex-col gap-1.5"
                                         >
                                             {SIZE_OPTIONS.map((o) => (
                                                 <button
@@ -818,15 +824,18 @@ export function GameLobbyDialog() {
                                                     type="button"
                                                     onClick={() => setSize(o.value)}
                                                     aria-label={o.label}
-                                                    className="flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left text-sm hover:bg-accent transition-colors"
+                                                    aria-pressed={o.value === $size}
+                                                    className={cn(
+                                                        "rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity",
+                                                        o.value === $size
+                                                            ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
+                                                            : "opacity-90 hover:opacity-100",
+                                                    )}
                                                 >
                                                     <SizeBadge
                                                         size={o.value}
-                                                        className="text-sm px-2.5 py-1"
+                                                        className="text-sm px-3 py-1.5"
                                                     />
-                                                    {o.value === $size && (
-                                                        <Check className="w-4 h-4 text-primary ml-auto" />
-                                                    )}
                                                 </button>
                                             ))}
                                         </PopoverContent>
@@ -864,9 +873,9 @@ export function GameLobbyDialog() {
                                         onClick={() => setTransitEditOpen(true)}
                                         aria-label="Edit transit modes"
                                         title="Edit transit modes"
-                                        className={cn(GLASS_BTN, "ml-auto shadow-sm")}
+                                        className={cn(GLASS_PILL_BTN, "ml-auto shadow-sm")}
                                     >
-                                        <Pencil className="w-3.5 h-3.5" />
+                                        <Pencil className="w-4 h-4" />
                                     </button>
                                 )}
                             </div>
@@ -908,9 +917,10 @@ export function GameLobbyDialog() {
                     {$mp && $code && shareUrl && (
                         <Dialog open={qrOpen} onOpenChange={setQrOpen}>
                             <DialogContent
+                                overlayClassName="z-[1060]"
                                 className={cn(
                                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
-                                    "sm:max-w-xs flex flex-col items-center p-6 gap-4",
+                                    "z-[1060] sm:max-w-xs flex flex-col items-center p-6 gap-4",
                                 )}
                             >
                                 <DialogTitle className="font-display font-black uppercase text-base tracking-[0.10em]">
@@ -1152,15 +1162,6 @@ export function GameLobbyDialog() {
                         </label>
                     )}
 
-                    {/* House rules — table-wide deviations from the printed
-                        rulebook (v882: back in the lobby body). Host-
-                        authoritative: a toggle writes the local atom + pushes
-                        the whole setup to peers; guests see them read-only. */}
-                    <HouseRulesSection
-                        readOnly={!isHost}
-                        onAfterChange={hostPushSetup}
-                    />
-
                     {/* v318: leaderboard — surfaces the rolling
                         round results once at least one round has
                         finished. Shown anywhere in the lobby (pre-
@@ -1233,6 +1234,29 @@ export function GameLobbyDialog() {
                                 Waiting for the host to start the game…
                             </div>
                         </div>
+                    )}
+                    {/* Pause game — freezes every timer until resumed
+                        (rulebook). Lives in the lobby (v891, moved out of
+                        Settings), only while a game is actually running. */}
+                    {$hidingEndsAt !== null && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                pauseGame();
+                                lobbyManualOpen.set(false);
+                            }}
+                            className={cn(
+                                "w-full flex items-center justify-center gap-2",
+                                "px-3 py-2 rounded-md",
+                                "bg-warning/15 hover:bg-warning/25 border border-warning/40",
+                                "text-sm font-semibold text-foreground transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                            title="Pause the game — freezes every timer until you resume (rulebook)"
+                        >
+                            <Pause className="w-4 h-4" />
+                            Pause game
+                        </button>
                     )}
                     {/* Leave game — below Start (v453). Switch role
                         lives inline in the roster row next to '(you)'. */}

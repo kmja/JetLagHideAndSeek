@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  * settings label without claiming a row of its own.
  */
 const OPTIONS = [
-    { value: "system", label: "System", icon: Monitor },
+    { value: "system", label: "Auto", icon: Monitor },
     { value: "light", label: "Light", icon: Sun },
     { value: "dark", label: "Dark", icon: Moon },
 ] as const;
@@ -35,7 +35,8 @@ export function ThemeToggle() {
                         title={label}
                         onClick={() => themePreference.set(value)}
                         className={cn(
-                            "inline-flex items-center justify-center w-8 h-8 rounded-sm",
+                            "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-sm",
+                            "text-[11px] font-poppins font-semibold uppercase tracking-wider",
                             "transition-colors",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             active
@@ -43,7 +44,8 @@ export function ThemeToggle() {
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                         )}
                     >
-                        <Icon className="w-4 h-4" />
+                        <Icon className="w-4 h-4 shrink-0" />
+                        {label}
                     </button>
                 );
             })}

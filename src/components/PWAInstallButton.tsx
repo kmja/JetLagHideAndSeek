@@ -1,4 +1,4 @@
-import { CheckCircle2, Download, Smartphone } from "lucide-react";
+import { CheckCircle2, Download } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -9,9 +9,13 @@ import { cn } from "@/lib/utils";
  * site meets PWA install criteria). If installed already, renders a
  * static "installed" chip instead.
  *
- * On iOS/Safari the install flow can't be triggered programmatically
- * — the user has to use the Share sheet → "Add to Home Screen". For
- * those browsers we show a short note pointing them at that path.
+ * v891: shows ONLY a REAL one-tap install button (a captured
+ * `beforeinstallprompt`) or the installed chip — otherwise nothing. The
+ * old UA-sniffed "To install on iOS, tap Share → Add to Home Screen" text
+ * hint was removed: it read as a dead/confusing note on any browser that
+ * spoofs an iOS UA (e.g. Firefox desktop in responsive/mobile mode), and a
+ * static instruction isn't an install action anyway. iOS Safari users can
+ * still Add to Home Screen via the native Share sheet.
  */
 type DeferredPrompt = Event & {
     prompt: () => Promise<void>;
@@ -21,7 +25,6 @@ type DeferredPrompt = Event & {
 export function PWAInstallButton() {
     const [prompt, setPrompt] = useState<DeferredPrompt | null>(null);
     const [installed, setInstalled] = useState(false);
-    const [isIos, setIsIos] = useState(false);
 
     useEffect(() => {
         // Detect "already installed" via the standalone display-mode
@@ -30,13 +33,6 @@ export function PWAInstallButton() {
             window.matchMedia?.("(display-mode: standalone)").matches ||
             (window.navigator as any).standalone === true;
         if (standalone) setInstalled(true);
-
-        // iOS Safari doesn't fire beforeinstallprompt — sniff the UA
-        // so we can fall back to a "use Share → Add to Home Screen"
-        // hint instead of leaving the button doing nothing.
-        const ua = window.navigator.userAgent || "";
-        const ios = /iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream;
-        setIsIos(ios);
 
         const onBeforeInstall = (e: Event) => {
             e.preventDefault();
@@ -98,35 +94,9 @@ export function PWAInstallButton() {
         );
     }
 
-    if (isIos) {
-        return (
-            <div
-                className={cn(
-                    "w-full flex items-start gap-2 px-3 py-2 rounded-md",
-                    "bg-secondary border border-border text-xs",
-                    "text-muted-foreground leading-snug",
-                )}
-            >
-                <Smartphone className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
-                <span>
-                    To install on iOS, tap{" "}
-                    <span className="font-semibold text-foreground">
-                        Share
-                    </span>{" "}
-                    →{" "}
-                    <span className="font-semibold text-foreground">
-                        Add to Home Screen
-                    </span>
-                    .
-                </span>
-            </div>
-        );
-    }
-
-    // Browser hasn't fired the install prompt yet (or the site
-    // doesn't meet criteria yet — usually solves itself after a
-    // second visit). Stay silent rather than show a button that
-    // doesn't work.
+    // No captured install prompt (Firefox / iOS Safari / the site doesn't
+    // meet criteria yet — often solves itself on a second visit). Stay
+    // silent rather than show a button or hint that doesn't do anything.
     return null;
 }
 

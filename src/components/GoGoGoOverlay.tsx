@@ -215,7 +215,7 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
                               ? "blur(1.5px)"
                               : "blur(2.5px)",
                     transition:
-                        "opacity 650ms ease-out, backdrop-filter 650ms ease-out, -webkit-backdrop-filter 650ms ease-out",
+                        "opacity 220ms ease-out, backdrop-filter 220ms ease-out, -webkit-backdrop-filter 220ms ease-out",
                 }}
             />
             {dismissing ? null : !inGo ? (

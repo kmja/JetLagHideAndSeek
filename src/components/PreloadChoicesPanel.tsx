@@ -149,10 +149,45 @@ export function PreloadChoicesPanel({
         }
     };
 
-    const totalMb = BUCKETS.reduce(
-        (sum, b) => (choices[b.id] ? sum + b.estimateMb(areaKm2) : sum),
-        0,
-    );
+    // Per-bucket download state (shared by the rows + the total).
+    const bucketState = (id: keyof PreloadChoices) => {
+        const completedAt =
+            id === "map"
+                ? timestamps.map
+                : id === "references"
+                  ? timestamps.references
+                  : timestamps.transit;
+        const actualBytes =
+            id === "map"
+                ? bucketBytes.map
+                : id === "references"
+                  ? bucketBytes.references
+                  : bucketBytes.transit;
+        return {
+            completedAt,
+            actualBytes,
+            downloaded: displayStatus && completedAt !== null,
+        };
+    };
+
+    // Total that RECONCILES with the per-row numbers: a downloaded bucket
+    // contributes its ACTUAL bytes (0 for a cached hit), a not-yet-loaded
+    // one contributes its rough estimate. So the footer can't read "~63 MB"
+    // while the Map row alone already shows "Downloaded — 94 MB". The
+    // "Estimated" qualifier only shows while at least one enabled bucket is
+    // still an estimate (e.g. the wizard, pre-download).
+    let totalMb = 0;
+    let anyEstimate = false;
+    for (const b of BUCKETS) {
+        if (!choices[b.id]) continue;
+        const { downloaded, actualBytes } = bucketState(b.id);
+        if (downloaded) {
+            if (actualBytes !== null) totalMb += actualBytes / 1_000_000;
+        } else {
+            totalMb += b.estimateMb(areaKm2);
+            anyEstimate = true;
+        }
+    }
 
     return (
         <div className={cn("space-y-2", className)}>
@@ -292,10 +327,12 @@ export function PreloadChoicesPanel({
             })}
             <div className="flex items-center justify-between pt-1 px-1 text-xs">
                 <span className="text-muted-foreground">
-                    Estimated total
+                    {anyEstimate ? "Estimated total" : "Total downloaded"}
                 </span>
                 <span className="font-mono tabular-nums font-semibold text-foreground">
-                    {totalMb > 0 ? `~${formatSize(totalMb)}` : "0 KB"}
+                    {totalMb > 0
+                        ? `${anyEstimate ? "~" : ""}${formatSize(totalMb)}`
+                        : "0 KB"}
                 </span>
             </div>
         </div>

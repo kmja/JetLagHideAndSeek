@@ -622,6 +622,12 @@ export function HiderBackgroundMap() {
                    overzoom freedom and that's all. */
                 maxZoom={16}
                 onLoad={(e) => installMissingImageHandler(e.target)}
+                // Panning the map turns Follow Me OFF (and stops the
+                // auto-recenter that would otherwise fight the pan). Only a
+                // USER drag fires this, not the follow-me `easeTo`. (v891)
+                onDragStart={() => {
+                    if (followMe.get()) followMe.set(false);
+                }}
                 onError={handleMapLibreError}
                 cursor={stationHover ? "pointer" : undefined}
                 onMouseEnter={() => setStationHover(true)}

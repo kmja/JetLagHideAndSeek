@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 const OPTIONS: { value: Units; label: string }[] = [
     { value: "miles", label: "Miles" },
     { value: "kilometers", label: "Kilometers" },
-    { value: "meters", label: "Meters" },
 ];
 
 export const UnitSelect = ({

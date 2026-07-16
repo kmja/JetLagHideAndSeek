@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { BookOpen, Pause } from "lucide-react";
+import { BookOpen } from "lucide-react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { HowToPlaySheet } from "@/components/HowToPlaySheet";
@@ -13,12 +13,7 @@ import {
     defaultUnit,
     mapGeoLocation,
 } from "@/lib/context";
-import { pauseGame } from "@/lib/gamePause";
-import {
-    hidingPeriodEndsAt,
-    moreSheetOpen,
-    setupCompleted,
-} from "@/lib/gameSetup";
+import { moreSheetOpen, setupCompleted } from "@/lib/gameSetup";
 import { estimateTotalAreaKm2 } from "@/lib/playAreaSize";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +39,6 @@ export function AppSettingsDrawer() {
     const $moreOpen = useStore(moreSheetOpen);
     const $defaultUnit = useStore(defaultUnit);
     const $setupCompleted = useStore(setupCompleted);
-    const $inGame = useStore(hidingPeriodEndsAt) !== null;
     // Committed play area (primary + added adjacents) so the preload
     // estimate reflects THIS game's size instead of the generic
     // null-area fallback (which always read ~19 MB regardless of city).
@@ -75,27 +69,7 @@ export function AppSettingsDrawer() {
                                 mid-game preload preferences.
                             </VaulDrawer.Description>
                         </div>
-                        <div className="mt-4 space-y-2">
-                            {$inGame && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        pauseGame();
-                                        moreSheetOpen.set(false);
-                                    }}
-                                    className={cn(
-                                        "w-full flex items-center justify-center gap-2",
-                                        "px-3 py-2 rounded-md",
-                                        "bg-warning/15 hover:bg-warning/25 border border-warning/40",
-                                        "text-sm font-semibold text-foreground transition-colors",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    )}
-                                    title="Pause the game — freezes every timer until you resume (rulebook)"
-                                >
-                                    <Pause className="w-4 h-4" />
-                                    Pause game
-                                </button>
-                            )}
+                        <div className="mt-4 space-y-3">
                             <HowToPlaySheet
                                 onBeforeOpen={() => moreSheetOpen.set(false)}
                             />
