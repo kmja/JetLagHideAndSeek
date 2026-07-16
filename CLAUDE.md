@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v895`. Use `git log` for the per-version detail;
+build stamp. Current: `v896`. Use `git log` for the per-version detail;
+
+**v896 — performance pass (countdown hitch + re-render fan-out + radar
+trig).** From a two-agent perf review; the safe, high-ROI, low-risk wins:
+- **Countdown hitch:** the pre-game `GameLobbyDialog`'s `PlayAreaPreviewMap`
+  is PAUSED (replaced by its placeholder) while the game-start flourish runs
+  (`mapReady && !$overLobby`), so during the 3-2-1 only the in-game shell's
+  MapLibre context is initialising — not two live GL contexts fighting the
+  main thread.
+- **Re-render fan-out fixes:** (1) `HiderBackgroundMap`'s seeker-label
+  collision effect rAF-COALESCES map `move`/`zoom` (one recompute per frame,
+  not per event) and Set-DIFFs the result so an identical label set is a
+  no-op `setState`; (2) `Map`'s per-question marker JSX is a memoized
+  `questionMarkerList` (`useMemo` on `$questions`) instead of a `flatMap` on
+  every render; (3) `useSelfPositionWatch` THROTTLES GPS fixes — a fix that
+  moved <6 m and is <4 s old is dropped, so stationary GPS jitter (a fix/sec)
+  no longer re-renders both map subtrees + every `lastKnownPosition`
+  subscriber each tick.
+- **Radar sweep trig:** the pending-radar `radar-sweep` overlay built its
+  perimeter fan with a `turf.destination` call per segment per frame
+  (~25 geodesic calls × targets × 60 fps); replaced with inline
+  equirectangular trig (`kmPerDegLat`/`kmPerDegLng` + sin/cos), same visual,
+  a fraction of the cost.
+- **Deferred (needs its own green-light):** move `holedMask` (the world-scale
+  `turf.difference` elimination mask, `operators.ts`) and the seeker Voronoi
+  into the geometry Web Worker; throttle `useQuestionImpact` during pin-drag.
 
 **v895 — hider POIs reworked: native basemap field + highlight-dots +
 searchable type list.** Replaces the v888/v894 custom-dot field.

@@ -261,10 +261,20 @@ export function HiderBackgroundMap() {
     const [labeledSeekerIds, setLabeledSeekerIds] = useState<Set<string>>(
         new Set(),
     );
+    // v895 perf: this collision solver used to `setLabeledSeekerIds(new Set())`
+    // on EVERY `move`/`zoom` event — i.e. ~60×/sec while panning, each a fresh
+    // Set identity that re-rendered the whole ~1300-line map subtree. Now it's
+    // rAF-coalesced (one recompute per frame) AND bails the state update when
+    // the visible-label set is unchanged (the common case during a small pan),
+    // so a drag no longer forces a full re-render per frame.
+    const labeledRef = useRef<Set<string>>(labeledSeekerIds);
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!map || seekerPins.length === 0) {
-            setLabeledSeekerIds(new Set());
+            if (labeledRef.current.size !== 0) {
+                labeledRef.current = new Set();
+                setLabeledSeekerIds(labeledRef.current);
+            }
             return;
         }
         const AV = 30; // avatar box (px)
@@ -314,14 +324,34 @@ export function HiderBackgroundMap() {
                     accepted.push(box);
                 }
             }
+            // Bail if the visible-label set didn't actually change — no
+            // re-render for a pan that doesn't cross a collision threshold.
+            const prev = labeledRef.current;
+            if (
+                prev.size === labeled.size &&
+                [...labeled].every((id) => prev.has(id))
+            ) {
+                return;
+            }
+            labeledRef.current = labeled;
             setLabeledSeekerIds(labeled);
         };
+        // Coalesce the per-frame `move`/`zoom` storm into one recompute/frame.
+        let raf = 0;
+        const schedule = () => {
+            if (raf) return;
+            raf = requestAnimationFrame(() => {
+                raf = 0;
+                recompute();
+            });
+        };
         recompute();
-        map.on("move", recompute);
-        map.on("zoom", recompute);
+        map.on("move", schedule);
+        map.on("zoom", schedule);
         return () => {
-            map.off("move", recompute);
-            map.off("zoom", recompute);
+            if (raf) cancelAnimationFrame(raf);
+            map.off("move", schedule);
+            map.off("zoom", schedule);
         };
     }, [seekerPins]);
 

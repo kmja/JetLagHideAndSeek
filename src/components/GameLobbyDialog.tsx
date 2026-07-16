@@ -750,7 +750,16 @@ export function GameLobbyDialog() {
 
                         {/* Contained map + overlays (no scrim). */}
                         <div className="relative">
-                            {mapReady ? (
+                            {/* v895: unmount the preview map's GL context during
+                                the game-start flourish ($overLobby) — the
+                                in-game shell's map is mounting + loading at the
+                                same time, and running TWO live MapLibre contexts
+                                through the 3-2-1 countdown is what hitched it
+                                (the v819 two-context lesson). The lobby is
+                                heavily dimmed behind the GO overlay by then, so
+                                a placeholder is invisible; the basemap HTTP
+                                cache is already warm from before Start. */}
+                            {mapReady && !$overLobby ? (
                                 <PlayAreaPreviewMap
                                     value={$mapGeoLocation!}
                                     height="h-[200px]"

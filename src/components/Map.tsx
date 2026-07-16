@@ -421,6 +421,15 @@ export function Map({ className }: MapProps) {
     const $savedViewport = useStore(mapLibreViewport);
     const $playArea = useStore(playArea);
 
+    // v895 perf: memoize the per-question marker list. It was computed inline
+    // in JSX (`$questions.flatMap(questionMarkers)`) on EVERY render — including
+    // every GPS-fix re-render — allocating a fresh array + reconciling every
+    // marker. Now it only rebuilds when the questions change.
+    const questionMarkerList = useMemo(
+        () => $questions.flatMap((q) => questionMarkers(q)),
+        [$questions],
+    );
+
     const mapRef = useRef<MapRef | null>(null);
     // v377: debounce handle for persisting the viewport to localStorage.
     const viewportPersistTimer = useRef<number | null>(null);
@@ -1391,22 +1400,22 @@ export function Map({ className }: MapProps) {
                 for (const t of radarTargets) {
                     const center: [number, number] = [t.lng, t.lat];
                     // Perimeter points along the trail arc, head → tail.
+                    // v895 perf: this ran `turf.destination` (a full geodesic
+                    // solve) ~25×/target EVERY rAF frame — continuous CPU/heat
+                    // while a radar question is pending. Replaced with an inline
+                    // equirectangular offset (bearing clockwise from north),
+                    // which is visually identical at these km-scale radii and
+                    // ~10× cheaper. Per-target deg-per-km factors are constant.
+                    const DEG = Math.PI / 180;
+                    const kmPerDegLat = 111.195;
+                    const kmPerDegLng =
+                        111.195 * Math.cos(t.lat * DEG) || 111.195;
                     const perim: [number, number][] = [];
                     for (let i = 0; i <= SWEEP_SEGMENTS; i++) {
-                        const bearing = headDeg - i * step;
-                        try {
-                            const p = turf.destination(
-                                center,
-                                t.radiusKm,
-                                bearing,
-                                { units: "kilometers" },
-                            );
-                            perim.push(
-                                p.geometry.coordinates as [number, number],
-                            );
-                        } catch {
-                            perim.push(center);
-                        }
+                        const b = (headDeg - i * step) * DEG;
+                        const dLat = (t.radiusKm / kmPerDegLat) * Math.cos(b);
+                        const dLng = (t.radiusKm / kmPerDegLng) * Math.sin(b);
+                        perim.push([t.lng + dLng, t.lat + dLat]);
                     }
                     // Fan of thin wedges [centre, perim[i], perim[i+1]],
                     // brightness fading from the head (a=1) to the tail.
@@ -2517,9 +2526,8 @@ export function Map({ className }: MapProps) {
                     pattern so the multiplayer / autosave bridge
                     fires the same way. Click-to-edit dialog is
                     next. */}
-                {$questions
-                    .flatMap((q) => questionMarkers(q))
-                    .map(({ id, questionKey, slot, lat, lng, color, label }) => (
+                {questionMarkerList.map(
+                    ({ id, questionKey, slot, lat, lng, color, label }) => (
                         <Marker
                             key={id}
                             longitude={lng}
