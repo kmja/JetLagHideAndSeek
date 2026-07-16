@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v912`. Use `git log` for the per-version detail;
+build stamp. Current: `v913`. Use `git log` for the per-version detail;
+
+**v913 — warmer synth + plug-and-play sampled-audio path.** Two changes to
+`src/lib/sound.ts` after "the synth is too 8-bit" feedback. (1) The procedural
+recipes were WARMED UP: softer attacks, low-pass-rounded tones (added `lp` to
+the tone primitive), sine/triangle blends instead of raw saw/square, and a
+**shared convolution reverb** (`ConvolverNode` fed a synthetic decaying-noise
+impulse; each synth voice sends a wet copy through it) so the sounds read as
+polished UI blips rather than chiptune. Still synthetic — samples are the real
+path to realism. (2) A **sampled-file source** now takes priority per beat:
+`SOUND_FILES: Partial<Record<SoundName,string>>` (EMPTY by default → no 404
+probes) registers a file per beat; `preloadSoundFiles()` (fired on the unlock
+gesture) decodes them into `AudioBuffer`s, and `play()` uses the buffer if
+present (played DRY — produced files don't want the synth reverb), else the
+synth. So dropping a CC0 file into `public/sounds/` and adding one line to
+`SOUND_FILES` upgrades a beat to real audio, with automatic synth fallback if a
+file is missing/fails. **`public/sounds/README.md`** documents the drop-in flow
++ recommended free sources (Kenney.nl CC0 is the best fit — dice/card/UI packs,
+no attribution, commercial-OK; Mixkit/Pixabay for the fanfare). No files are
+bundled yet — every beat still uses the (warmer) synth until files are added.
 
 **v912 — cards are ONE scale-invariant layout (mini = full card shrunk, like a
 resized photo).** Supersedes the v910 vertical-centering. `CardTile` no longer
