@@ -223,6 +223,7 @@ export function QuestionOverlayCard({
     right,
     answered = false,
     error = false,
+    flat = false,
     onClick,
     ariaLabel,
     className,
@@ -237,6 +238,11 @@ export function QuestionOverlayCard({
     answered?: boolean;
     /** Failed-to-send state: red icon block + label + border, alert icon. */
     error?: boolean;
+    /** Drop the big lift shadow. The `shadow-xl` reads well when the card
+     *  floats OVER the map (the on-map overlays), but looks heavy inside a
+     *  drawer / dialog / list — those callers pass `flat` so the border
+     *  alone separates the card. (v892) */
+    flat?: boolean;
     onClick?: () => void;
     ariaLabel?: string;
     className?: string;
@@ -303,7 +309,7 @@ export function QuestionOverlayCard({
                 // variants) so the gallery can preview both. Sharp corners,
                 // fixed height so the icon block resolves to a square.
                 "pointer-events-auto relative flex items-stretch overflow-hidden h-[4.5rem]",
-                "shadow-xl border",
+                flat ? "border" : "shadow-xl border",
                 "bg-[var(--overlay-card)] text-[color:var(--overlay-card-fg)] border-[color:var(--overlay-card-border)]",
                 interactive &&
                     "cursor-pointer select-none active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

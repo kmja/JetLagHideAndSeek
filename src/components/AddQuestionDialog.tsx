@@ -236,6 +236,7 @@ const SubtypeTile = ({
     return (
         <QuestionOverlayCard
             categoryId={category}
+            flat
             summary={{
                 bigLabel: subtype.label,
                 detail: blockedReason ?? subtype.description,
@@ -284,6 +285,7 @@ const CategoryTile = ({
     return (
         <QuestionOverlayCard
             categoryId={category}
+            flat
             summary={{
                 bigLabel: meta.label,
                 detail: blockedReason ?? description,
@@ -1101,7 +1103,11 @@ export const AddQuestionDialog = ({
                             return (
                                 <>
                                     <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
-                                        <DrawerTitle className="flex items-center gap-2">
+                                        {/* Back button + a title/description
+                                            COLUMN so the description aligns
+                                            with the title (v892: the category
+                                            icon block was removed). */}
+                                        <div className="flex items-start gap-2">
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -1111,7 +1117,7 @@ export const AddQuestionDialog = ({
                                                 aria-label="Back to categories"
                                                 title="Back to categories"
                                                 className={cn(
-                                                    "inline-flex items-center justify-center w-7 h-7 rounded shrink-0",
+                                                    "inline-flex items-center justify-center w-7 h-7 rounded shrink-0 mt-0.5",
                                                     "bg-secondary text-foreground hover:bg-accent",
                                                     "border border-border transition-colors",
                                                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -1122,35 +1128,23 @@ export const AddQuestionDialog = ({
                                                     strokeWidth={2.5}
                                                 />
                                             </button>
-                                            <span
-                                                className="inline-flex items-center justify-center w-11 h-11 rounded-md shrink-0 shadow-sm"
-                                                style={{
-                                                    backgroundColor: meta.color,
-                                                }}
-                                            >
-                                                <meta.icon
-                                                    size={22}
-                                                    strokeWidth={2.5}
-                                                    className="text-white"
-                                                />
-                                            </span>
-                                            {/* Match the picker tiles + on-map
-                                                overlays (v873): big bold
-                                                uppercase label in the deepened
-                                                category colour. */}
-                                            <span
-                                                className="font-poppins font-extrabold uppercase tracking-tight text-xl leading-none"
-                                                style={{
-                                                    color: deepColor(meta.color),
-                                                }}
-                                            >
-                                                {meta.label}
-                                            </span>
-                                        </DrawerTitle>
-                                        <DrawerDescription>
-                                            {template ??
-                                                `Pick a ${meta.label.toLowerCase()} type.`}
-                                        </DrawerDescription>
+                                            <div className="min-w-0 flex-1">
+                                                <DrawerTitle
+                                                    className="font-poppins font-extrabold uppercase tracking-tight text-xl leading-none"
+                                                    style={{
+                                                        color: deepColor(
+                                                            meta.color,
+                                                        ),
+                                                    }}
+                                                >
+                                                    {meta.label}
+                                                </DrawerTitle>
+                                                <DrawerDescription className="mt-1.5 text-sm text-muted-foreground leading-snug">
+                                                    {template ??
+                                                        `Pick a ${meta.label.toLowerCase()} type.`}
+                                                </DrawerDescription>
+                                            </div>
+                                        </div>
                                     </div>
                                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
                                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

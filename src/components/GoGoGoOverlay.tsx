@@ -184,38 +184,40 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
             <div
                 className="absolute inset-0 bg-background"
                 style={{
+                    // v892: more SEVERE dim across the countdown (the lobby
+                    // dissolves harder behind each step) then fully at GO.
                     opacity: dismissing
                         ? 0
                         : inGo
-                          ? 0.96
-                          : // countdown: 3 → clear-ish, 2 → half, 1 → mostly dim
+                          ? 0.97
+                          : // countdown: 3 → already heavy, 2 → most, 1 → nearly opaque
                             count >= 3
-                            ? 0.12
+                            ? 0.4
                             : count === 2
-                              ? 0.34
-                              : 0.58,
+                              ? 0.66
+                              : 0.85,
                     // backdrop-filter blurs the lobby behind this layer; ramp it
-                    // up in step with the dim.
+                    // up hard in step with the dim.
                     backdropFilter: dismissing
                         ? "blur(0px)"
                         : inGo
-                          ? "blur(4px)"
+                          ? "blur(10px)"
                           : count >= 3
-                            ? "blur(0.5px)"
+                            ? "blur(3px)"
                             : count === 2
-                              ? "blur(1.5px)"
-                              : "blur(2.5px)",
+                              ? "blur(6px)"
+                              : "blur(9px)",
                     WebkitBackdropFilter: dismissing
                         ? "blur(0px)"
                         : inGo
-                          ? "blur(4px)"
+                          ? "blur(10px)"
                           : count >= 3
-                            ? "blur(0.5px)"
+                            ? "blur(3px)"
                             : count === 2
-                              ? "blur(1.5px)"
-                              : "blur(2.5px)",
+                              ? "blur(6px)"
+                              : "blur(9px)",
                     transition:
-                        "opacity 220ms ease-out, backdrop-filter 220ms ease-out, -webkit-backdrop-filter 220ms ease-out",
+                        "opacity 400ms ease-out, backdrop-filter 400ms ease-out, -webkit-backdrop-filter 400ms ease-out",
                 }}
             />
             {dismissing ? null : !inGo ? (

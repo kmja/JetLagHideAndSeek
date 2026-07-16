@@ -396,6 +396,7 @@ export const QuestionCard = ({
                     configure dialog (`forceExpanded`) keeps it static. */}
                 <QuestionOverlayCard
                     categoryId={category ?? ""}
+                    flat
                     summary={headerSummary}
                     eyebrow={eyebrow}
                     error={lifecycle === "not-sent"}

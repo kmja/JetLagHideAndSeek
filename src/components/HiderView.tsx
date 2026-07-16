@@ -337,6 +337,7 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
             </DialogDescription>
             <QuestionOverlayCard
                 categoryId={question.id}
+                flat
                 summary={summarizeQuestion({
                     id: question.id,
                     data: question.data as Record<string, unknown>,

@@ -126,6 +126,7 @@ function WaitingRow({ entry }: { entry: InboxEntry }) {
         <li>
             <QuestionOverlayCard
                 categoryId={entry.id}
+                flat
                 summary={summarizeQuestion({ id: entry.id, data: entry.data })}
                 eyebrow={
                     <span className="text-yellow-600 dark:text-yellow-400">
@@ -182,6 +183,7 @@ function AnsweredCard({ entry }: { entry: InboxEntry }) {
         <div className="space-y-2">
             <QuestionOverlayCard
                 categoryId={entry.id}
+                flat
                 summary={{ ...summary, detail: detail ?? undefined }}
                 answered
                 eyebrow={

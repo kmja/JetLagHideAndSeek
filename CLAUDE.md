@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v892`. Use `git log` for the per-version detail;
+build stamp. Current: `v893`. Use `git log` for the per-version detail;
+
+**v893 — subtype-picker header cleanup, flat question cards in
+drawers/dialogs, more-intense countdown dim/blur.**
+- **Subtype-picker drawer header (`AddQuestionDialog`):** the category
+  icon block was REMOVED; the title + description are now a COLUMN beside
+  the back button, so the "Is your nearest ___…" line aligns with the
+  "MATCHING" title instead of hanging at the far-left edge.
+- **`QuestionOverlayCard` gained a `flat` prop** — drops the `shadow-xl`
+  lift (keeps the border). The heavy shadow reads well when the card floats
+  OVER the map (the on-map overlays keep it) but looks wrong inside a
+  drawer/dialog/list, so those callers pass `flat`: the add-question
+  category + subtype picker tiles (`AddQuestionDialog`), the collapsed
+  question card + configure-dialog header (`cards/base.tsx`), the hider
+  Questions-drawer awaiting/answered cards (`HiderQuestionLog`), and the
+  hider answer-dialog banner (`HiderView`). The on-map overlays
+  (`PendingAnswerOverlay`, `HiderUnansweredOverlay`, `ThermometerOverlay`,
+  `HiderZoneHint`) keep the shadow.
+- **Countdown dim/blur made more SEVERE** (correcting v892's speed-up which
+  wasn't the ask): backdrop opacity now 0.4 → 0.66 → 0.85 across 3/2/1
+  (was 0.12/0.34/0.58), blur 3 → 6 → 9 px (was 0.5/1.5/2.5), GO at 0.97 /
+  blur-10; transition eased back to 400ms — the lobby dissolves hard behind
+  the countdown.
 
 **v892 — lobby header polish, settings cleanup, follow-me fix, faster
 countdown dim, preload total reconciliation.**
