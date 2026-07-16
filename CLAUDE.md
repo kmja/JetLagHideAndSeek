@@ -428,7 +428,28 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v894`. Use `git log` for the per-version detail;
+build stamp. Current: `v895`. Use `git log` for the per-version detail;
+
+**v895 — hider POIs reworked: native basemap field + highlight-dots +
+searchable type list.** Replaces the v888/v894 custom-dot field.
+- **The POI FIELD is now the basemap's NATIVE Protomaps `pois` layer**
+  (icons + names) rather than custom dots. `protomapsMapLibreStyle(theme,
+  {keepPois})` keeps the `pois` layer (normally dropped in
+  `curatedBasemapLayers`); `HiderBackgroundMap` builds its style with
+  `keepPois:true` and toggles the layer's `visibility` at runtime
+  (`setLayoutProperty`, re-applied on `styledata`) from the `hiderPoiShow`
+  master toggle.
+- **DOTS are now ONLY for HIGHLIGHTED types** — `HiderPoiOverlay` draws bold
+  group-coloured dots + labels for the kinds in `hiderPoiHighlightKinds`
+  (multi-select, was a single `hiderPoiHighlightKind`), read from the pmtiles
+  `pois` source-layer (Overpass-free), so "where are all the supermarkets"
+  pops over the native field.
+- **Map-drawer POI control** (`HiderMapDisplayControls` `HiderPoiSection`): a
+  "Show places" master toggle (native field) + a **searchable dropdown LIST**
+  of every POI type — a search box filters the list, and tapping a row toggles
+  that type into the highlight set (checkbox + group-colour dot). A "Clear N
+  highlighted" reset appears when any are on. Active-count badge counts a
+  non-empty highlight set.
 
 **v894 — game view LOADS during the countdown again (lobby hoisted, no
 reload) + lobby size-pill sizing.**

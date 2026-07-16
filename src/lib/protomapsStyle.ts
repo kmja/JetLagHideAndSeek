@@ -168,13 +168,21 @@ export type ProtomapsTheme =
  * URL without a page reload.
  */
  
-export function protomapsMapLibreStyle(theme: ProtomapsTheme = "light"): any {
+export function protomapsMapLibreStyle(
+    theme: ProtomapsTheme = "light",
+    opts: { keepPois?: boolean } = {},
+): any {
     registerPMTilesProtocol();
     registerMergeProtocol();
     probePmtilesAvailability();
     const flavor = namedFlavor(theme);
+    // v894: the hider map passes `keepPois` so the basemap's NATIVE `pois`
+    // symbol layer (icons + names) renders — the hider's "places in my zone"
+    // field uses the built-in Protomaps POI rendering instead of custom dots.
+    // Its visibility is then toggled at runtime via `setLayoutProperty`.
     const layers = curatedBasemapLayers(
         protomapsLayers(PROTOMAPS_SOURCE_ID, flavor, { lang: "en" }),
+        { keepPois: opts.keepPois },
     );
     const url = pmtilesUrl.get();
     // v336: when a city tile pack is active, route the basemap source
@@ -285,7 +293,15 @@ export function installMissingImageHandler(map: maplibregl.Map): void {
  */
 const DROPPED_LAYER_IDS = new Set<string>(["pois", "roads_rail"]);
 
- 
-function curatedBasemapLayers(stock: any[]): any[] {
-    return stock.filter((layer) => !DROPPED_LAYER_IDS.has(layer.id));
+
+function curatedBasemapLayers(
+    stock: any[],
+    opts: { keepPois?: boolean } = {},
+): any[] {
+    return stock.filter((layer) => {
+        // Keep the native `pois` layer when the caller asks (the hider map);
+        // it's added hidden and toggled at runtime.
+        if (layer.id === "pois") return Boolean(opts.keepPois);
+        return !DROPPED_LAYER_IDS.has(layer.id);
+    });
 }

@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import type { LucideIcon } from "lucide-react";
 import {
+    Check,
     Loader2,
     Map as MapIcon,
     MapPin,
@@ -25,13 +26,11 @@ import {
     transitRoutesLoading,
 } from "@/lib/gameSetup";
 import {
-    HIDER_POI_BY_KIND,
     HIDER_POI_CATALOG,
     HIDER_POI_GROUPS,
-    hiderPoiHighlightKind,
+    hiderPoiHighlightKinds,
     hiderPoiShow,
 } from "@/lib/hiderPois";
-import { hidingZone } from "@/lib/hiderRole";
 import { hiderReachLoading, showHiderReach } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
@@ -68,7 +67,7 @@ export function useHiderMapOptionsActiveCount(): number {
     const $tram = useStore(showTramRoutes);
     const $allowedTransit = useStore(allowedTransit);
     const $reach = useStore(showHiderReach);
-    const $poiHighlight = useStore(hiderPoiHighlightKind);
+    const $poiHighlight = useStore(hiderPoiHighlightKinds);
 
     const showSubwayBtn = $allowedTransit.includes("subway");
     const showBusBtn = $allowedTransit.includes("bus");
@@ -79,7 +78,7 @@ export function useHiderMapOptionsActiveCount(): number {
     return (
         (Number($satellite) || 0) +
         (Number($reach) || 0) +
-        (Number($poiHighlight !== "") || 0) +
+        (Number($poiHighlight.length > 0) || 0) +
         (Number($subway && showSubwayBtn) || 0) +
         (Number($bus && showBusBtn) || 0) +
         (Number($ferry && showFerryBtn) || 0) +
@@ -341,19 +340,18 @@ export function HiderMapOptionsDrawer() {
 }
 
 /**
- * Points-of-interest controls. Once the hider commits a zone, the useful
- * POI field (cafes / shops / toilets / parks…) is drawn AUTOMATICALLY
- * within that zone, straight from the basemap pmtiles (Overpass-free, via
- * `HiderPoiOverlay`). A master toggle turns the whole field off; a SEARCH
- * field HIGHLIGHTS one kind (e.g. supermarkets) so the hider sees where
- * all of them in their zone are at a glance.
+ * Points-of-interest controls (v894). A master toggle shows/hides the
+ * basemap's NATIVE POI field (icons + names). Below it, a searchable
+ * dropdown LIST of every POI type the basemap carries — a search box filters
+ * the list, and toggling a type adds it to the HIGHLIGHT set, drawn as bold
+ * group-coloured DOTS by `HiderPoiOverlay` so "where are all the X" pops.
  */
 function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
     const $show = useStore(hiderPoiShow);
-    const $highlight = useStore(hiderPoiHighlightKind);
-    const $zone = useStore(hidingZone);
+    const $highlight = useStore(hiderPoiHighlightKinds);
     const [query, setQuery] = useState("");
 
+    const highlightSet = new Set($highlight);
     const q = query.trim().toLowerCase();
     const results = q
         ? HIDER_POI_CATALOG.filter(
@@ -361,26 +359,25 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                   d.label.toLowerCase().includes(q) ||
                   d.kind.includes(q) ||
                   HIDER_POI_GROUPS[d.group].label.toLowerCase().includes(q),
-          ).slice(0, 8)
-        : [];
+          )
+        : HIDER_POI_CATALOG;
 
-    const highlightDef = $highlight ? HIDER_POI_BY_KIND[$highlight] : null;
     const inputH = roomy ? "h-11" : "h-9";
     const rowH = roomy ? "h-12" : "h-9";
     const rowText = roomy ? "text-sm" : "text-xs";
 
-    const pickHighlight = (kind: string) => {
-        hiderPoiHighlightKind.set(kind);
-        // Turning on a highlight implies the field should be visible.
-        if (!hiderPoiShow.get()) hiderPoiShow.set(true);
-        setQuery("");
+    const toggleHighlight = (kind: string) => {
+        const set = new Set(hiderPoiHighlightKinds.get());
+        if (set.has(kind)) set.delete(kind);
+        else set.add(kind);
+        hiderPoiHighlightKinds.set([...set]);
     };
 
     return (
         <div className="space-y-2">
             <div className={label}>Points of interest</div>
 
-            {/* Master on/off for the in-zone POI field. */}
+            {/* Master on/off for the native POI field. */}
             <button
                 type="button"
                 onClick={() => hiderPoiShow.set(!$show)}
@@ -394,54 +391,22 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                         : "bg-secondary border-border text-muted-foreground hover:bg-accent",
                 )}
             >
-                <MapPin className={cn(roomy ? "w-5 h-5" : "w-3.5 h-3.5", "shrink-0")} />
+                <MapPin
+                    className={cn(roomy ? "w-5 h-5" : "w-3.5 h-3.5", "shrink-0")}
+                />
                 <span className={cn("font-poppins font-semibold", rowText)}>
-                    Places in my zone
+                    Show places
                 </span>
             </button>
 
-            {!$zone && (
-                <p className="text-[11px] text-muted-foreground px-0.5 leading-snug">
-                    Commit a hiding zone to see the places inside it.
-                </p>
-            )}
-
-            {/* Active highlight chip. */}
-            {highlightDef && (
-                <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">
-                        Highlighting
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-primary bg-primary/10 pl-2.5 pr-1.5 py-1 text-xs font-medium text-primary">
-                        <span
-                            className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{
-                                backgroundColor:
-                                    HIDER_POI_GROUPS[highlightDef.group].color,
-                            }}
-                            aria-hidden="true"
-                        />
-                        {highlightDef.label}
-                        <button
-                            type="button"
-                            onClick={() => hiderPoiHighlightKind.set("")}
-                            aria-label="Clear highlight"
-                            className="text-primary/70 hover:text-primary"
-                        >
-                            <X className="w-3.5 h-3.5" />
-                        </button>
-                    </span>
-                </div>
-            )}
-
-            {/* Search to highlight one kind (e.g. supermarkets). */}
+            {/* Searchable type list — toggle any number to HIGHLIGHT as dots. */}
             <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <input
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Highlight a place type (supermarket, library…)"
+                    placeholder="Highlight places (search: supermarket, library…)"
                     className={cn(
                         "w-full rounded-lg border-2 border-border bg-secondary pl-8 pr-3 text-sm",
                         "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -449,38 +414,67 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                     )}
                 />
             </div>
-            {results.length > 0 && (
-                <div className="flex flex-col gap-1 rounded-lg border border-border bg-background/60 p-1">
-                    {results.map((d) => (
-                        <button
-                            key={d.kind}
-                            type="button"
-                            onClick={() => pickHighlight(d.kind)}
-                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-                        >
-                            <span
-                                className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{
-                                    backgroundColor:
-                                        HIDER_POI_GROUPS[d.group].color,
-                                }}
-                                aria-hidden="true"
-                            />
-                            <span className="flex-1 min-w-0 truncate">
-                                {d.label}
-                            </span>
-                            <span className="text-[11px] text-muted-foreground">
-                                {HIDER_POI_GROUPS[d.group].label}
-                            </span>
-                        </button>
-                    ))}
-                </div>
-            )}
-            {q && results.length === 0 && (
-                <p className="text-[11px] text-muted-foreground px-0.5">
-                    No matching place type — try &quot;cafe&quot;,
-                    &quot;museum&quot;, &quot;park&quot;…
-                </p>
+            <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background/60 p-1 flex flex-col gap-0.5">
+                {results.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground px-2 py-2">
+                        No matching place type.
+                    </p>
+                ) : (
+                    results.map((d) => {
+                        const on = highlightSet.has(d.kind);
+                        return (
+                            <button
+                                key={d.kind}
+                                type="button"
+                                onClick={() => toggleHighlight(d.kind)}
+                                aria-pressed={on}
+                                className={cn(
+                                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                                    on
+                                        ? "bg-primary/10 text-primary"
+                                        : "hover:bg-accent",
+                                )}
+                            >
+                                <span
+                                    className="inline-flex items-center justify-center w-4 h-4 rounded-sm shrink-0"
+                                    style={{
+                                        backgroundColor: on
+                                            ? HIDER_POI_GROUPS[d.group].color
+                                            : "transparent",
+                                        border: on
+                                            ? undefined
+                                            : "1.5px solid hsl(var(--border))",
+                                    }}
+                                    aria-hidden="true"
+                                >
+                                    {on && <Check className="w-3 h-3 text-white" />}
+                                </span>
+                                <span className="flex-1 min-w-0 truncate">
+                                    {d.label}
+                                </span>
+                                <span
+                                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                                    style={{
+                                        backgroundColor:
+                                            HIDER_POI_GROUPS[d.group].color,
+                                    }}
+                                    aria-hidden="true"
+                                    title={HIDER_POI_GROUPS[d.group].label}
+                                />
+                            </button>
+                        );
+                    })
+                )}
+            </div>
+            {$highlight.length > 0 && (
+                <button
+                    type="button"
+                    onClick={() => hiderPoiHighlightKinds.set([])}
+                    className="text-[11px] text-muted-foreground hover:text-foreground px-0.5 inline-flex items-center gap-1"
+                >
+                    <X className="w-3 h-3" />
+                    Clear {$highlight.length} highlighted
+                </button>
             )}
         </div>
     );

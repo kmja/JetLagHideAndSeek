@@ -13,10 +13,12 @@ import { persistentAtom } from "@nanostores/persistent";
  * basemap encodes (see `@protomaps/basemaps` `base_layers.ts` pois
  * filter), grouped + coloured the way the flavour groups them.
  *
- * Behaviour (v888): once the hider commits a zone, the POI field is shown
- * AUTOMATICALLY within that zone (`hiderPoiShow`, default on). The map
- * drawer's search lets the hider HIGHLIGHT one kind (e.g. "supermarket")
- * — matching POIs pop while the rest dim (`hiderPoiHighlightKind`).
+ * Behaviour (v894): the POI FIELD renders via the basemap's NATIVE Protomaps
+ * `pois` layer (icons + names), toggled by `hiderPoiShow` (default on). The
+ * map drawer's searchable type list lets the hider toggle any number of kinds
+ * to HIGHLIGHT — those are drawn as bold group-coloured DOTS by
+ * `HiderPoiOverlay` (`hiderPoiHighlightKinds`), so "where are all the X"
+ * stands out over the native field.
  */
 
 export type HiderPoiGroup =
@@ -112,29 +114,9 @@ export function hiderPoiColor(kind: string): string {
 }
 
 /**
- * Groups whose POIs are drawn ALWAYS (once the hider commits a zone). The
- * `transit` group is excluded from the always-on field — those stops are
- * already the Hiding-zones overlay — but they stay HIGHLIGHTABLE via
- * search (a highlighted transit kind is drawn even though the base field
- * skips it).
- */
-export const HIDER_POI_ALWAYS_GROUPS: HiderPoiGroup[] = [
-    "food",
-    "retail",
-    "civic",
-    "culture",
-    "nature",
-];
-
-/** Whether a kind is part of the always-on in-zone field. */
-export function hiderPoiAlwaysShown(kind: string): boolean {
-    const def = HIDER_POI_BY_KIND[kind];
-    return !!def && HIDER_POI_ALWAYS_GROUPS.includes(def.group);
-}
-
-/**
- * Master toggle for the in-zone POI field. Default ON — once the hider
- * commits a zone, the places inside it show automatically. Persisted.
+ * Master toggle for the in-zone POI FIELD — the basemap's NATIVE Protomaps
+ * `pois` layer (icons + names), shown/hidden on the hider map (v894). Default
+ * ON. Persisted.
  */
 export const hiderPoiShow = persistentAtom<boolean>("hiderPoiShow", true, {
     encode: (v) => JSON.stringify(v),
@@ -142,11 +124,23 @@ export const hiderPoiShow = persistentAtom<boolean>("hiderPoiShow", true, {
 });
 
 /**
- * The single POI kind the hider is HIGHLIGHTING via search (e.g.
- * "supermarket") — matching POIs in the zone pop while the rest dim.
- * Empty string = no highlight. Persisted.
+ * The POI kinds the hider has toggled ON to HIGHLIGHT — drawn as bold
+ * group-coloured DOTS by `HiderPoiOverlay` (v894: multi-select, was a single
+ * string). Chosen from the map drawer's searchable type list. Persisted.
  */
-export const hiderPoiHighlightKind = persistentAtom<string>(
-    "hiderPoiHighlightKind",
-    "",
+export const hiderPoiHighlightKinds = persistentAtom<string[]>(
+    "hiderPoiHighlightKinds",
+    [],
+    { encode: JSON.stringify, decode: safeParseKinds },
 );
+
+function safeParseKinds(v: string): string[] {
+    try {
+        const parsed = JSON.parse(v);
+        return Array.isArray(parsed)
+            ? parsed.filter((k) => typeof k === "string")
+            : [];
+    } catch {
+        return [];
+    }
+}

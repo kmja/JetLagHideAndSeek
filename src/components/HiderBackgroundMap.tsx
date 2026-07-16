@@ -38,6 +38,7 @@ import {
     polyGeoJSON,
 } from "@/lib/context";
 import { stationLabelMaxChars } from "@/lib/debugState";
+import { hiderPoiShow } from "@/lib/hiderPois";
 import {
     allowedTransit,
     hidingPeriodEndsAt,
@@ -210,6 +211,30 @@ export function HiderBackgroundMap() {
         map.easeTo({ center: [$gps.lng, $gps.lat], duration: 600 });
     }, [$followMe, $gps]);
 
+    // v894: toggle the basemap's NATIVE `pois` layer (kept in the style via
+    // `keepPois`) to show/hide the hider's in-zone points-of-interest field.
+    // Re-applies on style (re)load since a new style resets layer visibility.
+    const $hiderPoiShow = useStore(hiderPoiShow);
+    useEffect(() => {
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const apply = () => {
+            if (!map.getLayer("pois")) return;
+            map.setLayoutProperty(
+                "pois",
+                "visibility",
+                $hiderPoiShow ? "visible" : "none",
+            );
+        };
+        apply();
+        // `styledata` fires when the style finishes loading (initial mount)
+        // and on every theme/style swap — re-apply so the toggle survives.
+        map.on("styledata", apply);
+        return () => {
+            map.off("styledata", apply);
+        };
+    }, [$hiderPoiShow]);
+
     // Play-area boundary fetch — shared with the seeker map via
     // usePlayAreaBoundary (was a thinner single-attempt copy here,
     // v394; now identical 2-attempt + clip + toast behaviour).
@@ -312,7 +337,13 @@ export function HiderBackgroundMap() {
     // flips to fallback bucket on probe failure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const mapStyle = useMemo(
-        () => protomapsMapLibreStyle($theme === "dark" ? "dark" : "light"),
+        () =>
+            protomapsMapLibreStyle($theme === "dark" ? "dark" : "light", {
+                // v894: keep the basemap's NATIVE POI layer so the hider's
+                // "places in my zone" field renders with the built-in
+                // Protomaps icons + names (visibility toggled below).
+                keepPois: true,
+            }),
         [$pmtilesUrl, $theme],
     );
 
