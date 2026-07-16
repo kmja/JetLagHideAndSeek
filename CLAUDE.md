@@ -428,7 +428,30 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v893`. Use `git log` for the per-version detail;
+build stamp. Current: `v894`. Use `git log` for the per-version detail;
+
+**v894 — game view LOADS during the countdown again (lobby hoisted, no
+reload) + lobby size-pill sizing.**
+- **The map is loaded by the time the GO-GO-GO card is dismissed.** v889
+  fixed the "lobby reloads mid-countdown" bug by keeping the lobby mounted
+  through the flourish and mounting the in-game shell only ON DISMISS — which
+  reintroduced v828's "the game view is still loading when I close GO-GO-GO".
+  Root fix: **`GameLobbyDialog` is now HOISTED to the top of `SeekerPage` /
+  `HiderPage`** — rendered ONCE, ABOVE the pre-game↔in-game branch — so arming
+  the clock at Start can swap to the in-game shell (which mounts + LOADS the
+  map DURING the 3-2-1 countdown, restoring v828) WITHOUT remounting the lobby
+  or reloading its `PlayAreaPreviewMap`. The branch guard is back to
+  `!clockArmed`; the shell is held `opacity-0` while `flourishActive` and fades
+  in (0→1) as the App-level GoGoGo cover fades out. The lobby is a body-portaled
+  drawer whose own `open` state (kept open through the flourish via
+  `gameStartOverLobby`) drives visibility, so one stable instance is correct.
+  `GameLobbyDialog` was removed from BOTH branches in each page and mounted once
+  above them; the singletons + other modals (RolePicker, GameSetupDialog,
+  GameStartWatcher — remount-safe via `gameStartFiredFor`) stay per-branch.
+- **Lobby size-pill sizing:** the game-size pill got an explicit `h-10` so it
+  matches the transit-icon pills + edit button (all 40px) — they were subtly
+  different heights (the pill was text-driven `py-2` ≈ 36px vs the 40px
+  `GLASS_PILL`s).
 
 **v893 — subtype-picker header cleanup, flat question cards in
 drawers/dialogs, more-intense countdown dim/blur.**

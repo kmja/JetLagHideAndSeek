@@ -103,31 +103,45 @@ export function HiderPage() {
     // (Lobby→in-game swap body-lock leftover is cleared globally by
     // installBodyPointerEventsGuard — see main.tsx.)
 
-    if (!clockArmed || flourishActive) {
-        return (
-            <div className="fixed inset-0 bg-jetlag overflow-hidden">
-                <Suspense fallback={null}>
-                    <GameLobbyDialog />
-                    <GameSetupDialog />
-                    <DebugPhaseControls />
-                    <StaleSessionPrompt />
-                    {/* v822: game-start flourish (GoGoGoOverlay) is mounted at
-                        the App level now. */}
-                </Suspense>
-                <AppConfirmHost />
-                <AppPromptHost />
-                <GameStartWatcher />
-                <MultiplayerBoot />
-            </div>
-        );
-    }
+    // Pre-game backdrop (lobby hoisted below so it never remounts).
+    const preGame = (
+        <div className="fixed inset-0 bg-jetlag overflow-hidden">
+            <Suspense fallback={null}>
+                <GameSetupDialog />
+                <DebugPhaseControls />
+                <StaleSessionPrompt />
+            </Suspense>
+            <AppConfirmHost />
+            <AppPromptHost />
+            <GameStartWatcher />
+            <MultiplayerBoot />
+        </div>
+    );
 
     return (
-        // v889: renders only once the flourish is over (the guard above keeps
-        // the lobby mounted while `flourishActive`), fading in as the GoGoGo
-        // overlay's cover fades out — a smooth reveal of the freshly-mounted
-        // hider map (basemap HTTP cache warmed by the lobby preview).
-        <div className="bg-background min-h-screen animate-in fade-in duration-500">
+        // v893: `GameLobbyDialog` is hoisted here — rendered ONCE, ABOVE the
+        // pre-game↔in-game branch — so arming the clock at Start swaps to the
+        // in-game shell (which mounts + LOADS the hider map during the 3-2-1
+        // countdown) WITHOUT remounting the lobby / reloading its preview map
+        // (the v889 mid-countdown "reload"). While the flourish plays the shell
+        // is held opacity-0 behind the App-level GoGoGo overlay, then fades in
+        // as the overlay's cover fades out — the map is already loaded by the
+        // time the GO-GO-GO card is dismissed. (See SeekerPage for the full
+        // rationale.)
+        <>
+            <Suspense fallback={null}>
+                <GameLobbyDialog />
+            </Suspense>
+            {!clockArmed ? (
+                preGame
+            ) : (
+        <div
+            className={cn(
+                "bg-background min-h-screen transition-opacity duration-500 ease-out",
+                flourishActive && "pointer-events-none",
+            )}
+            style={{ opacity: flourishActive ? 0 : 1 }}
+        >
             <HiderView />
             <MultiplayerBoot />
             <GameStartWatcher />
@@ -165,10 +179,9 @@ export function HiderPage() {
                 {/* Role picker — mounted here so the "Switch role"
                     button in the lobby has a dialog to consume
                     rolePickerOpen on /h too. */}
-                {/* Mid-game lobby reopen — drawer variant of the
-                    same component. Triggered by the Lobby slot in
-                    the bottom nav. */}
-                <GameLobbyDialog />
+                {/* Mid-game lobby reopen (GameLobbyDialog) is HOISTED to
+                    the top of this component (v893) so the pre-game↔in-game
+                    swap doesn't remount it — see the return comment. */}
                 {/* v822: GoGoGoOverlay mounted at App level now. */}
                 {/* Seeking-phase start moment (the hiding clock hit
                     zero). Mirror of the GO GO GO beat, fired for both
@@ -188,6 +201,8 @@ export function HiderPage() {
             {/* Manual game pause — full-screen curtain while paused. */}
             <GamePausedOverlay />
         </div>
+            )}
+        </>
     );
 }
 

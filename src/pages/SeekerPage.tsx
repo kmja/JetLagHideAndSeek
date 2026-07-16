@@ -182,50 +182,52 @@ export function SeekerPage() {
     // when the lobby drawer/dialog unmounted without closing — now cleared
     // globally by installBodyPointerEventsGuard.)
 
-    if (!clockArmed || flourishActive) {
-        return (
-            <div className="fixed inset-0 bg-jetlag overflow-hidden">
-                {/* v819: the hidden full-screen warmup `<Map>` that used to
-                    sit here (v338, to pre-warm the basemap HTTP cache during
-                    lobby time) was REMOVED. It was a SECOND live MapLibre
-                    WebGL context — on top of the lobby's own
-                    `PlayAreaPreviewMap`, which already warms the SAME
-                    basemap (PMTiles header + style + tiles) — so the pre-game
-                    lobby ran TWO GL contexts + a full seeker Map's worth of
-                    effects. On a constrained Chrome PWA, starting several
-                    games in a session leaked/accumulated contexts until the
-                    role picker FROZE (Chrome caps live WebGL contexts;
-                    Firefox tolerated it as mere sluggishness). One map
-                    pre-game (the preview) is enough for the warm; the in-game
-                    map still initialises against the warmed HTTP cache. */}
-                <Suspense fallback={null}>
-                    <GameLobbyDialog />
-                    <RolePicker />
-                    <GameSetupDialog />
-                    <DebugPhaseControls />
-                    <StaleSessionPrompt />
-                    {/* v822: the game-start flourish (GoGoGoOverlay) is mounted
-                        at the App level now, so it survives this branch swap
-                        and fades out over the loaded map. */}
-                </Suspense>
-                <AppConfirmHost />
-                <AppPromptHost />
-                <GameStartWatcher />
-                <MultiplayerBoot />
-            </div>
-        );
-    }
+    // Pre-game backdrop (lobby is hoisted below so it never remounts). The
+    // hidden warmup <Map> that used to sit here was removed in v819 (a second
+    // GL context froze constrained Chrome PWAs); the lobby's own
+    // PlayAreaPreviewMap warms the basemap HTTP cache.
+    const preGame = (
+        <div className="fixed inset-0 bg-jetlag overflow-hidden">
+            <Suspense fallback={null}>
+                <RolePicker />
+                <GameSetupDialog />
+                <DebugPhaseControls />
+                <StaleSessionPrompt />
+            </Suspense>
+            <AppConfirmHost />
+            <AppPromptHost />
+            <GameStartWatcher />
+            <MultiplayerBoot />
+        </div>
+    );
 
     const showMap = true;
 
     return (
-        // v889: the shell renders only once the flourish is OVER (the guard
-        // above keeps the lobby branch mounted while `flourishActive`), so it
-        // fades IN as the GoGoGo overlay's opaque cover fades out — a smooth
-        // reveal of the freshly-mounted map (basemap HTTP cache already warmed
-        // by the lobby preview). `animate-in fade-in` gives the mount a gentle
-        // fade rather than a hard cut.
-        <div className="bg-jetlag animate-in fade-in duration-500">
+        // v893: `GameLobbyDialog` is hoisted here — rendered ONCE, ABOVE the
+        // pre-game↔in-game branch — so arming the clock at Start can swap to
+        // the in-game shell (which mounts + LOADS the map during the 3-2-1
+        // countdown, v828) WITHOUT remounting the lobby / reloading its
+        // PlayAreaPreviewMap (the v889 mid-countdown "reload"). The lobby is a
+        // body-portaled drawer whose own `open` state (kept open through the
+        // flourish via `gameStartOverLobby`) drives visibility, so one stable
+        // instance is correct. While the flourish plays the shell is held
+        // opacity-0 behind the App-level GoGoGo overlay, then fades in (0→1) as
+        // the overlay's cover fades out — the map is already loaded by dismiss.
+        <>
+            <Suspense fallback={null}>
+                <GameLobbyDialog />
+            </Suspense>
+            {!clockArmed ? (
+                preGame
+            ) : (
+        <div
+            className={cn(
+                "bg-jetlag transition-opacity duration-500 ease-out",
+                flourishActive && "pointer-events-none",
+            )}
+            style={{ opacity: flourishActive ? 0 : 1 }}
+        >
             <SidebarProviderL>
                 <SidebarProviderR defaultOpen={false}>
                     <QuestionSidebar />
@@ -303,7 +305,6 @@ export function SeekerPage() {
                     <ZoneSidebar />
                     <Suspense fallback={null}>
                         <GameSetupDialog />
-                        <GameLobbyDialog />
                         <RolePicker />
                         <AnswerLinkReader />
                         <CurseInbox />
@@ -335,6 +336,8 @@ export function SeekerPage() {
                 </SidebarProviderR>
             </SidebarProviderL>
         </div>
+            )}
+        </>
     );
 }
 
