@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v909`. Use `git log` for the per-version detail;
+build stamp. Current: `v910`. Use `git log` for the per-version detail;
+
+**v910 — card body content is vertically centered (fills the tall 5:7 card).**
+`CardTile`'s three bodies (`TimeBonusBody`/`PowerupBody`/`CurseBody`) were
+top-aligned, so a sparse card (TIME BONUS · 3 MIN, or VETO QUESTION + two
+lines) clustered its content at the top and left the lower ~half of the poker
+(5:7) card an empty white void — glaring at the draw picker's ~76%-width card
+size (looked like a badly-proportioned oversized card). All three now vertically
+center: TimeBonus adds `justify-center`; Powerup/Curse wrap their icon/name/
+description group in a `min-h-full flex flex-col justify-center` inside the
+existing `overflow-y-auto` scroll box, so short content centers and a long
+description still scrolls from the top (the v306 safety net is preserved). Curse
+keeps its left horizontal alignment (the "CURSE OF THE …" name leads); the
+casting-cost stays pinned at the card bottom. Applies everywhere `CardTile`
+renders (draw picker, hand carousel, hand grid, discard pile, fan miniature).
 
 **v909 — hand card-play carousel is a translate-track peek-carousel (exact
 centering).** `HandCarousel` (`HiderHandFan`) — the full-screen sheet that

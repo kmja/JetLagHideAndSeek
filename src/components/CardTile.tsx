@@ -174,7 +174,11 @@ function TimeBonusBody({
     return (
         <div
             className={cn(
-                "flex-1 flex flex-col items-center text-center",
+                // v910: `justify-center` so the sparse title + minutes +
+                // hex fill the tall 5:7 card evenly instead of clustering
+                // at the top and leaving the lower half an empty void
+                // (glaring at the draw picker's ~76%-width card size).
+                "flex-1 flex flex-col items-center justify-center text-center",
                 compact ? "p-2.5" : "px-4 py-4",
             )}
         >
@@ -231,37 +235,38 @@ function PowerupBody({
                 compact ? "p-2.5" : "px-4 py-4",
             )}
         >
-            {/* Centered, bigger icon + centered title — matches the
-                physical powerup card layout where the hex icon and
-                title are the dominant elements at the top. */}
-            <div className="flex justify-center shrink-0">
-                <PowerupHexIcon
-                    powerup={card.powerup}
-                    size={compact ? 48 : 80}
-                />
-            </div>
-            <div
-                className={cn(
-                    "font-inter-tight font-black uppercase tracking-tight leading-[0.95] mt-3 text-center shrink-0",
-                    compact ? "text-sm" : "text-lg",
-                )}
-                style={{ color: NAVY }}
-            >
-                {card.name}
-            </div>
-            {!compact && (
-                // v306: scroll within the card if the description
-                // overflows the available body height (same as
-                // CurseBody).
-                <div className="flex-1 min-h-0 overflow-y-auto mt-2">
-                    <p
-                        className="text-[11px] leading-snug"
+            {/* v910: center the icon + title + description as one group so
+                a short-description powerup (e.g. Veto) fills the tall card
+                evenly instead of hugging the top. The `min-h-full`
+                wrapper inside the scroll box centers when the content is
+                short and scrolls normally from the top when it overflows. */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className="min-h-full flex flex-col items-center justify-center text-center">
+                    <div className="flex justify-center shrink-0">
+                        <PowerupHexIcon
+                            powerup={card.powerup}
+                            size={compact ? 48 : 80}
+                        />
+                    </div>
+                    <div
+                        className={cn(
+                            "font-inter-tight font-black uppercase tracking-tight leading-[0.95] mt-3 shrink-0",
+                            compact ? "text-sm" : "text-lg",
+                        )}
                         style={{ color: NAVY }}
                     >
-                        {renderBodyText(card.description, gameSize)}
-                    </p>
+                        {card.name}
+                    </div>
+                    {!compact && (
+                        <p
+                            className="text-[11px] leading-snug mt-2"
+                            style={{ color: NAVY }}
+                        >
+                            {renderBodyText(card.description, gameSize)}
+                        </p>
+                    )}
                 </div>
-            )}
+            </div>
         </div>
     );
 }
@@ -282,32 +287,33 @@ function CurseBody({
                 compact ? "p-2.5" : "p-3.5",
             )}
         >
-            <div
-                className={cn(
-                    "font-inter-tight font-black uppercase tracking-tight leading-[0.95]",
-                    compact ? "text-xs" : "text-sm",
-                )}
-                style={{ color: NAVY }}
-            >
-                {card.name}
-            </div>
-            {!compact && (
-                // v306: scroll-within-card safety net. With the
-                // poker aspect ratio in place (the carousel, hand
-                // grid, draw picker) some curses have descriptions
-                // long enough to overflow the available body
-                // height. Letting the inner column scroll keeps
-                // every word reachable without forcing the picker
-                // to grow taller than the viewport.
-                <div className="flex-1 min-h-0 overflow-y-auto mt-2">
-                    <p
-                        className="text-[11px] leading-snug"
+            {/* v910: center the name + description group vertically so a
+                short curse fills the tall card rather than hugging the
+                top. `min-h-full` centers short content and scrolls from
+                the top when the curse text overflows (the v306 safety
+                net). Horizontal alignment stays left — the "CURSE OF
+                THE …" name leads the card. */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className="min-h-full flex flex-col justify-center">
+                    <div
+                        className={cn(
+                            "font-inter-tight font-black uppercase tracking-tight leading-[0.95]",
+                            compact ? "text-xs" : "text-sm",
+                        )}
                         style={{ color: NAVY }}
                     >
-                        {renderBodyText(card.description, gameSize)}
-                    </p>
+                        {card.name}
+                    </div>
+                    {!compact && (
+                        <p
+                            className="text-[11px] leading-snug mt-2"
+                            style={{ color: NAVY }}
+                        >
+                            {renderBodyText(card.description, gameSize)}
+                        </p>
+                    )}
                 </div>
-            )}
+            </div>
             {!compact && card.castingCost && (
                 <p
                     className="text-[10px] leading-snug mt-2 pt-2 border-t border-zinc-200 shrink-0"
