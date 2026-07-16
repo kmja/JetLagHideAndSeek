@@ -825,7 +825,7 @@ export function GameLobbyDialog() {
                                             align="start"
                                             side="top"
                                             container={drawerEl}
-                                            className="z-[1060] w-auto p-1.5 flex flex-col gap-1.5"
+                                            className="z-[1060] w-auto p-0 bg-transparent border-0 shadow-none flex flex-col items-start gap-1.5"
                                         >
                                             {SIZE_OPTIONS.map((o) => (
                                                 <button
@@ -843,7 +843,7 @@ export function GameLobbyDialog() {
                                                 >
                                                     <SizeBadge
                                                         size={o.value}
-                                                        className="text-sm px-3 py-1.5"
+                                                        className="text-sm px-3 h-10 shadow-md"
                                                     />
                                                 </button>
                                             ))}

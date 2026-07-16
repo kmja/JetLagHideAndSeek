@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v897`. Use `git log` for the per-version detail;
+build stamp. Current: `v898`. Use `git log` for the per-version detail;
+
+**v898 — lobby game-size dropdown polish.** The host's size popover
+(`GameLobbyDialog`) had oversized, centred pills on a white `bg-popover`
+card that didn't match the map's trigger pill. The option pills now match
+the trigger exactly (`text-sm px-3 h-10 shadow-md`), the popover is
+`items-start` (left-aligned) with NO background/border/shadow
+(`bg-transparent border-0 shadow-none p-0`), so the size options read as
+bare pills floating over the map.
 
 **v897 — body-of-water: inland area wrongly "closer to water" fixed
 (`seaFromCoastline` face labelling).** The measuring body-of-water elimination
