@@ -498,6 +498,26 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
     };
 
     /**
+     * Fill the hand with a batch of DISTINCT random curses so every
+     * curse's cast flow (dice, discard cost, photo/film capture, Drained
+     * Brain's category picker, …) can be exercised in one go. Draws from a
+     * freshly shuffled deck — each curse has one copy, so slicing the
+     * shuffled curse pool gives distinct picks. Ignores the hand cap.
+     */
+    const fillHandWithCurses = (count = 6) => {
+        const deck = shuffledDeck();
+        const picks = deck.filter((c) => c.kind === "curse").slice(0, count);
+        if (picks.length === 0) return;
+        hiderHand.set([...hiderHand.get(), ...picks]);
+        toast.info(
+            `Added ${picks.length} random curse${
+                picks.length === 1 ? "" : "s"
+            } to your hand.`,
+            { autoClose: 2000 },
+        );
+    };
+
+    /**
      * Location to anchor a debug inbox question at: the bot seeker's MOST
      * RECENT live position (demo mode broadcasts `loc` into `seekerLocations`),
      * so an injected question reads as if that seeker asked it from where they
@@ -1106,6 +1126,16 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                         variant="primary"
                     >
                         + Curse with die-roll cost
+                    </DebugButton>
+                    {/* Batch-fill the hand with distinct random curses so
+                        the whole curse-cast flow (dice, discard cost,
+                        photo/film capture, Drained Brain picker, …) can be
+                        tested in one go. */}
+                    <DebugButton
+                        onClick={() => fillHandWithCurses()}
+                        variant="primary"
+                    >
+                        Fill hand with random curses
                     </DebugButton>
                 </Section>
 

@@ -428,7 +428,14 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v889`. Use `git log` for the per-version detail;
+build stamp. Current: `v890`. Use `git log` for the per-version detail;
+
+**v890 — debug: "Fill hand with random curses" button.** `DebugPhaseControls`
+`fillHandWithCurses(6)` adds a batch of DISTINCT random curses to the hider
+hand (slices the shuffled curse pool) so the whole cast flow — dice, discard
+cost, photo/film capture, Drained Brain picker — can be exercised in one go.
+Ignores the hand cap; syncs over the wire via the deck bridge like the other
+debug draws.
 
 **v889 — start-round countdown: the lobby no longer RELOADS mid-flourish;
 it dims + blurs progressively, then GO-GO-GO bursts.** The bug: the instant
