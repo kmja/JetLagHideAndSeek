@@ -47,6 +47,13 @@ const FLY_MS = 450;
 const FADE_MS = 600;
 const FINAL_HOLD_MS = 200;
 
+// v901 peek-carousel geometry: the active card is CARD_BASIS_PCT% of the
+// container width, centred, so PEEK_PCT% of each neighbour shows at the edges.
+// A horizontal drag past SWIPE_THRESHOLD px flicks to the neighbour.
+const CARD_BASIS_PCT = 76;
+const PEEK_PCT = (100 - CARD_BASIS_PCT) / 2;
+const SWIPE_THRESHOLD = 45;
+
 export function DrawPickerDialog() {
     const $pending = useStore(pendingDraw);
     const $gameSize = useStore(gameSize);
@@ -71,6 +78,17 @@ export function DrawPickerDialog() {
     // card centred at a time, prev/next) replaced the free-scroll carousel,
     // which snapped unreliably and didn't "lock on" to a card.
     const [viewIndex, setViewIndex] = useState(0);
+    // v901: peek-carousel — the active card is centred at ~76% width so the
+    // neighbours PEEK at the edges (scaled down + dimmed), and a swipe flicks
+    // between them. Live finger-follow via `dragDx` (px), snapping on release.
+    const [dragDx, setDragDx] = useState(0);
+    const [dragging, setDragging] = useState(false);
+    // Touch bookkeeping: start point + whether this gesture has moved enough
+    // to count as a SWIPE (so it suppresses the trailing tap → no accidental
+    // card select).
+    const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(
+        null,
+    );
 
     // Reset local picker state whenever a fresh draw arrives. Reset on
     // both the question key AND the card-id signature so re-draws for
@@ -215,43 +233,106 @@ export function DrawPickerDialog() {
                     from the {total} drawn. The rest are discarded.
                 </DialogDescription>
 
-                {/* v886: an index-based STEPPER — one card centred at a time,
-                    with prev/next arrows + dots. A translated track (not a
-                    free-scroll carousel) so the view always LOCKS onto exactly
-                    one card. */}
-                <div className="relative px-2 py-2">
-                    <div className="overflow-hidden">
+                {/* v901: peek-carousel — the active card is centred at
+                    CARD_BASIS% width so the neighbours peek at the edges
+                    (scaled down + dimmed); swipe flicks between them with a
+                    live finger-follow, snapping on release. A translated track
+                    (not free-scroll) still LOCKS onto exactly one card. */}
+                <div className="relative py-2">
+                    <div
+                        className="overflow-hidden"
+                        onTouchStart={(e) => {
+                            if (chromeFadeOn) return;
+                            const t = e.touches[0];
+                            dragRef.current = {
+                                x: t.clientX,
+                                y: t.clientY,
+                                moved: false,
+                            };
+                            setDragging(true);
+                        }}
+                        onTouchMove={(e) => {
+                            const d = dragRef.current;
+                            if (!d) return;
+                            const t = e.touches[0];
+                            const dx = t.clientX - d.x;
+                            const dy = t.clientY - d.y;
+                            // Only treat a clearly-horizontal drag as a swipe.
+                            if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+                                d.moved = true;
+                                setDragDx(dx);
+                            }
+                        }}
+                        onTouchEnd={() => {
+                            const dx = dragDx;
+                            setDragDx(0);
+                            setDragging(false);
+                            if (dx < -SWIPE_THRESHOLD && viewIndex < total - 1) {
+                                setViewIndex((i) => i + 1);
+                            } else if (dx > SWIPE_THRESHOLD && viewIndex > 0) {
+                                setViewIndex((i) => i - 1);
+                            }
+                        }}
+                    >
                         <div
-                            className="flex transition-transform duration-300 ease-out"
+                            className={cn(
+                                "flex",
+                                !dragging &&
+                                    "transition-transform duration-300 ease-out",
+                            )}
                             style={{
-                                transform: `translateX(-${viewIndex * 100}%)`,
+                                transform: `translateX(calc(${PEEK_PCT}% - ${
+                                    viewIndex * CARD_BASIS_PCT
+                                }% + ${dragDx}px))`,
                             }}
                         >
-                            {$pending.cards.map((card) => {
+                            {$pending.cards.map((card, i) => {
                                 const isSelected = selectedId === card.id;
                                 const isKept = keptIds.includes(card.id);
                                 const isFlying = flyingId === card.id;
                                 const isFading =
                                     chromeFadeOn && !isKept && !isFlying;
+                                const isActive = i === viewIndex;
                                 return (
                                     <div
                                         key={card.id}
-                                        className="w-full shrink-0 flex justify-center px-1"
+                                        className="shrink-0 flex justify-center px-1.5"
+                                        style={{ flexBasis: `${CARD_BASIS_PCT}%` }}
                                     >
-                                        <div className="w-full max-w-[15rem]">
+                                        <div
+                                            className={cn(
+                                                "w-full transition-all duration-300 ease-out",
+                                                isActive
+                                                    ? "scale-100 opacity-100"
+                                                    : "scale-[0.86] opacity-45",
+                                            )}
+                                        >
                                             <CardCell
                                                 card={card}
                                                 gameSize={$gameSize}
                                                 isSelected={isSelected}
+                                                isActive={isActive}
                                                 isKept={isKept}
                                                 isFlying={isFlying}
                                                 isFading={isFading}
                                                 disabled={
                                                     Boolean(flyingId) || finished
                                                 }
-                                                onTap={() =>
-                                                    handleCardTap(card.id)
-                                                }
+                                                onTap={() => {
+                                                    // A swipe suppresses the
+                                                    // trailing tap.
+                                                    if (dragRef.current?.moved) {
+                                                        dragRef.current.moved =
+                                                            false;
+                                                        return;
+                                                    }
+                                                    if (!isActive) {
+                                                        setViewIndex(i);
+                                                        setSelectedId(null);
+                                                        return;
+                                                    }
+                                                    handleCardTap(card.id);
+                                                }}
                                                 onConfirm={confirmSelected}
                                             />
                                         </div>
@@ -332,6 +413,7 @@ function CardCell({
     card,
     gameSize,
     isSelected,
+    isActive,
     isKept,
     isFlying,
     isFading,
@@ -342,6 +424,7 @@ function CardCell({
     card: import("@/lib/hiderDeck").Card;
     gameSize: GameSize;
     isSelected: boolean;
+    isActive: boolean;
     isKept: boolean;
     isFlying: boolean;
     isFading: boolean;
@@ -480,7 +563,7 @@ function CardCell({
                 a card doesn't push the grid around. Renders the
                 button only for the highlighted card. */}
             <div className="h-10 w-full flex items-center justify-center">
-                {isSelected && !isFlying && !isFading && !isKept && (
+                {isSelected && isActive && !isFlying && !isFading && !isKept && (
                     <Button
                         type="button"
                         size="sm"

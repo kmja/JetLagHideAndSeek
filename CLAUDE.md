@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v900`. Use `git log` for the per-version detail;
+build stamp. Current: `v901`. Use `git log` for the per-version detail;
+
+**v901 — draw-picker peek carousel + swipe.** The draw picker
+(`DrawPickerDialog`) went back to a CAROUSEL feel: the active card is centred
+at `CARD_BASIS_PCT` (76%) of the container so each neighbour PEEKS at the
+edges (scaled `0.86` + dimmed), and a horizontal SWIPE flicks between cards
+with a live finger-follow (`dragDx`), snapping on release past
+`SWIPE_THRESHOLD` (45 px). Tapping a peeking neighbour centres it; a swipe
+suppresses the trailing tap so it never accidentally selects. Keeps the v886
+lock-on reliability (translated track, not free-scroll) + the prev/next arrows
++ dot indicators + the fly-to-hand `position:fixed` escape. The confirm button
+shows only under the ACTIVE card (`isSelected && isActive`).
 
 **v900 — photo brush tool + zoomable answer map + POI drawer + lobby/text
 polish.**
