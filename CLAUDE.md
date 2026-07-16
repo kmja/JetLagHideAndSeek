@@ -428,7 +428,28 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v890`. Use `git log` for the per-version detail;
+build stamp. Current: `v891`. Use `git log` for the per-version detail;
+
+**v891 — boot watchdog: blank-screen self-heal for a stale PWA shell.** An
+installed PWA whose service worker serves a STALE app shell (a cached index
+referencing chunk hashes the latest deploy already replaced) fails to load
+the entry bundle → React never mounts → BLANK black/white screen, and NO
+in-app error boundary can help because no app code ran (the reported "Chrome
+PWA shows a blank screen while Firefox on the same phone works" — same JS, so
+it's environment/cache-specific, not a code bug). Existing `lazyWithRetry` +
+`MapErrorBoundary` only help AFTER the entry bundle loads; there was no
+boot-level safety net. Added an inline watchdog in `index.html` (runs before
+the module script so its listeners are armed): `main.tsx` sets
+`window.__APP_BOOTED` + calls `window.__cancelBootWatchdog()` the instant the
+entry executes; if that never happens within 12 s — or a SCRIPT/module-chunk
+`error`/`unhandledrejection` fires before boot — it drops the service worker
++ every Cache Storage entry and hard-reloads ONCE into a fresh, consistent
+shell. `sessionStorage`-guarded so it can never loop (a fresh shell that
+still fails is left alone). Only a failed SCRIPT counts (a failed font/CSS
+LINK is non-fatal → no false-positive cache nuke). The watchdog is precached
+into the shell, so future stale states self-heal; a CURRENTLY-bricked PWA
+recovers once its SW picks up this build (or via a manual "clear site data" /
+reinstall).
 
 **v890 — debug: "Fill hand with random curses" button.** `DebugPhaseControls`
 `fillHandWithCurses(6)` adds a batch of DISTINCT random curses to the hider

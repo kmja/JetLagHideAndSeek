@@ -40,3 +40,20 @@ createRoot(root).render(
         <App />
     </StrictMode>,
 );
+
+// Boot watchdog handshake (index.html). Reaching this line means the entry
+// bundle executed and React is rendering — so cancel the blank-screen
+// watchdog and clear its one-shot self-heal guard. If the entry chunk had
+// 404'd (a stale service-worker shell referencing a replaced hash — the
+// installed-PWA "blank screen" case), this code would never run and the
+// watchdog would drop the SW + caches and reload into a fresh shell. Any
+// failure AFTER this point is a lazy route chunk, handled by lazyWithRetry
+// + the root MapErrorBoundary (a recover card, never a blank screen).
+declare global {
+    interface Window {
+        __APP_BOOTED?: boolean;
+        __cancelBootWatchdog?: () => void;
+    }
+}
+window.__APP_BOOTED = true;
+window.__cancelBootWatchdog?.();

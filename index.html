@@ -427,6 +427,148 @@
     </head>
     <body>
         <div id="root"></div>
+        <!--
+            Boot watchdog + one-shot self-heal. An installed PWA whose
+            service worker is serving a STALE app shell (an index that
+            references chunk hashes the latest deploy already replaced)
+            fails to load the entry bundle → React never mounts → BLANK
+            screen, and no in-app error boundary can help because no app
+            code ran. This is exactly the "Chrome PWA shows a black/white
+            screen while the browser works" report. main.tsx sets
+            window.__APP_BOOTED once it executes; if that never happens
+            (or a script/chunk load errors before boot), we drop the
+            service worker + all caches and hard-reload ONCE into a fresh,
+            consistent shell. Guarded by sessionStorage so it can never
+            loop. Must run BEFORE the module script so its error listeners
+            are armed when the entry bundle loads.
+        -->
+        <script>
+            (function () {
+                var HEAL_KEY = "__jlhs_bootHeal";
+                var BOOT_TIMEOUT_MS = 12000;
+                var healing = false;
+
+                function selfHeal(reason) {
+                    if (healing || window.__APP_BOOTED) return;
+                    // Only self-heal once per session — if a fresh shell
+                    // STILL fails to boot, don't loop; leave it so the user
+                    // (or the error UI) can act.
+                    try {
+                        if (sessionStorage.getItem(HEAL_KEY)) return;
+                        sessionStorage.setItem(HEAL_KEY, String(Date.now()));
+                    } catch (e) {}
+                    healing = true;
+                    try {
+                        console.warn("[boot-heal] recovering:", reason);
+                    } catch (e) {}
+                    var reloaded = false;
+                    var reload = function () {
+                        if (reloaded) return;
+                        reloaded = true;
+                        window.location.reload();
+                    };
+                    var jobs = [];
+                    try {
+                        if ("serviceWorker" in navigator) {
+                            jobs.push(
+                                navigator.serviceWorker
+                                    .getRegistrations()
+                                    .then(function (rs) {
+                                        return Promise.all(
+                                            rs.map(function (r) {
+                                                return r.unregister();
+                                            }),
+                                        );
+                                    })
+                                    .catch(function () {}),
+                            );
+                        }
+                    } catch (e) {}
+                    try {
+                        if (window.caches && caches.keys) {
+                            jobs.push(
+                                caches
+                                    .keys()
+                                    .then(function (keys) {
+                                        return Promise.all(
+                                            keys.map(function (k) {
+                                                return caches.delete(k);
+                                            }),
+                                        );
+                                    })
+                                    .catch(function () {}),
+                            );
+                        }
+                    } catch (e) {}
+                    Promise.all(jobs).then(reload, reload);
+                    // Safety net if the cleanup promises hang.
+                    setTimeout(reload, 3500);
+                }
+
+                var watchdog = setTimeout(function () {
+                    selfHeal("watchdog timeout (app never mounted)");
+                }, BOOT_TIMEOUT_MS);
+
+                window.__cancelBootWatchdog = function () {
+                    clearTimeout(watchdog);
+                    // Boot succeeded — clear the one-shot guard so a FUTURE
+                    // failure in a later session can heal again.
+                    try {
+                        sessionStorage.removeItem(HEAL_KEY);
+                    } catch (e) {}
+                };
+
+                // Fast path: a script / module-chunk load error before boot
+                // means the shell is broken — heal now instead of waiting out
+                // the full timeout. Capture phase so resource-load errors on
+                // the <script> element are seen.
+                window.addEventListener(
+                    "error",
+                    function (e) {
+                        if (window.__APP_BOOTED) return;
+                        var tgt = e && e.target;
+                        // Only a failed SCRIPT (the entry bundle / a JS
+                        // chunk) is treated as a broken shell. A failed LINK
+                        // (Google Fonts, a stylesheet) is non-fatal and must
+                        // NOT trigger a cache-clearing reload.
+                        var isResource = tgt && tgt.tagName === "SCRIPT";
+                        var msg =
+                            (e &&
+                                (e.message ||
+                                    (e.error && e.error.message))) ||
+                            "";
+                        if (
+                            isResource ||
+                            /Loading chunk|dynamically imported module|Importing a module script failed|Loading CSS chunk/i.test(
+                                msg,
+                            )
+                        ) {
+                            selfHeal(
+                                "script/chunk load error: " +
+                                    (msg || "resource"),
+                            );
+                        }
+                    },
+                    true,
+                );
+
+                window.addEventListener("unhandledrejection", function (e) {
+                    if (window.__APP_BOOTED) return;
+                    var msg =
+                        (e &&
+                            e.reason &&
+                            (e.reason.message || String(e.reason))) ||
+                        "";
+                    if (
+                        /Loading chunk|dynamically imported module|Importing a module script failed/i.test(
+                            msg,
+                        )
+                    ) {
+                        selfHeal("unhandled rejection: " + msg);
+                    }
+                });
+            })();
+        </script>
         <script type="module" src="/src/main.tsx"></script>
     </body>
 </html>
