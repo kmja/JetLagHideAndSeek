@@ -139,6 +139,11 @@ export interface SharedCursePayload {
      * otherwise.
      */
     rockCount?: number;
+    /**
+     * For Curse of the Mediocre Travel Agent, the destination the hider chose
+     * for the seekers to travel to (free-text). Absent otherwise.
+     */
+    travelDestination?: string;
 }
 
 /**

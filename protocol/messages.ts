@@ -550,6 +550,12 @@ export interface CursePayload {
      * for every other curse and older clients.
      */
     rockCount?: number;
+    /**
+     * For Curse of the Mediocre Travel Agent, the place the hider chose for
+     * the seekers to travel to (a free-text destination near the seekers).
+     * Absent for every other curse and older clients.
+     */
+    travelDestination?: string;
 }
 
 /** Push subscription stored by the client for server-side delivery. */

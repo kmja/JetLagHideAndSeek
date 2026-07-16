@@ -3,6 +3,7 @@ import {
     Camera,
     Check,
     Dice5,
+    MapPin,
     Minus,
     Play,
     Plus,
@@ -30,6 +31,7 @@ import {
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     canPayDiscardCost,
+    curseCostRequiresDestination,
     curseCostRequiresPhoto,
     curseCostRequiresRockCount,
     curseCostRequiresVideo,
@@ -163,6 +165,9 @@ export function CastCurseDialog({
     // Rock-tower casting cost (Curse of the Cairn): the number of rocks the
     // hider's tower reached — the target the seekers must match.
     const [rockCount, setRockCount] = useState<number | null>(null);
+    // Destination (Mediocre Travel Agent): the place the hider sends the
+    // seekers to.
+    const [travelDest, setTravelDest] = useState("");
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
     const [sharing, setSharing] = useState(false);
@@ -340,6 +345,14 @@ export function CastCurseDialog({
     const rockSatisfied =
         !rockRequired || (rockCount != null && rockCount >= 1);
 
+    // Destination casting requirement (Mediocre Travel Agent). Required in
+    // multiplayer (delivered to the seekers); solo/link still offers it.
+    const costRequiresDestination = curseCostRequiresDestination(
+        card.castingCost,
+    );
+    const destRequired = costRequiresDestination && online;
+    const destSatisfied = !destRequired || travelDest.trim().length > 0;
+
     const startFilm = () => {
         filmStartRef.current = Date.now();
         setFilmElapsedMs(0);
@@ -396,6 +409,8 @@ export function CastCurseDialog({
         // Rock-tower casting cost (Cairn, multiplayer): the hider must enter
         // how many rocks their tower reached before casting.
         rockSatisfied &&
+        // Destination (Travel Agent, multiplayer): a place must be entered.
+        destSatisfied &&
         // Drained Brain: exactly 3 categories must be chosen before the
         // curse can be cast (it disables those 3 on the seekers).
         (!isDrainedBrain || drainedCategories.length === 3);
@@ -416,11 +431,15 @@ export function CastCurseDialog({
         photoUrl?: string;
         filmSeconds?: number;
         rockCount?: number;
+        travelDestination?: string;
     } => ({
         ...(isDrainedBrain ? { disabledCategories: drainedCategories } : {}),
         ...(preparedPhoto?.url ? { photoUrl: preparedPhoto.url } : {}),
         ...(filmSeconds != null ? { filmSeconds } : {}),
         ...(rockCount != null && rockCount >= 1 ? { rockCount } : {}),
+        ...(travelDest.trim()
+            ? { travelDestination: travelDest.trim() }
+            : {}),
     });
 
     const roll = () => {
@@ -1061,6 +1080,32 @@ export function CastCurseDialog({
                                         {rockRequired
                                             ? "How many rocks high was your tower? The count is sent to the seekers to match."
                                             : "How many rocks high was your tower? Tell the seekers to match it."}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Destination (Curse of the Mediocre Travel
+                                Agent): the hider names the place near the
+                                seekers they must travel to. */}
+                            {costRequiresDestination && (
+                                <div className="mt-2.5 flex flex-col gap-1.5">
+                                    <input
+                                        type="text"
+                                        value={travelDest}
+                                        onChange={(e) =>
+                                            setTravelDest(e.target.value)
+                                        }
+                                        placeholder="e.g. the café on the corner of 5th & Main"
+                                        className={cn(
+                                            "w-full rounded-lg border-2 border-border bg-secondary px-3 h-11 text-sm",
+                                            "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                        )}
+                                    />
+                                    <p className="text-[11px] text-muted-foreground leading-snug inline-flex items-center gap-1">
+                                        <MapPin className="w-3 h-3 shrink-0" />
+                                        {destRequired
+                                            ? "Pick a place near the seekers — it's sent to them as their destination."
+                                            : "Name the place near the seekers — then tell them to go there."}
                                     </p>
                                 </div>
                             )}

@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v903`. Use `git log` for the per-version detail;
+build stamp. Current: `v904`. Use `git log` for the per-version detail;
+
+**v904 — Mediocre Travel Agent destination payload.** The hider now names the
+place they're sending the seekers to (a free-text destination near the
+seekers) in `CastCurseDialog`; `curseCostRequiresDestination(castingCost)`
+(`castingCost.ts`, `/vacation destination/i`) gates a text input, required
+before casting in multiplayer. Rides `CursePayload.travelDestination` /
+`SharedCursePayload.travelDestination` → server/demo relay verbatim →
+`receivedCurses` → `CurseInbox` shows "Destination: …".
 
 **v903 — two more curse payloads: Cairn rock-count + Ransom Note photo.**
 - **Curse of the Cairn** now carries `rockCount` — the number of rocks the

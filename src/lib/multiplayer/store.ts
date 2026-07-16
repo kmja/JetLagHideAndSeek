@@ -1265,6 +1265,9 @@ function handleServerMessage(msg: ServerMessage) {
                     // Target rock count (Curse of the Cairn) — the seekers
                     // must build a tower of this many rocks.
                     rockCount: msg.curse.rockCount,
+                    // Destination (Mediocre Travel Agent) — where the hider
+                    // is sending the seekers.
+                    travelDestination: msg.curse.travelDestination,
                     receivedAt: Date.now(),
                     acknowledged: false,
                 },

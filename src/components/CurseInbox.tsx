@@ -309,6 +309,11 @@ export function CurseInbox() {
                                         high.
                                     </p>
                                 )}
+                                {curse.travelDestination && (
+                                    <p className="text-[11px] text-purple-300 mt-1 leading-snug font-semibold">
+                                        Destination: {curse.travelDestination}
+                                    </p>
+                                )}
                                 {/* Casting cost is the hider's concern, not
                                     the seeker's — omitted. Timed curses show
                                     a live "clears in" countdown instead. */}
@@ -405,6 +410,11 @@ export function CurseInbox() {
                                 Build a rock tower {resolvedDialog.rockCount}{" "}
                                 rock{resolvedDialog.rockCount === 1 ? "" : "s"}{" "}
                                 high before asking your next question.
+                            </p>
+                        )}
+                        {resolvedDialog?.travelDestination && (
+                            <p className="text-sm text-purple-300 font-semibold">
+                                Destination: {resolvedDialog.travelDestination}
                             </p>
                         )}
                         {dlgMeta?.expiresAt != null && (

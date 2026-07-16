@@ -112,6 +112,18 @@ export function curseCostRequiresRockCount(
 }
 
 /**
+ * Whether a curse requires the hider to pick a DESTINATION (Curse of the
+ * Mediocre Travel Agent — the hider chooses a place near the seekers for
+ * them to travel to). Matched on "vacation destination" in the casting-cost
+ * constraint text; the chosen place is delivered to the seekers.
+ */
+export function curseCostRequiresDestination(
+    castingCost: string | null,
+): boolean {
+    return !!castingCost && /vacation destination/i.test(castingCost);
+}
+
+/**
  * The subset of `hand` that can satisfy `cost`, excluding the curse
  * card paying the cost (the casting cost is paid *in addition* to the
  * curse itself).
