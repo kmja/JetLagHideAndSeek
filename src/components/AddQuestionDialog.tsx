@@ -1181,22 +1181,35 @@ export const AddQuestionDialog = ({
                                                     /^admin-[1-4]$/.test(
                                                         subtype.value,
                                                     );
+                                                // Presence-gated line references
+                                                // (measuring): disabled when the
+                                                // reference isn't in/near the play
+                                                // area — NOT a "count < 2" case, so
+                                                // don't say "only one" (measuring
+                                                // needs just one). v899.
+                                                const isPresenceLine =
+                                                    subtype.value ===
+                                                        "highspeed-measure-shinkansen" ||
+                                                    subtype.value ===
+                                                        "international-border";
+                                                // Reason text kept GENERIC — it
+                                                // never names the question type
+                                                // (v899), since the tile already
+                                                // shows what it is.
                                                 const tooFewReason = tooFew
                                                     ? isAdminTile
-                                                        ? `The whole play area is in one ${localizeAdminSubtype(
-                                                              subtype,
-                                                              $mapGeo?.properties
-                                                                  ?.countrycode,
-                                                          ).label.toLowerCase()} — this can't narrow the map.`
+                                                        ? "The whole play area is in one region — this can't narrow the map."
                                                         : subtype.value ===
                                                             "coastline"
                                                           ? "No coastline in the play area — this can't narrow the map."
                                                           : subtype.value ===
                                                               "same-landmass"
                                                             ? "The play area is a single landmass — this can't narrow the map."
-                                                            : avail!.count === 0
-                                                              ? `No ${subtype.label.toLowerCase()} in the play area to ask about.`
-                                                              : `Only one ${subtype.label.toLowerCase()} in the play area — not enough to ask this.`
+                                                            : isPresenceLine
+                                                              ? "None in or near the play area — this can't narrow the map."
+                                                              : avail!.count === 0
+                                                                ? "None in the play area to ask about."
+                                                                : "Only one in the play area — not enough to ask this."
                                                     : undefined;
                                                 return (
                                                     <SubtypeTile

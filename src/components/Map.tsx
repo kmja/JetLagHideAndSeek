@@ -80,7 +80,8 @@ import {
 import { resolvedTheme } from "@/lib/theme";
 import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
-import { applyQuestionsToMapGeoData, holedMask } from "@/maps";
+import { holedMaskViaWorker } from "@/lib/geometry/client";
+import { applyQuestionsToMapGeoData } from "@/maps";
 import { clearCache } from "@/maps/api";
 import { CacheType } from "@/maps/api/types";
 import { spoofPickMode } from "@/lib/debugGpsSpoof";
@@ -1131,9 +1132,13 @@ export function Map({ className }: MapProps) {
                     } catch {
                         maskInput = working;
                     }
-                    mask = holedMask(
+                    // v899: off the main thread — the world-scale
+                    // turf.difference blocked the tab for a beat on a dense
+                    // boundary every time an answer shrank the area. Worker
+                    // rejects → transparent main-thread fallback inside.
+                    mask = (await holedMaskViaWorker(
                         maskInput as never,
-                    ) as GeoJSON.Feature | null;
+                    )) as GeoJSON.Feature | null;
                 } catch (e) {
                     console.warn("Map holedMask failed:", e);
                 }

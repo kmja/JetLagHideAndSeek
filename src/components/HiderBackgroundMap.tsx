@@ -57,8 +57,8 @@ import { toast } from "react-toastify";
 
 import { spoofPickMode } from "@/lib/debugGpsSpoof";
 import { setSpoofAtPoint } from "@/lib/debugSpoofArea";
+import { holedMaskViaWorker } from "@/lib/geometry/client";
 import { findZoneAtPoint } from "@/lib/journey/stations";
-import { holedMask } from "@/maps";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
 import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
@@ -486,7 +486,7 @@ export function HiderBackgroundMap() {
             return;
         }
         let cancelled = false;
-        const compute = () => {
+        const compute = async () => {
             if (cancelled) return;
             try {
                 // Simplify the boundary before the world-scale difference —
@@ -498,9 +498,13 @@ export function HiderBackgroundMap() {
                     tolerance: 0.001,
                     highQuality: false,
                 });
-                const mask = holedMask(
+                // v899: the world-scale difference runs in the geometry
+                // worker (rejects → main-thread fallback inside), so even
+                // the deferred compute can't block the tab on a dense NYC
+                // boundary.
+                const mask = (await holedMaskViaWorker(
                     simplified as never,
-                ) as GeoJSON.Feature | null;
+                )) as GeoJSON.Feature | null;
                 if (!cancelled) setPlayAreaMask(mask);
             } catch (e) {
                 console.warn("HiderBackgroundMap holedMask failed:", e);

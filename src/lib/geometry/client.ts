@@ -6,6 +6,7 @@ import type {
 } from "geojson";
 
 import { clipPolygonToLand as clipOnMainThread } from "@/lib/landClip";
+import { holedMask as holedMaskOnMainThread } from "@/maps/geo-utils/operators";
 
 import { combineBoundaryGeometry } from "./combineCore";
 
@@ -93,7 +94,12 @@ function getWorker(): Worker | null {
 }
 
 function call<T>(
-    type: "clip" | "combine" | "landFromCoast" | "seaFromCoast",
+    type:
+        | "clip"
+        | "combine"
+        | "landFromCoast"
+        | "seaFromCoast"
+        | "holedMask",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -176,6 +182,30 @@ export async function seaFromCoast(
         bbox,
         seeker,
     });
+}
+
+/**
+ * The dimming MASK (world rectangle minus the play area), OFF the main
+ * thread (v899). The world-scale `turf.difference` froze the tab for a beat
+ * on a dense boundary every time an answer shrank the remaining area. Falls
+ * back to the synchronous main-thread `holedMask` if the worker is
+ * unavailable — identical `Feature | null` contract, so correctness never
+ * depends on the worker existing.
+ */
+export async function holedMaskViaWorker(
+    input:
+        | Feature<Polygon | MultiPolygon>
+        | FeatureCollection<Polygon | MultiPolygon>,
+): Promise<Feature | null> {
+    try {
+        return await call<Feature | null>("holedMask", { input });
+    } catch (e) {
+        console.warn(
+            "[geometry] holedMask via worker failed; main-thread fallback",
+            e,
+        );
+        return holedMaskOnMainThread(input) as Feature | null;
+    }
 }
 
 /**

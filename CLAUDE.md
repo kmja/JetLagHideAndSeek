@@ -428,7 +428,37 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v898`. Use `git log` for the per-version detail;
+build stamp. Current: `v899`. Use `git log` for the per-version detail;
+
+**v899 — holedMask → worker + cancel phantom-answered fix + measuring
+disabled-reason text.**
+- **`holedMask` (the world-scale dimming mask) runs in the geometry Web
+  Worker** (`holedMaskViaWorker`, geometry `worker.ts`/`client.ts`), used by
+  `Map` (its already-async, generation-guarded elimination effect) and
+  `HiderBackgroundMap` (its deferred compute). The `turf.difference` of a
+  world rectangle minus a dense play-area multipolygon blocked the tab for a
+  beat every time an answer shrank the remaining area; now it's off-thread
+  with a transparent main-thread fallback (`operators.holedMask`) if the
+  worker is unavailable. (Attempted the same for the @arcgis/core geodesic
+  buffer that drives the body-of-water/coast measuring cut, but arcgis in a
+  worker duplicates ~2.5 MB of a browser-centric lib whose worker-safety
+  can't be verified here — reverted; that freeze stays on the main thread for
+  now.)
+- **Cancelling a question dialog no longer reveals a phantom "answered"
+  card.** A never-sent draft could count as pending for ONE render (before
+  `configuringQuestionKey` excluded it), latching a STICKY answered card
+  behind the configure dialog that showed on Cancel. `PendingAnswerOverlay`
+  now only transitions to "answered" for a question that was actually SENT
+  (`createdAt` stamped); a draft that leaves the pending set with no
+  `createdAt` is a discarded draft → shows nothing.
+- **Measuring disabled-reason text fixed + genericised.** High-speed rail /
+  international border are presence-gated (measuring needs just ONE reference
+  in/near the area — the gate was already correct), but the disabled text
+  fell through to the count-based "Only one … not enough" string, which read
+  as the matching ≥2 rule. They now say "None in or near the play area — this
+  can't narrow the map," and every disabled reason is GENERIC (no longer names
+  the question type): "Only one in the play area — not enough to ask this,"
+  "None in the play area to ask about," "…in one region…".
 
 **v898 — lobby game-size dropdown polish.** The host's size popover
 (`GameLobbyDialog`) had oversized, centred pills on a white `bg-popover`

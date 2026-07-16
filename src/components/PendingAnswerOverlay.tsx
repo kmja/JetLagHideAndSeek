@@ -92,10 +92,18 @@ export function PendingAnswerOverlay({
             //     gives them a beat to register the answer instead of the
             //     card vanishing on its own.
             //   - DISCARDED: a cancelled draft was removed → show nothing.
-            const stillExists = questions
-                .get()
-                .some((q) => q.key === prevKey);
-            if (stillExists) {
+            const prevQ = questions.get().find((q) => q.key === prevKey);
+            // v899: only a question that was actually SENT (createdAt stamped)
+            // can become "answered". A draft that leaves the pending set with
+            // no createdAt was never sent — it's a discarded/cancelled draft,
+            // NOT an answer. Without this a one-render transient (the draft
+            // briefly counts as pending before `configuringQuestionKey`
+            // excludes it) latched a STICKY "answered" card hidden behind the
+            // configure dialog and revealed it on Cancel (the reported bug).
+            const wasSent =
+                prevQ !== undefined &&
+                (prevQ.data as { createdAt?: number }).createdAt !== undefined;
+            if (wasSent) {
                 setPhase("answered");
                 return;
             }

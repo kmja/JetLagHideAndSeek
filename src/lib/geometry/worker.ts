@@ -6,7 +6,14 @@ import type {
     Polygon,
 } from "geojson";
 
-import { area, bboxPolygon, difference, featureCollection } from "@turf/turf";
+import {
+    area,
+    bboxPolygon,
+    difference,
+    featureCollection,
+    polygon,
+    union,
+} from "@turf/turf";
 
 import { seaFromCoastline } from "../../maps/questions/seaFromCoastline";
 import {
@@ -92,11 +99,56 @@ type SeaFromCoastPayload = {
     bbox: [number, number, number, number];
     seeker: { lat: number; lng: number };
 };
+type HoledMaskPayload = {
+    input:
+        | Feature<Polygon | MultiPolygon>
+        | FeatureCollection<Polygon | MultiPolygon>;
+};
 type InMessage =
     | { id: number; type: "clip"; payload: ClipPayload }
     | { id: number; type: "combine"; payload: CombinePayload }
     | { id: number; type: "landFromCoast"; payload: LandFromCoastPayload }
-    | { id: number; type: "seaFromCoast"; payload: SeaFromCoastPayload };
+    | { id: number; type: "seaFromCoast"; payload: SeaFromCoastPayload }
+    | { id: number; type: "holedMask"; payload: HoledMaskPayload };
+
+// The world rectangle we punch the play area out of — byte-identical to
+// `BLANK_GEOJSON.features[0]` (src/maps/api/constants.ts), inlined so the
+// worker doesn't import the (main-thread) constants module.
+const WORLD_RING: [number, number][] = [
+    [-180, -90],
+    [180, -90],
+    [180, 90],
+    [-180, 90],
+    [-180, -90],
+];
+
+/**
+ * v899: the dimming MASK (world rectangle MINUS the play area), OFF the main
+ * thread. A world-scale `turf.difference` over a dense play-area multipolygon
+ * (a whole county / big metro / many adjacents) blocks the main thread for a
+ * noticeable beat every time an answer shrinks the remaining area — the "froze
+ * then came back" during elimination render. Pure turf; `null` when there's
+ * nothing to punch out (caller draws no mask). Mirrors `operators.holedMask`.
+ */
+function holedMaskImpl(p: HoledMaskPayload): Feature | null {
+    const world = polygon([WORLD_RING]);
+    const input = p.input;
+    let inner: Feature<Polygon | MultiPolygon> | null;
+    if ("features" in input) {
+        const feats = input.features;
+        if (feats.length === 0) return null;
+        inner =
+            feats.length === 1
+                ? feats[0]
+                : (union(input) as Feature<Polygon | MultiPolygon> | null);
+    } else {
+        inner = input;
+    }
+    if (!inner) return null;
+    return difference(
+        featureCollection([world, inner] as never),
+    ) as Feature | null;
+}
 
 /**
  * v875: per-city LAND polygons (play-area frame MINUS the sea built from the
@@ -157,6 +209,9 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
                 lng: p.seeker.lng,
                 lat: p.seeker.lat,
             });
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "holedMask") {
+            const result = holedMaskImpl(msg.payload);
             self.postMessage({ id, ok: true, result });
         } else {
             self.postMessage({
