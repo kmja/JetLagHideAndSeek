@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Flag, Plus, Timer, X } from "lucide-react";
+import { Ban, Flag, Hourglass, Plus, Timer, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -15,12 +15,15 @@ import { lastKnownPosition } from "@/lib/context";
 import {
     endgameStartedAt,
     formatTimeRemaining,
+    gameSize,
     hidingPeriodEndsAt,
     zoneLockedCallout,
 } from "@/lib/gameSetup";
+import { tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
     addScoutedSpot,
     hiderForfeited,
+    hiderHand,
     hidingSpot,
     hidingZone,
     roundFoundAt,
@@ -87,6 +90,12 @@ export function HiderMapTimer() {
     const $hidingSpot = useStore(hidingSpot);
     const $forfeited = useStore(hiderForfeited);
     const $gps = useStore(lastKnownPosition);
+    // In-hand time-bonus total the hider is holding — shown as an add-on to
+    // the timer so they see the credit their held cards will add at round end
+    // (v908).
+    const $hand = useStore(hiderHand);
+    const $gameSize = useStore(gameSize);
+    const inHandBonusMin = tallyTimeBonusMinutes($hand, $gameSize);
     const $roundLog = useStore(roundLog);
     const $zoneCallout = useStore(zoneLockedCallout);
 
@@ -378,6 +387,15 @@ export function HiderMapTimer() {
                         </span>
                         <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-[#1F2F3F]">
                             {formatTimeRemaining(remainingMs)}
+                            {inHandBonusMin > 0 && (
+                                <span
+                                    className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-[#1F2F3F]/15 px-1.5 py-0.5 text-[10px] font-poppins font-bold text-[#1F2F3F] align-middle"
+                                    title={`+${inHandBonusMin} min from time-bonus cards in your hand`}
+                                >
+                                    <Hourglass className="w-2.5 h-2.5" />+
+                                    {inHandBonusMin}m
+                                </span>
+                            )}
                         </span>
                     </div>
                 </div>
@@ -502,6 +520,15 @@ export function HiderMapTimer() {
                         >
                             {formatTimeRemaining(hiddenElapsedMs)}
                         </span>
+                        {inHandBonusMin > 0 && (
+                            <span
+                                className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-[hsl(var(--accent-yellow))]/25 px-1.5 py-0.5 text-[10px] font-poppins font-bold text-[#8a6d0b] align-middle"
+                                title={`+${inHandBonusMin} min from time-bonus cards in your hand`}
+                            >
+                                <Hourglass className="w-2.5 h-2.5" />+
+                                {inHandBonusMin}m
+                            </span>
+                        )}
                         <span
                             className={cn(
                                 "absolute inset-y-0 right-0 w-2.5",

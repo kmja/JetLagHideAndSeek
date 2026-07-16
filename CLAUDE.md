@@ -428,7 +428,19 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v907`. Use `git log` for the per-version detail;
+build stamp. Current: `v908`. Use `git log` for the per-version detail;
+
+**v908 — time-bonus add-on on the hider timer + end-of-round pills styled
+like the card.**
+- **In-hand time-bonus add-on** (`HiderMapTimer`): both timer boxes (golden
+  "Hiding time remaining" + white "Hidden for") now show a small hourglass
+  pill `+Nm` — the sum of the hider's held time-bonus cards
+  (`tallyTimeBonusMinutes($hand, $gameSize)`) — so the hider sees the credit
+  their hand will add at round end, live. Self-hides at 0.
+- **End-of-round bonus pills** (`EndOfRoundDialog`) resemble the TIME BONUS
+  card (Hourglass icon + minutes) instead of bare "+N", and stack in a column
+  just to the RIGHT of the hidden-time clock (was centred ABOVE it), keeping
+  the v851 `jlBonusChip` pop-in-then-float animation.
 
 **v907 — Drained Brain blocks 3 specific QUESTIONS, not 3 categories.**
 Rulebook: "Choose three questions in different categories." The app was

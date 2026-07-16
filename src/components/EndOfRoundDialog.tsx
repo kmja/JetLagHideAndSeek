@@ -336,32 +336,38 @@ export function EndOfRoundDialog() {
                     <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                         {currentHiderName} stayed hidden for
                     </div>
-                    <div className="relative">
-                        {bonusPieces.length > 0 && (
-                            <div
-                                className="pointer-events-none absolute inset-x-0 bottom-full mb-1 flex justify-center gap-2 flex-wrap"
-                                aria-hidden="true"
-                            >
-                                {bonusPieces.map((min, i) => (
-                                    <span
-                                        key={i}
-                                        className={cn(
-                                            "rounded-full px-2.5 py-0.5 shadow-lg",
-                                            "font-inter-tight font-black tabular-nums text-sm",
-                                            "bg-[hsl(var(--accent-yellow))] text-[#1F2F3F]",
-                                        )}
-                                        style={{
-                                            opacity: 0,
-                                            animation: `jlBonusChip 1400ms cubic-bezier(0.22, 1, 0.36, 1) ${550 + i * Math.min(360, 1400 / Math.max(1, bonusPieces.length))}ms forwards`,
-                                        }}
-                                    >
-                                        +{min}
-                                    </span>
-                                ))}
+                    <div className="flex justify-center">
+                        <div className="relative inline-block">
+                            <div className="font-inter-tight italic font-black tabular-nums text-5xl leading-none text-foreground">
+                                {formatDuration(displayedMs)}
                             </div>
-                        )}
-                        <div className="font-inter-tight italic font-black tabular-nums text-5xl leading-none text-foreground">
-                            {formatDuration(displayedMs)}
+                            {/* Each bonus piece pops in as its own pill — styled
+                                like the TIME BONUS card (hourglass + minutes) —
+                                stacked just to the RIGHT of the clock (v908). */}
+                            {bonusPieces.length > 0 && (
+                                <div
+                                    className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 flex flex-col gap-1"
+                                    aria-hidden="true"
+                                >
+                                    {bonusPieces.map((min, i) => (
+                                        <span
+                                            key={i}
+                                            className={cn(
+                                                "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 shadow-lg whitespace-nowrap",
+                                                "font-inter-tight font-black tabular-nums text-xs",
+                                                "bg-[hsl(var(--accent-yellow))] text-[#1F2F3F]",
+                                            )}
+                                            style={{
+                                                opacity: 0,
+                                                animation: `jlBonusChip 1400ms cubic-bezier(0.22, 1, 0.36, 1) ${550 + i * Math.min(360, 1400 / Math.max(1, bonusPieces.length))}ms forwards`,
+                                            }}
+                                        >
+                                            <Hourglass className="w-3 h-3" />+
+                                            {min}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                     {bonusMinutes > 0 && (
