@@ -88,6 +88,7 @@ import {
     type FoundStation,
     NearbyStationsPicker,
 } from "./NearbyStationsPicker";
+import { HiderActiveCurses } from "./HiderActiveCurses";
 import { ScoutedSpotsPanel } from "./ScoutedSpotsPanel";
 import { SeekerETACard } from "./SeekerETACard";
 
@@ -683,6 +684,11 @@ function SeekingPhaseView({
                 null if there's no zone / no game-start anchor / no transit
                 provider — the "how long until they could reach me" read. */}
             <SeekerETACard />
+
+            {/* Active curses the hider has cast on the seekers (v906) — a
+                mirror of the seeker's curse inbox so the hider can track
+                what's slowing the seekers down. Self-hides when none. */}
+            <HiderActiveCurses />
 
             {/* Lock-down affordance surfaces ONLY once the seekers have
                 claimed the endgame ("we're in your zone"). That's the one

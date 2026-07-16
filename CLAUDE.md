@@ -428,7 +428,19 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v905`. Use `git log` for the per-version detail;
+build stamp. Current: `v906`. Use `git log` for the per-version detail;
+
+**v906 — hider sees the curses they've cast (active-curse mirror).** The
+seeker's `CurseInbox` shows received curses; the hider had no view of what's
+active on the seekers. New hider-side `castCurses` atom (`seekerInbound.ts`,
+same `ReceivedCurse` shape, persisted, reset per round alongside
+`receivedCurses` in `roundReset`), appended by `recordCastCurse(payload)`
+whenever the hider casts (BOTH the multiplayer and link paths in
+`CastCurseDialog`, so it works in every mode). `HiderActiveCurses.tsx`
+renders them (name + description + any payload target + a manual "Mark
+cleared" per curse, since clears are a real-world action) in `HiderHome`'s
+seeking view; self-hides when none. Local record only — no wire sync (it
+reflects THIS hider's casts).
 
 **v905 — Pause actually freezes every timer (`useNow` pause-freeze).** The
 manual "Pause game" repaid time on RESUME (`resumeGame` shifts

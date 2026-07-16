@@ -50,3 +50,36 @@ if (!g[KEY]) {
 // string | undefined, which we're deliberately bypassing via JSON
 // encode/decode).
 export const receivedCurses = g[KEY] as WritableAtom<ReceivedCurse[]>;
+
+/**
+ * Curses the HIDER has CAST this round (v906) — the hider's mirror of the
+ * seeker's `receivedCurses`, so the hider can see which curses are active on
+ * the seekers. The hider knows what they cast; clears are a real-world action
+ * (the seekers tell the hider), so the hider clears an entry manually (or it
+ * resets at round end). Reuses the same `ReceivedCurse` shape (payload +
+ * `receivedAt` = cast time + `dismissed` = the hider marked it cleared).
+ */
+const CAST_KEY = "__jlhs_castCurses";
+if (!g[CAST_KEY]) {
+    g[CAST_KEY] = persistentAtom<ReceivedCurse[]>("castCurses", [], {
+        encode: JSON.stringify,
+        decode: (v) => {
+            try {
+                const parsed = JSON.parse(v);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        },
+    });
+}
+export const castCurses = g[CAST_KEY] as WritableAtom<ReceivedCurse[]>;
+
+/** Record a curse the hider just cast so it shows in the hider's active-curse
+ *  list. Payload is the same shape sent to the seekers. */
+export function recordCastCurse(payload: SharedCursePayload): void {
+    castCurses.set([
+        ...castCurses.get(),
+        { ...payload, receivedAt: Date.now(), acknowledged: true },
+    ]);
+}

@@ -54,7 +54,7 @@ import {
     seekingStartFiredFor,
 } from "@/lib/gameSetup";
 import { resetHiderRoundState, roundFoundAt } from "@/lib/hiderRole";
-import { receivedCurses } from "@/lib/seekerInbound";
+import { castCurses, receivedCurses } from "@/lib/seekerInbound";
 
 /**
  * Reset every atom that is scoped to a single round. Does NOT touch:
@@ -82,6 +82,7 @@ import { receivedCurses } from "@/lib/seekerInbound";
  */
 export function resetCurseState(): void {
     receivedCurses.set([]);
+    castCurses.set([]);
     spottyMemoryCategory.set(null);
     seekerOnTransit.set(false);
     activeBlockingCurse.set(null);

@@ -53,6 +53,7 @@ import {
 } from "@/lib/hiderRole";
 import { currentGameCode, multiplayerEnabled } from "@/lib/multiplayer/session";
 import { hiderCastCurse } from "@/lib/multiplayer/store";
+import { recordCastCurse } from "@/lib/seekerInbound";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
 
@@ -542,14 +543,19 @@ export function CastCurseDialog({
             return;
         }
 
+        // The exact payload sent to the seekers — recorded locally too so the
+        // hider's own active-curse list (v906) mirrors what the seekers see.
+        const payload = {
+            name: card.name,
+            description: card.description,
+            castingCost: card.castingCost ?? null,
+            ...enforceParams(),
+        };
+
         // In multiplayer the curse travels over the WebSocket — no link needed.
         if ($multiplayer) {
-            hiderCastCurse({
-                name: card.name,
-                description: card.description,
-                castingCost: card.castingCost ?? null,
-                ...enforceParams(),
-            });
+            hiderCastCurse(payload);
+            recordCastCurse(payload);
             payCostDiscards();
             discardCard(card.id);
             onCurseLanded();
@@ -560,12 +566,7 @@ export function CastCurseDialog({
 
         setSharing(true);
         try {
-            const url = encodeCurseLink({
-                name: card.name,
-                description: card.description,
-                castingCost: card.castingCost ?? null,
-                ...enforceParams(),
-            });
+            const url = encodeCurseLink(payload);
             const result = await shareOrCopy({
                 title: `${card.name} cast on you`,
                 text: `${card.name}: ${card.description}`,
@@ -573,6 +574,7 @@ export function CastCurseDialog({
             });
             setLastShareResult(result.method);
             if (result.method === "share" || result.method === "copy") {
+                recordCastCurse(payload);
                 payCostDiscards();
                 discardCard(card.id);
                 onCurseLanded();
