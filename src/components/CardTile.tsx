@@ -1,5 +1,4 @@
-import type { LucideIcon } from "lucide-react";
-import { Ban, Check, Copy, Dices, Layers, MapPinned, Plus } from "lucide-react";
+import { Check } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { GameSize } from "@/lib/gameSetup";
@@ -29,6 +28,8 @@ import { cn } from "@/lib/utils";
 /* ────────────────── Brand palette ────────────────── */
 
 const NAVY = "#1F2F3F";
+// Veto's prohibition glyph is red on the physical card.
+const CARD_RED = "#DC3D38";
 const SIZE_BG: Record<GameSize, string> = {
     small: "hsl(44 87% 60%)", // yellow
     medium: "hsl(22 82% 56%)", // orange
@@ -189,42 +190,34 @@ function TimeBonusBody({
     card: Extract<Card, { kind: "time-bonus" }>;
     gameSize: GameSize;
 }) {
-    // Physical-card layout, top-anchored: "TIME BONUS" header, the big
-    // minutes value for the active game size, then the hexagon meter
-    // icon. All sizes are cqw so a mini card is this exact layout shrunk.
+    // Faithful to the physical card: the clock-hexagon icon at TOP, the
+    // "TIME BONUS" title, then the three S/M/L minute badges pinned at the
+    // BOTTOM. All sizes are cqw so a mini card is this exact layout shrunk.
+    const sizes: GameSize[] = ["small", "medium", "large"];
     return (
         <div
             className="flex-1 flex flex-col items-center text-center"
-            style={{ padding: cu(5.3) }}
+            style={{ padding: cu(4.7) }}
         >
+            <ClockHexIcon largest={card.minutes.large} cqw={31} />
             <div
                 className="font-inter-tight font-black uppercase tracking-tight leading-[0.95]"
-                style={{ color: NAVY, fontSize: cu(8) }}
+                style={{ color: NAVY, fontSize: cu(8), marginTop: cu(3) }}
             >
                 Time Bonus
             </div>
             <div
-                className="font-inter-tight italic font-black tabular-nums leading-none"
-                style={{
-                    color: SIZE_BG[gameSize],
-                    fontSize: cu(16),
-                    marginTop: cu(4),
-                }}
+                className="flex items-stretch justify-center w-full"
+                style={{ gap: cu(1.6), marginTop: "auto" }}
             >
-                {card.minutes[gameSize]}
-                <span
-                    className="not-italic font-bold"
-                    style={{
-                        color: NAVY,
-                        fontSize: cu(5.3),
-                        marginLeft: cu(1.3),
-                    }}
-                >
-                    MIN
-                </span>
-            </div>
-            <div style={{ marginTop: cu(5.3) }}>
-                <TimeBonusHexIcon largest={card.minutes.large} cqw={29} />
+                {sizes.map((sz) => (
+                    <SizeMinutesBadge
+                        key={sz}
+                        size={sz}
+                        minutes={card.minutes[sz]}
+                        active={sz === gameSize}
+                    />
+                ))}
             </div>
         </div>
     );
@@ -245,7 +238,7 @@ function PowerupBody({
             style={{ padding: cu(5.3) }}
         >
             <div className="flex justify-center shrink-0">
-                <PowerupHexIcon powerup={card.powerup} cqw={26.7} />
+                <PowerupGlyph powerup={card.powerup} cqw={27} />
             </div>
             <div
                 className="font-inter-tight font-black uppercase tracking-tight leading-[0.95] text-center shrink-0"
@@ -319,53 +312,44 @@ function CurseBody({
     );
 }
 
-/* ────────────────── Hexagonal icons ────────────────── */
+/* ────────────────── Card icons (SVG, matched to the physical cards) ────────────────── */
 
-/**
- * SVG hexagonal frame with content centred inside. Flat-top hexagon
- * (so it reads like the icons on the physical cards) at the given
- * pixel size.
- */
-function HexFrame({
-    children,
-    sizeCqw = 20,
-    fill = "none",
-}: {
-    children?: ReactNode;
-    /** Frame size as a container-query-width unit (scales with the card). */
-    sizeCqw?: number;
-    fill?: string;
-}) {
-    return (
-        <div
-            className="relative inline-flex items-center justify-center shrink-0"
-            style={{ width: cu(sizeCqw), height: cu(sizeCqw) }}
-        >
-            <svg
-                viewBox="0 0 100 100"
-                className="absolute inset-0 w-full h-full"
-                aria-hidden="true"
-            >
-                <polygon
-                    points="50,4 91,27.5 91,72.5 50,96 9,72.5 9,27.5"
-                    fill={fill}
-                    stroke={NAVY}
-                    strokeWidth="7"
-                    strokeLinejoin="round"
-                />
-            </svg>
-            <div className="relative">{children}</div>
-        </div>
-    );
+// Flat-sided hexagon used by the Time Bonus clock, Veto, and Move icons.
+const HEX_PTS = "50,6 90,28 90,72 50,94 10,72 10,28";
+const ICON_FONT = "Poppins, system-ui, sans-serif";
+
+function pointOnCircle(
+    cx: number,
+    cy: number,
+    r: number,
+    deg: number,
+): [number, number] {
+    const rad = (deg * Math.PI) / 180;
+    return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+}
+
+/** SVG path for a pie slice (clock wedge) from `startDeg`, sweeping
+ *  clockwise by `sweepDeg`. */
+function pieSlice(
+    cx: number,
+    cy: number,
+    r: number,
+    startDeg: number,
+    sweepDeg: number,
+): string {
+    const [sx, sy] = pointOnCircle(cx, cy, r, startDeg);
+    const [ex, ey] = pointOnCircle(cx, cy, r, startDeg + sweepDeg);
+    const large = sweepDeg > 180 ? 1 : 0;
+    return `M ${cx} ${cy} L ${sx.toFixed(2)} ${sy.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${ex.toFixed(2)} ${ey.toFixed(2)} Z`;
 }
 
 /**
- * Hexagon with a colored "fill meter" indicating the time-bonus tier.
- * Approximates the physical cards' visual where bigger time bonuses
- * show progressively larger / differently-coloured wedges inside
- * the hex. A small "+" circle sits at the bottom-right corner.
+ * The Time Bonus clock — a hexagon with clock ticks, a colored pie WEDGE
+ * whose sweep grows with the bonus tier (the physical card's "how much
+ * time" meter), and a navy "+" hub at the centre. Matches the printed card
+ * much more closely than the old scaled-solid-hexagon.
  */
-function TimeBonusHexIcon({
+function ClockHexIcon({
     largest,
     cqw = 20,
 }: {
@@ -375,10 +359,10 @@ function TimeBonusHexIcon({
 }) {
     const tier =
         TIER_METER.find((t) => largest >= t.threshold) ?? TIER_METER[TIER_METER.length - 1];
-    // Render the meter as a smaller filled hexagon scaled by tier
-    // fraction. Not a perfect match to the physical "pie wedge" style
-    // but reads correctly as "tier indicator" at small sizes.
-    const innerScale = tier.fillFrac;
+    const cx = 50;
+    const cy = 50;
+    const faceR = 30;
+    const sweep = 30 + tier.fillFrac * 220; // ~60° (small) .. ~217° (big)
     return (
         <div
             className="relative inline-flex items-center justify-center shrink-0"
@@ -389,25 +373,38 @@ function TimeBonusHexIcon({
                 className="absolute inset-0 w-full h-full"
                 aria-hidden="true"
             >
-                {/* Outer hex outline */}
                 <polygon
-                    points="50,4 91,27.5 91,72.5 50,96 9,72.5 9,27.5"
+                    points={HEX_PTS}
                     fill="none"
                     stroke={NAVY}
-                    strokeWidth="7"
+                    strokeWidth="6"
                     strokeLinejoin="round"
                 />
-                {/* Inner filled hex (tier meter) */}
-                <polygon
-                    points={scaleHexPoints(innerScale)}
-                    fill={tier.color}
-                />
-                {/* "+" circle at bottom right — matches physical layout */}
-                <circle cx="78" cy="78" r="14" fill={NAVY} />
+                {/* colored wedge from 12 o'clock, sweeping clockwise */}
+                <path d={pieSlice(cx, cy, faceR, -90, sweep)} fill={tier.color} />
+                {/* clock ticks just inside the hexagon */}
+                {Array.from({ length: 12 }).map((_, i) => {
+                    const [x1, y1] = pointOnCircle(cx, cy, faceR + 3, i * 30);
+                    const [x2, y2] = pointOnCircle(cx, cy, faceR + 7, i * 30);
+                    return (
+                        <line
+                            key={i}
+                            x1={x1.toFixed(1)}
+                            y1={y1.toFixed(1)}
+                            x2={x2.toFixed(1)}
+                            y2={y2.toFixed(1)}
+                            stroke={NAVY}
+                            strokeWidth="2.4"
+                            strokeLinecap="round"
+                        />
+                    );
+                })}
+                {/* navy "+" hub at the centre */}
+                <circle cx={cx} cy={cy} r="12" fill={NAVY} />
                 <path
-                    d="M71,78 L85,78 M78,71 L78,85"
-                    stroke="white"
-                    strokeWidth="3.5"
+                    d={`M ${cx - 6} ${cy} H ${cx + 6} M ${cx} ${cy - 6} V ${cy + 6}`}
+                    stroke="#ffffff"
+                    strokeWidth="3.6"
                     strokeLinecap="round"
                 />
             </svg>
@@ -415,64 +412,205 @@ function TimeBonusHexIcon({
     );
 }
 
-/** Scale hex vertices toward centre by `frac` (0..1). */
-function scaleHexPoints(frac: number): string {
-    const cx = 50;
-    const cy = 50;
-    const verts = [
-        [50, 4],
-        [91, 27.5],
-        [91, 72.5],
-        [50, 96],
-        [9, 72.5],
-        [9, 27.5],
-    ];
-    return verts
-        .map(
-            ([x, y]) =>
-                `${cx + (x - cx) * frac},${cy + (y - cy) * frac}`,
-        )
-        .join(" ");
+/** Overlapping-cards glyph (the discard/draw/expand powerups) with a
+ *  draw badge (top-left) and a keep/expand badge (top-right). */
+function cardsGlyph(drawLabel: string, keepLabel: string): ReactNode {
+    return (
+        <>
+            <rect
+                x="30"
+                y="40"
+                width="26"
+                height="36"
+                rx="4.5"
+                fill="#ffffff"
+                stroke={NAVY}
+                strokeWidth="5"
+                transform="rotate(-10 43 58)"
+            />
+            <rect
+                x="44"
+                y="34"
+                width="26"
+                height="36"
+                rx="4.5"
+                fill="#ffffff"
+                stroke={NAVY}
+                strokeWidth="5"
+            />
+            <circle cx="30" cy="33" r="13" fill={NAVY} />
+            <text
+                x="30"
+                y="38.5"
+                textAnchor="middle"
+                fontSize="15"
+                fontWeight="800"
+                fill="#ffffff"
+                fontFamily={ICON_FONT}
+            >
+                {drawLabel}
+            </text>
+            <circle cx="72" cy="30" r="11" fill={NAVY} />
+            <text
+                x="72"
+                y="34.8"
+                textAnchor="middle"
+                fontSize="13"
+                fontWeight="800"
+                fill="#ffffff"
+                fontFamily={ICON_FONT}
+            >
+                {keepLabel}
+            </text>
+        </>
+    );
+}
+
+function renderPowerupGlyph(powerup: PowerupKind): ReactNode {
+    switch (powerup) {
+        case "veto":
+            // Red prohibition sign in a red hexagon.
+            return (
+                <>
+                    <polygon
+                        points={HEX_PTS}
+                        fill="none"
+                        stroke={CARD_RED}
+                        strokeWidth="6"
+                        strokeLinejoin="round"
+                    />
+                    <circle
+                        cx="50"
+                        cy="50"
+                        r="18"
+                        fill="none"
+                        stroke={CARD_RED}
+                        strokeWidth="6"
+                    />
+                    <line
+                        x1="38"
+                        y1="62"
+                        x2="62"
+                        y2="38"
+                        stroke={CARD_RED}
+                        strokeWidth="6"
+                        strokeLinecap="round"
+                    />
+                </>
+            );
+        case "move":
+            // Location pin inside a hexagon.
+            return (
+                <>
+                    <polygon
+                        points={HEX_PTS}
+                        fill="none"
+                        stroke={NAVY}
+                        strokeWidth="6"
+                        strokeLinejoin="round"
+                    />
+                    <path
+                        d="M50 31 C41.7 31 35 37.7 35 46 C35 57 50 70 50 70 C50 70 65 57 65 46 C65 37.7 58.3 31 50 31 Z"
+                        fill={NAVY}
+                    />
+                    <circle cx="50" cy="45.5" r="5.5" fill="#ffffff" />
+                </>
+            );
+        case "randomize":
+            // A die face with a "?".
+            return (
+                <>
+                    <rect
+                        x="25"
+                        y="25"
+                        width="50"
+                        height="50"
+                        rx="12"
+                        fill="none"
+                        stroke={NAVY}
+                        strokeWidth="6"
+                    />
+                    <circle cx="38" cy="38" r="4.2" fill={NAVY} />
+                    <circle cx="62" cy="62" r="4.2" fill={NAVY} />
+                    <text
+                        x="50"
+                        y="60"
+                        textAnchor="middle"
+                        fontSize="30"
+                        fontWeight="800"
+                        fill={NAVY}
+                        fontFamily={ICON_FONT}
+                    >
+                        ?
+                    </text>
+                </>
+            );
+        case "duplicate":
+            // A card copied to a second card (a "+").
+            return (
+                <>
+                    <rect
+                        x="28"
+                        y="38"
+                        width="30"
+                        height="40"
+                        rx="5"
+                        fill="#ffffff"
+                        stroke={NAVY}
+                        strokeWidth="5"
+                    />
+                    <rect
+                        x="42"
+                        y="28"
+                        width="30"
+                        height="40"
+                        rx="5"
+                        fill="#ffffff"
+                        stroke={NAVY}
+                        strokeWidth="5"
+                    />
+                    <path
+                        d="M57 40 V56 M49 48 H65"
+                        stroke={NAVY}
+                        strokeWidth="5"
+                        strokeLinecap="round"
+                    />
+                </>
+            );
+        case "discard1draw2":
+            return cardsGlyph("+2", "1");
+        case "discard2draw3":
+            return cardsGlyph("+3", "2");
+        case "draw1expand":
+            return cardsGlyph("+1", "+1");
+    }
 }
 
 /**
- * Hex frame with a powerup-specific symbol inside. Symbol choice
- * approximates the physical cards' iconography using Lucide icons
- * (the real cards use custom stylised glyphs we don't have assets
- * for, but the meaning carries through).
+ * Powerup icon — a custom SVG per powerup, drawn to resemble the printed
+ * card's glyph (Veto's red prohibition hexagon, the overlapping-cards
+ * discard/draw badges, the die-with-? randomize, the location-pin Move…)
+ * rather than a generic Lucide stand-in.
  */
-function PowerupHexIcon({
+function PowerupGlyph({
     powerup,
     cqw = 20,
 }: {
     powerup: PowerupKind;
-    /** Frame size as a container-query-width unit (scales with the card). */
+    /** Icon size as a container-query-width unit (scales with the card). */
     cqw?: number;
 }) {
-    const InnerIcon = POWERUP_ICON[powerup];
     return (
-        <HexFrame sizeCqw={cqw}>
-            <InnerIcon
-                style={{
-                    color: NAVY,
-                    width: cu(cqw * 0.42),
-                    height: cu(cqw * 0.42),
-                    strokeWidth: 2.5,
-                }}
-            />
-        </HexFrame>
+        <svg
+            viewBox="0 0 100 100"
+            className="shrink-0"
+            style={{ width: cu(cqw), height: cu(cqw) }}
+            aria-hidden="true"
+        >
+            {renderPowerupGlyph(powerup)}
+        </svg>
     );
 }
-
-const POWERUP_ICON: Record<PowerupKind, LucideIcon> = {
-    veto: Ban,
-    randomize: Dices,
-    discard1draw2: Layers,
-    discard2draw3: Layers,
-    draw1expand: Layers,
-    duplicate: Copy,
-    move: MapPinned,
-};
 
 /* ────────────────── Inline size badge ────────────────── */
 
@@ -521,31 +659,53 @@ function SizeBadge({
 }
 
 /**
- * Single time-bonus badge for the active game size — shows
- * `<letter> <minutes> MIN`. The physical card prints all three
- * S/M/L badges; the digital UI knows which size is active and only
- * renders that one.
+ * One S/M/L minute badge for the Time Bonus card's bottom row — a colored
+ * chip (yellow / orange / red, like the printed card) with the size letter,
+ * the big minutes value, and "MIN". The chip for the active game size is
+ * ringed (the digital card knows the size), while all three still show for
+ * fidelity to the physical card. Sized in cqw so it scales with the card.
  */
 function SizeMinutesBadge({
     size,
     minutes,
+    active,
 }: {
     size: GameSize;
     minutes: number;
+    active?: boolean;
 }) {
-    const style: CSSProperties = {
-        backgroundColor: SIZE_BG[size],
-        color: SIZE_FG[size],
-    };
     return (
-        <span
-            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-poppins font-bold uppercase text-[10px] tracking-tight"
-            style={style}
+        <div
+            className="flex flex-col items-center justify-center leading-none"
+            style={{
+                backgroundColor: SIZE_BG[size],
+                color: SIZE_FG[size],
+                flex: "1 1 0",
+                borderRadius: cu(1.6),
+                padding: `${cu(1.4)} ${cu(1)}`,
+                gap: cu(0.6),
+                boxShadow: active ? `0 0 0 ${cu(0.7)} ${NAVY}` : undefined,
+            }}
         >
-            <span className="text-[10px]">{SIZE_LETTER[size]}</span>
-            <span className="tabular-nums text-[10px]">{minutes}</span>
-            <span className="text-[7px] opacity-80">MIN</span>
-        </span>
+            <span
+                className="font-poppins font-bold uppercase"
+                style={{ fontSize: cu(2.7), opacity: 0.85 }}
+            >
+                {SIZE_LETTER[size]}
+            </span>
+            <span
+                className="font-inter-tight font-black tabular-nums"
+                style={{ fontSize: cu(6.5) }}
+            >
+                {minutes}
+            </span>
+            <span
+                className="font-poppins font-bold uppercase"
+                style={{ fontSize: cu(2.2), opacity: 0.85 }}
+            >
+                Min
+            </span>
+        </div>
     );
 }
 

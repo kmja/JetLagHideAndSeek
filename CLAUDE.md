@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v917`. Use `git log` for the per-version detail;
+build stamp. Current: `v918`. Use `git log` for the per-version detail;
+
+**v918 — hider cards redrawn to resemble the PHYSICAL cards (icons + layout).**
+The cqw scaling (v912) was right but the `CardTile` art didn't look like the
+printed cards. Redrawn to match: (1) **Time Bonus** — the clock-hexagon icon
+moved to the TOP (was a scaled-solid hexagon at the bottom) and rebuilt as
+`ClockHexIcon`: a hexagon with clock tick marks + a colored **pie WEDGE** whose
+sweep grows with the bonus tier (`pieSlice`/`pointOnCircle` helpers,
+`30 + fillFrac*220`°) + a navy "+" hub — then the "TIME BONUS" title, then the
+**three S/M/L minute badges** pinned at the bottom (`SizeMinutesBadge` restyled
+to colored yellow/orange/red chips with letter + big number + "MIN"; the active
+game size is navy-ringed — digital-aware, but all three show for fidelity). This
+reverses the earlier single-collapsed-number layout in favour of matching the
+printed card. (2) **Powerups** — the generic Lucide icons were replaced by custom
+per-powerup SVG glyphs (`PowerupGlyph`/`renderPowerupGlyph`): **Veto** = a RED
+prohibition sign in a red hexagon; **discard1draw2 / discard2draw3 / draw1expand**
+= overlapping cards with a draw badge (+2/+3/+1) top-left and a keep/expand badge
+(1/2/+1) top-right (`cardsGlyph`); **randomize** = a die face with a "?";
+**duplicate** = a card copied to a second card ("+"); **move** = a location pin in
+a hexagon. All SVG (viewBox-based) so they scale with the card's cqw sizing. Curse
+layout (name → description → casting-cost) already matched and is unchanged.
+Removed the dead `HexFrame`/`scaleHexPoints`/`TimeBonusHexIcon`/`PowerupHexIcon`/
+`POWERUP_ICON` + the Lucide icon imports (only `Check` remains).
 
 **v917 — committed-zone card = scouting hub (bigger snapshot map + transit
 modes).** Follow-up to v916. The committed-zone card in the Zone drawer
