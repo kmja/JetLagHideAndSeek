@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v911`. Use `git log` for the per-version detail;
+build stamp. Current: `v912`. Use `git log` for the per-version detail;
+
+**v912 — cards are ONE scale-invariant layout (mini = full card shrunk, like a
+resized photo).** Supersedes the v910 vertical-centering. `CardTile` no longer
+has a re-laid-out `compact` variant that changed font/icon sizes and hid the
+description — it renders ONE canonical layout at any display size using CSS
+**container-query units** (`cqw` = 1% of the card's own width). The card root is
+a query container (`style={{ containerType: "inline-size", borderRadius:
+cu(4) }}`) and EVERY font-size / padding / icon / gap below is a `cqw` value
+(`cu(n)` = `${n}cqw`, numbers chosen as px÷3 so a ~300 px full card matches the
+old absolute sizes) — so a mini hand card is the full carousel card mathematically
+shrunk, not a different layout. Icons (`HexFrame`/`TimeBonusHexIcon`/
+`PowerupHexIcon`) take a `cqw` size; the inline `SizeBadge` is sized in `em`
+(relative to the surrounding cqw description) so it scales too. Layouts are now
+**top-anchored to match the physical cards** (revert of v910's centering, which
+diverged): TimeBonus = "TIME BONUS" title → big minutes → hex meter; Powerup =
+hex icon → title → description; Curse = "CURSE OF THE …" name (left) → description
+→ casting cost pinned at the bottom (the v306 overflow-scroll safety net is kept
+on the description). The empty lower area on a sparse card is authentic to the
+real cards (they're top-anchored with whitespace). The `size?: CardTileSize` prop
+is kept (deprecated no-op) so old `size="compact"` call-sites still typecheck.
+Applies everywhere `CardTile` renders (draw picker, hand carousel, hand grid,
+discard pile, fan miniature, debug gallery).
 
 **v911 — procedural sound engine (first audio in the app).** The app had NO
 audio. `src/lib/sound.ts` is a self-contained **Web Audio synthesis** engine —

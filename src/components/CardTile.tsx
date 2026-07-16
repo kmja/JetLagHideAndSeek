@@ -52,14 +52,34 @@ const TIER_METER: { threshold: number; color: string; fillFrac: number }[] = [
     { threshold: 0, color: "#DC3D38", fillFrac: 0.14 }, // small red triangle
 ];
 
+/* ────────────────── Scale-invariant sizing ────────────────── */
+
+/**
+ * v912: every card renders ONE canonical layout at ANY display size —
+ * a mini card in the hand is literally the full carousel card SHRUNK,
+ * like a photo resized, never a re-laid-out "compact" variant. This is
+ * achieved with CSS **container query units** (`cqw` = 1% of the card's
+ * own width): the card root is a query container (`container-type:
+ * inline-size`) and EVERY font-size / padding / icon / gap below is
+ * expressed in `cqw`, so the whole thing scales as one with the card's
+ * width (its height follows from the fixed 5:7 aspect). No `size` prop
+ * changes the layout anymore.
+ *
+ * The numbers below are `px ÷ 3` — chosen so a ~300 px-wide full card
+ * matches the old absolute pixel sizes, and every smaller/larger render
+ * is a faithful proportional scale of it.
+ */
+const cu = (n: number) => `${n}cqw`;
+
 /* ────────────────── Public API ────────────────── */
 
+/** @deprecated Kept only so old `size="compact"` call-sites still type
+ *  — the card no longer re-lays-out by size (v912). */
 export type CardTileSize = "default" | "compact";
 
 export function CardTile({
     card,
     gameSize,
-    size = "default",
     selected,
     onClick,
     selectionIndicator = "checkbox",
@@ -69,6 +89,7 @@ export function CardTile({
 }: {
     card: Card;
     gameSize: GameSize;
+    /** @deprecated no longer changes the layout — see the v912 note. */
     size?: CardTileSize;
     selected?: boolean;
     onClick?: () => void;
@@ -92,7 +113,7 @@ export function CardTile({
         <Wrapper
             {...wrapperProps}
             className={cn(
-                "relative flex flex-col rounded-xl overflow-hidden text-left",
+                "relative flex flex-col overflow-hidden text-left",
                 "bg-white border border-zinc-300 shadow-sm",
                 // Poker-card proportions (2.5" × 3.5", 5:7). Held
                 // uniformly across every surface that renders a card
@@ -108,7 +129,15 @@ export function CardTile({
                     "ring-2 ring-primary ring-offset-2 ring-offset-background",
                 className,
             )}
-            style={{ color: NAVY }}
+            // `containerType: inline-size` makes `cqw` below resolve to
+            // this card's own width; `borderRadius` in cqw so the corner
+            // radius scales with the card too (a mini card isn't more
+            // rounded than a full one).
+            style={{
+                color: NAVY,
+                containerType: "inline-size",
+                borderRadius: cu(4),
+            }}
         >
             {/* Selection checkmark — floats in the top-right corner so
                 it doesn't compete with the title or icon for layout
@@ -116,37 +145,34 @@ export function CardTile({
                 checkbox indicator and the card is selected. */}
             {selected && selectionIndicator === "checkbox" && (
                 <span
-                    className="absolute top-2 right-2 inline-flex items-center justify-center w-5 h-5 rounded-sm bg-primary text-primary-foreground z-10"
+                    className="absolute inline-flex items-center justify-center rounded-sm bg-primary text-primary-foreground z-10"
+                    style={{
+                        top: cu(2.7),
+                        right: cu(2.7),
+                        width: cu(6.7),
+                        height: cu(6.7),
+                    }}
                     aria-hidden="true"
                 >
-                    <Check className="w-3.5 h-3.5" />
+                    <Check style={{ width: cu(4.7), height: cu(4.7) }} />
                 </span>
             )}
 
             {card.kind === "time-bonus" && (
-                <TimeBonusBody
-                    card={card}
-                    gameSize={gameSize}
-                    compact={size === "compact"}
-                />
+                <TimeBonusBody card={card} gameSize={gameSize} />
             )}
             {card.kind === "powerup" && (
-                <PowerupBody
-                    card={card}
-                    gameSize={gameSize}
-                    compact={size === "compact"}
-                />
+                <PowerupBody card={card} gameSize={gameSize} />
             )}
             {card.kind === "curse" && (
-                <CurseBody
-                    card={card}
-                    gameSize={gameSize}
-                    compact={size === "compact"}
-                />
+                <CurseBody card={card} gameSize={gameSize} />
             )}
 
             {footer && (
-                <div className="px-2.5 py-2 border-t border-zinc-200 bg-zinc-50">
+                <div
+                    className="border-t border-zinc-200 bg-zinc-50"
+                    style={{ padding: `${cu(2.7)} ${cu(3.3)}` }}
+                >
                     {footer}
                 </div>
             )}
@@ -159,61 +185,46 @@ export function CardTile({
 function TimeBonusBody({
     card,
     gameSize,
-    compact,
 }: {
     card: Extract<Card, { kind: "time-bonus" }>;
     gameSize: GameSize;
-    compact: boolean;
 }) {
-    // Layout matches the physical cards:
-    //   1. Centered "TIME BONUS" header in big bold uppercase
-    //   2. Large centered minutes value for the active game size
-    //   3. Centered hexagon meter icon below
-    // Compact variant keeps the same vertical stack but shrinks
-    // everything so the card fits in the discard pile grid.
+    // Physical-card layout, top-anchored: "TIME BONUS" header, the big
+    // minutes value for the active game size, then the hexagon meter
+    // icon. All sizes are cqw so a mini card is this exact layout shrunk.
     return (
         <div
-            className={cn(
-                // v910: `justify-center` so the sparse title + minutes +
-                // hex fill the tall 5:7 card evenly instead of clustering
-                // at the top and leaving the lower half an empty void
-                // (glaring at the draw picker's ~76%-width card size).
-                "flex-1 flex flex-col items-center justify-center text-center",
-                compact ? "p-2.5" : "px-4 py-4",
-            )}
+            className="flex-1 flex flex-col items-center text-center"
+            style={{ padding: cu(5.3) }}
         >
             <div
-                className={cn(
-                    "font-inter-tight font-black uppercase tracking-tight leading-[0.95]",
-                    compact ? "text-base" : "text-2xl",
-                )}
-                style={{ color: NAVY }}
+                className="font-inter-tight font-black uppercase tracking-tight leading-[0.95]"
+                style={{ color: NAVY, fontSize: cu(8) }}
             >
                 Time Bonus
             </div>
             <div
-                className={cn(
-                    "font-inter-tight italic font-black tabular-nums leading-none",
-                    compact ? "text-3xl mt-1.5" : "text-5xl mt-3",
-                )}
-                style={{ color: SIZE_BG[gameSize] }}
+                className="font-inter-tight italic font-black tabular-nums leading-none"
+                style={{
+                    color: SIZE_BG[gameSize],
+                    fontSize: cu(16),
+                    marginTop: cu(4),
+                }}
             >
                 {card.minutes[gameSize]}
                 <span
-                    className={cn(
-                        "ml-1 not-italic font-bold",
-                        compact ? "text-xs" : "text-base",
-                    )}
-                    style={{ color: NAVY }}
+                    className="not-italic font-bold"
+                    style={{
+                        color: NAVY,
+                        fontSize: cu(5.3),
+                        marginLeft: cu(1.3),
+                    }}
                 >
                     MIN
                 </span>
             </div>
-            <div className={cn(compact ? "mt-2" : "mt-4")}>
-                <TimeBonusHexIcon
-                    largest={card.minutes.large}
-                    size={compact ? 50 : 88}
-                />
+            <div style={{ marginTop: cu(5.3) }}>
+                <TimeBonusHexIcon largest={card.minutes.large} cqw={29} />
             </div>
         </div>
     );
@@ -222,50 +233,38 @@ function TimeBonusBody({
 function PowerupBody({
     card,
     gameSize,
-    compact,
 }: {
     card: Extract<Card, { kind: "powerup" }>;
     gameSize: GameSize;
-    compact: boolean;
 }) {
+    // Physical layout: hex icon at top-centre, title below, description
+    // below that — top-anchored, all cqw so it scales as one.
     return (
         <div
-            className={cn(
-                "flex-1 flex flex-col min-h-0",
-                compact ? "p-2.5" : "px-4 py-4",
-            )}
+            className="flex-1 flex flex-col min-h-0"
+            style={{ padding: cu(5.3) }}
         >
-            {/* v910: center the icon + title + description as one group so
-                a short-description powerup (e.g. Veto) fills the tall card
-                evenly instead of hugging the top. The `min-h-full`
-                wrapper inside the scroll box centers when the content is
-                short and scrolls normally from the top when it overflows. */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-                <div className="min-h-full flex flex-col items-center justify-center text-center">
-                    <div className="flex justify-center shrink-0">
-                        <PowerupHexIcon
-                            powerup={card.powerup}
-                            size={compact ? 48 : 80}
-                        />
-                    </div>
-                    <div
-                        className={cn(
-                            "font-inter-tight font-black uppercase tracking-tight leading-[0.95] mt-3 shrink-0",
-                            compact ? "text-sm" : "text-lg",
-                        )}
-                        style={{ color: NAVY }}
-                    >
-                        {card.name}
-                    </div>
-                    {!compact && (
-                        <p
-                            className="text-[11px] leading-snug mt-2"
-                            style={{ color: NAVY }}
-                        >
-                            {renderBodyText(card.description, gameSize)}
-                        </p>
-                    )}
-                </div>
+            <div className="flex justify-center shrink-0">
+                <PowerupHexIcon powerup={card.powerup} cqw={26.7} />
+            </div>
+            <div
+                className="font-inter-tight font-black uppercase tracking-tight leading-[0.95] text-center shrink-0"
+                style={{ color: NAVY, fontSize: cu(6), marginTop: cu(4) }}
+            >
+                {card.name}
+            </div>
+            {/* Scroll within the card if the description overflows (v306
+                safety net); short ones just sit under the title. */}
+            <div
+                className="flex-1 min-h-0 overflow-y-auto"
+                style={{ marginTop: cu(2.7) }}
+            >
+                <p
+                    className="leading-snug text-center"
+                    style={{ color: NAVY, fontSize: cu(3.7) }}
+                >
+                    {renderBodyText(card.description, gameSize)}
+                </p>
             </div>
         </div>
     );
@@ -274,50 +273,43 @@ function PowerupBody({
 function CurseBody({
     card,
     gameSize,
-    compact,
 }: {
     card: Extract<Card, { kind: "curse" }>;
     gameSize: GameSize;
-    compact: boolean;
 }) {
+    // Physical layout: "CURSE OF THE …" name at top-left, description
+    // below, casting cost pinned at the bottom. All cqw so it scales.
     return (
         <div
-            className={cn(
-                "flex-1 flex flex-col min-h-0",
-                compact ? "p-2.5" : "p-3.5",
-            )}
+            className="flex-1 flex flex-col min-h-0"
+            style={{ padding: cu(4.7) }}
         >
-            {/* v910: center the name + description group vertically so a
-                short curse fills the tall card rather than hugging the
-                top. `min-h-full` centers short content and scrolls from
-                the top when the curse text overflows (the v306 safety
-                net). Horizontal alignment stays left — the "CURSE OF
-                THE …" name leads the card. */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-                <div className="min-h-full flex flex-col justify-center">
-                    <div
-                        className={cn(
-                            "font-inter-tight font-black uppercase tracking-tight leading-[0.95]",
-                            compact ? "text-xs" : "text-sm",
-                        )}
-                        style={{ color: NAVY }}
-                    >
-                        {card.name}
-                    </div>
-                    {!compact && (
-                        <p
-                            className="text-[11px] leading-snug mt-2"
-                            style={{ color: NAVY }}
-                        >
-                            {renderBodyText(card.description, gameSize)}
-                        </p>
-                    )}
-                </div>
+            <div
+                className="font-inter-tight font-black uppercase tracking-tight leading-[0.95] shrink-0"
+                style={{ color: NAVY, fontSize: cu(4.7) }}
+            >
+                {card.name}
             </div>
-            {!compact && card.castingCost && (
+            <div
+                className="flex-1 min-h-0 overflow-y-auto"
+                style={{ marginTop: cu(2.7) }}
+            >
                 <p
-                    className="text-[10px] leading-snug mt-2 pt-2 border-t border-zinc-200 shrink-0"
-                    style={{ color: NAVY }}
+                    className="leading-snug"
+                    style={{ color: NAVY, fontSize: cu(3.7) }}
+                >
+                    {renderBodyText(card.description, gameSize)}
+                </p>
+            </div>
+            {card.castingCost && (
+                <p
+                    className="leading-snug border-t border-zinc-200 shrink-0"
+                    style={{
+                        color: NAVY,
+                        fontSize: cu(3.3),
+                        marginTop: cu(2.7),
+                        paddingTop: cu(2.7),
+                    }}
                 >
                     <span className="font-bold">Casting cost:</span>{" "}
                     {renderBodyText(card.castingCost, gameSize)}
@@ -336,17 +328,18 @@ function CurseBody({
  */
 function HexFrame({
     children,
-    sizePx = 56,
+    sizeCqw = 20,
     fill = "none",
 }: {
     children?: ReactNode;
-    sizePx?: number;
+    /** Frame size as a container-query-width unit (scales with the card). */
+    sizeCqw?: number;
     fill?: string;
 }) {
     return (
         <div
             className="relative inline-flex items-center justify-center shrink-0"
-            style={{ width: sizePx, height: sizePx }}
+            style={{ width: cu(sizeCqw), height: cu(sizeCqw) }}
         >
             <svg
                 viewBox="0 0 100 100"
@@ -374,10 +367,11 @@ function HexFrame({
  */
 function TimeBonusHexIcon({
     largest,
-    size: sizePx = 56,
+    cqw = 20,
 }: {
     largest: number;
-    size?: number;
+    /** Icon size as a container-query-width unit (scales with the card). */
+    cqw?: number;
 }) {
     const tier =
         TIER_METER.find((t) => largest >= t.threshold) ?? TIER_METER[TIER_METER.length - 1];
@@ -388,7 +382,7 @@ function TimeBonusHexIcon({
     return (
         <div
             className="relative inline-flex items-center justify-center shrink-0"
-            style={{ width: sizePx, height: sizePx }}
+            style={{ width: cu(cqw), height: cu(cqw) }}
         >
             <svg
                 viewBox="0 0 100 100"
@@ -449,19 +443,20 @@ function scaleHexPoints(frac: number): string {
  */
 function PowerupHexIcon({
     powerup,
-    size: sizePx = 56,
+    cqw = 20,
 }: {
     powerup: PowerupKind;
-    size?: number;
+    /** Frame size as a container-query-width unit (scales with the card). */
+    cqw?: number;
 }) {
     const InnerIcon = POWERUP_ICON[powerup];
     return (
-        <HexFrame sizePx={sizePx}>
+        <HexFrame sizeCqw={cqw}>
             <InnerIcon
                 style={{
                     color: NAVY,
-                    width: sizePx * 0.42,
-                    height: sizePx * 0.42,
+                    width: cu(cqw * 0.42),
+                    height: cu(cqw * 0.42),
                     strokeWidth: 2.5,
                 }}
             />
@@ -497,18 +492,30 @@ function SizeBadge({
     value: string;
     unit?: string;
 }) {
+    // v912: sized in `em` (relative to the surrounding description text,
+    // itself sized in cqw) so the inline badge scales WITH the card —
+    // a mini card's badges shrink in lockstep, no fixed px.
     const style: CSSProperties = {
         backgroundColor: SIZE_BG[size],
         color: SIZE_FG[size],
+        fontSize: "0.82em",
+        padding: "0.08em 0.35em",
+        margin: "0 0.15em",
+        gap: "0.15em",
+        letterSpacing: "0.04em",
     };
     return (
         <span
-            className="inline-flex items-baseline gap-0.5 px-1 py-[1px] rounded-sm font-poppins font-bold uppercase text-[9px] tracking-[0.04em] mx-0.5 align-baseline"
+            className="inline-flex items-baseline rounded-sm font-poppins font-bold uppercase align-baseline"
             style={style}
         >
-            <span className="text-[9px]">{SIZE_LETTER[size]}</span>
-            <span className="tabular-nums text-[9px]">{value}</span>
-            {unit && <span className="text-[8px] opacity-90">{unit}</span>}
+            <span>{SIZE_LETTER[size]}</span>
+            <span className="tabular-nums">{value}</span>
+            {unit && (
+                <span style={{ fontSize: "0.85em", opacity: 0.9 }}>
+                    {unit}
+                </span>
+            )}
         </span>
     );
 }
