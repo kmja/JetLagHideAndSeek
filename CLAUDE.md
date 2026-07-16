@@ -428,7 +428,17 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v901`. Use `git log` for the per-version detail;
+build stamp. Current: `v902`. Use `git log` for the per-version detail;
+
+**v902 — matching answer-map shows the reference IDENTITY, not distance.**
+On the hider's answer-comparison map (`HiderMap`), the seeker's-nearest and
+hider's-nearest reference markers (`RefPointMarker`) were labelled with the
+DISTANCE ("Seeker · 3.8 km") — but for a MATCHING question the distance is
+irrelevant; what matters is WHICH reference each is nearest to. The marker now
+shows the reference NAME for matching ("Seeker · Newark Airport", truncated,
+`max-w-[9rem]`) and keeps the distance for measuring (where the number is the
+point). `RefPointMarker` takes a preformatted `detail` string; `fmtRefDistance`
+extracted for the measuring side.
 
 **v901 — draw-picker peek carousel + swipe.** The draw picker
 (`DrawPickerDialog`) went back to a CAROUSEL feel: the active card is centred

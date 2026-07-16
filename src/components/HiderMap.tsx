@@ -438,7 +438,11 @@ export function HiderMap({
                         <RefPointMarker
                             color={catColor}
                             origin="Seeker"
-                            distanceMeters={refs.seeker.distanceMeters}
+                            detail={
+                                question.id === "matching"
+                                    ? refs.seeker.name
+                                    : fmtRefDistance(refs.seeker.distanceMeters)
+                            }
                             dotEdge="bottom"
                         />
                     </Marker>
@@ -452,7 +456,11 @@ export function HiderMap({
                         <RefPointMarker
                             color="#3b82f6"
                             origin="You"
-                            distanceMeters={refs.hider.distanceMeters}
+                            detail={
+                                question.id === "matching"
+                                    ? refs.hider.name
+                                    : fmtRefDistance(refs.hider.distanceMeters)
+                            }
                             dotEdge="top"
                         />
                     </Marker>
@@ -691,20 +699,26 @@ function radiusToMeters(value: number, unit: string): number {
 
 /** A reference point (nearest coastline/airport/etc.) for the seeker or the
  *  hider, drawn as a small dot with a distance pill (v792). */
+/** Format a nearest-reference distance for a marker label. */
+function fmtRefDistance(distanceMeters: number): string {
+    const km = distanceMeters / 1000;
+    return km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(distanceMeters)} m`;
+}
+
 function RefPointMarker({
     color,
     origin,
-    distanceMeters,
+    detail,
     dotEdge,
 }: {
     color: string;
     origin: string;
-    distanceMeters: number;
+    /** Text shown after the origin — the reference NAME for matching (so the
+     *  hider sees WHICH reference each is nearest to), the distance for
+     *  measuring (where the number is what matters). v901. */
+    detail: string;
     dotEdge: "top" | "bottom";
 }) {
-    const km = distanceMeters / 1000;
-    const dist =
-        km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(distanceMeters)} m`;
     const dot = (
         <span
             className="w-3 h-3 rounded-full border-2 border-white shadow"
@@ -713,10 +727,10 @@ function RefPointMarker({
     );
     const label = (
         <span
-            className="rounded-full px-1.5 py-0.5 text-[10px] font-poppins font-bold text-white shadow whitespace-nowrap"
+            className="rounded-full px-1.5 py-0.5 text-[10px] font-poppins font-bold text-white shadow whitespace-nowrap max-w-[9rem] truncate"
             style={{ backgroundColor: color }}
         >
-            {origin} · {dist}
+            {origin} · {detail}
         </span>
     );
     return (
