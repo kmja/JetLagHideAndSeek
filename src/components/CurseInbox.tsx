@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useNow } from "@/hooks/useNow";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
-import { pendingOverlayActive, questions } from "@/lib/context";
+import { pendingOverlayActive, questions, topOverlayTall } from "@/lib/context";
 import {
     CURSE_DRAINED_BRAIN,
     CURSE_SPOTTY_MEMORY,
@@ -75,6 +75,7 @@ export function CurseInbox() {
     // thermometer tracker) is showing, push the top-right curse pills down
     // so the two don't overlap.
     const $pendingOverlay = useStore(pendingOverlayActive);
+    const $tallOverlay = useStore(topOverlayTall);
     const [dialogCurse, setDialogCurse] = useState<ReceivedCurse | null>(null);
 
     const unack = $curses.filter((c) => !c.acknowledged);
@@ -195,9 +196,13 @@ export function CurseInbox() {
                         // v623: when the top-center question overlay is up,
                         // drop the pills below it so they don't overlap.
                         "transition-[top] duration-300 ease-out",
-                        $pendingOverlay
-                            ? "top-[calc(env(safe-area-inset-top)_+_150px)] md:top-[104px]"
-                            : "top-[calc(env(safe-area-inset-top)_+_62px)] md:top-3",
+                        // v946: the thermometer tracker is much taller than the
+                        // pending-answer card, so clear it with a bigger dodge.
+                        $tallOverlay
+                            ? "top-[calc(env(safe-area-inset-top)_+_310px)] md:top-[300px]"
+                            : $pendingOverlay
+                              ? "top-[calc(env(safe-area-inset-top)_+_150px)] md:top-[104px]"
+                              : "top-[calc(env(safe-area-inset-top)_+_62px)] md:top-3",
                         "flex flex-col items-end gap-2",
                     )}
                     role="status"

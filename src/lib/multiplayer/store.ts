@@ -42,7 +42,9 @@ import {
     gamePausedForLocationAt,
     gameSize,
     gameStartCelebrationAt,
+    gameStartFiredFor,
     gameStartOverLobby,
+    seekingStartFiredFor,
     endgameConfirmedAt,
     endgameStartedAt,
     endOfRoundDialogOpen,
@@ -852,6 +854,18 @@ function applySnapshot(state: GameState) {
     allowedTransit.set(state.setup.allowedTransit);
     gameSize.set(state.setup.gameSize);
     hidingPeriodEndsAt.set(state.setup.hidingPeriodEndsAt);
+    // v946: a snapshot is a JOIN / reconnect resync, never the live moment the
+    // clock arms — so it must NOT replay the GO-GO-GO (game start) or SEEK
+    // (seeking start) celebration. Stamp the watchers' "already fired" dedupe
+    // keys to the synced value: game-start always (an armed clock means the
+    // game already began), seeking-start only if the hiding period ALREADY
+    // ended (a joiner still IN the hiding period should get the SEEK beat when
+    // it crosses zero, so leave that one for a future endsAt).
+    if (Number.isFinite(state.setup.hidingPeriodEndsAt)) {
+        const endsAt = state.setup.hidingPeriodEndsAt as number;
+        gameStartFiredFor.set(endsAt);
+        if (Date.now() >= endsAt) seekingStartFiredFor.set(endsAt);
+    }
     endgameStartedAt.set(state.setup.endgameStartedAt);
     endgameConfirmedAt.set(state.setup.endgameConfirmedAt ?? null);
     // Move powerup freeze + revealed station (present only on newer setups).

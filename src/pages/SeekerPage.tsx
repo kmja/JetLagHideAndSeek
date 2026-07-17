@@ -49,7 +49,9 @@ import {
     gameStartOverLobby,
     hidingPeriodEndsAt,
 } from "@/lib/gameSetup";
+import { playerRole } from "@/lib/hiderRole";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { cn } from "@/lib/utils";
 
 // Dialogs / overlays / wizards that only render once the user
@@ -156,6 +158,15 @@ export function SeekerPage() {
     const clockArmed = Number.isFinite($hidingEndsAt);
     const flourishActive =
         clockArmed && $overLobby && $celebrationAt !== null;
+    // v946: a multiplayer guest who JOINS an already-started game arrives with
+    // the clock armed (it rides the welcome snapshot) but NO role yet — they
+    // must land in the LOBBY + RolePicker, not get dumped into the seeking
+    // shell (the "joined mid-game → stuck on SEEK!" bug). Solo games have a
+    // null role too, so gate on multiplayer. Once they pick a role this flips
+    // false and the in-game shell mounts.
+    const $mpEnabled = useStore(multiplayerEnabled);
+    const $role = useStore(playerRole);
+    const needsRolePick = $mpEnabled && $role === null;
 
     // v616: during the hiding period the HiderTimer sits bottom-LEFT, so
     // the bottom-left Map-options chip is pushed up above it. A one-shot
@@ -218,7 +229,7 @@ export function SeekerPage() {
             <Suspense fallback={null}>
                 <GameLobbyDialog />
             </Suspense>
-            {!clockArmed ? (
+            {!clockArmed || needsRolePick ? (
                 preGame
             ) : (
         <div
@@ -241,7 +252,7 @@ export function SeekerPage() {
                         full-height map area between the sidebars. */}
                     <AppShell
                         as="main"
-                        className="flex-grow h-svh"
+                        className="flex-grow h-dvh"
                         mapAreaId="map-modal-dialog-container-leaflet"
                         header={<SeekerTopBar />}
                         footer={<BottomNav />}

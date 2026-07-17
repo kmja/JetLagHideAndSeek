@@ -457,7 +457,7 @@ export class GameRoom {
             this.curseCastSeq = 0;
             this.pushSubscriptions.clear();
             this.locLastAt.clear();
-            this.locReminderSent.clear();
+            this.teamLocReminder = { r1: false, r2: false };
             await this.clearPersisted();
             await this.state.storage.deleteAlarm();
             return;
@@ -552,7 +552,7 @@ export class GameRoom {
         this.game.questions = [];
         this.game.setup.hidingPeriodEndsAt = null;
         this.locLastAt.clear();
-        this.locReminderSent.clear();
+        this.teamLocReminder = { r1: false, r2: false };
         void this.clearPersisted();
         // Room is dead — stop the alarm from ticking an empty room.
         void this.state.storage.deleteAlarm();
@@ -1413,7 +1413,7 @@ export class GameRoom {
         // Turning it back ON re-arms a clean slate so reminders don't
         // immediately re-fire off the pre-existing staleness.
         if (!external) {
-            this.locReminderSent.clear();
+            this.teamLocReminder = { r1: false, r2: false };
             const now = Date.now();
             for (const p of this.game.participants) {
                 if (p.role === "seeker") this.locLastAt.set(p.id, now);
@@ -1430,45 +1430,48 @@ export class GameRoom {
         const now = Date.now();
         if (now < endsAt) return; // still in the hiding period
         if (this.game.roundFoundAt != null) return; // round already over
-        for (const p of this.game.participants) {
-            if (p.role !== "seeker") continue;
-            // Only nudge a seeker who's actually AWAY (offline). An online
-            // seeker sees the in-app banner; a backgrounded PWA drops to
-            // offline within seconds, so by 5 min stale a pocketed phone is
-            // offline here.
-            if (p.online) continue;
-            // Staleness baseline: last loc we received, or seeking-start
-            // (endsAt) if this seeker never shared — so a seeker who never
-            // turns location on still escalates.
-            const baseline = Math.max(this.locLastAt.get(p.id) ?? 0, endsAt);
-            const stale = now - baseline;
-            if (stale < LOC_REMINDER_1_MS) continue;
-            const sent = this.locReminderSent.get(p.id) ?? {
-                r1: false,
-                r2: false,
-            };
-            if (stale >= LOC_REMINDER_2_MS && !sent.r2) {
-                sent.r1 = true;
-                sent.r2 = true;
-                this.locReminderSent.set(p.id, sent);
+        const seekers = this.game.participants.filter(
+            (p) => p.role === "seeker",
+        );
+        if (seekers.length === 0) return;
+        // v946: TEAM freshness — the seekers travel together, so ONE fresh
+        // signal satisfies the rule. Baseline is seeking-start (endsAt), so a
+        // team that never turns location on still escalates.
+        let teamFreshest = endsAt;
+        for (const p of seekers) {
+            teamFreshest = Math.max(teamFreshest, this.locLastAt.get(p.id) ?? 0);
+        }
+        const teamStale = now - teamFreshest;
+        if (teamStale < LOC_REMINDER_1_MS) {
+            // Someone's sharing — the whole team is covered. Reset so the next
+            // stale episode escalates fresh.
+            this.teamLocReminder = { r1: false, r2: false };
+            return;
+        }
+        // The WHOLE team is stale → nudge every OFFLINE seeker (an online one
+        // sees the in-app banner). One escalation per threshold, team-wide.
+        const nudge = (body: string) => {
+            for (const p of seekers) {
+                if (p.online) continue;
                 this.state.waitUntil(
                     this.pushToParticipant(p.id, {
                         title: "Share your location",
-                        body: "The hider still can't see you — open the app now, or the game pauses in 5 minutes.",
-                        tag: "loc-reminder",
-                    }),
-                );
-            } else if (stale >= LOC_REMINDER_1_MS && !sent.r1) {
-                sent.r1 = true;
-                this.locReminderSent.set(p.id, sent);
-                this.state.waitUntil(
-                    this.pushToParticipant(p.id, {
-                        title: "Share your location",
-                        body: "The hider can't see your location — open the app to keep sharing.",
+                        body,
                         tag: "loc-reminder",
                     }),
                 );
             }
+        };
+        if (teamStale >= LOC_REMINDER_2_MS && !this.teamLocReminder.r2) {
+            this.teamLocReminder = { r1: true, r2: true };
+            nudge(
+                "The hider still can't see the team — open the app now, or the game pauses in 5 minutes.",
+            );
+        } else if (teamStale >= LOC_REMINDER_1_MS && !this.teamLocReminder.r1) {
+            this.teamLocReminder.r1 = true;
+            nudge(
+                "The hider can't see the team's location — someone open the app to keep sharing.",
+            );
         }
     }
 
@@ -1554,18 +1557,22 @@ export class GameRoom {
         new Map();
 
     /**
-     * v940: seeker-location freshness escalation. `locLastAt` is the SERVER's
-     * receive time of each seeker's last `loc` (skew-immune); `locReminderSent`
-     * tracks which of the two reminder pushes we've already sent this stale
-     * episode. Once a seeker goes stale (no `loc`), the server pushes a
-     * reminder at 5 min and again at 10 min so a BACKGROUNDED phone actually
-     * gets nudged (the in-app banner can't reach a suspended page). The
-     * eventual PAUSE stays client-authoritative on the hider (15 min). Both
-     * maps are ephemeral (reset on reload / round rotate), like `lastPos`.
+     * v940/v946: seeker-location freshness escalation. `locLastAt` is the
+     * SERVER's receive time of each seeker's last `loc` (skew-immune).
+     * `teamLocReminder` tracks which of the two reminder pushes we've sent this
+     * stale episode — TEAM-LEVEL (v946), not per-seeker: the seekers travel
+     * together, so ONE fresh signal from any of them satisfies the rule. Only
+     * when the WHOLE team is stale do we escalate, pushing every OFFLINE seeker
+     * to reopen. Reminders fire at 5 min and 10 min so a BACKGROUNDED phone
+     * gets nudged (the in-app banner can't reach a suspended page); the
+     * eventual PAUSE stays client-authoritative on the hider (15 min). Both are
+     * ephemeral (reset on reload / round rotate), like `lastPos`.
      */
     private locLastAt: Map<string, number> = new Map();
-    private locReminderSent: Map<string, { r1: boolean; r2: boolean }> =
-        new Map();
+    private teamLocReminder: { r1: boolean; r2: boolean } = {
+        r1: false,
+        r2: false,
+    };
 
     /**
      * v946: the `hidingPeriodEndsAt` value we've already fired the
@@ -1639,7 +1646,7 @@ export class GameRoom {
         // v940: this seeker is fresh again — reset the freshness clock (server
         // receive time) + clear any reminders sent this stale episode.
         this.locLastAt.set(conn.participantId, Date.now());
-        this.locReminderSent.delete(conn.participantId);
+        this.teamLocReminder = { r1: false, r2: false };
         const msg: ServerMessage = {
             t: "loc",
             participantId: conn.participantId,
@@ -1742,7 +1749,7 @@ export class GameRoom {
         this.lastPos.clear();
         // v940: reset the location-reminder escalation for the new round.
         this.locLastAt.clear();
-        this.locReminderSent.clear();
+        this.teamLocReminder = { r1: false, r2: false };
         // Announce the new round. Clients apply the roster (role
         // swaps) AND wipe round-scoped local state on this event —
         // see SMsgRoundStarted. A plain snapshot wouldn't do: it also

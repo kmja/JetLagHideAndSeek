@@ -9,6 +9,7 @@ import {
     pendingOverlayActive,
     questionModified,
     questions,
+    topOverlayTall,
     triggerLocalRefresh,
 } from "@/lib/context";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
@@ -97,7 +98,14 @@ export function ThermometerOverlay({
     useEffect(() => {
         if (preview) return;
         pendingOverlayActive.set(Boolean(started));
-        return () => pendingOverlayActive.set(false);
+        // v946: the thermometer card is much TALLER than the pending-answer
+        // card, so signal that the top overlay is the tall variety — the curse
+        // pills dodge further to clear it (they overlapped otherwise).
+        topOverlayTall.set(Boolean(started));
+        return () => {
+            pendingOverlayActive.set(false);
+            topOverlayTall.set(false);
+        };
     }, [Boolean(started), preview]);
 
     if (!started) return null;

@@ -641,6 +641,15 @@ export const hidingZonesRendering = atom<boolean>(false);
 export const pendingOverlayActive = atom<boolean>(false);
 
 /**
+ * True while the TOP overlay is the TALL variety — the in-progress
+ * thermometer tracker (icon + live distance + progress bar + the big "End
+ * thermometer" button), which is much taller than the pending-answer card.
+ * The curse pills read this to dodge FURTHER down so they clear it (the
+ * standard `pendingOverlayActive` dodge only clears the short card). Set by
+ * `ThermometerOverlay`; runtime-only. */
+export const topOverlayTall = atom<boolean>(false);
+
+/**
  * The `key` of the question currently open in the Add-question CONFIGURE
  * dialog (null when no configure dialog is open). A brand-new question is
  * added to the `questions` store as a DRAFT (`drag:true`, no `createdAt`)

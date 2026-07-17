@@ -23,7 +23,11 @@ import { cn } from "@/lib/utils";
  *     box is sized from the insets and so always has a real height.
  *
  * Callers own the ROOT positioning/height because they differ: the
- * seeker is a flex child of the sidebar row (`flex-grow h-svh`), the
+ * seeker is a flex child of the sidebar row (`flex-grow h-dvh` — dvh not
+ * svh so it tracks the visible viewport as the mobile browser toolbar
+ * shows/hides; svh left the shell shorter than the screen with the toolbar
+ * hidden, showing the page background as empty space below the nav on iOS),
+ * the
  * hider is `fixed inset-0`. They also differ in chrome (one vs two
  * header rows) and in whether they reserve bottom space (the hider's
  * HiderHandFan peek strip) — hence the `style` passthrough.

@@ -86,12 +86,19 @@ export function LocationPauseWatcher() {
             return;
         }
 
-        const hasFresh = isSeeker
-            ? $selfBroadcast != null &&
-              now - $selfBroadcast <= LOCATION_SHARE_FRESH_MS
-            : Object.values($seekers).some(
-                  (s) => now - s.ts <= LOCATION_SHARE_FRESH_MS,
-              );
+        // v946: TEAM freshness — the seekers travel together, so ANY fresh
+        // signal covers the whole team. The hider reads every seeker's last
+        // heard-from time; a seeker reads its OWN broadcast OR (now that
+        // seekers see each other, v946) any teammate's — so an offline seeker
+        // whose teammate is sharing no longer sees the "share your location"
+        // banner.
+        const teamFresh = Object.values($seekers).some(
+            (s) => now - s.ts <= LOCATION_SHARE_FRESH_MS,
+        );
+        const selfFresh =
+            $selfBroadcast != null &&
+            now - $selfBroadcast <= LOCATION_SHARE_FRESH_MS;
+        const hasFresh = isSeeker ? selfFresh || teamFresh : teamFresh;
 
         const pausedAt = gamePausedForLocationAt.get();
 

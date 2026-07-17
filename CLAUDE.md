@@ -428,7 +428,40 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v946`. Use `git log` for the per-version detail;
+build stamp. Current: `v947`. Use `git log` for the per-version detail;
+
+**v947 — iOS bottom gap, join-in-progress, team-wide GPS reminders,
+thermometer/curse overlap.**
+- **iOS empty space at the bottom (seeker).** The seeker shell used
+  `h-svh` (SeekerPage), the SMALL viewport — so on iOS Safari with the toolbar
+  hidden the shell was shorter than the screen and the page background showed
+  as empty space below the bottom nav. Switched to **`h-dvh`** (dynamic
+  viewport), which tracks the visible area as the toolbar shows/hides. (The
+  hider shell is `fixed inset-0`, unaffected.)
+- **Join-in-progress landed on SEEK! + locked (fixed).** A multiplayer guest
+  joining an already-started game arrives with the clock armed (welcome
+  snapshot) but NO role yet; the gate only checked `clockArmed`, so they
+  skipped the lobby/RolePicker and were dumped into the seeking shell with a
+  replayed SEEK! overlay. Now `SeekerPage` shows the pre-game branch when
+  `needsRolePick` (`multiplayer && role === null`), regardless of the clock —
+  so a joiner picks a role first. AND `applySnapshot` (a join/reconnect resync,
+  never the live transition) stamps `gameStartFiredFor` (always, if the clock
+  is armed) + `seekingStartFiredFor` (only if the hiding period already passed)
+  so the GO-GO-GO / SEEK celebration never replays on a rejoin — a joiner still
+  IN the hiding period keeps the SEEK beat for when it crosses zero.
+- **GPS reminders are TEAM-wide** (rulebook: the seekers travel together, so
+  one fresh signal covers the team). The client hider path already used
+  `some()` over all seekers; the SEEKER path now also treats a teammate's fresh
+  share as covering it (possible now that seekers see each other, v946). The
+  worker `checkLocationReminders` was rewritten from per-seeker to team-level:
+  it escalates only when the WHOLE team's freshest share is stale, then nudges
+  every offline seeker; the per-seeker `locReminderSent` map became a single
+  `teamLocReminder` flag, reset when any seeker shares.
+- **Thermometer no longer overlaps the curse pills.** The in-progress
+  thermometer tracker is much taller than the pending-answer card, so the curse
+  pills' standard `pendingOverlayActive` dodge (150 px) still overlapped it. New
+  `topOverlayTall` atom (set by `ThermometerOverlay`) drives a bigger dodge
+  (~310 px mobile / 300 px desktop) so the pills clear the tall card.
 
 **v946 — seekers see each other + seeking-start push + hider notify prompt +
 hider zone-entry moved to the nav.**
