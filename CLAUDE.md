@@ -428,7 +428,51 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v932`. Use `git log` for the per-version detail;
+build stamp. Current: `v933`. Use `git log` for the per-version detail;
+
+**v933 — body-of-water measuring: the "straight-line split" bug (a
+measuring question drawing a single half-plane) + memoize-caches-failure +
+fountain-as-nearest.** Root-caused from an NYC report where the closer/
+further preview was a clean DIAGONAL LINE despite dozens of water
+references — impossible for a measuring buffer, which unions a per-body
+buffer into a blobby region.
+- **`questionImpact.ts`: `water` wasn't gated like the other full-geometry
+  families.** Its `loading` flag keyed on the centroid POINT-cache, so the
+  overlay went "ready" the instant that cache loaded and drew the
+  single-point perpendicular-bisector **half-plane** (the straight line,
+  drawn relative to whatever centroid was nearest — e.g. a stray fountain)
+  instead of waiting for the real buffered region. Fix: `water` now gates
+  `loading` on `measuringReady` (the real buffer) AND is excluded from the
+  half-plane fallback (`else if (nearest && family.kind !== "water")`), so
+  it shows a loading state until the true blobby region lands — never the
+  misleading line.
+- **`measuring.ts`: `bufferedDeterminer` (lodash-memoized) cached
+  FAILURES permanently.** A transient rate-limited water/coast fetch (→
+  `false`) or an arcgis geodesic-buffer throw on NYC's heavy full coast +
+  every river (→ rejected promise) got memo-cached for that seeker
+  position, so every retry returned the poisoned value — silently
+  degrading BOTH the preview (fell to the half-plane) AND the real
+  elimination answer (buffered nothing) for the rest of the game at that
+  spot (the same trap v868 fixed for matching). New
+  `bufferedDeterminerFresh` wrapper (extracted `bufferedDeterminerKey`)
+  evicts the memo entry on a `false`/rejected result so the next call
+  recomputes; a genuine success is still cached. Wired into all real call
+  sites (`measuringDraftBuffer`, the `adjustPerMeasuring` elimination,
+  `measuringPlanningPolygon`). This also lets the sea/coast geometry
+  (`seaFromCoastline`) retry after a transient failure, improving the
+  "coastal area wrongly marked further" coverage.
+- **Fountain-as-nearest-water dropped client-side.** OSM tags some
+  fountains `natural=water` with a fountain-y NAME but no `water=fountain`
+  subtag, so they pass `WATER_FILTERS` (which keys on the subtag) — NYC's
+  "Madison Square Fountain" won as the 938 m nearest reference over the
+  slightly-farther rivers, poisoning the buffer distance + the label. New
+  `isFountainWaterFeature` (name `/\bfountains?\b/i` + area < ~1.2 ha, so a
+  real "Fountain Lake" is never excluded) drops them in BOTH the
+  body-of-water elimination polygons AND the nearest-water label
+  (`NearestReferencePreview`). CLIENT-SIDE — no `WATER_FILTERS` change (that
+  would orphan every city's `/api/water` cache and need an operator
+  re-warm); the prewarmed geometry still contains fountains, we just ignore
+  them.
 
 **v932 — game/lobby PERSISTENCE fix (the "thrown out of my own lobby"
 bug) + join flow polish + 3-letter codes.**

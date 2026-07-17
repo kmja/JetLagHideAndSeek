@@ -58,6 +58,31 @@ import type {
  */
 const MEASURING_ELIMINATION_CAP = 5000;
 
+/**
+ * v933: a FOUNTAIN masquerading as a body of water. OSM sometimes tags a
+ * fountain as `natural=water` with a fountain-y NAME but WITHOUT the
+ * `water=fountain` subtag our `WATER_FILTERS` exclusion keys on — so it
+ * slips through (e.g. NYC's "Madison Square Fountain"). A fountain isn't a
+ * body of water (rulebook p11), and when the nearest real river is slightly
+ * farther, the fountain wrongly wins as the "nearest reference," poisoning
+ * the seeker-distance buffer AND the label. We drop it CLIENT-SIDE here and
+ * in the nearest-water label — no `WATER_FILTERS` change (which would orphan
+ * every city's cache and need an operator re-warm). Name + tiny-area gate so
+ * a genuinely large lake named e.g. "Fountain Lake" is never excluded.
+ */
+export function isFountainWaterFeature(f: Feature): boolean {
+    const props = f.properties as Record<string, unknown> | null;
+    const name = (props?.["name:en"] ?? props?.["name"]) as string | undefined;
+    if (!name || !/\bfountains?\b/i.test(name)) return false;
+    try {
+        // < ~1.2 ha — a fountain basin, never a real lake/reservoir.
+        return turf.area(f as never) < 12_000;
+    } catch {
+        // Unmeasurable geometry + fountain-named → treat as a fountain.
+        return true;
+    }
+}
+
 const highSpeedBase = memoize(
     (features: Feature[]) => {
         const grouped = groupObjects(features);
@@ -445,8 +470,10 @@ export const determineMeasuringBoundary = async (
             const fc = osmtogeojson(data);
             const polys = fc.features.filter(
                 (f): f is Feature<Polygon | MultiPolygon> =>
-                    f.geometry?.type === "Polygon" ||
-                    f.geometry?.type === "MultiPolygon",
+                    (f.geometry?.type === "Polygon" ||
+                        f.geometry?.type === "MultiPolygon") &&
+                    // v933: drop fountains mis-tagged as `natural=water`.
+                    !isFountainWaterFeature(f),
             );
             const lines = fc.features.filter(
                 (f) =>
@@ -654,6 +681,26 @@ export const determineMeasuringBoundary = async (
     }
 };
 
+// v933: extracted so the self-evicting wrapper below can address a memo
+// entry by its exact key (mirrors matching.ts's matchingBoundaryMemoKey).
+const bufferedDeterminerKey = (question: MeasuringQuestion) =>
+    // v376: lightweight playAreaSignature instead of stringifying the
+    // whole polygon — see matching.ts memo key for the rationale.
+    JSON.stringify({
+        type: question.type,
+        lat: question.lat,
+        lng: question.lng,
+        entirety: polyGeoJSON.get()
+            ? playAreaSignature(polyGeoJSON.get())
+            : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as
+                  | string
+                  | number),
+        geo: (question as any).geo,
+        // v346: manual reference invalidates the memo so toggling it
+        // recomputes the buffer from the picked point.
+        manualReference: (question as any).manualReference,
+    });
+
 const bufferedDeterminer = memoize(
     async (question: MeasuringQuestion) => {
         const placeData = await determineMeasuringBoundary(question);
@@ -666,22 +713,35 @@ const bufferedDeterminer = memoize(
             question.lng,
         );
     },
-    (question) =>
-        // v376: lightweight playAreaSignature instead of stringifying the
-        // whole polygon — see matching.ts memo key for the rationale.
-        JSON.stringify({
-            type: question.type,
-            lat: question.lat,
-            lng: question.lng,
-            entirety: polyGeoJSON.get()
-                ? playAreaSignature(polyGeoJSON.get())
-                : ((mapGeoLocation.get()?.properties?.osm_id ?? "") as string | number),
-            geo: (question as any).geo,
-            // v346: manual reference invalidates the memo so toggling it
-            // recomputes the buffer from the picked point.
-            manualReference: (question as any).manualReference,
-        }),
+    bufferedDeterminerKey,
 );
+
+/**
+ * v933: `bufferedDeterminer` is memoized, but a TRANSIENT failure — a
+ * rate-limited Overpass water/coast fetch, or an arcgis geodesic-buffer
+ * throw on a pathologically heavy geometry (NYC's full detailed coast +
+ * every river) — would otherwise be cached FOREVER for that seeker
+ * position: lodash caches the rejected promise / the `false` result, so
+ * every retry at the same pin returns the poisoned value. That silently
+ * degraded BOTH the configure preview (fell back to the misleading
+ * single-point half-plane) AND the real elimination answer (buffered
+ * nothing) for the rest of the game at that spot — the same
+ * memoize-caches-failure trap v868 fixed for matching. This wrapper evicts
+ * the memo entry whenever the result is a failure (`false`) or the promise
+ * rejects, so the next call recomputes. A genuine success is still cached.
+ */
+async function bufferedDeterminerFresh(question: MeasuringQuestion) {
+    try {
+        const result = await bufferedDeterminer(question);
+        if (result === false) {
+            bufferedDeterminer.cache.delete(bufferedDeterminerKey(question));
+        }
+        return result;
+    } catch (e) {
+        bufferedDeterminer.cache.delete(bufferedDeterminerKey(question));
+        throw e;
+    }
+}
 
 /**
  * v688: the "closer" buffer for a DRAFT measuring question — the exact
@@ -701,7 +761,7 @@ export async function measuringDraftBuffer(
     lat: number,
     lng: number,
 ): Promise<Feature<Polygon | MultiPolygon> | null> {
-    const buffer = await bufferedDeterminer({
+    const buffer = await bufferedDeterminerFresh({
         type,
         lat,
         lng,
@@ -765,7 +825,11 @@ export const adjustPerMeasuring = async (
         );
     }
 
-    const buffer = await bufferedDeterminer(question);
+    // v933: use the self-evicting wrapper so a transient water/coast fetch
+    // or arcgis buffer failure doesn't get memo-cached and permanently make
+    // this question "eliminate nothing" for the rest of the game — the next
+    // map recompute retries.
+    const buffer = await bufferedDeterminerFresh(question);
 
     if (buffer === false) return mapData;
 
@@ -902,7 +966,7 @@ export const hiderifyMeasuring = async (question: MeasuringQuestion) => {
 
 export const measuringPlanningPolygon = async (question: MeasuringQuestion) => {
     try {
-        const buffered = await bufferedDeterminer(question);
+        const buffered = await bufferedDeterminerFresh(question);
 
         if (buffered === false) return false;
 

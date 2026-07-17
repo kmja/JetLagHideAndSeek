@@ -638,9 +638,18 @@ export function useQuestionImpact(
                   )
                 : inAreaCandidates;
         const loading =
-            family.kind === "measuring-geom" || family.kind === "sea-level"
-                ? // line/contour families have no point cache — "loading"
-                  // until the full-geometry region resolves for this position
+            family.kind === "measuring-geom" ||
+            family.kind === "sea-level" ||
+            family.kind === "water"
+                ? // Full-geometry families (line/contour + water) draw ONLY
+                  // the real buffered region — "loading" until it resolves
+                  // for this position. v933: `water` was previously gated on
+                  // its centroid point-cache, so the overlay went "ready" the
+                  // instant the cache loaded and rendered the misleading
+                  // single-point half-plane (a straight line for a measuring
+                  // question with dozens of water bodies) instead of waiting
+                  // for the real blobby buffer. Gate it on the buffer, like
+                  // the other full-geometry families.
                   !measuringReady
                 : family.kind === "matching-region"
                   ? !matchingRegionReady
@@ -710,7 +719,15 @@ export function useQuestionImpact(
             if (real) {
                 out.yes = real.yes ?? undefined;
                 out.no = real.no ?? undefined;
-            } else if (nearest) {
+            } else if (nearest && family.kind !== "water") {
+                // v933: the single-point half-plane is a reasonable instant
+                // approximation for a genuine POINT family (nearest is a
+                // centroid), but NOT for `water` — its "nearest" is a
+                // line/shore and the answer buffers EVERY body, so a straight
+                // perpendicular-bisector line badly misrepresents the cut
+                // (and would be drawn relative to whatever centroid happens
+                // to be closest, e.g. a stray fountain). Water shows nothing
+                // (loading) until its real buffer lands.
                 const closer = closerHalfPlane({ lat, lng }, nearest, playArea);
                 if (closer) {
                     out.yes = closer;

@@ -22,6 +22,7 @@ import {
     prefetchCategory,
 } from "@/maps/api/playAreaPrefetch";
 import { CacheType } from "@/maps/api/types";
+import { isFountainWaterFeature } from "@/maps/questions/measuring";
 import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
 import { fetchPrewarmedAreaWater } from "@/maps/api/water";
@@ -615,6 +616,9 @@ async function fetchNearestWater(
         const props = (feature.properties ?? {}) as Record<string, string>;
         const name = props["name:en"] ?? props["name"];
         if (!name) continue;
+        // v933: a fountain mis-tagged `natural=water` isn't a body of water —
+        // skip it so the label agrees with the elimination (both drop it).
+        if (isFountainWaterFeature(feature)) continue;
         // Flatten multi-geometry, then reduce each part to line geometry.
         let parts: GeoJSON.Feature[];
         try {
