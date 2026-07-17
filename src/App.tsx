@@ -17,6 +17,7 @@ import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { ReconnectingBanner } from "@/components/ReconnectingBanner";
 import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
 import { SpoofIndicator } from "@/components/SpoofIndicator";
+import { WakeLockController } from "@/components/WakeLockController";
 import { installGpsSpoof } from "@/lib/debugGpsSpoof";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
@@ -265,6 +266,11 @@ export function App() {
             {/* v937: always-visible chip when a (now-persistent) debug GPS
                 spoof is active, so it can't be silently forgotten. */}
             <SpoofIndicator />
+            {/* v938: hold a Screen Wake Lock during an active round so the
+                app stays alive while foregrounded (live GPS + map + timers).
+                The web platform can't track in the background — this is the
+                available mitigation. */}
+            <WakeLockController />
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to

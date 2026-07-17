@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v938`. Use `git log` for the per-version detail;
+build stamp. Current: `v939`. Use `git log` for the per-version detail;
+
+**v939 — Screen Wake Lock during an active round + seeker "keep app open"
+hint.** The web platform has NO background-geolocation API, so a seeker's
+`watchPosition` broadcast dies the moment the page stops executing (screen
+off / app backgrounded). Mitigation: `useWakeLock(enabled)`
+(`src/hooks/useWakeLock.ts`) holds a Screen Wake Lock while foregrounded and
+re-acquires it on `visibilitychange → visible` (the platform releases it
+whenever the page hides); all failures swallowed (unsupported browser /
+request-while-hidden). `WakeLockController` (mounted once app-level, spans
+the seeker↔hider route swap) enables it for the whole active round
+(`hidingPeriodEndsAt` finite && `roundFoundAt == null`) — keeps the app alive
+in-hand so live GPS + map + timers keep running. It CANNOT help once the app
+is switched away / the screen is manually off (that needs a native app). It
+also shows a **one-time seeker hint** (`keepAppOpenHintSeen`, persistent):
+"Keep the app open so the hider sees your live location — phones stop sharing
+GPS in the background." **Background reality (recorded for expectations):**
+web PUSH works with the app closed (server-driven via the SW); live GPS does
+NOT run when the app is closed/backgrounded/asleep — foreground-only, wake
+lock is the only web mitigation.
 
 **v938 — persistent GPS spoof (multi-device testing) + Unguided Tourist
 image payload.**
