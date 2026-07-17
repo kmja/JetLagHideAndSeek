@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v933`. Use `git log` for the per-version detail;
+build stamp. Current: `v934`. Use `git log` for the per-version detail;
+
+**v934 — offline players stay in the lobby roster (greyed), don't vanish.**
+Follow-up to v932's persistence fix: a player who closed/backgrounded the
+app was correctly kept in the server roster (marked `online:false`), but the
+lobby's `seekers`/`hiders` filters (`GameLobbyDialog`) dropped them with
+`p.online && …` — so their name DISAPPEARED from everyone else's lobby
+instead of showing offline. The `RosterCard` already styles an offline row
+greyed (`opacity-45`/`50`); the parent filter was pre-removing them before
+they reached it. Now the filters key on role only, so a backgrounded/closed
+player stays visible as an offline roster row (the reassuring, correct
+behaviour). Platform note recorded for expectations: **web push works with
+the app CLOSED** (server-driven via the SW), but **live GPS sharing does NOT
+run when the app is closed/backgrounded** — `useSeekerLocationBroadcast` is
+`watchPosition` + `setInterval`, both suspended when the page isn't
+executing, and the web platform has no true background-geolocation API. A
+seeker must keep the app foregrounded for their pin to update live; a Screen
+Wake Lock is the available mitigation (keeps the screen on / page alive
+while open) but can't help once the app is switched away or killed.
 
 **v933 — body-of-water measuring: the "straight-line split" bug (a
 measuring question drawing a single half-plane) + memoize-caches-failure +

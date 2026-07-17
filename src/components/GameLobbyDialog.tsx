@@ -244,14 +244,15 @@ export function GameLobbyDialog() {
             });
     }, [open, isHiderRole, $code, $mp, $transportStatus, hostingState]);
 
-    const seekers = $participants.filter(
-        (p) => p.online && p.role === "seeker",
-    );
+    // v934: keep OFFLINE participants in the roster (greyed via the
+    // RosterCard's own opacity styling), don't drop them. A player who
+    // closes/backgrounds the app is still IN the game — removing their row
+    // made their name "disappear" from everyone else's lobby (the reported
+    // bug); marking them offline is the correct, reassuring behaviour.
+    const seekers = $participants.filter((p) => p.role === "seeker");
     // v829: the hide team is a flat list of equal `hider`s (no main/co
     // distinction). `hider` = the first for any single-hider display bits.
-    const hiders = $participants.filter(
-        (p) => p.online && p.role === "hider",
-    );
+    const hiders = $participants.filter((p) => p.role === "hider");
     // v862: DISTINCT per-player colour across the WHOLE room (both teams), so
     // two players never share a colour. Assigned over every participant id.
     const colorById = useMemo(
