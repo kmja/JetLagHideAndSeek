@@ -428,7 +428,16 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v925`. Use `git log` for the per-version detail;
+build stamp. Current: `v926`. Use `git log` for the per-version detail;
+
+**v926 — per-powerup card tuning + bigger casting cost (`CardTile.tsx`).**
+Curse **casting cost** bumped to **4.5cqw**. `PowerupBody` gained per-card
+overrides: the default powerup has header **margin-top 8cqw / bottom 4cqw** and a
+**4.5cqw** description; **Duplicate** = icon **50cqw**, header mt **6** / mb **2**;
+**Move** = icon **50cqw**, header mt **4** / mb **2**, description **4.2cqw** (so
+Move's long "send the hiders your transit station" paragraph fits). The
+description's old `marginTop` was dropped — the header's `marginBottom` now owns
+the title→body gap.
 
 **v925 — join flow mirrors the host flow + card sizing pass.**
 - **Joining a room now lands on the SAME lobby + RolePicker as hosting**

@@ -248,7 +248,14 @@ function PowerupBody({
     gameSize: GameSize;
 }) {
     // Physical layout: hex icon at top-centre, title below, description
-    // below that — top-anchored, all cqw so it scales as one.
+    // below that — top-anchored, all cqw so it scales as one. Two icons
+    // (Duplicate, Move) run slightly smaller with tighter header margins,
+    // and Move's description is a touch smaller — per-card overrides.
+    const p = card.powerup;
+    const iconW = p === "duplicate" || p === "move" ? 50 : 55;
+    const headMt = p === "duplicate" ? 6 : p === "move" ? 4 : 8;
+    const headMb = p === "duplicate" || p === "move" ? 2 : 4;
+    const descFs = p === "move" ? 4.2 : 4.5;
     return (
         <div
             className="flex-1 flex flex-col min-h-0"
@@ -258,11 +265,16 @@ function PowerupBody({
                 className="flex justify-center shrink-0"
                 style={{ marginTop: cu(2) }}
             >
-                <PowerupGlyph powerup={card.powerup} w={55} h={55} />
+                <PowerupGlyph powerup={p} w={iconW} h={iconW} />
             </div>
             <div
                 className="font-display font-black uppercase leading-[0.98] text-center shrink-0"
-                style={{ color: NAVY, fontSize: cu(12), marginTop: cu(4) }}
+                style={{
+                    color: NAVY,
+                    fontSize: cu(12),
+                    marginTop: cu(headMt),
+                    marginBottom: cu(headMb),
+                }}
             >
                 {powerupTitleLines(card.name).map((line, i) => (
                     <div key={i}>{line}</div>
@@ -270,13 +282,10 @@ function PowerupBody({
             </div>
             {/* Scroll within the card if the description overflows (v306
                 safety net); short ones just sit under the title. */}
-            <div
-                className="flex-1 min-h-0 overflow-y-auto"
-                style={{ marginTop: cu(2.7) }}
-            >
+            <div className="flex-1 min-h-0 overflow-y-auto">
                 <p
                     className="leading-snug text-center"
-                    style={{ color: NAVY, fontSize: cu(3.7) }}
+                    style={{ color: NAVY, fontSize: cu(descFs) }}
                 >
                     {renderBodyText(card.description, gameSize)}
                 </p>
@@ -332,7 +341,7 @@ function CurseBody({
                     className="leading-snug font-black shrink-0"
                     style={{
                         color: NAVY,
-                        fontSize: cu(3.7),
+                        fontSize: cu(4.5),
                         marginTop: cu(3),
                         WebkitTextStroke: `0.02em ${NAVY}`,
                     }}
