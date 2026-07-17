@@ -225,21 +225,6 @@ export const seekerLocationSharing = persistentAtom<boolean>(
     },
 );
 
-/**
- * One-time "keep the app open so your live location keeps updating" hint for
- * seekers (v938). The web platform can't track GPS in the background, so a
- * seeker who pockets their phone stops sharing; this teaches that once per
- * device. Persistent so it isn't re-shown every game.
- */
-export const keepAppOpenHintSeen = persistentAtom<boolean>(
-    "jlhs:keepAppOpenHintSeen",
-    false,
-    {
-        encode: (v) => (v ? "1" : "0"),
-        decode: (v) => v === "1",
-    },
-);
-
 /* ────────────────── Reset helper ────────────────── */
 
 /**

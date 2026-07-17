@@ -428,7 +428,36 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v944`. Use `git log` for the per-version detail;
+build stamp. Current: `v945`. Use `git log` for the per-version detail;
+
+**v945 — tile pack download is CHUNKED-RANGED (fixes the 503 / range-walk on
+big packs) + dropped the "keep the app open" seeker toast.**
+- **Chunked-ranged pack download** (`tilePack.ts`). `loadTilePackForPlayArea`
+  fetched the whole pack in ONE plain `fetch(url)` (no Range). For a big
+  multipart pack (NYC ≈ 95 MB) that whole-object path failed two ways, so the
+  preloader fell back to the slow per-tile z14 range walk: (a) the worker's
+  `/tiles/<key>` serve does a whole-object `env.TILES.get(key)` which THROWS
+  inside R2 for a large multipart object → 503; (b) the service worker's
+  `/tiles/*.pmtiles` route sends a no-Range request straight through
+  (`if (!range) return fetch(request)`), and streaming a 95 MB whole-object
+  body through the SW is flaky on **Firefox** specifically (same Firefox/SW
+  class as v748 — worked intermittently, 503'd via workbox's catch handler
+  other times; Chrome always handled it). Fix: new `downloadPackRanged` pages
+  the pack in **8 MB `Range: bytes=…` requests** — a first `bytes=0-N` learns
+  the total from `Content-Range`, then it loops the rest and assembles one
+  buffer. This uses the EXACT ranged path the live map already uses reliably
+  (the worker's 206 branch + the v748-hardened SW ranged branch that only
+  buffers 206s), so it works on every browser and never touches the fragile
+  whole-object path. A server that ignores the range (small pack → 200)
+  degrades to a straight whole-body read. `AbortSignal` still cancels a
+  Stop-preload mid-download. The v944 `no city tile pack (status=…)` diagnostic
+  stays — but `error` no longer means a starved fallback, since a large pack
+  now downloads via ranges instead of failing whole.
+- **Dropped the "keep the app open…" seeker toast** (`WakeLockController`).
+  The one-time v938/v939 hint read as nagging; seekers notice on their own that
+  live GPS needs the app foregrounded. The Screen Wake Lock (the actual
+  mitigation) stays; only the toast + its `keepAppOpenHintSeen` atom were
+  removed.
 
 **v944 — lobby preload = ONE compact progress bar + tile-pack fallback
 diagnostic.**

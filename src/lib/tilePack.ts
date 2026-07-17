@@ -265,22 +265,17 @@ export async function loadTilePackForPlayArea(opts?: {
 
     const url = tilePackUrl(osmId);
     try {
-        const resp = await fetch(url, { signal: opts?.signal });
-        if (resp.status === 404) {
-            // No pack for this city. Make sure we're not holding a
-            // stale pack from a previous play area.
-            clearTilePack();
-            return { status: "absent" };
-        }
-        if (!resp.ok) {
+        const dl = await downloadPackRanged(url, opts?.onProgress, opts?.signal);
+        if (!dl.ok) {
+            if (dl.status === 404) {
+                // No pack for this city. Make sure we're not holding a
+                // stale pack from a previous play area.
+                clearTilePack();
+                return { status: "absent" };
+            }
             return { status: "error" };
         }
-        const total = Number(resp.headers.get("Content-Length")) || null;
-        const buf = await readBodyWithProgress(
-            resp,
-            total,
-            opts?.onProgress,
-        );
+        const buf = dl.buffer;
         const pmtiles = new PMTiles(new BufferSource(buf, url));
         const h = await pmtiles.getHeader();
         // Swap in the new pack, then flip the atom so the style
@@ -340,4 +335,78 @@ async function readBodyWithProgress(
         offset += c.length;
     }
     return out.buffer;
+}
+
+/** Per-request byte span for the chunked pack download (below). */
+const PACK_CHUNK_BYTES = 8 * 1024 * 1024; // 8 MB
+
+/**
+ * Download a full tile pack via BOUNDED RANGED requests instead of one
+ * whole-object GET.
+ *
+ * Why: the worker's `/tiles/<key>` route serves a whole-object
+ * `env.TILES.get(key)` (no range) by streaming the R2 body — but for a LARGE
+ * multipart-uploaded pack (a big city like NYC, ~100+ MB) that non-ranged get
+ * throws inside R2 and the worker returns 503 ("R2 unreachable"), so the plain
+ * `fetch(url)` failed and the preloader fell back to the slow per-tile range
+ * walk. The LIVE map never hit this because the pmtiles protocol only ever
+ * issues small byte-RANGE reads — which the worker's ranged path
+ * (`env.TILES.get(key, {range})`) serves fine. So we download the whole pack
+ * the same proven way: a first `bytes=0-N` request learns the total from
+ * `Content-Range`, then we page the rest in `PACK_CHUNK_BYTES` chunks and
+ * assemble one buffer. A server that ignores the range (small pack → 200)
+ * degrades to a straight whole-body read.
+ */
+async function downloadPackRanged(
+    url: string,
+    onProgress?: (loaded: number, total: number | null) => void,
+    signal?: AbortSignal,
+): Promise<
+    { ok: true; buffer: ArrayBuffer } | { ok: false; status: 404 | "error" }
+> {
+    const first = await fetch(url, {
+        signal,
+        headers: { Range: `bytes=0-${PACK_CHUNK_BYTES - 1}` },
+    });
+    if (first.status === 404) return { ok: false, status: 404 };
+    // Server ignored the Range (small pack / no range support) — read whole.
+    if (first.status === 200) {
+        if (!first.ok) return { ok: false, status: "error" };
+        const total = Number(first.headers.get("Content-Length")) || null;
+        const buffer = await readBodyWithProgress(first, total, onProgress);
+        return { ok: true, buffer };
+    }
+    if (first.status !== 206) return { ok: false, status: "error" };
+
+    // "bytes START-END/TOTAL" → TOTAL.
+    const cr = first.headers.get("Content-Range");
+    const total = cr ? Number(/\/(\d+)\s*$/.exec(cr)?.[1]) : NaN;
+    const firstChunk = new Uint8Array(await first.arrayBuffer());
+    if (!Number.isFinite(total) || total <= 0) {
+        // No usable total — return what we got (a single sub-chunk pack).
+        return { ok: true, buffer: firstChunk.buffer };
+    }
+
+    const out = new Uint8Array(total);
+    out.set(firstChunk, 0);
+    let received = firstChunk.length;
+    onProgress?.(received, total);
+
+    while (received < total) {
+        const start = received;
+        const end = Math.min(start + PACK_CHUNK_BYTES, total) - 1;
+        const resp = await fetch(url, {
+            signal,
+            headers: { Range: `bytes=${start}-${end}` },
+        });
+        if (resp.status !== 206 && resp.status !== 200) {
+            return { ok: false, status: "error" };
+        }
+        const chunk = new Uint8Array(await resp.arrayBuffer());
+        if (chunk.length === 0) break; // guard against a stuck loop at EOF
+        out.set(chunk, received);
+        received += chunk.length;
+        onProgress?.(received, total);
+    }
+    return { ok: true, buffer: out.buffer };
 }
