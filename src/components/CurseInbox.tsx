@@ -26,8 +26,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { type ReceivedCurse,receivedCurses } from "@/lib/seekerInbound";
+import { type ReceivedCurse, receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
+import type { WritableAtom } from "nanostores";
 
 import { DiceRoller } from "./DiceRoller";
 import { SectionPill } from "./JetLagLogo";
@@ -65,8 +66,19 @@ function formatFilmTarget(totalSeconds: number): string {
  *
  * The dice dialog is shared between both entry points.
  */
-export function CurseInbox() {
-    const $curses = useStore(receivedCurses);
+/**
+ * @param source - which curse atom to render. Defaults to the seeker's
+ *   `receivedCurses`; the HIDER passes `castCurses` (v946) to see the active
+ *   curses they've cast rendered EXACTLY like the seeker's inbox — same pills,
+ *   cards, dice, and countdowns (the "reuse the whole code" ask). Both atoms
+ *   share the `ReceivedCurse[]` shape, so the whole component works unchanged.
+ */
+export function CurseInbox({
+    source = receivedCurses,
+}: {
+    source?: WritableAtom<ReceivedCurse[]>;
+} = {}) {
+    const $curses = useStore(source);
     const $gameSize = useStore(gameSize);
     const $onTransit = useStore(seekerOnTransit);
     const $spottyCategory = useStore(spottyMemoryCategory);
@@ -133,8 +145,8 @@ export function CurseInbox() {
         });
         if (expired.length === 0) return;
         const ids = new Set(expired.map((c) => c.receivedAt));
-        receivedCurses.set(
-            receivedCurses
+        source.set(
+            source
                 .get()
                 .map((c) =>
                     ids.has(c.receivedAt)
@@ -148,8 +160,8 @@ export function CurseInbox() {
     if (unack.length === 0 && active.length === 0) return null;
 
     const acknowledge = (receivedAt: number) => {
-        receivedCurses.set(
-            receivedCurses
+        source.set(
+            source
                 .get()
                 .map((c) =>
                     c.receivedAt === receivedAt
@@ -160,8 +172,8 @@ export function CurseInbox() {
     };
 
     const dismiss = (receivedAt: number) => {
-        receivedCurses.set(
-            receivedCurses
+        source.set(
+            source
                 .get()
                 .map((c) =>
                     c.receivedAt === receivedAt

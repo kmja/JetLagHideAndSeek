@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v947`. Use `git log` for the per-version detail;
+build stamp. Current: `v948`. Use `git log` for the per-version detail;
+
+**v948 — hider curse parity, pending-overlay urgency, round-end push.**
+- **Hider sees active curses exactly like the seeker.** `CurseInbox` gained a
+  `source` prop (default `receivedCurses`); the hider map (`HiderBackgroundMap`)
+  now mounts `<CurseInbox source={castCurses} />` — the same on-map purple
+  pills / cards / dice / countdowns, sourced from the hider's cast-curse mirror.
+  The drawer-buried `HiderActiveCurses` was deleted.
+- **Hider "question pending" overlay is louder.** `HiderUnansweredOverlay` now
+  runs a steady attention **pulse** (`jlPendingPulse` — scale + warm glow,
+  motion-safe) the whole time a question waits, and the countdown **jitters**
+  (`jlTimerJitter`) + turns red in the final minute before the answer window
+  closes.
+- **Round-end reaches a sleeping device.** Marking the hider found only
+  broadcast `ended` to CONNECTED clients, so a backgrounded seeker got no memo
+  and its timer kept ticking. `handleMarkFound` now Web-Pushes every offline
+  seeker + hider ("Round over — hider found!"). And `applySnapshot` opens the
+  `EndOfRoundDialog` when a device FIRST learns the round ended via a reconnect
+  snapshot (its local `roundFoundAt` was null → now set), so reopening shows a
+  clear round-over moment instead of a frozen timer. (`roundFoundAt` is
+  persistent, so a dismiss survives later reconnects — no re-open.)
 
 **v947 — iOS bottom gap, join-in-progress, team-wide GPS reminders,
 thermometer/curse overlap.**

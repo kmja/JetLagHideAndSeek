@@ -1210,6 +1210,23 @@ export class GameRoom {
         }
         this.game.roundFoundAt = foundAt;
         this.broadcast({ t: "ended", foundAt });
+        // v946: the `ended` broadcast only reaches CONNECTED devices, so a
+        // sleeping/backgrounded seeker got no memo and its timer kept ticking
+        // until it happened to reconnect. Push every offline player.
+        this.state.waitUntil(
+            this.pushToOfflineRole("seeker", {
+                title: "Round over — hider found!",
+                body: "The hider has been found. Open the app for the results.",
+                tag: "round-ended",
+            }),
+        );
+        this.state.waitUntil(
+            this.pushToOfflineRole("hider", {
+                title: "You've been found!",
+                body: "The seekers marked you found — the round is over. Open the app for the results.",
+                tag: "round-ended",
+            }),
+        );
     }
 
     /**

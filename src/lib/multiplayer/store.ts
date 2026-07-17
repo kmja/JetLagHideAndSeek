@@ -924,8 +924,16 @@ function applySnapshot(state: GameState) {
         };
     });
     hiderInbox.set(nextInbox);
-    // Round end
+    // Round end. v946: if THIS device is only NOW learning the round ended
+    // (its local roundFoundAt was null but the snapshot has it set — a seeker
+    // whose phone slept through the mark-found and reconnected), open the
+    // end-of-round dialog so it doesn't just show a frozen timer with no
+    // explanation. `roundFoundAt` is persistent, so a dismiss survives a later
+    // reconnect (old value already set → no re-open).
+    const learnedRoundEnded =
+        roundFoundAt.get() == null && state.roundFoundAt != null;
     roundFoundAt.set(state.roundFoundAt);
+    if (learnedRoundEnded) endOfRoundDialogOpen.set(true);
     // Presence
     participants.set(state.participants);
     // Sync local role from server canonical roster — covers

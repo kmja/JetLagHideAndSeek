@@ -81,6 +81,9 @@ export function HiderUnansweredOverlay({
     const mins = Math.floor(remainingMs / 60_000);
     const secs = Math.floor((remainingMs % 60_000) / 1000);
     const countdownLabel = `${mins}:${String(secs).padStart(2, "0")}`;
+    // v946: jitter the timer in the final minute so the closing window is
+    // unmissable (the whole card already pulses).
+    const lastMinute = !overdue && remainingMs < 60_000;
 
     const handleClick = () => {
         // v301: open the answer flow as a dialog over the hider
@@ -111,10 +114,12 @@ export function HiderUnansweredOverlay({
                 </span>
                 <span
                     className={cn(
-                        "text-2xl font-poppins font-black tabular-nums leading-none",
-                        overdue
+                        "inline-block text-2xl font-poppins font-black tabular-nums leading-none",
+                        overdue || lastMinute
                             ? "text-destructive"
                             : "text-[color:var(--cat-label)]",
+                        lastMinute &&
+                            "motion-safe:animate-[jlTimerJitter_0.28s_ease-in-out_infinite]",
                     )}
                 >
                     {overdue ? "0:00" : countdownLabel}
@@ -145,6 +150,8 @@ export function HiderUnansweredOverlay({
                 "pointer-events-none absolute left-1/2 -translate-x-1/2 z-[1035]",
                 "top-2",
                 "max-w-[92vw] w-[min(92vw,420px)]",
+                // v946: steady attention pulse the whole time a question waits.
+                "motion-safe:animate-[jlPendingPulse_1.6s_ease-in-out_infinite]",
             )}
             data-testid="hider-unanswered-overlay"
         >

@@ -199,6 +199,44 @@ div.leaflet-control-attribution.leaflet-control {
     }
 }
 
+/* v946: the hider's "you have a question to answer" overlay was too subtle.
+ * A steady attention pulse — a gentle scale + warm glow ring — runs the whole
+ * time a question is waiting. The container carries `-translate-x-1/2`
+ * (centering), so the keyframe re-states it or the animation would drop it. */
+@keyframes jlPendingPulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 hsl(var(--warning) / 0);
+        transform: translateX(-50%) scale(1);
+    }
+    50% {
+        box-shadow: 0 0 26px 3px hsl(var(--warning) / 0.5);
+        transform: translateX(-50%) scale(1.03);
+    }
+}
+
+/* v946: the countdown JITTERS in the last minute before the answer window
+ * closes — a fast small shake to signal the deadline is imminent. Applied to
+ * the timer text only (not the whole card, which keeps its calmer pulse). */
+@keyframes jlTimerJitter {
+    0%,
+    100% {
+        transform: translate(0, 0);
+    }
+    20% {
+        transform: translate(-1.5px, 1px);
+    }
+    40% {
+        transform: translate(1.5px, -1px);
+    }
+    60% {
+        transform: translate(-1.5px, -1px);
+    }
+    80% {
+        transform: translate(1.5px, 1px);
+    }
+}
+
 /* One-shot flourish on the seeking timer's LIVE row when it climbs a spot
  * on the hide-time leaderboard (v848): a quick lift + scale pop with a warm
  * golden ring, so passing a past-round time reads as the beat it is. Fires

@@ -59,9 +59,11 @@ import { setSpoofAtPoint } from "@/lib/debugSpoofArea";
 import { holedMaskViaWorker } from "@/lib/geometry/client";
 import { findZoneAtPoint } from "@/lib/journey/stations";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
+import { CurseInbox } from "@/components/CurseInbox";
 import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import { playerColor, playerInitials } from "@/lib/playerColor";
+import { castCurses } from "@/lib/seekerInbound";
 import {
     PLAY_AREA_COLOR,
     PLAY_AREA_LINE_OPACITY,
@@ -1205,6 +1207,13 @@ export function HiderBackgroundMap() {
                 zones, transit lines). Mirrors the map-options toggle
                 spinners so loading is visible with the panel closed. */}
             <MapOverlayLoadingToasts />
+
+            {/* v946: active curses the hider has cast, rendered with the EXACT
+                same on-map inbox the seeker uses (purple pills + cards), just
+                sourced from `castCurses` instead of `receivedCurses`. Replaces
+                the drawer-buried HiderActiveCurses so both roles see active
+                curses the same way. */}
+            <CurseInbox source={castCurses} />
 
             {/* Floating timer card — the hider's parity counterpart to the
                 seeker's HiderTimer (golden hiding box / white hidden box +
