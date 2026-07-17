@@ -139,7 +139,7 @@ export function CardTile({
             style={{
                 color: NAVY,
                 containerType: "inline-size",
-                borderRadius: cu(4),
+                borderRadius: cu(2),
             }}
         >
             {/* Selection checkmark — floats in the top-right corner so
@@ -201,22 +201,21 @@ function TimeBonusBody({
     return (
         <div
             className="flex-1 flex flex-col items-center text-center"
-            style={{ padding: cu(5.3), paddingTop: cu(7) }}
+            style={{ padding: cu(4), paddingTop: cu(5) }}
         >
-            <ClockHexIcon largest={card.minutes.large} cqw={74} />
-            <div
-                className="font-inter-tight font-black uppercase tracking-tight leading-[0.98]"
-                style={{ color: NAVY, fontSize: cu(13), marginTop: cu(3) }}
-            >
-                <div>Time</div>
-                <div>Bonus</div>
+            <ClockHexIcon largest={card.minutes.large} w={100} h={80} />
+            {/* The title is vertically CENTERED in the gap between the icon
+                and the minute badge (this flex-1 row does the centering). */}
+            <div className="flex-1 flex items-center justify-center">
+                <div
+                    className="font-display font-black uppercase tracking-tight leading-[0.95]"
+                    style={{ color: NAVY, fontSize: cu(13) }}
+                >
+                    <div>Time</div>
+                    <div>Bonus</div>
+                </div>
             </div>
-            <div style={{ marginTop: "auto", paddingTop: cu(3) }}>
-                <SizeMinutesBadge
-                    size={gameSize}
-                    minutes={card.minutes[gameSize]}
-                />
-            </div>
+            <SizeMinutesBadge size={gameSize} minutes={card.minutes[gameSize]} />
         </div>
     );
 }
@@ -242,7 +241,7 @@ function PowerupBody({
                 <PowerupGlyph powerup={card.powerup} cqw={66} />
             </div>
             <div
-                className="font-inter-tight font-black uppercase tracking-tight leading-[0.98] text-center shrink-0"
+                className="font-display font-black uppercase tracking-tight leading-[0.98] text-center shrink-0"
                 style={{ color: NAVY, fontSize: cu(9.5), marginTop: cu(4) }}
             >
                 {card.name}
@@ -276,17 +275,17 @@ function CurseBody({
     return (
         <div
             className="flex-1 flex flex-col min-h-0"
-            style={{ padding: cu(4.7) }}
+            style={{ padding: cu(10) }}
         >
             <div
-                className="font-inter-tight font-black uppercase tracking-tight leading-[0.98] shrink-0"
-                style={{ color: NAVY, fontSize: cu(6.3) }}
+                className="font-display font-black uppercase tracking-tight leading-[1.02] shrink-0"
+                style={{ color: NAVY, fontSize: cu(8) }}
             >
                 {card.name}
             </div>
             <div
                 className="flex-1 min-h-0 overflow-y-auto"
-                style={{ marginTop: cu(3) }}
+                style={{ marginTop: cu(8) }}
             >
                 <p
                     className="leading-snug"
@@ -298,7 +297,7 @@ function CurseBody({
             {card.castingCost && (
                 // The whole casting-cost line is bold on the printed card.
                 <p
-                    className="leading-snug font-bold shrink-0"
+                    className="leading-snug font-black shrink-0"
                     style={{
                         color: NAVY,
                         fontSize: cu(3.7),
@@ -314,7 +313,9 @@ function CurseBody({
 
 /* ────────────────── Card icons (SVG, matched to the physical cards) ────────────────── */
 
-const ICON_FONT = "Poppins, system-ui, sans-serif";
+// Rounded geometric heavy face (echoes the rulebook cover + physical cards);
+// already loaded via index.html at weights 700/800/900.
+const ICON_FONT = "'M PLUS Rounded 1c', system-ui, sans-serif";
 
 function pointOnCircle(
     cx: number,
@@ -439,11 +440,13 @@ const TB_TICKS = (
  */
 function ClockHexIcon({
     largest,
-    cqw = 20,
+    w = 20,
+    h = 20,
 }: {
     largest: number;
-    /** Icon size as a container-query-width unit (scales with the card). */
-    cqw?: number;
+    /** Icon box width/height as container-query-width units (scale w/ card). */
+    w?: number;
+    h?: number;
 }) {
     const tier =
         TIER_METER.find((t) => largest >= t.threshold) ??
@@ -451,7 +454,7 @@ function ClockHexIcon({
     return (
         <div
             className="relative inline-flex items-center justify-center shrink-0"
-            style={{ width: cu(cqw), height: cu(cqw) }}
+            style={{ width: cu(w), height: cu(h) }}
         >
             <svg
                 viewBox="0 0 317 288"
@@ -866,7 +869,7 @@ function SizeMinutesBadge({
             }}
         >
             <div
-                className="font-poppins font-bold uppercase text-center"
+                className="font-display font-bold uppercase text-center"
                 style={{
                     backgroundColor: color,
                     color: "#ffffff",
@@ -881,13 +884,13 @@ function SizeMinutesBadge({
                 style={{ padding: `${cu(1.2)} ${cu(2)} ${cu(1.6)}`, gap: cu(0.5) }}
             >
                 <span
-                    className="font-inter-tight font-black tabular-nums"
+                    className="font-display font-black tabular-nums"
                     style={{ color, fontSize: cu(9) }}
                 >
                     {minutes}
                 </span>
                 <span
-                    className="font-poppins font-bold uppercase"
+                    className="font-display font-bold uppercase"
                     style={{ color, fontSize: cu(3), letterSpacing: "0.08em" }}
                 >
                     Min

@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v922`. Use `git log` for the per-version detail;
+build stamp. Current: `v923`. Use `git log` for the per-version detail;
+
+**v923 — card typography + framing pass to match the physical cards
+(`CardTile.tsx`).** (1) **Rounded thick header font everywhere** — every card
+title (time-bonus "TIME BONUS", powerup name, curse name) + the minute badge
+number/labels switched from `font-inter-tight`/`font-poppins` to **`font-display`
+= M PLUS Rounded 1c** (already loaded via index.html at 700/800/900), the heavy
+rounded face the printed cards use. (2) **Time-bonus icon bigger + title
+centered** — `ClockHexIcon` now takes explicit `w`/`h` cqw (was one square
+`cqw`); `TimeBonusBody` renders it at **w=100 h=80** and vertically CENTERS the
+"TIME BONUS" title in the gap between the icon and the minute badge (a `flex-1
+items-center` row instead of `margin-top:auto` on the badge). (3) **Halved card
+corner radius** — the `CardTile` root `borderRadius` cu(4)→cu(2). (4) **Curse
+card spec** — `CurseBody` name cu(6.3)→**cu(8)**, padding cu(4.7)→**cu(10)**,
+description margin-top cu(3)→**cu(8)**, casting-cost line `font-bold`→**`font-black`**.
+(5) `ICON_FONT` (the SVG draw/keep badge numbers) → M PLUS Rounded 1c too. All
+sizes stay cqw so the mini hand cards scale in lockstep.
 
 **v922 — bigger card icons + headers (match the physical cards).** Follow-up
 to v921: the authored icons + titles were too small versus the printed cards.
