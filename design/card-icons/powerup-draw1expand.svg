@@ -1,23 +1,10 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Draw 1, Expand 1 — Jet Lag Hide+Seek hider-card icon.
-     Source of truth once edited: hand back / port into src/components/CardTile.tsx.
-     The white background rect is a PREVIEW aid only (the card body is white);
-     it is not part of the icon. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400">
-  <rect width="100" height="100" fill="#ffffff"/>
-  <polygon points="50,6 87,21 91,60 56,90 19,75 11,34" fill="none" stroke="#1F2F3F" stroke-width="6.5" stroke-linejoin="round"/>
-  <rect x="30" y="26" width="23" height="33" rx="5" transform="rotate(-20 41 42)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
-  <rect x="30" y="26" width="23" height="33" rx="5" transform="rotate(-20 41 42)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
-  <rect x="41" y="26" width="23" height="33" rx="5" transform="rotate(-7 52 42)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
-  <rect x="41" y="26" width="23" height="33" rx="5" transform="rotate(-7 52 42)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
-  <rect x="52" y="28" width="23" height="33" rx="5" transform="rotate(6 63 44)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
-  <rect x="52" y="28" width="23" height="33" rx="5" transform="rotate(6 63 44)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
-  <!-- draw badge (outlined, bottom-left) -->
-  <circle cx="24" cy="73" r="21" fill="#ffffff"/>
-  <circle cx="24" cy="73" r="16.5" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
-  <text x="24" y="78" text-anchor="middle" font-size="14" font-weight="800" fill="#1F2F3F" font-family="Poppins, system-ui, sans-serif">+1</text>
-  <!-- hand-delta badge (solid, top-right) -->
-  <circle cx="80" cy="20" r="18.5" fill="#ffffff"/>
-  <circle cx="80" cy="20" r="14" fill="#1F2F3F"/>
-  <text x="80" y="24.5" text-anchor="middle" font-size="13" font-weight="800" fill="#ffffff" font-family="Poppins, system-ui, sans-serif">+1</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="316" height="307" viewBox="0 0 316 307" fill="none">
+<rect width="316" height="307" fill="white"/>
+<path d="M241 190.93V117.936C241 110.814 237.213 104.23 231.057 100.649L167.838 63.8688C161.604 60.2424 153.901 60.2525 147.678 63.8952L84.8974 100.64C78.7672 104.228 75 110.798 75 117.901L75 190.965C75 198.068 78.7672 204.638 84.8974 208.226L147.678 244.971C153.902 248.614 161.604 248.624 167.838 244.997L231.057 208.217C237.213 204.636 241 198.052 241 190.93Z" stroke="black" stroke-width="8" stroke-linecap="square"/>
+<rect x="179" y="207" width="64" height="88" rx="12" transform="rotate(180 179 207)" stroke="black" stroke-width="8"/>
+<path d="M189 97L149 97L148.587 97.0049C140.079 97.2205 133.22 104.079 133.005 112.587L133 115L141 115C141 110.582 144.582 105 149 105L189 105C193.418 105 197 108.582 197 113L197 177C197 181.418 193.418 185 189 185L183 185L183 193L189 193C197.837 193 205 185.837 205 177L205 113L204.995 112.587C204.779 104.079 197.921 97.2205 189.413 97.0049L189 97Z" fill="black"/>
+<circle cx="98" cy="214" r="56" fill="white" stroke="black" stroke-width="8"/>
+<circle cx="209" cy="75" r="40" fill="black"/>
+<text x="98" y="214" text-anchor="middle" dominant-baseline="central" font-family="Poppins, system-ui, sans-serif" font-weight="800" font-size="60" fill="black">+1</text>
+<text x="209" y="75" text-anchor="middle" dominant-baseline="central" font-family="Poppins, system-ui, sans-serif" font-weight="800" font-size="44" fill="white">+1</text>
 </svg>
