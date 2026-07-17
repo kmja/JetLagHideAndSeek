@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v948`. Use `git log` for the per-version detail;
+build stamp. Current: `v949`. Use `git log` for the per-version detail;
+
+**v949 — hider POI highlight no longer blinks (accumulate + clip to zone).**
+`HiderPoiOverlay` replaced its whole feature set on every map `idle` from
+`querySourceFeatures`, which only returns features in the CURRENTLY-RENDERED
+tiles — so highlighted POIs (supermarkets/cafes) flickered in and out on
+pan/zoom. Now the found POIs are ACCUMULATED (union, deduped by kind+coords)
+and CLIPPED TO THE COMMITTED HIDING ZONE (haversine within `radiusMeters`+50 m),
+so once a POI in the zone is seen it stays drawn — persistent like every other
+toggled overlay. The union only ever grows (never shrinks on a pan away, which
+was the blink); the accumulator resets when the highlight set or the zone
+changes. No zone committed → accumulates everything seen (still no blink).
 
 **v948 — hider curse parity, pending-overlay urgency, round-end push.**
 - **Hider sees active curses exactly like the seeker.** `CurseInbox` gained a
