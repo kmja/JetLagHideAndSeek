@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
-import { ArrowLeft } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CardTile } from "@/components/CardTile";
 import { type GameSize,gameSize } from "@/lib/gameSetup";
@@ -31,6 +31,13 @@ export function DebugCardsPage() {
     // three rulebook variants (2 / 3 / 5 min) without flipping atoms.
     const $gameSize = useStore(gameSize);
     const [previewSize, setPreviewSize] = useState<GameSize>($gameSize);
+    // Grid (all cards at a glance) vs Carousel (one card at full size).
+    // Initial view is deep-linkable via `?view=carousel`.
+    const [view, setView] = useState<"grid" | "carousel">(() =>
+        new URLSearchParams(window.location.search).get("view") === "carousel"
+            ? "carousel"
+            : "grid",
+    );
 
     const cards = useMemo(() => uniqueCardTemplates(), []);
     const byKind = useMemo(() => groupByKind(cards), [cards]);
@@ -61,47 +68,162 @@ export function DebugCardsPage() {
                     real game.
                 </p>
 
-                <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                        Game size preview
-                    </span>
-                    <div className="inline-flex rounded-md border border-border overflow-hidden">
-                        {(["small", "medium", "large"] as const).map(
-                            (s) => (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            Game size preview
+                        </span>
+                        <div className="inline-flex rounded-md border border-border overflow-hidden">
+                            {(["small", "medium", "large"] as const).map(
+                                (s) => (
+                                    <button
+                                        key={s}
+                                        type="button"
+                                        onClick={() => setPreviewSize(s)}
+                                        className={cn(
+                                            "px-2.5 py-1 text-xs font-poppins font-semibold",
+                                            "transition-colors capitalize",
+                                            previewSize === s
+                                                ? "bg-primary text-primary-foreground"
+                                                : "bg-secondary/60 text-foreground hover:bg-secondary",
+                                        )}
+                                    >
+                                        {s}
+                                    </button>
+                                ),
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            View
+                        </span>
+                        <div className="inline-flex rounded-md border border-border overflow-hidden">
+                            {(["grid", "carousel"] as const).map((v) => (
                                 <button
-                                    key={s}
+                                    key={v}
                                     type="button"
-                                    onClick={() => setPreviewSize(s)}
+                                    onClick={() => setView(v)}
                                     className={cn(
                                         "px-2.5 py-1 text-xs font-poppins font-semibold",
                                         "transition-colors capitalize",
-                                        previewSize === s
+                                        view === v
                                             ? "bg-primary text-primary-foreground"
                                             : "bg-secondary/60 text-foreground hover:bg-secondary",
                                     )}
                                 >
-                                    {s}
+                                    {v}
                                 </button>
-                            ),
-                        )}
+                            ))}
+                        </div>
                     </div>
                 </div>
 
-                <Section
-                    title={`Time bonus (${byKind.timeBonus.length})`}
-                    cards={byKind.timeBonus}
-                    previewSize={previewSize}
-                />
-                <Section
-                    title={`Powerups (${byKind.powerup.length})`}
-                    cards={byKind.powerup}
-                    previewSize={previewSize}
-                />
-                <Section
-                    title={`Curses (${byKind.curse.length})`}
-                    cards={byKind.curse}
-                    previewSize={previewSize}
-                />
+                {view === "grid" ? (
+                    <>
+                        <Section
+                            title={`Time bonus (${byKind.timeBonus.length})`}
+                            cards={byKind.timeBonus}
+                            previewSize={previewSize}
+                        />
+                        <Section
+                            title={`Powerups (${byKind.powerup.length})`}
+                            cards={byKind.powerup}
+                            previewSize={previewSize}
+                        />
+                        <Section
+                            title={`Curses (${byKind.curse.length})`}
+                            cards={byKind.curse}
+                            previewSize={previewSize}
+                        />
+                    </>
+                ) : (
+                    <Carousel cards={cards} previewSize={previewSize} />
+                )}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Full-size single-card carousel — steps through every unique template
+ * (time-bonus → powerups → curses) one at a time at a large size, so a
+ * card can be eyeballed exactly as it looks in the hand. Prev/next
+ * buttons + left/right arrow keys; a compact dot strip jumps anywhere.
+ */
+function Carousel({
+    cards,
+    previewSize,
+}: {
+    cards: Card[];
+    previewSize: GameSize;
+}) {
+    const [i, setI] = useState(0);
+    const n = cards.length;
+    const go = (d: number) => setI((p) => ((p + d) % n + n) % n);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "ArrowLeft") go(-1);
+            else if (e.key === "ArrowRight") go(1);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [n]);
+
+    if (n === 0) return null;
+    const card = cards[i];
+
+    return (
+        <div className="flex flex-col items-center gap-4">
+            <div className="text-xs font-mono text-muted-foreground text-center">
+                {card.name}
+                <span className="ml-2 opacity-60">
+                    {i + 1} / {n}
+                </span>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-4 w-full justify-center">
+                <button
+                    type="button"
+                    onClick={() => go(-1)}
+                    aria-label="Previous card"
+                    className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full border border-border bg-secondary/60 text-foreground hover:bg-secondary transition-colors"
+                >
+                    <ChevronLeft className="w-5 h-5" />
+                </button>
+                <div className="w-[min(80vw,340px)] shrink-0">
+                    <CardTile
+                        card={card}
+                        gameSize={previewSize}
+                        selectionIndicator="none"
+                    />
+                </div>
+                <button
+                    type="button"
+                    onClick={() => go(1)}
+                    aria-label="Next card"
+                    className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full border border-border bg-secondary/60 text-foreground hover:bg-secondary transition-colors"
+                >
+                    <ChevronRight className="w-5 h-5" />
+                </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 justify-center max-w-md">
+                {cards.map((c, idx) => (
+                    <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setI(idx)}
+                        aria-label={`Go to ${c.name}`}
+                        className={cn(
+                            "w-2 h-2 rounded-full transition-colors",
+                            idx === i
+                                ? "bg-primary"
+                                : "bg-muted hover:bg-muted-foreground/40",
+                        )}
+                    />
+                ))}
             </div>
         </div>
     );

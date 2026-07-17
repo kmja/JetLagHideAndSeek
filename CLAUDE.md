@@ -428,7 +428,16 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v926`. Use `git log` for the per-version detail;
+build stamp. Current: `v927`. Use `git log` for the per-version detail;
+
+**v927 — debug card gallery gets a full-size Carousel view (`DebugCardsPage`).**
+The `/debug/cards` gallery gained a **Grid / Carousel** view toggle (beside the
+game-size preview toggle). Carousel steps through every unique template (36:
+time-bonus → powerups → curses) ONE at a time at a large size
+(`w-[min(80vw,340px)]`), so a card reads exactly as in the hand — prev/next
+chevron buttons, left/right arrow-key nav, a card-name + `i / n` counter, and a
+clickable dot strip. Deep-linkable via **`?view=carousel`**. Read-only like the
+rest of the page (`CardTile` is a pure renderer).
 
 **v926 — per-powerup card tuning + bigger casting cost (`CardTile.tsx`).**
 Curse **casting cost** bumped to **4.5cqw**. `PowerupBody` gained per-card
